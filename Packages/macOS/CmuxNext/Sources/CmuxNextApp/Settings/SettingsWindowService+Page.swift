@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
+import CmuxNextServer
 import CmuxNextSettingsWindow
 import CmuxNextWebUpdates
 
@@ -14,10 +15,14 @@ extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
-        _ = ThemeStore.shared.generation
+        _ = services.themeStore.generation
         return [
+            // The Development category (dev_only) shows only in DEV builds.
+            "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.machineRow)),
+            // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
+            "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),

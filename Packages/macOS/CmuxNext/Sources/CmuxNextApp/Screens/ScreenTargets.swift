@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextLayout
 
 /// A resolved screen: its workspace, the daemon that owns it, and the
 /// window content showing that workspace (nil when no window shows it).

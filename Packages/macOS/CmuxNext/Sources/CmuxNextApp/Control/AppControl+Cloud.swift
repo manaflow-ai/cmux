@@ -27,7 +27,8 @@ extension AppControl {
             .mainActor("cloud.machines") { _ in
                 if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
-                return .value(.object(["machines": .array(rows), "creations": .array(services.cloud.creations.controlRows),
+                return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
+                                       "creations": .array(services.cloud.creations.controlRows),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
         ])
@@ -75,6 +76,9 @@ extension AppControl {
         let compat = machines.compatibility(of: session.daemon)
         return [
             "id": .string(session.machineID),
+            // The id its daemon has in the machine catalog (`machine list --catalog`),
+            // so `cmux machine list` lists a connected machine once.
+            "machine_id": session.daemon.identity?.machineResourceID.map { .string($0.rawValue) } ?? .null,
             "title": .string(session.machine.title),
             // The record's status, except a connected daemon is running (cx-lu8f).
             "status": .string(session.effectiveStatus.rawValue),

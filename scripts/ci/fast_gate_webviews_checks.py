@@ -36,7 +36,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-CHECKS = ("check:browser-lanes", "check:fixed-waits", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
+CHECKS = ("check:browser-lanes", "check:fixed-waits", "check:design-tokens", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -47,8 +47,14 @@ DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<mes
 LOCATION = re.compile(r"^\s*(?:,-|╭─)\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
 FRAME = re.compile(r"^\s*(?:\d+\s*[|│]|[:·]|`-+|╰─+)")
 HELP = re.compile(r"^\s*help:")
-# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors.
-NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b|note: You are running)")
+# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors,
+# and `vp fmt`'s closing `Finished in 528ms on 2481 files using 4 threads.` (`vp lint`'s adds `with 162 rules`),
+# whose file count moves whenever the change adds or removes a file (#24274's and #24524's fast gates read it as
+# the one finding the merge added), and `vp fmt`'s `Format issues found in above N files.`, whose count falls when
+# the change fixes one of the base's files.
+NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b"
+                   r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
+                   r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
@@ -203,6 +209,13 @@ def main(argv: list[str] | None = None) -> int:
             base_webviews = base.webviews() if base else None
             if base_webviews is None:  # a push, or no base to compare with: the red is charged here
                 failed.append(check)
+                continue
+            # A new ratchet is intentionally introduced in the same PR as its baseline and
+            # package script. Until that PR lands, the merge parent cannot run this check; do not
+            # charge the transition PR for the base's missing command. Later PRs see the script on
+            # the base and are compared normally.
+            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
+                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0

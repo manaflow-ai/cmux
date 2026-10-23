@@ -23,7 +23,8 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 1
 fi
 echo "tab-hibernation: ref $(git rev-parse HEAD)"
-python3 scripts/cmux-next/bench_hibernation.py --app "$app" --engines chromium --tabs 48 --heap-mb 40 \
+# A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hibernation.py --app "$app" --engines chromium --tabs 48 --heap-mb 40 \
   --pressure --pressure-reuse --out "$PWD/tab-hibernation.json" "$@"
 # The run's verdict on the never-hibernate rule: a media or agent-driven page that slept fails it.
 python3 - "$PWD/tab-hibernation.json" <<'PY'

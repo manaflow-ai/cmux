@@ -47,6 +47,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserShowBookmarksBar = false
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
+    /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
+    public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
     /// `browser.showAgentCursor`; on when unset.
@@ -66,6 +68,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
     /// `browser.openLinksInCmuxBrowser` (classic: `.openTerminalLinksInCmuxBrowser`), `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
     public var linkRouting: LinkRouting = .fallback
+    /// `terminal.linkOpener.default` and `.rules`: where a URL a terminal program opens goes; cmux first when unset.
+    public var terminalLinkOpener: TerminalLinkOpener = .fallback
     /// `files.textEditor`: the app for a path's Open in Text Editor; empty for the system's.
     public var textEditor = TextEditorSetting()
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
@@ -149,6 +153,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.background`: ``BackdropSelectionSetting/defaultSelection`` (off) when unset,
     /// nil for `none`.
     public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
+    /// `ui.reducedBackgrounds`: off when unset or invalid. On, windows draw the plain theme
+    /// background; ``backdropSelection`` and ``windowBackground`` keep the person's values.
+    public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -244,6 +251,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
     public var mobile = MobileSettings()
+    /// `macScreen.*`: Mac Screen tabs (system shortcuts to the remote Mac).
+    public var macScreen = MacScreenSettings()
+    /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
+    public var macScreenDebug = MacScreenDebugSettings()
+    /// `deviceHub.*`: the Development section's device hub address (DEV builds read it).
+    public var deviceHub = DeviceHubSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -291,6 +304,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
+        snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
@@ -327,6 +341,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
+        snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
@@ -401,6 +416,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.macScreenDebug = MacScreenDebugSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.deviceHub = DeviceHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)

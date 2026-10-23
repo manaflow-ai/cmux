@@ -110,16 +110,61 @@ test("a space and a browser profile with a stored image or SVG icon draw it from
   browser.unmount();
 });
 
-test("Machines offers Add Server…, which opens the Add Server card through the palette's action", async () => {
-  // u3849: pairing left the menu bar; Settings is one of the ways to add a server by hand. The page
-  // passes no code, so it only opens the card and never approves a server itself.
+test("Development shows only when the host is a DEV build, however it is reached", async () => {
+  const dev = await renderPage({ path: "/settings/development" });
+  expect(dev.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("development");
+  expect(dev.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).not.toBeNull();
+  expect(dev.container.querySelector('[data-section-link="development"]')).not.toBeNull();
+  dev.unmount();
+  // NIGHTLY and Release: the deep link (and the relay key's focus link) open the default page.
+  for (const path of ["/settings/development", "/settings/development?focus=macScreen.debug.relayOnly"]) {
+    const page = await renderPage({
+      path,
+      setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+    });
+    expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+    expect(page.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).toBeNull();
+    expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+    page.unmount();
+  }
+});
+
+test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
+  // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
+  // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
   const page = await renderPage({ path: "/settings/machines" });
-  const button = page.container.querySelector<HTMLButtonElement>('[data-card="machines"] [data-add-server]');
+  const button = page.container.querySelector<HTMLButtonElement>('[data-card="machines"] [data-add-device]');
   expect(button).not.toBeNull();
+  expect(button!.textContent).toBe("Add Device…");
+  expect(page.container.querySelector("[data-add-server]")).toBeNull();
   await act(async () => button!.click());
   await settle();
   const run = page.provider.log.filter((entry) => entry.op === "cmux.app.action.run").at(-1)!;
-  expect(run.params).toEqual({ action: "server.addServer", args: {} });
+  expect(run.params).toEqual({ action: "device.add", args: {} });
+  page.unmount();
+});
+
+test("Devices lists every device with its role and state, and the recent activity", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const rows = page.container.querySelectorAll('[data-card="devices"] [data-device-row]');
+  expect(Array.from(rows).map((row) => row.getAttribute("data-device-row"))).toEqual(["peer:mini-7", "phone:p1"]);
+  expect(page.container.textContent).toContain("Runs your agents · Connected");
+  expect(page.container.querySelector("[data-device-activity]")?.textContent).toContain("Added mini-7");
+  page.unmount();
+});
+
+test("Remove asks once more, then removes the device everywhere and the list updates", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const remove = () => page.container.querySelector<HTMLButtonElement>('[data-remove-device="peer:mini-7"]');
+  await act(async () => remove()!.click());
+  await settle();
+  expect(remove()!.textContent).toBe("Remove for Good");
+  expect(page.provider.log.some((entry) => entry.op === "cmux.settings.devices.remove")).toBe(false);
+  await act(async () => remove()!.click());
+  await settle();
+  const call = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.remove").at(-1)!;
+  expect(call.params).toEqual({ id: "peer:mini-7" });
+  expect(remove()).toBeNull();
   page.unmount();
 });
 

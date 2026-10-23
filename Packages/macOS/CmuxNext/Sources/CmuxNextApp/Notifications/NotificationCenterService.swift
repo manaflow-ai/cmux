@@ -11,6 +11,7 @@ import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
+import CmuxNextFeed
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
@@ -51,6 +52,10 @@ final class NotificationCenterService {
     /// Ring generations for ``agentFinished``, above any notification id, so a new finish
     /// restarts the ring's arrival and never equals a notification's mark.
     @ObservationIgnored private var agentFinishGeneration: UInt64 = 1 << 62
+    /// When an agent chat's ring last pulsed, for coalescing a burst of turn ends.
+    @ObservationIgnored private var lastAgentPulse: ContinuousClock.Instant?
+    /// Agent chats whose ring arrives at rest, with no pulse: a later finish in a burst.
+    @ObservationIgnored var quietAgentFinishes: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
@@ -290,6 +295,7 @@ final class NotificationCenterService {
         if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
+            quietAgentFinishes.remove(tab.id)
             if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         }
         readMark(trigger, tab: tab)
@@ -334,6 +340,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         if agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
+        quietAgentFinishes.remove(tab.id)
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
@@ -350,24 +357,38 @@ final class NotificationCenterService {
         }
     }
 
-    /// An agent chat's turn ended: with `AgentTurnRing` on (Debug, off by default), ring the panes
-    /// that show its tab until the person goes in. Off, nothing rings: acpmux reads a turn that
-    /// ends in a shown chat at once, as before #22678.
+    /// An agent chat's turn ended: with `notifications.attention.agentChats` on (off by default),
+    /// ring the panes that show its tab until the person goes in. Off, nothing rings: acpmux reads
+    /// a turn that ends in a shown chat at once, as before #22678. A chat the person is looking at
+    /// (the focused content of the key window) never rings, and a burst pulses once: a finish
+    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
     func agentTurnEnded(session: String) {
         guard let services else { return }
         agentTurnEnded(session: session, in: services.daemon.store.workspaces)
     }
 
-    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel], rings: Bool = AgentTurnRing.tunable.value) {
+    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel],
+                        rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
+                        viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
         guard rings else { return }
         for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+            where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
                 agentFinishGeneration &+= 1
                 agentFinished[tab.id] = agentFinishGeneration
+                if let last = lastAgentPulse, now - last < Self.burstWindow {
+                    quietAgentFinishes.insert(tab.id)
+                } else {
+                    quietAgentFinishes.remove(tab.id)
+                    lastAgentPulse = now
+                }
                 note("agent turn ended \(tab.id)")
             }
         }
     }
+
+    /// Turn ends closer together than this pulse once; the rest ring at rest.
+    static let burstWindow: Duration = .milliseconds(900)
 
     // MARK: Arrival
 

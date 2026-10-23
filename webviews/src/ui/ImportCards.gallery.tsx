@@ -4,7 +4,7 @@ import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import { ImportCards, type ImportCardData, type ImportCardList } from "./ImportCards";
 
-type Props = { list: ImportCardList; layout: "row" | "list" };
+type Props = { list: ImportCardList };
 
 const notNow = { action: "dismiss", title: "Not Now" };
 const more = { action: "more", title: "More Options…" };
@@ -137,7 +137,6 @@ const failed: ImportCardData = {
   secondary: [{ action: "hide", title: "Not Now" }],
 };
 
-const newTab = (cards: ImportCardData[]): ImportCardList => ({ title: "Bring your stuff to cmux", cards });
 const settings = (cards: ImportCardData[]): ImportCardList => ({
   title: "Found on This Mac",
   cards,
@@ -145,18 +144,13 @@ const settings = (cards: ImportCardData[]): ImportCardList => ({
 });
 
 /// The cards with the host stood in: Not Now takes a card away, as the host's next push would.
-function GalleryImportCards({ list, layout }: Props) {
+function GalleryImportCards({ list }: Props) {
   const [cards, setCards] = useState(list.cards);
   const [pressed, setPressed] = useState("");
   return (
-    <div
-      className="import-cards-gallery"
-      data-import-cards-fixture
-      style={{ padding: 20, maxWidth: layout === "row" ? 760 : 560 }}
-    >
+    <div className="import-cards-gallery" data-import-cards-fixture style={{ padding: 20, maxWidth: 560 }}>
       <ImportCards
         list={{ ...list, cards }}
-        layout={layout}
         onAction={(id, action) => {
           setPressed(`${id} ${action}`);
           if (action === "dismiss" || action === "hide") setCards((current) => current.filter((c) => c.id !== id));
@@ -185,35 +179,35 @@ export default componentEntry<Props>({
   load: async () => GalleryImportCards,
   styles: () => import("./ui.css"),
   variants: {
-    "new-tab": {
-      note: "New Tab: the three cards one click imports, each with what was found and what you get.",
-      props: { list: newTab([chrome, claude, codex]), layout: "row" },
-      height: 260,
-    },
-    "new-tab-request": {
-      note: "Chief raised a card for a sign-in wall: it leads, with Chief's reason in its words.",
-      props: { list: newTab([request, chrome, claude]), layout: "row" },
-      height: 300,
-    },
-    "new-tab-running": {
-      note: "An import runs in the background with its progress; a paused one offers Resume.",
-      props: { list: newTab([running, paused, claude]), layout: "row" },
-      height: 260,
-    },
-    "new-tab-dismiss": {
-      note: "Play: Not Now takes the Codex card away; it comes back only when something new appears.",
-      props: { list: newTab([chrome, claude, codex]), layout: "row" },
-      height: 260,
-      play: dismissOne,
-    },
     settings: {
       note: "Settings › Import lists everything found: done, failed, info cards and a dismissed one with Show Again.",
-      props: { list: settings([done, failed, safari, ghostty, iterm]), layout: "list" },
+      props: { list: settings([done, failed, safari, ghostty, iterm]) },
       height: 820,
+    },
+    "settings-ready": {
+      note: "Settings › Import: what one click imports, each with what was found and what you get.",
+      props: { list: settings([chrome, claude, codex]) },
+      height: 560,
+    },
+    "settings-request": {
+      note: "Chief raised a card for a sign-in wall: it leads, with Chief's reason in its words.",
+      props: { list: settings([request, chrome, claude]) },
+      height: 600,
+    },
+    "settings-running": {
+      note: "An import runs in the background with its progress; a paused one offers Resume.",
+      props: { list: settings([running, paused, claude]) },
+      height: 560,
+    },
+    "settings-dismiss": {
+      note: "Play: Not Now takes the Codex card away; it comes back only when something new appears.",
+      props: { list: settings([chrome, claude, codex]) },
+      height: 560,
+      play: dismissOne,
     },
     "settings-empty": {
       note: "Settings › Import with nothing found.",
-      props: { list: settings([]), layout: "list" },
+      props: { list: settings([]) },
       height: 120,
     },
   },

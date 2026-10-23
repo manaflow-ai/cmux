@@ -78,6 +78,9 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
+    /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
+    /// moved or whose covers changed, not every pane).
+    var stripClipsComputed = 0
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -252,6 +255,12 @@ final class ScreenContentView: NSView {
         if context.model.acceptsRowOps {
             for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
         }
+        // A column edge whose column changed id at the same place (an optimistic New Column's
+        // column handed over to the daemon's) keeps its spring: it does not jump to its rest.
+        var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
+            if case .columnEdge = kind, targets[kind] == nil { return frame }
+            return nil
+        }
         for (kind, target) in targets {
             let view: DividerHandleView
             if let existing = dividerViews[kind] {
@@ -272,6 +281,12 @@ final class ScreenContentView: NSView {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
+                frame.setTarget(target.rect, alpha: 1)
+                if !animateFrames { frame.snap() }
+                dividerFrames[kind] = frame
+            } else if case .columnEdge = kind,
+                      let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
+                var frame = renamedEdges.remove(at: index)
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
@@ -318,7 +333,7 @@ final class ScreenContentView: NSView {
         reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
-        applyPresentation()
+        applyPresentation(force: true)
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }

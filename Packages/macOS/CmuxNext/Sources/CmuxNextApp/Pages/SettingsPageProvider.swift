@@ -32,6 +32,12 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
+    /// Settings > Devices (the device hub): its state, one gesture, and the
+    /// watch that keeps its history current while a page shows it; nil in
+    /// tests without an app.
+    var devicesState: (@MainActor () -> JSONValue)?
+    var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
     var integrations: (any PageProvider)?
@@ -56,6 +62,8 @@ final class SettingsPageProvider: PageProvider {
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
+    /// Settings > Devices' Remove (plans/cmux-next/add-device-DESIGN.md 2.5): the error to show, or nil.
+    var removeDevice: (@MainActor (String) async -> String?)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -111,6 +119,9 @@ final class SettingsPageProvider: PageProvider {
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
         case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.devices.remove":
+            guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
+            return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
@@ -119,6 +130,8 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
+        case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
+        case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -207,6 +220,16 @@ final class SettingsPageProvider: PageProvider {
             return PageSubscription {
                 watch.cancel()
                 Task { @MainActor in agents.endWatching() }
+            }
+        }
+        if stream == "cmux.settings.devices.changed", let devicesState {
+            // The history follows the hub's pushes only while a page shows the card.
+            devicesWatching?(true)
+            let watch = Self.watch(devicesState, onEvent: onEvent)
+            let watching = devicesWatching
+            return PageSubscription {
+                watch.cancel()
+                Task { @MainActor in watching?(false) }
             }
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
@@ -324,12 +347,15 @@ final class SettingsPageProvider: PageProvider {
         return value
     }
 
-    /// SECURITY (agent_settable): the Settings page writes as the user only for a call backed by a
-    /// real key or mouse event in its view (`context.userGesture`, the host's record) from the
-    /// bundled cmux.settings page (the router admits only its trusted frame). A script write with
-    /// no gesture is a page write and may change only agent-settable keys.
+    /// SECURITY (agent_settable): a call from the bundled cmux.settings page (the router admits
+    /// only its trusted frame) is the user's: any interaction with the page, a click, a key or an
+    /// accessibility press (which reaches the page with no AppKit event, so `context.userGesture`
+    /// cannot be required without locking out assistive technology). Posted GUI input cannot be
+    /// told apart from a person's on macOS, so user-only keys are protected on the automation
+    /// paths instead: the CLI, agents, scripts and the control socket's `settings.set` write as
+    /// their origin and are refused. Any other page writes as a page.
     static func writer(_ context: PageCallContext) -> SettingWriter {
-        context.page == PageDescriptor.settings.id && context.userGesture ? .user : .caller("page")
+        context.page == PageDescriptor.settings.id ? .user : .caller("page")
     }
 
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {

@@ -327,6 +327,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
     /// host's hover cards for link chips follow it (HomeLinkChip).
     var onPointerMoved: ((CGPoint?) -> Void)?
+    /// cmux: the field's height changed (a draft wrapped to more or fewer lines, an attachment, a
+    /// send): the host lays out what sits above the field (the first-run panel, its notice).
+    var onFieldTopChange: (() -> Void)?
     /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
     var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
     /// cmux: a press on a link moved past the drag slop: the host may take the drag (a split or
@@ -481,7 +484,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         followWindowScale()
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
-        demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
+        demo.compose.onFieldResize = { [weak self] old, new, el, begin in
+            self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
+            self?.onFieldTopChange?()
+        }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
         demo.compose.onAttachmentsChanged = { [weak self] in self?.host.needsLayout = true; self?.host.updateTrackingAreas() }
         // The scroller (MessagesLab 93cf61f): a knob drag or a track click. Home has no
@@ -501,6 +507,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.compose.onFieldJump = { [weak self] in
             guard let self, let demo = self.demo else { return }
             self.host.fieldChrome.setFrameNow(demo.compose.fieldRect)
+            self.onFieldTopChange?()
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
@@ -659,7 +666,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         intents?.send()
     }
 
-    func textDidChange(_ notification: Notification) {
+    func textDidChange(_ notification: Notification) { // perf-hot: 2ms home-key (every key typed into the Home composer)
         guard let demo else { return }
         let tv = demo.compose.textView.view
         voice.fieldChanged()  // cmux: the person typed while dictating: the words stay, the session stops
@@ -773,7 +780,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func clicked(_ p: CGPoint) {
         guard let demo else { return }
         if picker != nil { closePicker(); return }
-        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
+        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); intents?.draftChanged(); return }
         if thread.clicked(p) { return }
         // cmux: a click on the header strip or the field's edge gives the field the keyboard too.
         guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }

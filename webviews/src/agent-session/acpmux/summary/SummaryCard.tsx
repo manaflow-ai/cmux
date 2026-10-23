@@ -15,6 +15,7 @@ import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
+import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
@@ -33,9 +34,10 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
-/// Background work shows live: the chat's background commands (`background`, the process
-/// registry's merged with the transcript's, backgroundWork.ts) with Stop, and the chats its agent
-/// started (`sessions`) under Subagents. The header's counts include the running ones.
+/// Background work shows as compact task cards: the chat's background commands (`background`, the
+/// process registry's merged with the transcript's, backgroundWork.ts) keep their description,
+/// running/completed/failed state and Stop affordance, and the chats its agent started (`sessions`)
+/// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
   rows,
@@ -48,6 +50,7 @@ export function SummaryCard({
   onAttach,
   background,
   sessions,
+  tools,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -81,6 +84,8 @@ export function SummaryCard({
   };
   /// The chats this chat's agent started, and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
+  tools?: ChatToolsControl;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -132,17 +137,23 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
-      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
+      // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
+      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
-  useEscapeCloses(popover && !gallery, () => {
-    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
-    card.close();
-    button?.focus();
-  });
+  // Escape in one of the card's menus closes that menu only.
+  useEscapeCloses(
+    popover && !gallery,
+    () => {
+      const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
+      card.close();
+      button?.focus();
+    },
+    ".acpmux-summary-menu",
+  );
   if (!drawn) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
@@ -304,6 +315,7 @@ export function SummaryCard({
               subagents={hasSubagents ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
+              tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
             />

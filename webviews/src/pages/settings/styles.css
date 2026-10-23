@@ -171,7 +171,7 @@ mark {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 5px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -940,17 +940,6 @@ mark {
   opacity: 0.4;
 }
 
-/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
-@keyframes accounts-busy {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-.accounts-status[data-busy] .accounts-dot {
-  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
-}
-
 .accounts-body {
   display: flex;
   flex-direction: column;
@@ -965,6 +954,202 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
+.devices-header {
+  justify-content: flex-start;
+}
+
+.devices-header > .devices-status {
+  margin-right: auto;
+}
+
+.devices-status[data-tone="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.devices-status[data-tone="attention"] .accounts-dot {
+  border-color: var(--warning);
+}
+
+.devices-status[data-tone="danger"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.devices-status[data-tone="neutral"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.devices-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.devices-access,
+.devices-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-relays-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.devices-form {
+  margin-top: 6px;
+}
+
+.devices-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.devices-field > .field,
+.devices-field > .select {
+  max-width: 360px;
+}
+
+.devices-urls {
+  resize: vertical;
+}
+
+.devices-priority {
+  width: 80px;
+}
+
+.devices-history-scroll {
+  overflow-x: auto;
+}
+
+.devices-history {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.devices-history th,
+.devices-history td {
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: top;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.devices-history th {
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.devices-history tbody tr:last-child td {
+  box-shadow: none;
+}
+
+.devices-nowrap {
+  white-space: nowrap;
+}
+
+/* History fits its card at any page width: fixed columns, names and details wrap between words
+   (a single word longer than its column still breaks rather than spill), headers wrap too. */
+.devices-history-fixed {
+  table-layout: fixed;
+}
+
+.devices-history-fixed th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.devices-col-time {
+  width: 13%;
+}
+
+.devices-col-event {
+  width: 16%;
+}
+
+.devices-col-device {
+  width: 15%;
+}
+
+.devices-col-scope {
+  width: 11%;
+}
+
+.devices-col-detail {
+  width: 18%;
+}
+
+.devices-col-duration {
+  width: 12%;
+}
+
+.devices-wrap {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
+.devices-device .row-main {
+  flex-wrap: wrap;
+}
+
+.devices-device .row-label {
+  min-width: min(100%, 16em);
+}
+
+.devices-device .row-label > .row-help {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.devices-device .row-control {
+  max-width: 100%;
+}
+
+.devices-copy {
+  padding: 0 6px;
+  font-size: var(--text-detail);
+}
+
+/* The event pill never clips its word: a longer event wraps inside it. */
+.devices-pill {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-text);
+}
+
+.devices-pill[data-tone="success"] {
+  color: var(--success, var(--text));
+}
+
+.devices-pill[data-tone="attention"] {
+  color: var(--warning);
+}
+
+.devices-pill[data-tone="danger"] {
+  color: var(--danger);
 }
 
 /* All Workspaces | This Workspace (cx-t2x.5). */

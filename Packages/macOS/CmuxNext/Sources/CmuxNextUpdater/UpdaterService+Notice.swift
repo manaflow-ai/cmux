@@ -10,7 +10,8 @@ extension UpdaterService {
     /// The card's icon, text and actions for the running build, or nil.
     public var cardPresentation: UpdateCardPresentation? {
         guard let card else { return nil }
-        var shown = card.presentation(version: identity.shortVersion, build: identity.build)
+        var shown = card.presentation(version: identity.shortVersion, build: identity.build,
+                                      install: card == .installing ? installStatus : nil)
         switch card {
         case .available, .note(.found):
             // The found build's short version, date and first changelog lines.
@@ -46,6 +47,7 @@ extension UpdaterService {
         case .details: presentUpdateUI?()
         case .releaseNotes: break
         case .rollBack, .waitForFix: pulledWatch.perform(action)
+        case .relaunchNow: relaunchNow()
         }
     }
 
@@ -59,7 +61,10 @@ extension UpdaterService {
             dismissIndicatorNote()
         case .pulled:
             pulledWatch.perform(.waitForFix)
-        case .checking, .downloading, .installing, nil:
+        case .installing:
+            // Only the card of an install that never relaunched has an x.
+            if installStatus?.stage == .stalled { installCardDismissed = true }
+        case .checking, .downloading, nil:
             break
         }
         followCardExpiry()

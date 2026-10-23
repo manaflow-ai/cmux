@@ -53,6 +53,8 @@ public final class HibernatedBrowserTab: BrowserTab {
         // The omnibar's lock and the page's icon while it sleeps and wakes, as before it slept.
         saved.security = state.security
         saved.faviconURL = state.faviconURL
+        // A muted tab stays muted asleep (the strip's speaker) and wakes muted.
+        saved.isAudioMuted = state.isAudioMuted
         self.state = saved
         self.favicon = favicon
         self.restoreState = restoreState

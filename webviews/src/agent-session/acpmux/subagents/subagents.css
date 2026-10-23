@@ -84,25 +84,6 @@
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text);
 }
-.cv-subagent-avatar__dot {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--cv-card-fill);
-  background: var(--cv-text-muted);
-}
-.cv-subagent-avatar[data-state="running"] .cv-subagent-avatar__dot {
-  background: var(--agent-accent);
-}
-.cv-subagent-avatar[data-state="completed"] .cv-subagent-avatar__dot {
-  background: var(--agent-success, var(--cv-text-muted));
-}
-.cv-subagent-avatar[data-state="failed"] .cv-subagent-avatar__dot {
-  background: var(--agent-danger);
-}
 /* A listed subagent: one 48px line inside the list's border. */
 .cv-subagent {
   box-sizing: border-box;
@@ -434,10 +415,13 @@ button.cv-subagent > :last-child {
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
 /* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
    strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
-   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both. */
+   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both.
+   No padding: a line's hover fills it to the tray's own edges, which round it (one inset, never a
+   pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
   box-sizing: border-box;
-  padding: 2px;
+  padding: 0;
+  overflow: hidden;
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
@@ -464,7 +448,7 @@ button.cv-subagent > :last-child {
   padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+/* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
   color: var(--agent-muted);
 }
@@ -489,6 +473,36 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
+}
+/* Quiet at rest: no line, header or button in the tray has a fill or a corner of its own. Hover is
+   the composer chips' wash (--acpmux-pill-hover, the text at 11% over the glass, never opaque) on
+   the whole line, its stop button included, and only on a line that opens something; with the
+   hand, as a link. A line with nothing to open (a disabled button) has no hover at all. Its stop
+   button only brightens: a fill of its own would be a box inside the line's. */
+.acpmux-running-tray .acpmux-summary-row,
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
+.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
+  border-radius: 0;
+  background: none;
+}
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+.acpmux-running-tray .acpmux-running-tray__head:hover {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
+  cursor: pointer;
+}
+/* What the line is ("Command", "Subagent"), dim before its name. */
+.acpmux-agent-line__kind {
+  margin-right: 6px;
+  color: var(--agent-muted);
+}
+/* A line that opens something ends in a chevron. */
+.acpmux-agent-line__chevron {
+  flex: none;
+  display: inline-flex;
+  margin-left: -2px;
+  color: var(--agent-muted);
 }
 /* Running work's icon is the theme's accent, never a brand color. */
 .acpmux-agent-line .acpmux-lineage__icon[data-state="running"],

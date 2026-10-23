@@ -1,8 +1,8 @@
 // Consecutive tool calls consolidate into fewer rows, as Claude desktop and Codex draw them (Leo
 // 2026-10-21: "it can consolidate a ton of these tool calls and such tbh in the ui"): a finished run
 // of reads, searches and commands is one counted line ("Read 2 files, ran a search, ran 2
-// commands"), a thought between calls never splits a group, and edits, coordination cards and
-// failures stay in sight.
+// commands"), a thought between calls never splits a group, and coordination cards and failures
+// stay in sight.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -90,14 +90,13 @@ test("a thought between two calls of one kind stays inside their group", () => {
   ]);
 });
 
-test("an edit stays in sight; the work on each side of it folds", () => {
+test("an edit folds with the work around it, named on the line in the order it came", () => {
   const items = [read("a.ts"), search("retry"), command("ls"), edit("src/a.ts"), command("bun test"), read("b.ts")];
   const stretches = runStretches(run(items), toolGroups(items));
-  expect(stretches.map((stretch) => stretch.fold)).toEqual([true, false, true]);
+  expect(stretches.map((stretch) => stretch.fold)).toEqual([true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read a file, ran a search, ran a command");
-  expect(html).toContain("Edited a.ts");
-  expect(html).toContain("Read a file, ran a command");
+  expect(html).toContain("Read 2 files, ran a search, ran 2 commands, edited a file");
+  expect(lines(run(items))).toBe(1);
 });
 
 test("a coordination card stays in sight; the calls around it still fold", () => {
@@ -106,7 +105,8 @@ test("a coordination card stays in sight; the calls around it still fold", () =>
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true, false, true]);
   const html = drawn(run(items));
   expect(html).toContain("Read a file, ran a command");
-  expect(html).toContain("Read 2 files, ran a command");
+  // Named in the order the run did them: the command came before the reads.
+  expect(html).toContain("Ran a command, read 2 files");
 });
 
 test("a failed call is counted on the run's line", () => {
@@ -126,7 +126,7 @@ test("the summary counts distinct files read, and searches apart from reads", ()
   expect(toolRunSummary(translate, items)).toBe("Read 2 files, ran 2 searches");
 });
 
-test("an ended turn's opened Worked for folds a run that edited, around its edit", () => {
+test("an ended turn's opened Worked for folds a run that edited, edit and all", () => {
   const at = (n: number) => 1_000 * n;
   const rows: AcpmuxRow[] = [
     { id: "u", kind: "user", version: 1, at: at(1), text: "Add retries" },
@@ -145,8 +145,8 @@ test("an ended turn's opened Worked for folds a run that edited, around its edit
   )!;
   expect(work.foldRun).toBe(true);
   const html = drawn(work);
-  expect(html).toContain("Read 2 files, ran a search");
-  expect(html).toContain("Edited a.ts");
+  expect(html).toContain("Read 2 files, ran a search, edited a file, ran a command");
+  expect(lines(work)).toBe(1);
   // The reply is never folded: it stays its own row after the fold.
   expect(turnView(rows, new Set(), { liveRuns: true }).some((entry) => entry.id === "done")).toBe(true);
 });
