@@ -225,6 +225,6 @@ public final class PointerHover: NSObject {
     /// Becoming or resigning key changes whether key-window targets hover.
     private static func installKeyObserversIfNeeded() {
         guard keyObserver == nil else { return }
-        keyObserver = KeyWindowObserver()
+        keyObserver = KeyWindowObserver(notices: .default)
     }
 }
