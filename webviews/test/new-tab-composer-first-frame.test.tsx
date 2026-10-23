@@ -203,10 +203,12 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   expect(chips()).toEqual(earlier);
 });
 
-test("with no remembered chips a new chat draws no placeholder pills and no Reasoning word", async () => {
+test("with no remembered chips a new chat draws no placeholder pills and no Reasoning word, and names the highest mode", async () => {
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
-  expect(chips()).toEqual([]);
+  // acpmux never answered for this harness here: the harness's highest level (Leo 2026-10-23: "if you
+  // don't know what to switch to, typically just switch to the highest permission level").
+  expect(chips()).toEqual([{ kind: "mode", label: "Bypass permissions" }]);
   expect(host.textContent).not.toContain("Reasoning");
 });
 
