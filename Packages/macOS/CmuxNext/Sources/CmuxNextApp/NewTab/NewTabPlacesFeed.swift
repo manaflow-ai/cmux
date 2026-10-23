@@ -43,11 +43,20 @@ enum NewTabPlacesFeed {
         }
     }
 
+    /// The places are built once per window shown workspace, not once per open page: a create
+    /// with N pages open built every place N times (each a walk of every tab of every workspace,
+    /// with its icons), in the frames right after the key. A page lists every place but itself,
+    /// and a New Tab page is no place (``NewTabPage/place(_:home:)``), so the pages of one window
+    /// share one list; a page that is a place (its chat started) gets its own.
     private static func push(_ tabs: AgentTabStore, services: AppServices) {
+        var shared: [String?: (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String])] = [:]
         for key in tabs.newTabPages.keys {
             guard let view = tabs.views[key] else { continue }
             let window = view.window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active
-            let places = NewTabPage.places(services, excluding: key, current: window?.state.workspaceID)
+            let current = window?.state.workspaceID
+            let all = shared[current] ?? NewTabPage.places(services, excluding: nil, current: current)
+            shared[current] = all
+            let places = all.tabs.contains { $0.id == key } ? NewTabPage.places(services, excluding: key, current: current) : all
             view.refreshNewTabPlaces(tabs: places.tabs, workspaces: places.workspaces)
         }
     }
