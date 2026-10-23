@@ -188,6 +188,26 @@ Now (`HibernationPlanner.plan`):
 - Never Hibernate This Site (tab context menu, palette, `tab
   never-hibernate-site`) adds the host to `browser.hibernationExclusions`.
 
+### 3b. One memory budget for hidden live pages (PL-hidden-memory, 2026-10-23)
+
+Before: a hidden live page kept its whole renderer until the timeout (55 MB
+per Chromium tab, 29 MB per WebKit tab, cmux20 2026-10-22), so 20 hidden
+Chromium tabs held 1.1 GB for half an hour, and the floor is a 50 KB record
+(speed-of-sound-DESIGN.md 3.3, F8 in perf-lead.md).
+
+Now hidden live pages share the one warm-set budget with the hidden terminal
+surfaces (`WarmSetBudget.pageCapacity`: 1/64 of memory at 56 MB a page,
+4 to 16; warning 2; critical 0). `HibernationPlanner.plan(warmPages:)`
+counts every eligible hidden page except each pane's shown tab (`fronts`:
+also a parked workspace's or an off-screen column's, what a switch shows
+again), its neighbors and hovered tabs, the probe's recent keeps and the
+exemptions; past the budget the least valuable (the same ranking) are due
+once hidden `overBudgetMinimumHidden` (60 s, the planner's "the person just
+left it"), at the normal pace, through the same probe (form input, media,
+capture stay). The timeout and memory pressure rules are unchanged; "off"
+still disables everything. `debug.surfaces` hibernation reports
+`page_budget` and `hidden_live_pages`. Tests: `HiddenPageWarmBudgetTests`.
+
 ## 4. Not done / open
 
 - Root cause of the user's disappearing page not reproduced on a

@@ -129,6 +129,9 @@ enum SurfaceDiagnosticsReport {
             "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
             "neighbor_radius": JSONValue(hibernation.neighborRadius),
             "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
+            // The page warm budget (`WarmSetBudget.pageCapacity`) and the hidden pages that are live now.
+            "page_budget": JSONValue(services.cache.warmBudget.pageCapacity),
+            "hidden_live_pages": JSONValue(services.cache.lifecycle.keys(in: .mountedHidden).filter { services.cache.browsers[$0] != nil }.count),
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),
             "cold_shows_total": JSONValue(hibernation.coldShows),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),

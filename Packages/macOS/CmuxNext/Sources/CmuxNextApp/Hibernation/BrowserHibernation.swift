@@ -34,6 +34,10 @@ import os
 /// Which page goes first is a ranking (`HibernationPlanner.idleness`): how long it has been
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
+/// Hidden live pages share one memory budget (`WarmSetBudget.pageCapacity`, 4 to 16 by memory):
+/// past it the least valuable go once hidden a minute, before the timeout. Each pane's shown tab
+/// (`fronts`, parked workspaces too) and its neighbors stay out of the budget, so a switch shows
+/// a live page; a page the budget let go wakes to its picture as any hibernated page.
 /// A page never hibernates while it shows, plays, captures, has DevTools open, an agent holds
 /// its lease or called it lately, a download it started runs, or it holds the person's form
 /// input; pinned tabs and Never Hibernate hosts stay unless the setting says otherwise.
@@ -94,6 +98,8 @@ final class BrowserHibernation {
     private var neighbors = NeighborTabs()
     /// Tabs kept awake now because they sit beside a shown tab.
     private(set) var awakeNeighbors: Set<String> = []
+    /// The tab each pane shows, on screen or not (`NeighborTabs.fronts`): out of the page warm budget.
+    private(set) var fronts: Set<String> = []
     /// When the pointer last rested on each hidden tab's strip cell (`noteHover`).
     private var hoveredAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
@@ -301,10 +307,11 @@ final class BrowserHibernation {
 
     // MARK: Neighbors
 
-    /// A pane's tab order or shown tab changed (a switch, reorder, close or
-    /// new tab); `selected` is nil while the pane shows nothing or is parked.
-    func paneDidChange(_ pane: ObjectIdentifier, order: [String], selected: String?) {
-        neighbors.set(pane, order: order, selected: selected)
+    /// A pane's tab order, shown tab or presence changed (a switch, reorder, close, new tab, a
+    /// parked workspace); `selected` is nil while the pane shows nothing, `visible` false while it
+    /// is off screen (its shown tab stays its front, and wakes no neighbors).
+    func paneDidChange(_ pane: ObjectIdentifier, order: [String], selected: String?, visible: Bool = true) {
+        neighbors.set(pane, order: order, selected: selected, visible: visible)
         refreshNeighbors()
     }
 
@@ -341,6 +348,12 @@ final class BrowserHibernation {
     private func refreshNeighbors(replans: Bool = true) {
         guard let cache else { return }
         let next = neighbors.awake(radius: neighborRadius).filter { cache.browsers[$0] != nil }
+        let nextFronts = neighbors.fronts
+        if nextFronts != fronts {
+            fronts = nextFronts
+            // A tab that stopped being its pane's front now counts in the budget: plan its deadline.
+            if next == awakeNeighbors, replans { replan() }
+        }
         guard next != awakeNeighbors else { return }
         let left = awakeNeighbors.subtracting(next)
         let joined = next.subtracting(awakeNeighbors)
@@ -411,7 +424,8 @@ final class BrowserHibernation {
             }
             return facts
         }
-        let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
+        let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates,
+                                           warmPages: cache.warmBudget.pageCapacity)
         exemptions.merge(plan.exemptions) { $1 }
         if !plan.due.isEmpty { refreshMemoryIfNeeded() }
         for key in plan.due { prepare(key) }
@@ -536,6 +550,7 @@ final class BrowserHibernation {
         candidate.memoryBytes = memoryBytes[key]
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
+        candidate.isFront = fronts.contains(key)
         return candidate
     }
 
