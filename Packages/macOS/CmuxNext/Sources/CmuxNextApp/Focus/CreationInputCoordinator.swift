@@ -106,7 +106,30 @@ final class CreationInputCoordinator {
         return true
     }
 
-    func giveBack(_ bytes: Data = Data()) { GivenBackInput.shared.deliver(adding: bytes, to: router?.services?.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }.map { $0.session.sendBytes }) }
+    /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
+    /// wait for a focused terminal of the window that showed that terminal, never another window's.
+    /// Keys from a terminal no window shows any more are dropped (never typed into a guess).
+    func giveBack(_ bytes: Data, terminal terminalID: String) {
+        GivenBackInput.shared.deliver(adding: bytes, window: window(ofCreatingTerminal: terminalID), to: nil)
+        giveBack()
+    }
+
+    /// Hands held give-back keys to the focused terminal (the key window's), when it is in their window.
+    func giveBack() {
+        guard let services = router?.services else { return }
+        let focused = services.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }
+        let window = focused?.session.view.window.flatMap { services.windows.owner(of: $0)?.state.id }
+        GivenBackInput.shared.deliver(window: window, to: focused.map { $0.session.sendBytes })
+    }
+
+    /// The cmux window showing the view of terminal `terminalID`, still being created.
+    private func window(ofCreatingTerminal terminalID: String) -> String? {
+        guard let services = router?.services,
+              let entry = services.cache.terminals.values.first(where: { $0.io.creatingTerminalID == terminalID }),
+              let window = entry.session.view.window else { return nil }
+        return services.windows.owner(of: window)?.state.id
+    }
+
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()

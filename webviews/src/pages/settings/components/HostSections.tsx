@@ -3,7 +3,7 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
-import type { BrowserProfile, HostListRow, HostLists } from "../ops";
+import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 
@@ -92,34 +92,114 @@ export function MachinesSection({ title }: { title: string }) {
   if (!host) return null;
   const picks = stringMap(colors.value);
   return (
-    <section className="group" data-card="machines">
-      <h3 className="group-title">{title}</h3>
-      <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
-        <ListRows
-          rows={host.machines}
-          empty={t("settingsWindow.machinesEmpty")}
-          marks
-          trailing={(row) => (
-            <MachineColor
-              row={row}
-              picks={picks}
-              disabled={!colors.connected || !colors.readable || colors.managed !== null}
-              write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
-            />
-          )}
-        />
+    <>
+      <section className="group" data-card="machines">
+        <h3 className="group-title">{title}</h3>
+        <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
+          <ListRows
+            rows={host.machines}
+            empty={t("settingsWindow.machinesEmpty")}
+            marks
+            trailing={(row) => (
+              <MachineColor
+                row={row}
+                picks={picks}
+                disabled={!colors.connected || !colors.readable || colors.managed !== null}
+                write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
+              />
+            )}
+          />
+        </div>
+        <div className="host-footer">
+          {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
+            off to Add Machine or Add Server, and the page passes nothing, so it never approves. */}
+          <button
+            type="button"
+            className="button"
+            data-add-device=""
+            onClick={() => void store.runAction("device.add")}
+          >
+            {host.devices?.add_title ?? t("action.device.add")}
+          </button>
+        </div>
+      </section>
+      {host.devices && <DevicesSection devices={host.devices} />}
+    </>
+  );
+}
+
+/**
+ * Settings > Devices (add-device-DESIGN.md 2.4-2.6): every device that can reach this computer, in
+ * words a person reads, each with Remove (a second click confirms), and the recent activity.
+ */
+function DevicesSection({ devices }: { devices: DevicesHostState }) {
+  const store = useStore();
+  const [confirming, setConfirming] = useState<string | null>(null);
+  return (
+    <section className="group" data-card="devices">
+      <h3 className="group-title">{devices.title}</h3>
+      <div className="rows">
+        <div className="row">
+          <div className="row-help">{devices.help}</div>
+        </div>
+        {devices.rows.length === 0 ? (
+          <div className="row">
+            <div className="empty">{devices.empty}</div>
+          </div>
+        ) : (
+          devices.rows.map((row) => (
+            <div className="row" key={row.id} data-device-row={row.id} data-device-state={row.state}>
+              <div className="row-main">
+                <div className="row-label">
+                  <div className="row-title">{row.title}</div>
+                  <div className="row-help">{row.subtitle}</div>
+                  {row.detail && <div className="row-help">{row.detail}</div>}
+                  {confirming === row.id && <div className="row-help">{devices.remove_help}</div>}
+                </div>
+                {row.removable && (
+                  <button
+                    type="button"
+                    className="button"
+                    data-remove-device={row.id}
+                    onClick={() => {
+                      if (confirming !== row.id) return setConfirming(row.id);
+                      setConfirming(null);
+                      void store.removeDevice(row.id);
+                    }}
+                    onBlur={() => setConfirming((current) => (current === row.id ? null : current))}
+                  >
+                    {confirming === row.id ? devices.remove_confirm_title : devices.remove_title}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+        {devices.error && (
+          <div className="row">
+            <div className="row-help" role="alert">
+              {devices.error}
+            </div>
+          </div>
+        )}
       </div>
-      <div className="host-footer">
-        {/* The Add Server card, as the palette opens it; the page passes no code, so it never approves. */}
-        <button
-          type="button"
-          className="button"
-          data-add-server=""
-          onClick={() => void store.runAction("server.addServer")}
-        >
-          {t("action.server.addServer")}
-        </button>
-      </div>
+      {devices.activity.length > 0 && (
+        <>
+          <h3 className="group-title">{devices.activity_title}</h3>
+          <div className="rows" data-device-activity="">
+            {devices.activity.map((entry, index) => (
+              <div className="row" key={`${entry.time}-${index}`}>
+                <div className="row-label">
+                  <div className="row-title">
+                    {entry.what} {entry.subject}
+                  </div>
+                  <div className="row-help">{new Date(entry.time).toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

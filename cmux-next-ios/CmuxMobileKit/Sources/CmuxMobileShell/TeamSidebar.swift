@@ -116,7 +116,7 @@ struct TeamSidebar: View {
                 transparent: team.appearance.isTransparent,
                 dots: presence.dots,
                 overflow: presence.overflow,
-                onlineCount: team.macs.filter(\.isOnline).count,
+                onlineCount: team.listedMacs.filter(\.isOnline).count,
                 isSelected: selected
             )
             .animation(theme.motion.snap.animation, value: selected)

@@ -23,18 +23,21 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { HtmlPreview } from "./HtmlPreview";
+import { inlineText, plainText } from "./inlineText";
 import {
   declineReply,
   hasPreviews,
   itemAnswerText,
   QuestionProblemError,
-  questionSummary,
+  cancelledKey,
   reply,
   type AgentQuestion,
   type Answer,
   type Option,
   type QuestionReply,
 } from "./model";
+import { cancelledArgs } from "./record";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
@@ -351,7 +354,7 @@ function PendingQuestion({
     >
       <legend id={legendId} className="acpmux-question-head">
         <span className="acpmux-hidden-label">{t("question.asking", { agent })}</span>
-        <span className="acpmux-question-prompt">{item.prompt}</span>
+        <span className="acpmux-question-prompt">{inlineText(item.prompt)}</span>
         {item.header && <span className="acpmux-question-chip">{item.header}</span>}
       </legend>
       {state.question.items.length > 1 && (
@@ -400,8 +403,8 @@ function PendingQuestion({
                 >
                   <ChoiceMark multi={multi} chosen={chosen} />
                   <span className="acpmux-question-text">
-                    <span className="acpmux-question-label">{option.label}</span>
-                    {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
+                    <span className="acpmux-question-label">{inlineText(option.label)}</span>
+                    {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
                   </span>
                 </button>
                 {layout === "inline" && option === previewOption && preview}
@@ -496,11 +499,20 @@ export function previewText(text: string): string {
 /// it opens under that option's row.
 function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; option: Option; inline: boolean }) {
   return (
-    <section className="acpmux-question-preview" data-inline={inline || undefined} aria-labelledby={id}>
+    <section
+      className="acpmux-question-preview"
+      data-inline={inline || undefined}
+      data-format={option.preview?.format}
+      aria-labelledby={id}
+    >
       <span id={id} className="acpmux-question-preview-label">
-        {t("question.preview", { option: option.label })}
+        {t("question.preview", { option: plainText(option.label) })}
       </span>
-      <pre>{previewText(option.preview?.text ?? "")}</pre>
+      {option.preview?.format === "html" ? (
+        <HtmlPreview html={option.preview.text} title={t("question.preview", { option: plainText(option.label) })} />
+      ) : (
+        <pre>{previewText(option.preview?.text ?? "")}</pre>
+      )}
     </section>
   );
 }
@@ -600,6 +612,8 @@ function respondentLine(t: Translate, answer: Answer): string | undefined {
   if (name && device) return t("question.answeredBy", { name, device });
   if (name) return t("question.answeredByName", { name });
   if (device) return t("question.answeredOn", { device });
+  // The person's app answered for another of their devices, which it names by an install id only.
+  if (answer.respondent?.isRemote) return t("question.answeredElsewhere");
   return undefined;
 }
 
@@ -617,8 +631,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
       <span className="acpmux-question-answered-lines">
         {question.items.map((item) => (
           <span key={item.id} className="acpmux-question-answered-line">
-            <span className="acpmux-question-answered-key">{item.header ?? item.prompt}:</span>{" "}
-            {itemAnswerText(item, answer)}
+            <span className="acpmux-question-answered-key">{item.header ?? inlineText(item.prompt)}:</span>{" "}
+            {inlineText(itemAnswerText(item, answer))}
           </span>
         ))}
       </span>
@@ -627,9 +641,16 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
   );
 }
 
+/// An ask that ended unanswered: one muted line that says how, when the record says (Skip, or the
+/// turn stopped before an answer), else "Not answered", and the question.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   return (
-    <div className="acpmux-question-cancelled">{t("question.cancelled", { prompt: questionSummary(question) })}</div>
+    <div
+      className="acpmux-question-cancelled"
+      data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
+    >
+      {t(cancelledKey(question), cancelledArgs(question))}
+    </div>
   );
 }

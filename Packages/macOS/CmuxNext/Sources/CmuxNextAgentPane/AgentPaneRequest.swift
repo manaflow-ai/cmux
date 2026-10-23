@@ -62,8 +62,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
-    /// An import card's button on the New Tab page (`importCards.act {id, action}`).
-    case importCard(AgentPaneImportCards.Act)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -141,10 +139,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)
-    /// `chat.offer.open {sessionId}`: the person opened a session the chat shows (a sub-session its
-    /// agent started, the session that started it): its tab, else one beside this chat, focused
-    /// (``AgentPaneOfferOpen``).
-    case offerOpen(String)
+    /// `chat.offer.open {sessionId, sender?}`: the person opened a session the chat shows (a
+    /// sub-session its agent started, the session that started it, with `sender` the chat that sent
+    /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
+    case offerOpen(String, sender: Bool)
     /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
     /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String)

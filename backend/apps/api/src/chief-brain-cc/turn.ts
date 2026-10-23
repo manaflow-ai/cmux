@@ -218,7 +218,7 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
         max_ms: RUN_MS,
         net,
         provider: await vmNetwork(env, vm),
-        // The agent user's tools: written as its files by run.mjs (root) before Claude Code starts. The Chief's own
+        // The agent user's tools: written as its files by chief-turn-runner (root) before Claude Code starts. The Chief's own
         // tools (chief-tools, tools.ts) come after the set ones and never on a token path.
         files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), await toolsOf(env, agent).ccToolFiles()),
         github_token: env.CHIEF_CC_GITHUB_TOKEN ?? null
@@ -234,6 +234,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
     }
     // Counted from the turn's first start (a resumed turn does not get a new deadline).
     const deadline = (markAt(b, id, "submit") ?? Date.now()) + RUN_MS + 30_000
+    // Nothing keeps this object in memory while the machine works: a job at the deadline brings an evicted
+    // object back (onStart resumes this turn), so the turn always ends, with the reply when it is ready.
+    await b.schedule(`cc-wake:${id}`, "drain", deadline + 5_000)
     let r: CcResult | null = null
     while (r === null && Date.now() < deadline) {
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -246,6 +249,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       // The notes post may be lost (or this object restarted): the result file is the truth.
       r = await Promise.race([result, readOut(b, vm, id)])
     }
+    // A turn resumed after its deadline (the object was evicted and came back late) never polled: the machine
+    // may have finished long ago, so its result file is read once before the turn counts as timed out.
+    r ??= await readOut(b, vm, id)
     if (r === null) return { ok: false, reason: "timeout" }
     return finishTurn(b, id, r)
   } catch (e) {
@@ -292,7 +298,7 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   const run = typeof body.run === "string" ? body.run : ""
   const want = /^run_[0-9]{1,15}$/.test(run) ? cfgOf(b, `cc_token:${run}`) : undefined
   if (!want || !token || want !== (await sha(token)) || b.turnId !== run) return { status: 401 }
-  // The Chief's `chief-net` (run.mjs): kept for its next turns, and the script its machine applies now.
+  // The Chief's `chief-net` (chief-turn-runner): kept for its next turns, and the script its machine applies now.
   if (body.net !== undefined) {
     const r = patchNet(readNet(cfgOf(b, "cc_net")), body.net)
     if (!r.ok) return { status: 400, json: { error: r.error } }
@@ -302,7 +308,7 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   // The Chief's `chief-tools` (tools.ts): its own tools, kept per Chief for its next turns.
   const action = (body.vm as { action?: unknown } | null | undefined)?.action
   if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
-  // The Chief's `chief-vm` (run.mjs): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`
+  // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`
   // object (never per conversation), so its cap, identity and list are one; sandboxes this brain kept before move there.
   if (body.vm !== undefined) {
     const agent = b.config().agent!

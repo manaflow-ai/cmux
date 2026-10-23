@@ -11,6 +11,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     }
 
     var onHover: ((String?) -> Void)?
+    /// The pointer moved over the list (hover after a real mouse move, not a scroll).
+    var onPointerMove: ((String?) -> Void)?
     var onActivate: ((String) -> Void)?
 
     private let table = PaletteTableView()
@@ -39,7 +41,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.dataSource = self
         table.delegate = self
-        table.onMouseMoved = { [weak self] point in self?.updateHover(at: point) }
+        table.onMouseMoved = { [weak self] point in self?.updateHover(at: point, pointerMoved: true) }
         table.onMouseExited = { [weak self] in self?.onHover?(nil) }
         table.onClick = { [weak self] row in self?.activate(row: row) }
         documentView = table
@@ -143,13 +145,10 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         if table.visibleRect.contains(point) { updateHover(at: point) }
     }
 
-    private func updateHover(at point: NSPoint) {
+    private func updateHover(at point: NSPoint, pointerMoved: Bool = false) {
         let row = table.row(at: point)
-        guard rows.indices.contains(row), case .item(let item) = rows[row] else {
-            onHover?(nil)
-            return
-        }
-        onHover?(item.id)
+        let id: String? = if rows.indices.contains(row), case .item(let item) = rows[row] { item.id } else { nil }
+        if pointerMoved, let onPointerMove { onPointerMove(id) } else { onHover?(id) }
     }
 
     private func activate(row: Int) {

@@ -52,11 +52,24 @@ pub(super) struct TurnWatch {
     open: bool,
     /// This turn's reply answered other messages only.
     foreign: bool,
+    /// The chat's Chief (`backend::chief_of`); empty: `agent_mux`.
+    chief: String,
 }
 
 impl TurnWatch {
     pub(super) fn new(seq: u64) -> Self {
         Self { seq, ..Self::default() }
+    }
+
+    /// Watches the turns of `chief`, the chat's Chief (another Chief than
+    /// `agent_mux` answers in its own chat).
+    pub(super) fn of_chief(mut self, chief: &str) -> Self {
+        self.chief = chief.to_owned();
+        self
+    }
+
+    fn chief(&self) -> &str {
+        if self.chief.is_empty() { AGENT_MUX } else { &self.chief }
     }
 
     /// Watches for the replies that answer message `id` (E22).
@@ -80,7 +93,7 @@ impl TurnWatch {
             return None;
         }
         match event {
-            UiEvent::Cursor { participant, seq } if participant == AGENT_MUX => {
+            UiEvent::Cursor { participant, seq } if participant == self.chief() => {
                 if *seq >= self.seq {
                     self.read = true;
                     // Read while a turn runs: the brain steered the message
@@ -89,7 +102,7 @@ impl TurnWatch {
                 }
                 None
             }
-            UiEvent::Typing { participant, on } if participant == AGENT_MUX => {
+            UiEvent::Typing { participant, on } if participant == self.chief() => {
                 self.typing = *on;
                 if *on {
                     self.foreign = false;
@@ -108,16 +121,20 @@ impl TurnWatch {
                 None
             }
             UiEvent::Snapshot { summary, messages, typing } => {
-                self.typing = typing.iter().any(|p| p == AGENT_MUX);
+                let chief = self.chief().to_owned();
+                self.typing = typing.contains(&chief);
                 // A reopened stream after a gap: the state it missed.
-                let cursor = summary.pointer("/read_cursors/agent_mux").and_then(Value::as_u64);
+                let cursor = summary
+                    .get("read_cursors")
+                    .and_then(|cursors| cursors.get(&chief))
+                    .and_then(Value::as_u64);
                 if cursor.is_some_and(|c| c >= self.seq) {
                     self.read = true;
                 }
                 for message in messages {
                     self.keep_reply(message);
                 }
-                if self.read && typing.iter().any(|p| p == AGENT_MUX) {
+                if self.read && typing.contains(&chief) {
                     self.working = true;
                 } else if self.answered {
                     self.answered_turn_ended();
@@ -138,7 +155,7 @@ impl TurnWatch {
         let author = message.get("author").and_then(Value::as_str);
         let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
         let known = self.replies.iter().any(|m| m.get("seq") == message.get("seq"));
-        if author != Some(AGENT_MUX) || seq <= self.seq || known {
+        if author != Some(self.chief()) || seq <= self.seq || known {
             return None;
         }
         let ids = |key: &str| -> Vec<&str> {

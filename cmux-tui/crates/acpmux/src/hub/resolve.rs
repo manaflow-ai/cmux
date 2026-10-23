@@ -308,6 +308,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         agent_info: None,
         agent_capabilities: None,
         steering: false,
+        html_previews: false,
         modes: None,
         config_options: None,
         models: None,

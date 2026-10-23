@@ -74,6 +74,9 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
+    private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
+    private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -111,6 +114,8 @@ final class AppServices {
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
+    /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
+    var workContext = WorkContextTrail()
     /// The merged history read side and the per-profile visit logs.
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
@@ -453,6 +458,15 @@ final class AppServices {
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
+        }
+        (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
+            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
+            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
+            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+        }
+        (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
+            guard let self else { return body() }
+            windows.dispatching(eventFrom: event.window, body)
         }
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)

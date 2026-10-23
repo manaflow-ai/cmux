@@ -24,12 +24,19 @@ extension AgentPaneView {
         let allowed: @MainActor () -> Bool = { [weak model] in model.map { !$0.remoteChat && !$0.transport.remoteWire } ?? false }
         var menu = LinkMenu()
         menu.allowed = allowed
-        let rows = menu.items(menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }, file: file)
+        // An SVG leaves the pane only as its rebuilt copy (``AgentPaneImageCopies/handedOut(_:in:)``),
+        // made when a row is chosen; Open in Text Editor and Copy Path keep the file itself.
+        let out = AgentPaneImageCopies.handedOut(file, in: model.replyLinks.imageFolder)
+        let handOut: ([NSMenuItem]) -> [NSMenuItem] = { out == file ? $0 : AgentPaneImageCopies.rebuildingFirst($0, file, to: out) }
+        let rows = menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }.flatMap { row in
+            [.openInTextEditor, .copyPath].contains(row.kind) ? menu.items([row], file: file) : handOut(menu.items([row], file: out))
+        }
         // A file (a chip, a video, an audio clip) leads with Copy and Save As…; a folder has neither.
         let fileRows = AgentPaneFileRows(copyItem: { [weak model] in model?.replyLinks.copyItem($0) ?? false },
                                          save: { [weak model] in model?.replyLinks.savePathFile($0, $1, allowed) },
                                          allowed: allowed)
-        let items = resolved.isFolder ? rows : fileRows.items(for: file) + [.separator()] + rows
+        let items = resolved.isFolder ? rows : handOut(fileRows.items(for: out)) + [.separator()] + rows
+        // The gate wraps the SVG rebuild, so a row checks before the rebuild and again when it acts.
         Self.gate(items, allowed: allowed)
         return items
     }

@@ -61,13 +61,20 @@ extension PaneController {
     /// An app workspace's pane: it never shows a tab bar.
     var isAppPane: Bool { daemon.store.workspace(containing: pane.handle)?.app != nil }
 
-    /// A pane of a pinned dock that takes no other tab (the Home Chief pane, `pinned-dock-v1`):
-    /// it takes no new tab and never closes; its tab bar shows like any pane's.
-    var isPinnedDockPane: Bool {
-        let column = daemon.store.workspace(containing: pane.handle)?.screens.lazy.flatMap(\.columns)
-            .first { $0.layout.paneIDs.contains(self.pane.handle) }
-        return column?.dock.map { !LayoutMapping.dock($0).takesTabs } ?? false
-    }
+    /// A pane of a pinned dock (the Home Chief pane, `pinned-dock-v1`): it takes no new tab (what Home
+    /// opens goes beside it) and never closes; its tab bar shows like any pane's.
+    var isPinnedDockPane: Bool { pinnedDock != nil }
+
+    /// A pane of a pinned dock that takes no other tab (`allow_tabs` off): no tab drops on its strip.
+    /// Home's dock takes tabs (Leo 2026-10-21), so this is only a dock the person closed to tabs.
+    var isClosedPinnedDockPane: Bool { pinnedDock.map { !$0.takesTabs } ?? false }
+
+    /// A pane of Home's pinned dock while it takes tabs: a tab made there stays there, so what Home
+    /// opens beside itself is made there and then moved to a column on its right (``HomeDockOpens``).
+    var isOpenPinnedDockPane: Bool { pinnedDock?.allowsTabs == true }
+
+    /// The pinned dock this pane is in, if any.
+    private var pinnedDock: DockColumn? { HomeDockOpens.pinnedDock(holding: pane, in: daemon.store) }
 
     /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.
     func showTabBar(_ shown: Bool) {

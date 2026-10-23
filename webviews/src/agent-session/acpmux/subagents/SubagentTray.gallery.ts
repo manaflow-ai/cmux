@@ -22,7 +22,7 @@ import {
 } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
-import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
 
@@ -57,6 +57,22 @@ const devServer = activity(
     }),
   ],
   1.5,
+);
+
+/** A long shell line Claude runs in the background, still running (Leo 2026-10-21: "is that a
+ * command or a subagent?"). */
+const testRun = activity(
+  [
+    tool("cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test", "execute", "completed", {
+      inputSummary: JSON.stringify({
+        command: "cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test",
+        description: "Run red/green tests",
+        run_in_background: true,
+      }),
+      startedAt: minutesAgo(58.5),
+    }),
+  ],
+  58.5,
 );
 
 /** A Bash call in the background that says what it does, behind a `cd` prefix. */
@@ -94,6 +110,53 @@ const child = (id: string, title: string, minutes: number, running: boolean, doi
     ...(doing && { doing }),
   });
 
+/** The subagents a Codex chat's records fold into, as acpmux wrote them for Leo's chat (2026-10-22):
+ *  the child needs_you_review reported the chat's own thread as running under its own session, and
+ *  every later record of the chat came tagged with the chat's id. The fold reads them by lineage. */
+function codexLineage(): Subagent[] {
+  const chatId = "01a1658b-c32f-72b1-ab04-d5444235a91c";
+  const review = "01a16655-c696-7982-9c38-9ededd986f9b";
+  const priorArt = "01a16656-bb2d-7513-b459-4a893451d37a";
+  const fold = new SubagentFold();
+  // The chat's own thread, as its summary names it.
+  fold.chat = chatId;
+  let seq = 0;
+  const feed = (minutes: number, sessionId: string, update: any, acpmux: Record<string, unknown>) => {
+    seq += 1;
+    const msg = { method: "session/update", params: { sessionId, update, _meta: { acpmux } } };
+    fold.reduce({ seq, at: minutesAgo(minutes), msg }, update);
+  };
+  const say = { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Starting the reviews." } };
+  feed(22.5, chatId, say, {});
+  feed(
+    22.2,
+    chatId,
+    { sessionUpdate: "subagent_spawned", subagentSessionId: review },
+    {
+      subagents: [{ id: review, parent: null, name: "needs_you_review", task: "needs_you_review", state: "running" }],
+    },
+  );
+  feed(
+    21.97,
+    review,
+    { sessionUpdate: "subagent_state_update", subagentSessionId: chatId, state: "running" },
+    {
+      subagent: review,
+      subagents: [{ id: chatId, parent: review, state: "running" }],
+    },
+  );
+  feed(
+    21.2,
+    chatId,
+    { sessionUpdate: "subagent_spawned", subagentSessionId: priorArt },
+    {
+      subagent: chatId,
+      subagents: [{ id: priorArt, parent: chatId, name: "needs_you_prior_art", task: "needs_you_prior_art" }],
+    },
+  );
+  return fold.all().map((agent) => ({ ...agent, action: agent.parent === null ? "git show --stat" : "Edit 2 files" }));
+}
+
 /** Waits for the tray's `count` lines, and checks no group card is left in the transcript. */
 const trayLines = (count: number) => async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === count);
@@ -101,6 +164,13 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
     throw new Error("a running subagent must not draw a transcript card");
   if (ctx.document.querySelector(".acpmux-agents-pill"))
     throw new Error("the tray is the agents chip; no pill beside it");
+};
+
+/** A finished turn folds its work, each subagent's line with it (turns.ts `foldSegments`): open the
+ * turn's Worked for, then wait for what the state shows. */
+const openFold = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
+  await ctx.click({ selector: ".cv-worked" });
 };
 
 export default agentPaneEntry({
@@ -128,6 +198,15 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "one-command": {
+      note: "One background command: its line says Command before it, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        if (ctx.document.querySelector(".acpmux-agent-line__kind")?.textContent !== "Command")
+          throw new Error("a command's line says Command first");
+      },
+      snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The one that ended left its line in the transcript.",
@@ -243,6 +322,23 @@ export default agentPaneEntry({
         };
       })(),
     },
+    "codex-lineage": {
+      note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")];
+        if (names.some((name) => /^[0-9a-f]{8}-/.test(name.textContent ?? "")))
+          throw new Error("the chat is not one of its own subagents");
+      },
+      snapshot: chat(
+        [
+          user("Review the Needs you work and find prior art", 22.6),
+          group(codexLineage(), 22.2),
+          assistant("Two reviewers are on it.", 21),
+        ],
+        { isWorking: true, harness: "codex" },
+      ),
+    },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",
       play: async (ctx) => {
@@ -264,8 +360,9 @@ export default agentPaneEntry({
       ),
     },
     "finished-line": {
-      note: "A finished turn: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
+      note: "A finished turn, its Worked for opened: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 2);
         if (ctx.document.querySelector(".acpmux-running-tray")) throw new Error("nothing runs: no tray");
       },
@@ -285,6 +382,7 @@ export default agentPaneEntry({
     "failed-line": {
       note: "A subagent that failed says so in the danger color. A stopped one says why when the pane knows: the person stopped it (Stop), or a Send now interrupted its turn; one stopped for a reason the pane cannot know (another client's cancel, Claude's own TaskStop) says none rather than guess. One that did not finish offers Restart on hover.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.cv-subagent-done[data-state="failed"]'));
         const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
         if (!texts.some((text) => text.includes("stopped by you")))
@@ -319,6 +417,7 @@ export default agentPaneEntry({
     "restart-on-hover": {
       note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-restart"));
         (ctx.document.querySelector(".cv-subagent-restart") as HTMLButtonElement).focus();
       },
