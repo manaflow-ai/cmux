@@ -181,7 +181,7 @@ extension HomeChiefSettingsView {
     /// The rows' items for `snapshot`, with this harness's recent models.
     func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {
         let harness = snapshot.harness ?? snapshot.effective?.harness
-        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [])
+        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [], listed: listedHarnesses)
     }
 
     @objc func picked(_ sender: NSPopUpButton) {
