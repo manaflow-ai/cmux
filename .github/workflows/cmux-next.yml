@@ -825,7 +825,10 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # DEV is a cutting-edge app channel: if this head's daemon tree is
+          # still publishing, build the exact app head against the newest
+          # published compatible tree instead of waiting on nightly's tree.
+          CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           # A same-repository PR with its own merge tree waits (read-only, the
           # script's 90s default) for the artifacts run main's
           # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
@@ -3153,6 +3156,7 @@ jobs:
         env:
           # Published before this job starts (probe or same-tree mode): a download.
           CMUX_TUI_TREE_WAIT_SECONDS: "120"
+          CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
