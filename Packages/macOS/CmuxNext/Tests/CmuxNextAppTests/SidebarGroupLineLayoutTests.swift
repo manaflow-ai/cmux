@@ -216,7 +216,7 @@ import Testing
         try Self.withLayout(.inside) {
             let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
             let parent = SidebarGroup(id: GroupID("g-parent-only"), name: "Parent", color: .purple, workspaces: [])
-            let child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
+            var child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
                                      workspaces: [SidebarWorkspace(id: WorkspaceID("w-child"), title: "Child member")])
             child.parent = parent.id
             let list = SidebarNestedGroupAlignmentTests.list([
