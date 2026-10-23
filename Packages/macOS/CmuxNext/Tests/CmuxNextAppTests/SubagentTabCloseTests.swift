@@ -89,6 +89,9 @@ struct SubagentTabCloseTests {
             let window = try #require(controller.view.window, "the subagent's pane is in no window")
             window.orderFrontRegardless()
             defer { window.orderOut(nil) }
+            // A fixed size, whatever the host's screen: panes wide enough for a chat's tools to share
+            // their tab row (in a narrow one the chat sits under its tabs and covers no x).
+            window.setFrame(NSRect(x: 0, y: 0, width: 1600, height: 1000), display: false)
             window.contentView?.layoutSubtreeIfNeeded()
             // The chats' tools share their panes' tab rows, as a loaded chat page's do.
             for view in [tabs.existingView(chatID), tabs.existingView(key)].compactMap({ $0 }) { view.model.tabRow.report(width: 120) }
@@ -96,12 +99,17 @@ struct SubagentTabCloseTests {
             let strip = controller.view.stripView
             let point = try Self.closeButton(id, in: strip)
             // A Chromium chat page is a window above the whole window: one over the x leaves a hole there.
+            // The subagent's chat shows in that pane and shares its tab row, so its page is over the x.
+            var covering: [String] = []
             for (name, view) in [("chat", tabs.existingView(chatID)), ("subagent", tabs.existingView(key))] {
                 guard let view, let page = view.page, view.window === window, !view.isHiddenOrHasHiddenAncestor,
                       page.convert(page.bounds, to: nil).contains(point) else { continue }
+                covering.append(name)
                 #expect(page.nativeRects.contains { page.convert($0, to: nil).contains(point) },
                         "the \(name)'s page covers the x with no hole: holes \(page.nativeRects.map { page.convert($0, to: nil) }), x at \(point)")
             }
+            #expect(covering.contains("subagent"), "the subagent's chat does not share its tab row, so nothing here checks its hole: "
+                    + "window \(window.frame), pane \(controller.view.frame.size), x at \(point), \(Self.describe(services))")
             let hit = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
             #expect(hit.map { $0 === strip || $0.isDescendant(of: strip) } == true,
                     "the x is under \(hit.map { String(describing: type(of: $0)) } ?? "nothing"), not the strip: \(Self.describe(services))")
