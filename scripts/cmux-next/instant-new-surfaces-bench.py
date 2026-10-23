@@ -16,7 +16,8 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 `--browser-tabs N` first opens N browser tabs (6 per workspace, in workspaces of their own) on pages a
 local HTTP server serves, each with its own title and favicon, so every visit is a history entry with
 an icon: the New Tab page that Cmd-N and Cmd-T build then lists N open tabs and up to 40 history pages
-with favicons, as a working session does. Without it the session holds only the bench's terminals.
+with favicons, as a working session does. `--icon-px` (default 180, a touch icon's size) sets each icon's
+size: the page inlines every listed icon, so a site's full-size icon is what each create encodes and sends. Without it the session holds only the bench's terminals.
 `--browser-engine` (default chromium) picks the engine. Only Chromium tabs get these icons: a WebKit
 tab fetches its icon through BrowserFaviconLoader, which refuses loopback hosts, so with webkit the
 pages and history are there but without icons. Check `debug.cef` first (perf-lead-brief measurement
@@ -48,6 +49,7 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--budget-key-p95-ms", type=float, default=0, help="fail when a command's p95 key main-thread ms is above this (0: off)")
 parser.add_argument("--browser-tabs", type=int, default=0, help="open this many browser tabs with favicons (and history) before the bench")
 parser.add_argument("--browser-engine", choices=["chromium", "webkit"], default="chromium")
+parser.add_argument("--icon-px", type=int, default=180, help="pixel size of each --browser-tabs page's favicon (sites serve 16 to 256)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -236,12 +238,15 @@ def summary(rows):
     return out
 
 
-def png(seed):
-    """A 16x16 solid PNG whose color follows `seed`: each page gets its own favicon image."""
-    color = bytes(((seed * 67) % 256, (seed * 131) % 256, (seed * 29 + 90) % 256))
-    raw = b"".join(b"\x00" + color * 16 for _ in range(16))
+def png(seed, size):
+    """A `size` px square PNG of color blocks whose base color follows `seed`: each page gets its
+    own favicon image, at the size sites serve (`--icon-px`: a 180 px touch icon is common; a 16 px
+    one hides what a full-size icon costs every New Tab page that lists it)."""
+    r, g, b = (seed * 67) % 256, (seed * 131) % 256, (seed * 29 + 90) % 256
+    raw = b"".join(b"\x00" + b"".join(bytes(((r + x // 6 * 9) % 256, (g + y // 6 * 9) % 256, (b + ((x // 12) ^ (y // 12)) * 16) % 256)) for x in range(size))
+                   for y in range(size))
     chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
 class PageHandler(http.server.BaseHTTPRequestHandler):
@@ -256,7 +261,7 @@ class PageHandler(http.server.BaseHTTPRequestHandler):
         if match.group(1) == "p":
             body, kind = f'<!doctype html><title>Bench page {n}</title><link rel="icon" href="/icon/{n}.png"><p>page {n}'.encode(), "text/html"
         else:
-            body, kind = png(n), "image/png"
+            body, kind = png(n, opts.icon_px), "image/png"
         self.send_response(200)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
