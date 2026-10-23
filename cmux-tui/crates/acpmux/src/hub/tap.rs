@@ -62,6 +62,14 @@ fn from_the_model(msg: &Message) -> bool {
     }
 }
 
+/// A session update with what belongs to the process that sent it: Claude Code's /context
+/// breakdown, its account's usage limits.
+pub(super) fn names_the_harness_state(params: &Value) -> bool {
+    params
+        .pointer("/update/_meta/acpmux")
+        .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -72,6 +80,7 @@ impl Hub {
         let tap_hub = self.clone();
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
+        let generation = session.tap_generation.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
@@ -118,7 +127,10 @@ impl Hub {
                     // logged either: the breakdown translated from it follows.
                     let context = method == RAW_CONTROL_RESPONSE
                         && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
-                    if (method == RAW_STREAM_EVENT && !timing) || context {
+                    // What only the chat's current process may say (`tap_generation`).
+                    let stale = tap_session.tap_generation.load(Ordering::SeqCst) != generation
+                        && params.as_ref().is_some_and(names_the_harness_state);
+                    if (method == RAW_STREAM_EVENT && !timing) || context || stale {
                         // Kept nowhere: the entry counts as logged, so the host drops it.
                         tap_hub.touch(&tap_session);
                         return true;

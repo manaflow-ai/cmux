@@ -17,12 +17,8 @@ impl Hub {
                     if m == method::SESSION_UPDATE {
                         // A /context breakdown or usage limits from a process that was replaced
                         // (a failover's dying primary answering late) are not the chat's now.
-                        let meta = params.as_ref().and_then(|p| p.pointer("/update/_meta/acpmux"));
-                        let breakdown = meta.is_some_and(|m| {
-                            m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some()
-                        });
-                        if breakdown
-                            && !session.child.lock().await.as_ref().is_some_and(|c| c.pid == pid)
+                        if params.as_ref().is_some_and(super::tap::names_the_harness_state)
+                            && session.child.lock().await.as_ref().is_none_or(|c| c.pid != pid)
                         {
                             continue;
                         }
