@@ -16,26 +16,18 @@ enum DebugPaneFocus {
     static let timer = SwitchFrameTimer(owner: "debug.pane_focus")
     private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "pane-focus")
     private static var interval: OSSignpostIntervalState?
-    /// Main-thread follow-up work that ran after a move settled and before its commit, by kind
-    /// (`record_saves`, `trail_encodes`): work that can push the move's frame late.
-    private(set) static var workBeforeCommit: [String: Int] = [:]
-
-    /// Main-thread work of `kind` runs now (``DebugSwitchWork``): counted while a recorded move waits for its commit.
+    /// Main-thread work of `kind` runs now (a window record save, a trail encode): every switch timer
+    /// counts it while a recorded switch waits for its commit (`work_before_commit`).
     static func noteMainWork(_ kind: String) {
-        guard timer.isRecording, timer.awaitsCommit else { return }
-        workBeforeCommit[kind, default: 0] += 1
+        for each in [timer, DebugWorkspaceSwitch.timer, DebugTabSwitch.timer, DebugWorkspaceSwitch.inputCommit.timer] { each.noteWork(kind) }
     }
 
     /// `debug.pane_focus`: the timer's moves, plus `work_before_commit` (reset by `start`).
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        if params["action"]?.stringValue == "start" {
-            workBeforeCommit = [:]
-            #if DEBUG
-            DebugChromiumRestorableState.reset()
-            #endif
-        }
+        #if DEBUG
+        if params["action"]?.stringValue == "start" { DebugChromiumRestorableState.reset() }
+        #endif
         guard case .object(var object) = timer.handle(params, key: "moves") else { return .null }
-        object["work_before_commit"] = .object(workBeforeCommit.mapValues { .number(Double($0)) })
         #if DEBUG
         // Chromium page windows' restorable-state encodes since `start` (WindowServer round trips).
         object["chromium_restorable_encodes"] = .number(Double(DebugChromiumRestorableState.encodes))
@@ -47,8 +39,7 @@ enum DebugPaneFocus {
     static func began(_ coordinator: FocusCoordinator) {
         if signposter.isEnabled, interval == nil { interval = signposter.beginInterval("move") }
         guard timer.isRecording, !timer.isWaiting(ObjectIdentifier(coordinator)) else { return }
-        let event = (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent : nil
-        timer.began(ObjectIdentifier(coordinator), inputTimestamp: event?.timestamp)
+        timer.began(ObjectIdentifier(coordinator), inputTimestamp: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent?.timestamp : nil)
     }
 
     static func mark(_ coordinator: FocusCoordinator, _ stage: String) {

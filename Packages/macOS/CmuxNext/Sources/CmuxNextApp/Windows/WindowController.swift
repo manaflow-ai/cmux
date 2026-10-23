@@ -291,11 +291,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Takes the theme of the window's room once per room (`ThemeCoordinator.windowDidChange`): a space switch applies
     /// it in its own turn, and the room observer then finds it applied.
-    func applyRoomTheme() {
-        guard themedRoom != state.profileID else { return }
-        themedRoom = state.profileID
-        services.themes.windowDidChange(self)
-    }
+    func applyRoomTheme() { if themedRoom != state.profileID { themedRoom = state.profileID; services.themes.windowDidChange(self) } }
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
