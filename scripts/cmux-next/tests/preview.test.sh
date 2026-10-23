@@ -72,8 +72,8 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 port=$(cat "$port_file")
-echo "INDEX_URL=http://127.0.0.1:$port/"
 if [[ "${TMP_FAKE_WEB_PUBLISH_GALLERY:-0}" == 1 ]]; then echo "GALLERY_URL=http://127.0.0.1:$port/"; fi
+echo "INDEX_URL=http://127.0.0.1:$port/"
 wait "$server_pid"
 FAKE
 chmod +x "$TMP/fake-web.sh"
