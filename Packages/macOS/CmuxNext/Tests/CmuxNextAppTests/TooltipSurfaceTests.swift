@@ -61,8 +61,8 @@ import Testing
     /// that kept its text at 4.5:1 and fell back to the solid popup surface, an opaque card. A
     /// theme whose text does not read on its own tint walks the tint away from the text (then the
     /// text toward its extreme), so the tooltip stays glass and the text keeps 4.5:1 over pure
-    /// black and pure white; the colors the review named, and fills and inks with next to no
-    /// contrast, included.
+    /// black and pure white, and 4.5:1 over the opaque fill Reduce Transparency draws; the colors
+    /// the reviews named, and fills and inks with next to no contrast, included.
     @Test func aLowContrastThemesTooltipIsStillGlassAndReads() {
         let solarized = ThemeInput(background: ThemeRGB(hex: 0x002B36), foreground: ThemeRGB(hex: 0x839496))
         let tokens = ThemeTokens.derive(from: solarized)
@@ -85,7 +85,17 @@ import Testing
                 let contrast = surface.ink.contrast(with: surface.tint.composited(over: backdrop))
                 #expect(contrast >= ThemeTokens.minimumTextContrast, "\(name) over \(backdrop): \(contrast)")
             }
+            // Reduce Transparency draws the same ink over the opaque fill (Codex review of #23970:
+            // #839496 over #0A333E kept the theme's ink and read 4.27:1 there).
+            let opaque = surface.ink.contrast(with: surface.fill)
+            #expect(opaque >= ThemeTokens.minimumTextContrast, "\(name) opaque: \(opaque)")
+            let page = WebTheme.cssRounded(surface.ink).contrast(with: WebTheme.cssRounded(surface.fill))
+            #expect(page >= ThemeTokens.minimumTextContrast, "\(name) opaque page: \(page)")
         }
+        // That pair's ink moves toward white, never darker, and its fill is untouched.
+        let review = TooltipSurface(fill: ThemeRGB(hex: 0x0A333E), ink: ThemeRGB(hex: 0x839496))
+        #expect(review.fill == ThemeRGB(hex: 0x0A333E))
+        #expect(review.ink != ThemeRGB(hex: 0x839496) && review.ink.relativeLuminance > ThemeRGB(hex: 0x839496).relativeLuminance)
     }
 
     /// Pages get the same tint (`--cmux-tooltip-tint`).

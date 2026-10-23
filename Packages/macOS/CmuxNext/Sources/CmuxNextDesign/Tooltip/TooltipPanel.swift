@@ -92,7 +92,9 @@ final class TooltipPanel: NSPanel {
         surface.addSubview(glass)
         legibility.wantsLayer = true
         legibility.translatesAutoresizingMaskIntoConstraints = true
-        legibility.autoresizingMask = [.width, .height]
+        // Sized by `show` alone: the Liquid Glass lays its contentView out by constraints, later, and
+        // a mask would add that growth on top of the frame `show` set (fleet run: twice the surface).
+        legibility.autoresizingMask = []
         legibility.layer?.cornerRadius = Self.radius
         legibility.layer?.cornerCurve = .continuous
         legibility.layer?.masksToBounds = true

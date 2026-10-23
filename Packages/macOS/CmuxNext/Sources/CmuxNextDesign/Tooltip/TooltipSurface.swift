@@ -35,9 +35,9 @@ public nonisolated struct TooltipSurface: Hashable, Sendable {
 
     /// The opaque popup surface: the whole surface under Reduce Transparency.
     public var fill: ThemeRGB
-    /// The text color the surface carries: the theme's, unless no tint up to `maximumTintAlpha`
-    /// reads under it (then walked toward its extreme until one does). It keeps 4.5:1 over `fill`
-    /// too whenever the theme's own text does.
+    /// The text color the surface carries: the theme's, unless it misses 4.5:1 over `fill` (the
+    /// Reduce Transparency surface) or no tint up to `maximumTintAlpha` reads under it; then walked
+    /// toward its extreme until both hold.
     public var ink: ThemeRGB
     /// The glass's tint: translucent, at most `maximumTintAlpha`, and `ink` keeps 4.5:1 over it
     /// laid on any backdrop.
@@ -55,24 +55,38 @@ public nonisolated struct TooltipSurface: Hashable, Sendable {
         self.init(fill: tokens.opaqueOverlayFill(lift: lift), ink: tokens.textPrimary)
     }
 
-    /// The ink and the tint for `fill` and `ink`: `fill` at `tintAlpha` when it has one. Else the
-    /// tint's color is walked away from the ink (toward black under light ink, white under dark),
-    /// in 1% steps, until it has one; at that extreme, the ink is walked toward its own (white or
-    /// black). White ink over black (or the reverse) reads at `minimumTintAlpha` over any
-    /// backdrop, so the walk always ends on a translucent tint.
+    /// The ink and the tint for `fill` and `ink`. The ink must keep 4.5:1 over `fill` itself, the
+    /// opaque surface Reduce Transparency draws under the same ink (Codex review of #23970: #839496
+    /// over #0A333E read 4.27:1 there), so an ink that misses is first walked toward its own extreme
+    /// (white or black), in 1% steps, until it reads. The tint is then `fill` at `tintAlpha` when it
+    /// has one; else its color is walked away from the ink until it has one; at that extreme, the
+    /// ink is walked further toward its own. A fill no walked ink reads on (mid grey under white)
+    /// takes the extreme ink that reads best on it over the opposite extreme's tint, which reads at
+    /// `minimumTintAlpha` over any backdrop, so the result is always translucent.
     public static func legible(fill: ThemeRGB, ink: ThemeRGB) -> (ink: ThemeRGB, tint: ThemeRGB) {
         let lightInk = ink.relativeLuminance >= fill.relativeLuminance
         let away: ThemeRGB = lightInk ? .black : .white
         let inkPole: ThemeRGB = lightInk ? .white : .black
-        for step in 0...100 {
-            let color = fill.mixed(toward: away, Double(step) / 100)
-            if let alpha = tintAlpha(fill: color, ink: ink) { return (ink, color.withAlpha(alpha)) }
+        let opaque = (0...100).lazy.map { ink.mixed(toward: inkPole, Double($0) / 100) }.first { reads($0, over: fill) }
+        if let ink = opaque {
+            for step in 0...100 {
+                let color = fill.mixed(toward: away, Double(step) / 100)
+                if let alpha = tintAlpha(fill: color, ink: ink) { return (ink, color.withAlpha(alpha)) }
+            }
+            for step in 1...100 {
+                let moved = ink.mixed(toward: inkPole, Double(step) / 100)
+                if let alpha = tintAlpha(fill: away, ink: moved) { return (moved, away.withAlpha(alpha)) }
+            }
         }
-        for step in 1...100 {
-            let moved = ink.mixed(toward: inkPole, Double(step) / 100)
-            if let alpha = tintAlpha(fill: away, ink: moved) { return (moved, away.withAlpha(alpha)) }
-        }
-        return (inkPole, away.withAlpha(minimumTintAlpha))
+        let pole: ThemeRGB = ThemeRGB.white.contrast(with: fill) >= ThemeRGB.black.contrast(with: fill) ? .white : .black
+        let under: ThemeRGB = pole == .white ? .black : .white
+        return (pole, under.withAlpha(tintAlpha(fill: under, ink: pole) ?? minimumTintAlpha))
+    }
+
+    /// `ink` keeps 4.5:1 over the opaque `fill`, as drawn and as rounded for pages.
+    static func reads(_ ink: ThemeRGB, over fill: ThemeRGB) -> Bool {
+        min(ink.contrast(with: fill), WebTheme.cssRounded(ink).contrast(with: WebTheme.cssRounded(fill)))
+            >= ThemeTokens.minimumTextContrast
     }
 
     /// The least alpha from `minimumTintAlpha` to `maximumTintAlpha` (in 1% steps) at which `ink`
