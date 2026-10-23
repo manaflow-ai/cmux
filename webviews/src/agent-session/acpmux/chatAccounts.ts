@@ -6,7 +6,14 @@ export type ChatAccount = { id: string; name: string; kind?: string };
 
 /// A chat's accounts. `active` is the route bound to it and `scope` where that binding comes from
 /// (`chat`, `workspace`, `family`, `global`); no `active` means the harness's own login.
-export type ChatAccountList = { accounts: ChatAccount[]; active?: string; scope?: string };
+export type ChatAccountList = {
+  accounts: ChatAccount[];
+  active?: string;
+  scope?: string;
+  /// The reply carried no route list (an error or a shape this pane does not know): no routes known,
+  /// which is not the same as none.
+  unread?: true;
+};
 
 /// The composer's Account menu reads and switches a chat's route through these. Only a pane on
 /// this Mac's acpmux has them: acpmux refuses routes to Web and peer connections.
@@ -36,7 +43,12 @@ export function codeRouterOffer(list: ChatAccountList): ChatAccount | "on" | und
 /// A failed turn's CodeRouter action for `sessionId` (turnActions.ts `ownRoute`): what its routes
 /// offer, and the move onto one, as the composer's Account menu moves it.
 export const ownRouteOf = (accounts: ChatAccounts, sessionId: string) => ({
-  find: () => accounts.list(sessionId).then(codeRouterOffer),
+  // Routes this pane could not read offer nothing, rather than CodeRouter's setup.
+  find: () =>
+    accounts.list(sessionId).then((list) => {
+      if (list.unread) throw new Error("acpmux.routesUnread");
+      return codeRouterOffer(list);
+    }),
   use: (routeId: string) => accounts.set(sessionId, routeId),
 });
 
@@ -59,5 +71,10 @@ export function readChatAccounts(reply: unknown): ChatAccountList {
   }
   const active = typeof raw.active?.routeId === "string" ? raw.active.routeId : undefined;
   const scope = typeof raw.active?.scope === "string" ? raw.active.scope : undefined;
-  return { accounts, ...(active ? { active } : {}), ...(scope ? { scope } : {}) };
+  return {
+    accounts,
+    ...(active ? { active } : {}),
+    ...(scope ? { scope } : {}),
+    ...(Array.isArray(raw.routes) ? {} : { unread: true as const }),
+  };
 }

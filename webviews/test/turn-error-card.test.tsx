@@ -6,7 +6,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../src/agent-session/acpmux/failureCopy";
-import { codeRouterOffer } from "../src/agent-session/acpmux/chatAccounts";
+import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 const t = translatorFor("en");
@@ -278,27 +278,53 @@ test("no CodeRouter route serves the chat: the action opens the CodeRouter docs"
 });
 
 test("a chat on CodeRouter already, or one whose routes the pane cannot read, shows no CodeRouter action", async () => {
-  await renderOffer("invalid x-api-key", "on");
-  expect(actionLabels()).toEqual(["Switch model"]);
+  await renderOffer("invalid x-api-key", "on", { retry: () => undefined });
+  expect(actionLabels()).toEqual(["Switch model", "Retry"]);
   await act(async () =>
     root.render(
-      <TurnActionsContext.Provider value={{ switchModel: () => undefined }}>
+      <TurnActionsContext.Provider value={{ switchModel: () => undefined, retry: () => undefined }}>
         <TurnFooter row={failed("invalid x-api-key")} />
       </TurnActionsContext.Provider>,
     ),
   );
-  expect(actionLabels()).toEqual(["Switch model"]);
+  expect(actionLabels()).toEqual(["Switch model", "Retry"]);
 });
 
 test("a failure CodeRouter does not fix offers no CodeRouter action", async () => {
-  await renderOffer("agent process closed", cr);
+  await renderOffer("agent process closed", cr, { retry: () => undefined });
   expect(actionLabels()).not.toContain("Use cmux CodeRouter");
 });
 
 test("CodeRouter alone takes the filled button; a refused move says so", async () => {
-  await renderOffer("invalid x-api-key", cr, { switchModel: false, use: async () => Promise.reject(new Error("no")) });
+  // A sign-in failure offers no Retry, so with no Switch model CodeRouter is the one way out.
+  await renderOffer("Invalid API key · Please run /login", cr, {
+    switchModel: false,
+    retry: () => undefined,
+    use: async () => Promise.reject(new Error("no")),
+  });
   expect(actionLabels()).toEqual(["Use cmux CodeRouter"]);
   expect(button("Use cmux CodeRouter")!.classList.contains("cv-turn-error__primary")).toBe(true);
   await act(async () => button("Use cmux CodeRouter")!.click());
   expect(actionLabels()).toEqual(["CodeRouter couldn't take this chat"]);
+});
+
+test("a turn that cannot be sent again offers no move onto CodeRouter, which would change nothing on the card", async () => {
+  await renderOffer("invalid x-api-key", cr);
+  expect(actionLabels()).toEqual(["Switch model"]);
+  // The docs link does not depend on sending the turn again.
+  await renderOffer("invalid x-api-key", undefined);
+  expect(actionLabels()).toEqual(["Switch model", "Set up cmux CodeRouter"]);
+});
+
+test("routes the pane could not read offer nothing, not CodeRouter's setup", async () => {
+  expect(readChatAccounts({ routes: [] }).unread).toBeUndefined();
+  expect(readChatAccounts({ error: "nope" }).unread).toBe(true);
+  expect(readChatAccounts(undefined).unread).toBe(true);
+  const accountsOf = (reply: unknown) => ({
+    list: async () => readChatAccounts(reply),
+    set: async () => undefined,
+  });
+  expect(await ownRouteOf(accountsOf({ routes: [] }), "s1").find()).toBeUndefined();
+  expect(await ownRouteOf(accountsOf({ routes: [cr] }), "s1").find()).toEqual(cr);
+  await expect(ownRouteOf(accountsOf({ error: "nope" }), "s1").find()).rejects.toThrow("acpmux.routesUnread");
 });

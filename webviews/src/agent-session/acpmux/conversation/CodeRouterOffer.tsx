@@ -18,8 +18,13 @@ export const CODEROUTER_DOCS = "https://cmux.com/docs/coderouter";
 export type CodeRouterChoice = { kind: "use"; account: ChatAccount } | { kind: "setup" };
 
 /// What the failed turn offers of CodeRouter, once the chat's routes are read: undefined while
-/// reading, when the kind does not call for it, or when there is nothing to offer.
-export function useCodeRouterChoice(kind: FailureKind, route: FailureRoute | undefined): CodeRouterChoice | undefined {
+/// reading, when the kind does not call for it, or when there is nothing to offer. Moving the chat
+/// needs `canResend` (the turn can be sent again): a move alone would leave the card as it was.
+export function useCodeRouterChoice(
+  kind: FailureKind,
+  route: FailureRoute | undefined,
+  canResend: boolean,
+): CodeRouterChoice | undefined {
   const { ownRoute } = useContext(TurnActionsContext);
   const wanted = Boolean(ownRoute) && offersOwnRoute(kind, route);
   const [choice, setChoice] = useState<CodeRouterChoice | undefined>(undefined);
@@ -42,7 +47,7 @@ export function useCodeRouterChoice(kind: FailureKind, route: FailureRoute | und
       live = false;
     };
   }, [wanted, ownRoute]);
-  return choice;
+  return choice?.kind === "use" && !canResend ? undefined : choice;
 }
 
 /// The action itself: a button, or a link to the docs when there is no route to move to. `className`

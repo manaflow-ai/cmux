@@ -368,7 +368,7 @@ function TurnFailure({
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
   // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
   // only way out; the card keeps exactly one.
-  const codeRouter = useCodeRouterChoice(kind, route);
+  const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
   const offerArm = experimentArm(codeRouterOffer);
   const offerLeads = codeRouter !== undefined && offerArm === "primary";
   const offerFilled =
