@@ -20,8 +20,8 @@ public final class DividerMouseCatchers {
     private var panels: [String: DividerMousePanel] = [:]
     /// Called with (divider id, hovered) for the divider's hover line.
     public var onHover: ((String, Bool) -> Void)?
-    /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
-    /// server move, so a bench counts them over an action.
+    /// Panel frame changes since launch (`debug.layers`): each is a window server move (a new
+    /// panel's first placement counts once), so a bench counts them over an action.
     public private(set) var panelUpdates = 0
 
     public init(window: NSWindow) {
@@ -58,7 +58,6 @@ public final class DividerMouseCatchers {
             panels[id] = nil
         }
         for area in wanted {
-            if panels[area.id] == nil { panelUpdates += 1 }
             let panel = panels[area.id] ?? makePanel(id: area.id)
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns

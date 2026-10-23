@@ -24,10 +24,17 @@ import Testing
         let root: LayoutRootView
         let provider = Panes()
 
-        init() {
+        /// Two side-by-side columns, the right one split in two (`columns: true`), else one column split in two.
+        static func columns(rightRatio: Double) -> [LayoutColumn] {
+            [LayoutColumn(id: "l", width: 0.5, root: .leaf("a")),
+             LayoutColumn(id: "r", width: 0.5, root: .split("t", axis: .horizontal, ratio: rightRatio, a: .leaf("b"), b: .leaf("c")))]
+        }
+
+        init(columns: Bool = false) {
             _ = NSApplication.shared
             let column = LayoutColumn(id: "c", width: 1, root: .split("s", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b")))
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))], activeScreenID: "s", focusedPane: "a")
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns ? Self.columns(rightRatio: 0.5) : [column]))],
+                                activeScreenID: "s", focusedPane: "a")
             model.followsDesignMetrics = false
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -99,7 +106,7 @@ import Testing
 
     /// Review 1 (finding 3): during a spring the catchers keep their rest places, where the dividers
     /// no longer are; a click there must reach whatever is under it (a page), not a stale catcher.
-    /// The window's frozen areas are pass-through until the landing.
+    /// The held areas whose divider moved are pass-through until the landing.
     @Test func catchersAtRestPlacesLetTheMouseThroughDuringTheSpring() throws {
         let layout = Layout()
         defer { layout.window.close() }
@@ -109,10 +116,69 @@ import Testing
         layout.root.syncWithModel()
         layout.root.advanceFrame(1.0 / 120)
         try #require(layout.root.isInLayoutMotion)
-        let frozen = Set(layout.window.overlayLayer.catcherAreas.map(\.id))
-        #expect(!frozen.isEmpty && layout.window.overlayLayer.catcherPassThrough == frozen, "every frozen area passes the mouse")
+        // The split's divider moves away from its held place; the column's right edge stays.
+        let passing = layout.window.overlayLayer.catcherPassThrough
+        #expect(passing.contains("split:s"), "the moving divider's held catcher passes the mouse: \(passing)")
+        #expect(!passing.contains("column:c"), "the still column edge keeps its catcher: \(passing)")
         layout.settle()
         #expect(layout.window.overlayLayer.catcherPassThrough.isEmpty, "at rest the catchers take the mouse again")
+    }
+
+    /// Review 2 (finding 1): a divider that does not move keeps taking the mouse while another part of
+    /// the layout springs (a re-grab right after a drag's release spring, a still divider beside a
+    /// springing column): only areas whose divider moved away pass the mouse through.
+    @Test func anUnmovedDividerKeepsItsCatcherDuringAnotherSpring() throws {
+        let layout = Layout(columns: true)
+        defer { layout.window.close() }
+        let still = try #require(layout.window.overlayLayer.catcherAreas.first { $0.id == "column:l" }, "\(layout.window.overlayLayer.catcherAreas.map(\.id))")
+        // The right column's own split moves; the column edge between the columns stays.
+        layout.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(Layout.columns(rightRatio: 0.25)))])
+        layout.root.syncWithModel()
+        layout.root.advanceFrame(1.0 / 120)
+        try #require(layout.root.isInLayoutMotion)
+        let passing = layout.window.overlayLayer.catcherPassThrough
+        #expect(!passing.isEmpty, "the moving divider's catcher passes the mouse")
+        #expect(!passing.contains(still.id), "the still divider \(still.id) keeps its catcher: \(passing)")
+    }
+
+    /// Review 2 (finding 3): with a page window over the layout the catcher panels are live; none moves
+    /// or is made during a split's spring, and the landing moves them once.
+    @Test func noCatcherPanelMovesDuringASplitOverAPageWindow() throws {
+        let layout = Layout()
+        let page = NSWindow(contentRect: CGRect(x: 40, y: 40, width: 1100, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        layout.window.orderFront(nil)
+        layout.window.addChildWindow(page, ordered: .above)
+        page.orderFront(nil)
+        defer {
+            layout.window.removeChildWindow(page)
+            page.close()
+            layout.window.close()
+        }
+        layout.window.overlayLayer.evaluate()
+        try #require(layout.window.overlayLayer.placement == .overlayWindow, "a page window that draws gets the catchers")
+        try #require(!layout.window.overlayLayer.catchers.coveredAreaIDs.isEmpty, "the divider has its catcher panel")
+        let column = LayoutColumn(id: "c", width: 1, root: .split("s", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("a"),
+                                                                    b: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("c"))))
+        layout.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))])
+        layout.root.syncWithModel()
+        let start = layout.window.overlayLayer.catchers.panelUpdates
+        var frames = 0
+        while frames < 480, layout.root.advanceFrame(1.0 / 120) {
+            frames += 1
+            if layout.root.isInLayoutMotion {
+                #expect(layout.window.overlayLayer.catchers.panelUpdates == start, "frame \(frames): a catcher panel moved during the spring")
+            }
+        }
+        // At rest every divider's catcher covers it.
+        let layer = layout.window.overlayLayer
+        let covered = layer.catchers.framesInWindow
+        let wanted = Dictionary(layer.catcherAreas.map { ($0.id, $0.rect) }, uniquingKeysWith: { first, _ in first })
+        #expect(Set(covered.keys) == Set(wanted.keys), "catchers \(covered) vs areas \(wanted) (moves \(layer.catchers.panelUpdates - start))")
+        for (id, rect) in wanted {
+            let frame = covered[id] ?? .null
+            #expect(abs(frame.minX - rect.minX) < 1 && abs(frame.width - rect.width) < 1, "\(id): catcher \(frame), area \(rect)")
+        }
     }
 }
 

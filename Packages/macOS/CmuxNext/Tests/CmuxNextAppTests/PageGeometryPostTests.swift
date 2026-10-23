@@ -122,4 +122,15 @@ import Testing
         pages.forkReads()
         #expect(pages.posts { pages.requestPageUpdate(force: true) } == 2)
     }
+
+    /// Review 2: an ancestor that clips narrowing over one page moves no frame and changes only that
+    /// page's visible rect; the fork re-clips that page alone.
+    @Test func aVisibleRectChangeAloneReachesOnlyThatPage() {
+        let pages = TwoPages()
+        pages.stage.clipsToBounds = true
+        pages.forkReads()
+        pages.stage.setFrameSize(CGSize(width: 700, height: 500))
+        #expect(pages.posts { pages.requestPageUpdate() } == 1, "only the right page lost part of its visible rect")
+    }
 }
+
