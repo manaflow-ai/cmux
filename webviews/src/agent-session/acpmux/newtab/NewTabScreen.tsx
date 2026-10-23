@@ -1141,8 +1141,9 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && <div className="nt-above">{folderStrip}</div>}
+        {/* Above the box: the project strip (Cards draws it under the field). Claude's look with the
+            split draws it in its one row under the box instead (below). */}
+        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1218,10 +1219,13 @@ export function NewTabScreen(props: Props) {
           {!pill && pickers}
         </div>
         {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
-            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+            a quiet row under the box; the box keeps the prompt, the mic and Send. Claude's look is
+            one row, as Claude Code desktop's (Leo 2026-10-23: "the claw thing should be one single
+            row"): the folder and the computer lead it, nothing sits over the box (screen.css). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
+              {folderStrip}
               <SpeedToggleHost.Provider value={setSpeed}>
                 <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
               </SpeedToggleHost.Provider>

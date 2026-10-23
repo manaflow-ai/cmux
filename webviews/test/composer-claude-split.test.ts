@@ -75,6 +75,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     plus: boolean;
     /** Whether Send draws with an empty draft (the chat's waits for a draft; the New Tab page's always draws). */
     sendAtRest: boolean;
+    /** Whether the row starts with the location strip (New Tabs one row in Claudes look). */
+    strip?: boolean;
   };
   const COMPOSERS: Stage[] = [
     {
@@ -96,6 +98,9 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       // The New Tab page has no + button (it takes pastes and drops): its box has no +.
       plus: false,
       sendAtRest: true,
+      // Claude's look on New Tab is one row (Leo 2026-10-23: "the claw thing should be one single
+      // row"): the folder and the computer lead it, then the harness.
+      strip: true,
     },
   ];
 
@@ -161,6 +166,9 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             effort: !!card.querySelector(".acpmux-effort, .acpmux-model-detail"),
             mode: !!card.querySelector(".acpmux-access"),
           },
+          // New Tab's one row starts with its folder (NewTabScreen.tsx); its strip ends before the harness.
+          folder: rect(root.querySelector(".acpmux-composer-foot .acpmux-composer-strip .acpmux-location-button")),
+          strip: rect(root.querySelector(".acpmux-composer-foot .acpmux-composer-strip")),
           // The row starts with the harness's mark and name (ComposerHarness.tsx, Leo 2026-10-21).
           harnessMark: rect(root.querySelector(".acpmux-composer-foot .acpmux-foot-harness .agent-mark")),
           harness: text(root.querySelector(".acpmux-composer-foot .acpmux-foot-harness-name")),
@@ -213,12 +221,23 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         // Claude Code's footer starts with its project; its name after it; then the mode, its symbol
         // and its name. A New Tab page before its chat starts may have no mode yet; the model button
         // stays right.
-        expect(at.harnessMark, "the row starts with the harness's mark").not.toBeNull();
+        // On New Tab the folder takes that place and the harness follows the strip.
+        expect(at.harnessMark, "the row draws the harness's mark").not.toBeNull();
         expect(at.harnessMark!.left, "the harness's mark inside the box").toBeGreaterThanOrEqual(at.box.left);
+        const lead = stage.strip ? at.folder : at.harnessMark;
         expect(
-          at.harnessMark!.left - at.box.left,
-          "the harness's mark a chip's inset from the box's edge",
+          lead,
+          stage.strip ? "the row starts with the folder" : "the row starts with the harness's mark",
+        ).not.toBeNull();
+        expect(lead!.left, "the row's first control inside the box").toBeGreaterThanOrEqual(at.box.left - 0.5);
+        expect(
+          lead!.left - at.box.left,
+          "the row's first control a chip's inset from the box's edge",
         ).toBeLessThanOrEqual(10);
+        if (stage.strip) {
+          expect(at.strip, "the folder and the computer lead the row").not.toBeNull();
+          expect(at.harnessMark!.left, "the harness follows the strip").toBeGreaterThanOrEqual(at.strip!.right - 0.5);
+        }
         expect(at.harness, "the harness names itself").not.toBeNull();
         expect(at.harness!.left, "the harness's name follows its mark").toBeGreaterThan(at.harnessMark!.right);
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();

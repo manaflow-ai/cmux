@@ -133,11 +133,15 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 120_000,
       });
-      await page.locator(".nt-style").waitFor();
+      // The page draws two dot groups at its foot (the template dots and the look dots), so wait
+      // for the first and measure the highest of them.
+      await page.locator(".nt-style").first().waitFor();
       await page.locator(".acpmux-composer-foot button:visible").first().waitFor();
       const drawn = await page.evaluate(() => ({
         foot: document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect().bottom,
-        dots: document.querySelector(".nt-style-options, .nt-style")!.getBoundingClientRect().top,
+        dots: Math.min(
+          ...[...document.querySelectorAll(".nt-style")].map((group) => group.getBoundingClientRect().top),
+        ),
       }));
       await page.close();
       expect(drawn.foot, "the row ends over the dots").toBeLessThanOrEqual(drawn.dots + 0.5);

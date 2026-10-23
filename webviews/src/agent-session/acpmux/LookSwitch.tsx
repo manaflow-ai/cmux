@@ -1,8 +1,9 @@
 // The composer's look dots in a chat (Leo 2026-10-22: "when you're in a chat you can also switch the
 // dots if you hover on that bottom area"): the New Tab page's first two dots (newtab/PageDots.tsx),
-// Claude's look then Codex's (composerLook.ts), in the composer's bottom area. With Claude's look
-// they sit in the quiet row's empty middle, with Codex's in the band under the box; either way they
-// show while the pointer is over that area or a dot has the keyboard, and fade when it leaves
+// Claude's look then Codex's (composerLook.ts), in the composer's bottom area: out of the flow on its
+// bottom edge, in the gutter under the quiet row or the box, the same place in both looks (Leo 2026-10-23: "the dot switches thing,
+// like it should just be, like in the same kind of spot"). They show while the pointer is over the quiet row
+// or the band or a dot has the keyboard, and fade when it leaves
 // (composerLook.css `.acpmux-look-dots`). ComposerBox keeps one LookSwitch across a look change, so
 // arrow keys go on switching and Escape goes back to the prompt.
 import { COMPOSER_LOOK_NAMES, COMPOSER_LOOKS, setComposerLook, useComposerLook } from "./composerLook";

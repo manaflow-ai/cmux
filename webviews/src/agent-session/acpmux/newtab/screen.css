@@ -124,6 +124,35 @@
   background: none;
   box-shadow: none;
 }
+/* Claude's look is one row under the box, as Claude Code desktop's (Leo 2026-10-23: "the claw thing
+   should be one single row"; NewTabScreen.tsx): the folder and the computer first, then the mode,
+   the model and effort at the right end, nothing over the box. Here the strip is the row's first
+   item, as wide as its controls, plain text with no strip of its own under any top strip variant;
+   it gives way first as the row narrows (its folder cuts in the middle), then the chips step down
+   (composerRowFit.ts). */
+:root .nt-screen .nt-composer .nt-foot .acpmux-composer-strip {
+  order: -2;
+  flex: 0 1 auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  container-type: normal;
+}
+.nt-foot .acpmux-composer-strip::after {
+  content: none;
+}
+.nt-foot .acpmux-composer-context,
+.nt-foot .acpmux-composer-context > .acpmux-location-leading {
+  flex: 0 1 auto;
+  padding: 0;
+}
+/* Before the agent has a mode, the strip itself holds the model at the right end. */
+:root .nt-screen .nt-composer .nt-foot .acpmux-composer-foot:not(:has(.acpmux-access)) .acpmux-composer-strip {
+  margin-inline-end: auto;
+}
 /* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
    browser tab and New chat read as buttons, not as text (Lucas #21133). */
 .nt-screen .nt-create {
@@ -541,11 +570,13 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding-bottom: 16px;
 }
 /* With Claude Code's split the quiet row ends the page, a few px over its bottom edge as in the chat
-   pane (the row's own margin, composerLocation.css): the page adds no band under it. The template
-   dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
-   tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
+   pane (the row's own margin, composerLocation.css): the page adds no band under it. The look dots
+   sit in that margin (composerLook.css .nt-page-dots). The style dots (a widget, off by default,
+   App.tsx) sit beside them at the page's foot, 24 px tall: with them on, the page keeps their
+   room, 24 px under the composer's last part (the row's 8 px margin plus 16, or the box). */
 .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 0; }
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 22px; }
+.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"] { padding-bottom: 24px; }
+.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 16px; }
 .nt-screen[data-layout="stage"] .nt-stage {
   flex: 1;
   min-height: 0;

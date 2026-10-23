@@ -196,7 +196,8 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   // acpmux lists no harness (a Mac with no agent CLI): the chips' fallback is the model catalog's
   // first harness, which is not installed, so the row must not name it (Codex review, 2026-10-23).
   // Nor a mode: there is nothing to set one for, and its "Mode" placeholder (#24517) would be the
-  // fallback harness's too.
+  // fallback harness's too. On New Tab in Claude's look the row is one row (Leo 2026-10-23: "the claw
+  // thing should be one single row"): the folder and the computer lead it, then Add harness.
   test("with no harness installed the row names no harness and no mode; it says Add harness", async () => {
     const page = await open("no-harness-installed", 760, {
       entry: "agent-pane.new-tab",
@@ -206,9 +207,15 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       harness: element.querySelectorAll(".acpmux-foot-harness").length,
       modes: element.querySelectorAll(".acpmux-mode, .acpmux-access").length,
       marks: element.querySelectorAll(".agent-mark").length,
-      text: element.textContent?.trim(),
+      // The row past its location strip (the folder and the computer).
+      text: [...element.querySelectorAll(":scope > :not(.nt-location), :scope > .acpmux-chips > *")]
+        .filter((child) => !child.matches(".acpmux-chips"))
+        .map((child) => child.textContent ?? "")
+        .join("")
+        .trim(),
+      leads: element.firstElementChild?.matches(".nt-location") ?? false,
     }));
-    expect(foot).toEqual({ harness: 0, modes: 0, marks: 0, text: "Add harness" });
+    expect(foot).toEqual({ harness: 0, modes: 0, marks: 0, text: "Add harness", leads: true });
     await page.close();
   });
 

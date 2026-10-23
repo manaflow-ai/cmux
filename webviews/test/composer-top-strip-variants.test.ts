@@ -7,14 +7,16 @@
 //     card's fill, the card's top corners square under it; one rim goes round the head and the card
 //     (#20391): the location strip draws none of its own and the card's rim layer reaches up around
 //     it, while a queue keeps its own top and side hairlines and the card's rim layer gives way to
-//     them; on the New Tab, plain text a few px over the card (Cursor's home, #21133), no fill and
-//     no rim, the card's rim whole;
+//     them;
 //   - bump: a few px above the card, the card's fill, one closed hairline ring, the card's rim whole;
 //   - plain: a few px above the card, no fill and no rim, its first ink on the card's content edge
 //     (where the prompt's text starts), the card's rim whole;
 //   - tray: a filled tray tucked under the card's top edge, one inset for the location strip and
 //     the queue, its first ink on the card's content edge, a lighter fill than the card's in a light
 //     theme, the card's rim whole and drawn over the tray.
+// On the New Tab in Claude's look the strip is no top strip at all (Leo 2026-10-23: "the claw thing
+// should be one single row"): under every value it leads the quiet row under the card, plain text,
+// and nothing stands over the card. In Codex's look it stays over the card, as Codex's tray.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -99,16 +101,6 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       card: ".acpmux-composer-box",
       kind: "queue",
     },
-    // The strip over the New Tab card is the top-of-page templates' (Threads here): the default
-    // Cards draws it in a row under its pill field, and Default's stage layout in the footer under
-    // the box (new-tab-stage-layout, new-tab-cards-template).
-    {
-      name: "New Tab strip",
-      entry: "agent-pane.new-tab",
-      variant: "template-threads",
-      card: ".nt-box",
-      kind: "strip",
-    },
   ];
   const ring = /0px 0px 0px (0\.5|1)px inset/;
 
@@ -126,15 +118,6 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
           const drawn = await page.evaluate(measure, surface.card);
           await page.close();
           expect(drawn.kind).toBe(surface.kind);
-          if (style === "default" && surface.card === ".nt-box") {
-            // The New Tab: plain text a few px over the card, nothing drawn, the card's rim whole.
-            expect(drawn.gap).toBeGreaterThanOrEqual(2);
-            expect(drawn.gap).toBeLessThanOrEqual(8);
-            expect(drawn.filled).toBe(false);
-            expect(drawn.shadows).toEqual([]);
-            expect(drawn.cardMasked).toBe(false);
-            return;
-          }
           if (style === "default") {
             // The card's head (#20391): flush, filled, the card's top corners square under it, and
             // the card's rim layer drawn. The strip leaves its rim to that layer; a queue draws its
@@ -287,6 +270,66 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
           if (theme.light) expect(drawn.fill).not.toBe(drawn.cardFill);
           expect(Math.abs(drawn.insetLeft - drawn.insetRight)).toBeLessThanOrEqual(0.5);
         });
+
+  // The New Tab (Threads, a top-of-page template; Cards and the stage draw the same composer). Leo
+  // 2026-10-23: "I mean, like the claw thing should be one single row". In Claude's look, under
+  // every top strip value, the folder and computer lead the quiet row under the card, plain text,
+  // and nothing stands over the card, whose rim stays whole. In Codex's look the strip stays over
+  // the card (Codex's tray, composerLook.css).
+  for (const style of ["default", "bump", "plain", "tray"] as const)
+    for (const width of [760, 400])
+      test(`New Tab strip, Claude's look, ${style}, ${width} px: one row under the card, nothing over it`, async () => {
+        const page = await browser!.newPage({ viewport: { width, height: 560 } });
+        await page.goto(stageURL("agent-pane.new-tab", "template-threads"));
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.evaluate(async (value) => {
+          if (value !== "default") document.documentElement.setAttribute("data-top-strip", value);
+          await document.fonts.ready;
+        }, style);
+        const drawn = await page.evaluate(() => {
+          const composer = document.querySelector(".nt-composer")!;
+          const box = composer.querySelector(".nt-box")!;
+          const card = box.getBoundingClientRect();
+          const strip = composer.querySelector(".acpmux-composer-strip")!;
+          const stripStyle = getComputedStyle(strip);
+          const over = [...composer.querySelectorAll<HTMLElement>("*")].filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.height > 0 && rect.bottom <= card.top && !box.contains(element);
+          });
+          return {
+            inRow: !!strip.closest(".nt-foot .acpmux-composer-foot"),
+            under: strip.getBoundingClientRect().top - card.bottom,
+            filled: stripStyle.backgroundColor !== "rgba(0, 0, 0, 0)",
+            shadow: stripStyle.boxShadow,
+            over: over.map((element) => element.className),
+            cardMasked: getComputedStyle(box, "::before").content !== "none",
+          };
+        });
+        await page.close();
+        expect(drawn.inRow).toBe(true);
+        expect(drawn.under).toBeGreaterThanOrEqual(0);
+        expect(drawn.filled).toBe(false);
+        expect(drawn.shadow).toBe("none");
+        expect(drawn.over).toEqual([]);
+        expect(drawn.cardMasked).toBe(false);
+      });
+
+  for (const width of [760, 400])
+    test(`New Tab strip, Codex's look, ${width} px: the strip stays over the card`, async () => {
+      const page = await browser!.newPage({ viewport: { width, height: 560 } });
+      await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "codex"));
+      await page.goto(stageURL("agent-pane.new-tab", "template-threads"));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator('.nt-composer[data-composer-look="codex"]').waitFor();
+      const drawn = await page.evaluate(() => {
+        const composer = document.querySelector(".nt-composer")!;
+        const card = composer.querySelector(".nt-box")!.getBoundingClientRect();
+        const strip = composer.querySelector(".nt-above .acpmux-composer-strip");
+        return { strip: !!strip, over: strip ? strip.getBoundingClientRect().top < card.top : false };
+      });
+      await page.close();
+      expect(drawn).toEqual({ strip: true, over: true });
+    });
 
   // One inset: the new chat's strip and a started chat's queue stand the same distance in from the
   // card's sides, at both widths.
