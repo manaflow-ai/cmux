@@ -113,7 +113,11 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
 | F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
 | F10 | Daemon requests are slow | split 107-112 ms p50, new terminal 114/660 ms p50/p95 loaded | profile each op, fix causes; local request < 2 ms (PL-daemon) | now |
 | F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
+| F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Chief default 2026-10-23: Chromium only for browser tabs, WebKit kept only where Chromium cannot do it yet (PL-engine, chromium-only-browser-tabs.md) | now |
+| F13 | Codebase health: god target CmuxNextApp 141,651 lines, 152 singletons, 162 broadcast observers, 290 assumeIsolated, Debug-only perf counters | text search counts | PL-arch (architecture-refactor-DESIGN.md), PL-guardrails (pre-push ratchet, OWNERS.md, perf-hot markers, codebase-health.md) | now |
 | F9 | Lag regressions land unseen: timings only warn, fleet minis have no lit display (frame checks skipped) | perf-gate.py header | Lawrence: no CI gate on push or nightly; a scheduled cron perf run (perf budgets + STRESS) opens one regression issue (PL-perf-cron) | now |
+
+User data: lab benchmarks only (Chief default 2026-10-23); opt-in MetricKit waits for Lawrence.
 
 ## 4. Workstreams (batch 1)
 
