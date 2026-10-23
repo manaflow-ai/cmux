@@ -466,6 +466,7 @@
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
@@ -21898,6 +21899,59 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showColors.help",
+        "text" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showColors",
+      "keywords" : [
+        "sidebar",
+        "color",
+        "colors",
+        "colour",
+        "tint",
+        "swatch",
+        "group",
+        "workspace",
+        "hide",
+        "plain"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showColors"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showColors",
+        "text" : "Show Workspace Colors"
       },
       "validation" : "portable"
     },

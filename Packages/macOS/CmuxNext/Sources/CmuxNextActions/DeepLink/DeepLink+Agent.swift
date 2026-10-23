@@ -59,7 +59,7 @@ nonisolated extension DeepLink {
 
     /// The harnesses a terminal's reported agent can name. Hooks report
     /// `agent_type` first, which is not always a harness.
-    static let knownHarnesses: Set<String> = ["claude", "codex", "opencode", "gemini"]
+    static let knownHarnesses: Set<String> = ["claude", "codex", "opencode", "gemini", "muse"]
 
     /// The harness a reported agent names, or nil when it names none we
     /// know. Claude Code's hooks may say `claude-code`.

@@ -85,6 +85,7 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | GhosttyRuntime wakeup_cb | Terminal | libghostty | per tick | coalesced by an atomic flag | ok |
 | ~25 `for await` over `Observations` | App | model change | owner deinit | no self-writes found; Observations does not dedupe equal writes | ok; `assignIfChanged` for writers |
 | ControlSnapshotPublisher `withObservationTracking` | App | model change + every frame after a batch | never cancelled | stacked registrations multiply work under compat reads (not idle) | open |
+| HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | `stop()` (last window closed, app quit) cancels the source, timer and read | 4 wakeups a minute while running, one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
 
 ### Polling sites removed
 

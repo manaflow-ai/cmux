@@ -49,8 +49,6 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
-import { setImportCards } from "./importCards";
-import { NewTabImportCards } from "./NewTabImportCards";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -68,6 +66,7 @@ import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
+import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -208,7 +207,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
-import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
+import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -323,6 +322,7 @@ import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
+import { configureToolRunLook } from "./toolRunLook";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -489,8 +489,6 @@ declare global {
       applyRecentlyClosed?(items: unknown): void;
       /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
       applyNowPlaying?(track: unknown): void;
-      /// The New Tab page's import suggestion cards (importCards.ts); null while there are none.
-      applyImportCards?(cards: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -2469,7 +2467,15 @@ export function VirtualTranscript({
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
-  const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // The row whose line a fold holds stays mounted while the hold lasts: a body that shrank under
+  // the old offset (Show less on a long prompt) would otherwise drop the row, and the hold with it,
+  // before the hold puts the line back (foldAnchor.ts).
+  const heldAt = Number(foldAnchor.current?.toggle.closest(".acpmux-row")?.getAttribute("aria-posinset")) - 1;
+  const held = heldAt >= 0 && heldAt < rows.length ? [{ first: heldAt, last: heldAt + 1 }] : [];
+  const mountedRanges = mergeRowRanges([
+    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...held,
+  ]);
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
@@ -2666,8 +2672,14 @@ export function VirtualTranscript({
     }
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
+    const heldFrom = node?.scrollTop ?? 0;
     const folding = Boolean(old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding) foldAnchor.current = undefined;
+    if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
+      // The rows mounted for this frame read the held offset too, before its scroll event comes.
+      const moved = node.scrollTop;
+      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+    }
     if (folding && node) {
       // What opened pushed the latest row out of view: the view is the reader's now, not following.
       if (followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX)
@@ -3196,6 +3208,15 @@ export function VirtualTranscript({
       if (!toggle) return;
       foldAnchor.current = holdFold(toggle);
     };
+    // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
+    // or a header that is no disclosure button, as well as the click above.
+    const holdAsked = (event: Event) => {
+      const header = event.target as HTMLElement | null;
+      if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
+        return;
+      event.preventDefault();
+      foldAnchor.current = holdFold(header);
+    };
     // The reader scrolling lets go of it.
     const release = (event: Event) => {
       const key = (event as KeyboardEvent).key;
@@ -3204,6 +3225,7 @@ export function VirtualTranscript({
     };
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
+    node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
     // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
@@ -3213,6 +3235,7 @@ export function VirtualTranscript({
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
       node?.removeEventListener("click", holdClicked, { capture: true });
+      node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
     };
@@ -5731,6 +5754,7 @@ function AcpmuxPane() {
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
+        configureToolRunLook(theme.toolRunLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
       },
@@ -5767,9 +5791,6 @@ function AcpmuxPane() {
       },
       applyNowPlaying(track) {
         setNowPlaying(track);
-      },
-      applyImportCards(cards) {
-        setImportCards(cards);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
@@ -6635,6 +6656,9 @@ function AcpmuxPane() {
           void harnessSwitch.switchTo(harness, host.cwd);
           void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
         } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
+        // A new chat seeded with the harness of the chat the person used last (NEW-WORK-INHERITS-CONTEXT)
+        // draws it now and starts on it with the first Send; no session opens before that.
+        else if (harness && !client.adopted && client.startsOnSend) void harnessSwitch.switchTo(harness, host.cwd);
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -7063,18 +7087,22 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string) => {
+  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
-        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
+        if (folder && !text && directClient.current?.startsOnSend) {
+          heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
+          return setProjectDraft(folder);
+        }
         const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
         // A chat the person started here with a prompt makes its project the default.
         if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (text) await callNative("chat.send", { text });
+        if (text || attachments.length)
+          await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
@@ -8184,14 +8212,7 @@ function AcpmuxPane() {
               accessory={<DictationMic dictation={dictation} />}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={
-                <>
-                  <DictationNotice dictation={dictation} />
-                  <NewTabImportCards
-                    onAction={(id, action) => void callNative("importCards.act", { id, action }).catch(() => undefined)}
-                  />
-                </>
-              }
+              notice={<DictationNotice dictation={dictation} />}
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
