@@ -475,10 +475,10 @@ mod tests {
     fn one_byte_past_the_cap_is_refused_before_it_is_sent() {
         use base64::Engine;
         let encode = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![0u8; n]);
-        for n in [0, 1, 2, 3, 4, MAX_BYTES] {
+        for n in [0, 1, 2, 3, 4, LEGACY_MAX_BYTES] {
             assert_eq!(decoded_len(&encode(n)), n, "{n}");
         }
-        for n in [MAX_BYTES + 1, MAX_BYTES + 2] {
+        for n in [LEGACY_MAX_BYTES + 1, LEGACY_MAX_BYTES + 2] {
             let params = json!({"fileName": "big.bin", "data": encode(n)});
             let err = check(&params).expect_err("past the cap");
             assert_eq!(err.data.as_ref().unwrap()["reason"], "filePut.tooLarge", "{n}");
@@ -531,6 +531,6 @@ mod tests {
     fn the_cap_leaves_the_frame_room_on_an_old_peers_link() {
         // tungstenite's default frame limit, which an older peer's listener keeps.
         let frame = 16 << 20;
-        assert!(MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
+        assert!(LEGACY_MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
     }
 }
