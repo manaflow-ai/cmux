@@ -9,8 +9,55 @@ import Testing
 /// a hovered selected row, light and dark, drawn from the real list offscreen with the shipped Soft Blue
 /// themes. Written as PNGs under `close-notch-gallery/` in the package and bundled to
 /// `close-notch-gallery.tar` for `cmux-ci run --artifact`.
+///
+/// Hosted preview recipe (no local native build): when a managed fleet script is
+/// configured for this suite, it runs
+/// `CMUX_TEST_REQUIRE_GUI=1 CMUX_SOURCE_SHA=<40-char-sha> swift test --skip-build --filter WorkspaceRowCloseNotchGalleryTests`
+/// from `Packages/macOS/CmuxNext` and can return `close-notch-gallery.tar` as an artifact. The manifest
+/// and contact sheet inside the archive make the exact matrix easy to inspect without guessing a filename.
 @MainActor @Suite(.serialized) struct WorkspaceRowCloseNotchGalleryTests {
     static let titles = ["Release checklist", "a workspace whose name runs to the end of its row", "Notes"]
+
+    /// The source revision is supplied by the hosted runner (`CMUX_SOURCE_SHA`), then by Actions when
+    /// this suite is run in CI. Keeping it in the artifact prevents a still from being mistaken for a
+    /// newer working tree when a developer has several previews open.
+    static var sourceRevision: String {
+        for key in ["CMUX_SOURCE_SHA", "GITHUB_SHA", "HEAD_SHA"] {
+            if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty { return value }
+        }
+        return "unknown"
+    }
+
+    static func writePNG(_ image: CGImage, to url: URL) throws {
+        let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(dest, image, nil)
+        #expect(CGImageDestinationFinalize(dest))
+    }
+
+    /// A compact filmstrip for quick human review. Individual files remain the source of truth and the
+    /// manifest maps every cell to its look/state/theme, so the sheet never replaces a matrix case.
+    static func contactSheet(_ images: [(name: String, image: CGImage)]) throws -> CGImage {
+        let columns = 4
+        let rows = Int(ceil(Double(images.count) / Double(columns)))
+        let cellWidth = images.map(\.image.width).max() ?? 0
+        let cellHeight = images.map(\.image.height).max() ?? 0
+        let gutter = 8
+        let context = try #require(CGContext(data: nil, width: columns * cellWidth + (columns + 1) * gutter,
+                                              height: rows * cellHeight + (rows + 1) * gutter,
+                                              bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: context.width, height: context.height))
+        for (index, entry) in images.enumerated() {
+            let column = index % columns
+            let row = index / columns
+            let x = gutter + column * (cellWidth + gutter)
+            let y = context.height - gutter - (row + 1) * cellHeight - row * gutter
+            context.draw(entry.image, in: CGRect(x: x, y: y, width: cellWidth, height: cellHeight))
+        }
+        return try #require(context.makeImage())
+    }
 
     static func render(_ look: SidebarCloseNotch, hoverSelected: Bool, theme: String, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
@@ -71,17 +118,33 @@ import Testing
         let out = root.appending(path: "close-notch-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        var images: [(name: String, image: CGImage)] = []
+        var entries: [[String: Any]] = []
         for look in SidebarCloseNotch.allCases {
             for (state, hoverSelected) in [("hover", false), ("selected-hover", true)] {
                 for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
                     let image = try Self.render(look, hoverSelected: hoverSelected, theme: theme, dark: dark)
-                    let url = out.appending(path: "\(look.rawValue)-\(state)-\(mode).png")
-                    let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
-                    CGImageDestinationAddImage(dest, image, nil)
-                    #expect(CGImageDestinationFinalize(dest))
+                    let filename = "\(look.rawValue)-\(state)-\(mode).png"
+                    try Self.writePNG(image, to: out.appending(path: filename))
+                    images.append((filename, image))
+                    entries.append(["file": filename, "look": look.rawValue, "state": state, "theme": theme,
+                                    "mode": mode, "width": image.width, "height": image.height])
                 }
             }
         }
+        try Self.writePNG(try Self.contactSheet(images), to: out.appending(path: "contact-sheet.png"))
+        let manifest: [String: Any] = [
+            "schema_version": 1,
+            "source_sha": Self.sourceRevision,
+            "fixture": "sidebar.closeNotch",
+            "looks": SidebarCloseNotch.allCases.map(\.rawValue),
+            "states": ["hover", "selected-hover"],
+            "modes": ["light", "dark"],
+            "entries": entries,
+            "contact_sheet": "contact-sheet.png",
+        ]
+        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        try manifestData.write(to: out.appending(path: "manifest.json"), options: .atomic)
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = root

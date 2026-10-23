@@ -6631,6 +6631,9 @@ function AcpmuxPane() {
           void harnessSwitch.switchTo(harness, host.cwd);
           void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
         } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
+        // A new chat seeded with the harness of the chat the person used last (NEW-WORK-INHERITS-CONTEXT)
+        // draws it now and starts on it with the first Send; no session opens before that.
+        else if (harness && !client.adopted && client.startsOnSend) void harnessSwitch.switchTo(harness, host.cwd);
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
