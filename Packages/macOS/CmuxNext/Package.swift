@@ -1158,7 +1158,7 @@ let package = Package(
         // (plans/cmux-next/architecture-refactor-DESIGN.md section 7).
         .target(
             name: "CmuxNextSignposts",
-            // Compat's Atomic and Mutex: the MetricKit mirror's switch and logs (SignpostMetricKitMirror.swift).
+            // Compat's Atomic: the MetricKit mirror's switch (SignpostMetricKitMirror.swift).
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),

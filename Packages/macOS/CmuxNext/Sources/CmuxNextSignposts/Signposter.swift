@@ -75,7 +75,7 @@ public nonisolated struct Signposter: Sendable {
             name.staticName, id: id,
             "id=\(message.id, privacy: .public) origin=\(message.origin, privacy: .public) input_age_ms=\(message.inputAgeMilliseconds, format: .fixed(precision: 2), privacy: .public)"
         )
-        return SignpostInterval(state: state)
+        return SignpostInterval(state: state, metricKitID: SignpostMetricKitMirror.shared.begin(name))
     }
 
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
@@ -85,11 +85,16 @@ public nonisolated struct Signposter: Sendable {
     }
 
     /// Ends an interval that ``CommitBoundary`` closed: a ``CommitBoundary/Outcome/missed`` end
-    /// carries the message `commit=missed`, so readers drop it instead of counting idle time.
+    /// carries the message `commit=missed`, so readers drop it instead of counting idle time. The
+    /// MetricKit mirror ends only a committed interval: a missed one's begin stays unmatched, so
+    /// MetricKit leaves it out of the histogram.
     public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome) {
         switch outcome {
-        case .committed: signposter.endInterval(name.staticName, interval.state)
-        case .missed: signposter.endInterval(name.staticName, interval.state, "commit=missed")
+        case .committed:
+            signposter.endInterval(name.staticName, interval.state)
+            if let id = interval.metricKitID { SignpostMetricKitMirror.shared.end(name, id: id) }
+        case .missed:
+            signposter.endInterval(name.staticName, interval.state, "commit=missed")
         }
     }
 
