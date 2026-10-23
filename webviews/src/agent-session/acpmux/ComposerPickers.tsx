@@ -28,12 +28,15 @@ import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
-import { Popover } from "../../ui/Popover";
+import { AnchoredCard } from "../../ui/Tooltip";
+import { HOVER_INTENT } from "../../ui/hoverIntent";
+import { useHoverCard } from "./chips/useHoverCard";
+import { ContextCardBody } from "./ContextCard";
+import { contextBreakdown } from "./inspector/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
-import { ContextBreakdownView, contextBreakdown } from "./inspector/ContextSection";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -1103,65 +1106,140 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as a pie that fills. A click opens
-/// the details: the share used, tokens used of the window, what fills it by category when the
-/// harness reports a breakdown (Claude Code's /context, drawn as the Inspector's Context draws it),
-/// and Compact when the agent offers it.
+/// What the keyboard tabs to, for leaving the context card forward.
+const TABBABLE =
+  'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
+
+/// How much of the context window the session has used, as a ring that fills. Resting the pointer
+/// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
+/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
+/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
+/// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
+/// (contextCard.css).
 export function ContextRing({
   used,
   size,
   setup,
   breakdown: reported,
   onCompact,
+  onOpenDetails,
   working = false,
 }: {
   used?: number;
   size?: number;
-  /// Tokens the agent took before the conversation; the details split it out when known.
+  /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
   onCompact?(): void;
+  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  onOpenDetails?(): void;
   working?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
+  const [pinned, setPinned] = useState(false);
+  const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  // Whether the details were open when a press on the ring began. That press is also the
-  // popover's outside press, which can close it before the click lands; the click then
-  // toggles from the state the press saw, so the press that closed it does not reopen it.
-  const openAtPress = useRef<boolean | null>(null);
+  const card = useRef<HTMLDivElement>(null);
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
+  const breakdown = known ? contextBreakdown(reported) : undefined;
+  const shown = known && (pinned || hover.open);
   // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
   // from twelve o'clock (round ends), not a pie and not a spinner.
   const arcRadius = 6;
   const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
-    // intentionally inert, so opening it by label must not reveal an empty 0% popover.
+    // intentionally inert, so opening it by label must not reveal an empty 0% card.
     const unregister = registerPicker(t("context.title"), () => {
-      if (known) setOpen(true);
+      if (known) setPinned(true);
     });
     return unregister;
   }, [known, t]);
   useEffect(() => {
-    // Usage can disappear when a session resets. Do not leave an already-open details
-    // surface showing a stale zeroed reading.
-    if (!known) setOpen(false);
+    // Usage can disappear when a session resets: no pinned card over a stale reading.
+    if (!known) setPinned(false);
   }, [known]);
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const dismissHover = hover.dismiss;
+  useEffect(() => {
+    // Escape closes the card however it opened (hover, keyboard focus or a click), and takes the
+    // press, so it doesn't also reach the composer.
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Focus in the card goes back to the ring, before the card closes (the ring's focus would
+      // open it again otherwise).
+      if (card.current?.contains(document.activeElement)) trigger.current?.focus();
+      setPinned(false);
+      dismissHover();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown, dismissHover]);
+  useEffect(() => {
+    // A pinned card goes on a press outside the ring and the card. The card is its outer element,
+    // so a press on its padding is inside.
+    if (!pinned) return;
+    const onPress = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (wrapper.current?.contains(target) || card.current?.contains(target))) return;
+      setPinned(false);
+    };
+    document.addEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("pointerdown", onPress, true);
+  }, [pinned]);
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
-  const breakdown = known ? contextBreakdown(reported) : undefined;
-  // On the wrapper, so it also shows while the ring is inert before the first usage report.
-  const tooltip = known
-    ? t("context.ringTooltip", { percent, used: tokens.format(used), size: tokens.format(size) })
-    : t("context.ringTooltipEmpty");
+  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+  /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
+  const tabPastCard = () => {
+    const ring = trigger.current;
+    if (!ring) return;
+    const order = [...ring.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+      (element) => element.tabIndex >= 0 && !card.current?.contains(element),
+    );
+    const next = order[order.indexOf(ring) + 1];
+    if (next) next.focus();
+    else ring.blur();
+    setPinned(false);
+    dismissHover();
+  };
+  // Tab inside the open card: Shift-Tab off its first button goes back to the ring, Tab off its
+  // last goes on past the ring. A document listener, as Escape's, since the card is a portal.
+  const tabFromCard = useRef<(event: KeyboardEvent) => void>(() => {});
+  tabFromCard.current = (event) => {
+    if (event.key !== "Tab") return;
+    const buttons = cardButtons();
+    const at = buttons.indexOf(event.target as HTMLElement);
+    if (at < 0) return;
+    if (event.shiftKey && at === 0) {
+      event.preventDefault();
+      trigger.current?.focus();
+    } else if (!event.shiftKey && at === buttons.length - 1) {
+      event.preventDefault();
+      tabPastCard();
+    }
+  };
+  useEffect(() => {
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => tabFromCard.current(event);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown]);
   return (
-    // tooltip-allow: names the icon-only ring's reading, and why it is inert before any usage.
-    <span className={`acpmux-picker acpmux-context${full}`} title={open ? undefined : tooltip}>
+    // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
+    <span
+      ref={wrapper}
+      className={`acpmux-picker acpmux-context${full}`}
+      title={known ? undefined : t("context.ringTooltipEmpty")}
+    >
       <button
         ref={trigger}
         type="button"
@@ -1169,13 +1247,19 @@ export function ContextRing({
         data-menu={t("context.title")}
         aria-label={label}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
         disabled={!known}
-        onPointerDown={() => (openAtPress.current = open)}
-        onClick={() => {
-          setOpen(!(openAtPress.current ?? open));
-          openAtPress.current = null;
+        {...hover.trigger}
+        onClick={() => setPinned((was) => !was)}
+        onKeyDown={(event) => {
+          // Tab goes into the open card (it sits in a portal, out of the page's tab order).
+          if (event.key !== "Tab" || event.shiftKey || !shown) return;
+          const first = cardButtons()[0];
+          if (!first) return;
+          event.preventDefault();
+          setPinned(true);
+          first.focus();
         }}
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
@@ -1203,54 +1287,44 @@ export function ContextRing({
           )}
         </svg>
       </button>
-      <Popover
-        open={open}
-        onOpenChange={setOpen}
-        anchor={open ? trigger.current : null}
-        label={t("context.title")}
-        className={`acpmux-context-pop${full}${breakdown ? " acpmux-context-pop--breakdown" : ""}`}
-        finalFocus={trigger}
+      <AnchoredCard
+        anchor={shown ? trigger.current : null}
+        // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : ""}${full}`}
+        side="top"
+        interactive
+        ariaLabel={t("context.title")}
+        popupRef={card}
+        // On the card's outer element, so its padding counts as inside the card.
+        onPointerEnter={hover.card.onPointerEnter}
+        onPointerLeave={hover.card.onPointerLeave}
       >
-        <div className="acpmux-context-title">{t("context.title")}</div>
-        <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-        {!breakdown && (
-          <div className="acpmux-context-bar" aria-hidden="true">
-            <span style={{ width: `${percent}%` }} />
-          </div>
-        )}
         {known && (
-          <div className="acpmux-context-tokens">
-            {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+            <ContextCardBody
+              used={used}
+              size={size}
+              setup={setup}
+              breakdown={reported}
+              working={working}
+              onCompact={
+                onCompact &&
+                (() => {
+                  setPinned(false);
+                  onCompact();
+                })
+              }
+              onOpenDetails={
+                onOpenDetails &&
+                (() => {
+                  setPinned(false);
+                  onOpenDetails();
+                })
+              }
+            />
           </div>
         )}
-        {breakdown && <ContextBreakdownView breakdown={breakdown} />}
-        {known && !breakdown && setup !== undefined && setup <= used && (
-          <div className="acpmux-context-parts">
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.setup")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
-              <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
-            </div>
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.conversation")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(used - setup)}</span>
-            </div>
-          </div>
-        )}
-        {onCompact && (
-          <button
-            type="button"
-            className="acpmux-context-compact"
-            disabled={working}
-            onClick={() => {
-              setOpen(false);
-              onCompact();
-            }}
-          >
-            {t("context.compact")}
-          </button>
-        )}
-      </Popover>
+      </AnchoredCard>
     </span>
   );
 }
