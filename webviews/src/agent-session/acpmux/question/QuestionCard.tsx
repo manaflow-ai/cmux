@@ -23,7 +23,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
-import { inlineText } from "./inlineText";
+import { inlineText, plainText } from "./inlineText";
 import {
   declineReply,
   hasPreviews,
@@ -499,7 +499,7 @@ function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; op
   return (
     <section className="acpmux-question-preview" data-inline={inline || undefined} aria-labelledby={id}>
       <span id={id} className="acpmux-question-preview-label">
-        {t("question.preview", { option: option.label })}
+        {t("question.preview", { option: plainText(option.label) })}
       </span>
       <pre>{previewText(option.preview?.text ?? "")}</pre>
     </section>
@@ -618,8 +618,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
       <span className="acpmux-question-answered-lines">
         {question.items.map((item) => (
           <span key={item.id} className="acpmux-question-answered-line">
-            <span className="acpmux-question-answered-key">{item.header ?? item.prompt}:</span>{" "}
-            {itemAnswerText(item, answer)}
+            <span className="acpmux-question-answered-key">{item.header ?? inlineText(item.prompt)}:</span>{" "}
+            {inlineText(itemAnswerText(item, answer))}
           </span>
         ))}
       </span>

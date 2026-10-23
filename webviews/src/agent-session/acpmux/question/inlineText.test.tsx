@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { hasMarks, inlineText } from "./inlineText";
+import { hasMarks, inlineText, plainText } from "./inlineText";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
 
@@ -81,9 +81,54 @@ test("the question card draws marks in the prompt, the labels and the descriptio
     state: { kind: "pending" },
   };
   const card = renderToStaticMarkup(<QuestionCard question={question} onReply={() => undefined} />);
+  const answered = renderToStaticMarkup(
+    <QuestionCard
+      question={{ ...question, state: { kind: "answered", answer: { selections: { q0: { optionIDs: ["`Temporal`"] } } } } }}
+      onReply={() => undefined}
+    />,
+  );
+  expect(answered).toContain('<code class="acpmux-question-code">Temporal</code>');
+  expect(answered).not.toContain("`");
   expect(card).toContain('<code class="acpmux-question-code">formatDate</code>');
   expect(card).toContain('<code class="acpmux-question-code">Temporal</code>');
   expect(card).toContain("<strong>standard</strong>");
   expect(card).not.toContain("`");
   expect(card).not.toContain("**");
+});
+
+test("nested and escaped marks inside bold", () => {
+  expect(html("**bold *italic* inside**")).toBe("<strong>bold <em>italic</em> inside</strong>");
+  expect(html("**cost \\* estimate**")).toBe("<strong>cost * estimate</strong>");
+});
+
+test("paths, URLs, globs and lone stars stay text", () => {
+  for (const text of [
+    "src/_generated_/index.ts",
+    "https://host/_private_/file",
+    "*.ts files or *.js",
+    "2 * 3 * 4",
+    "café_bar_",
+    "see https://h/*x*",
+  ])
+    expect(inlineText(text)).toBe(text);
+});
+
+test("a link with parentheses in its address draws as its label", () => {
+  expect(html("[wiki](https://en.wikipedia.org/wiki/Foo_(bar)) page")).toBe("wiki page");
+});
+
+test("dollar and pipe escapes draw their character", () => {
+  expect(html("\\$5 a \\| b")).toBe("$5 a | b");
+});
+
+test("a long run of unclosed brackets stays fast", () => {
+  const text = "[".repeat(50_000) + "x";
+  const started = performance.now();
+  expect(inlineText(text)).toBe(text);
+  expect(performance.now() - started).toBeLessThan(200);
+});
+
+test("plain text of a marked label reads without its markers", () => {
+  expect(plainText("Use `Temporal` for **dates** [here](u)")).toBe("Use Temporal for dates here");
+  expect(plainText("snake_case_name")).toBe("snake_case_name");
 });
