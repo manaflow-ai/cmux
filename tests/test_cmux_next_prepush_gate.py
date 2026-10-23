@@ -311,6 +311,21 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertFalse(marker.exists(), "the installed trusted hook executed the branch-controlled checker")
 
+    def test_an_installed_lexer_older_than_origin_s_is_named_as_stale(self):
+        # guardrails.py loads count-swift-code-lines.py from the installed copy; an old one counts unlike CI.
+        lexer = "scripts/cmux-next/count-swift-code-lines.py"
+        self.write(lexer, (self.repo / lexer).read_text() + "# changed upstream\n")
+        self.commit("the lexer changes on feat-cmux-next")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("clean")
+
+        pushed = self.push()
+
+        self.assertIn("count-swift-code-lines.py", pushed.stdout + pushed.stderr)
+        self.assertIn("installed hook copy", pushed.stdout + pushed.stderr)
+
     def test_push_from_a_linked_worktree_leaves_the_repository_alone(self):
         # git runs the hook with GIT_DIR=<repo>/.git/worktrees/<name>: the gate's own temp-tree
         # git calls must not inherit it (2026-10-19: it set core.bare=true on the shared clone and
