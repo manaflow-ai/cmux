@@ -1,6 +1,7 @@
 import type { AcpmuxRow } from "../model";
 import { continuesTurn } from "../turnStart";
-import { SUBAGENTS, type Subagent } from "./subagentFold";
+import type { Translate } from "../i18n";
+import { SUBAGENTS, subagentName, type Subagent } from "./subagentFold";
 
 /// A subagent's line in an open group (SubagentListRow in SubagentGroup.tsx).
 export const SUBAGENT_ROW = "subagent";
@@ -27,19 +28,23 @@ export function subagentsIn(
   return found;
 }
 
-/// Subagent `id`'s own view: the "Subagent of" pill naming its parent (a subagent, or the chat,
-/// `chat`), then its rows with its open groups listed. Undefined when the subagent is unknown.
+/// Subagent `id`'s own view: the "Subagent of" pill naming its parent (a subagent, as its rows call
+/// it, or the chat, `chat`), then its rows with its open groups listed. Undefined when the subagent
+/// is unknown.
 export function childView(
   id: string,
   rows: readonly AcpmuxRow[],
   views: Record<string, AcpmuxRow[]> | undefined,
   expanded: ReadonlySet<string>,
   chat: string,
+  t: Translate,
 ): AcpmuxRow[] | undefined {
   const agents = subagentsIn(rows, views);
   const agent = agents.get(id);
   if (!agent) return undefined;
-  const parent = agent.parent === null ? chat : agents.get(agent.parent)?.name || chat;
+  // A parent nothing named reads by its kind or as "Subagent", as its own rows do, never as the chat.
+  const above = agent.parent === null ? undefined : agents.get(agent.parent);
+  const parent = above ? subagentName(above, t) || chat : chat;
   const pill: AcpmuxRow = {
     id: `${id}:of`,
     version: 1,

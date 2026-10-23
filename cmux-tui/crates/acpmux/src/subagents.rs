@@ -17,6 +17,9 @@
 //!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
 //!   `background: true` marks one that outlives its parent's turn (every
 //!   Codex child, which runs in its own thread).
+//!   A state change or progress that names no subagent carries the name it
+//!   was spawned with, so a client that reads only the newer records (a page
+//!   of history, a reload) never has to draw the subagent by its id.
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
@@ -36,6 +39,8 @@ pub fn is_subagents(params: &Value) -> bool {
 #[derive(Debug, Default)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
+    /// Each subagent's latest name, from its spawn or a progress that named it.
+    names: HashMap<String, String>,
 }
 
 impl SubagentTree {
@@ -68,6 +73,26 @@ impl SubagentTree {
     }
 
     fn events(&mut self, update: &Value, owner: Option<&str>) -> Vec<Value> {
+        let mut events = self.raw_events(update, owner);
+        for event in &mut events {
+            self.carry_name(event);
+        }
+        events
+    }
+
+    /// Remembers the name an event gives its subagent, or gives a nameless
+    /// event the name remembered.
+    fn carry_name(&mut self, event: &mut Value) {
+        let Some(id) = event.get("id").and_then(Value::as_str).map(str::to_owned) else { return };
+        let given = event.get("name").and_then(Value::as_str).filter(|n| !n.trim().is_empty());
+        if let Some(name) = given {
+            self.names.insert(id, name.to_owned());
+        } else if let Some(name) = self.names.get(&id) {
+            event["name"] = json!(name);
+        }
+    }
+
+    fn raw_events(&mut self, update: &Value, owner: Option<&str>) -> Vec<Value> {
         let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_owned);
         match update.get("sessionUpdate").and_then(Value::as_str) {
             Some("subagent_spawned") => {
@@ -246,5 +271,38 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+
+    /// A subagent's end names it as its spawn did: a client that reads only
+    /// the newer records (a page of history) draws its name, never its id.
+    #[test]
+    fn a_nameless_state_update_carries_the_spawned_name() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a",
+                   "name": "Fix the gateway", "task": "Fix the gateway"}),
+        );
+        let ended = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/toolu_a", "state": "completed"}),
+        );
+        assert_eq!(ended[0]["name"], json!("Fix the gateway"));
+        // A later name replaces it, and is what the next nameless record carries.
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "name": "probe"}),
+        );
+        let again = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/toolu_a", "state": "failed"}),
+        );
+        assert_eq!(again[0]["name"], json!("probe"));
+        // One never named stays nameless.
+        let unknown = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/toolu_b", "state": "completed"}),
+        );
+        assert!(unknown[0].get("name").is_none());
     }
 }
