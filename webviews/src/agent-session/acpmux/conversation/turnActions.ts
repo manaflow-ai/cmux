@@ -4,7 +4,7 @@
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { HarnessHealth } from "../HarnessHealthNotice";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
 import type { RetryModel } from "./retryModelSections";
@@ -60,6 +60,9 @@ export type TurnActions = {
   route?: { name?: string; harness?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
+  /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
+  /// (PendingSteer.tsx `takeBackSteer`); false when the agent read it first.
+  unsteer?: (row: AcpmuxRow) => Promise<boolean>;
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so
   /// the view shows them as requested too.
   review?: HunkReview;

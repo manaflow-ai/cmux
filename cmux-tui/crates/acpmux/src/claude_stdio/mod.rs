@@ -194,6 +194,9 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+mod steer_withdraw;
+#[cfg(test)]
+mod steer_withdraw_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
@@ -220,6 +223,10 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
+
+/// The answer of a steered prompt taken back before Claude Code read it
+/// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
+pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
 /// What the hub's request becomes: lines for claude's stdin, or an
 /// immediate ACP reply when claude need not be asked.
@@ -346,6 +353,9 @@ pub struct Translator {
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
     steers: Mutex<std::collections::VecDeque<(String, String)>>,
+    /// Each steer's line uuid by the hub's promptId (`_meta.promptId`), so a
+    /// withdraw names the line to drop (`steer_withdraw.rs`).
+    steer_lines: Mutex<HashMap<String, String>>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -467,6 +477,7 @@ impl Translator {
             prompt_echo: Mutex::new(None),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
+            steer_lines: Mutex::new(HashMap::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -495,6 +506,7 @@ impl Translator {
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
+        self.steer_lines.lock().await.clear();
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
@@ -506,10 +518,10 @@ impl Translator {
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
-        self.steers
-            .lock()
-            .await
-            .drain(..)
+        let failed: Vec<_> = self.steers.lock().await.drain(..).collect();
+        self.steer_lines.lock().await.clear();
+        failed
+            .into_iter()
             .map(|(_, id)| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(
