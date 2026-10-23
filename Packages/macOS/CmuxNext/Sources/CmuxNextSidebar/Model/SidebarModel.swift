@@ -116,6 +116,13 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// Where a Shift range starts: the row last clicked, Cmd-clicked in or
+    /// moved to without Shift. Shift+Arrow and Shift-click select from it to
+    /// the new row, so going back shrinks the range.
+    @ObservationIgnored var selectionAnchor: WorkspaceID?
+    /// The moving end of a Shift range (the row last Shift-clicked or
+    /// Shift-arrowed to): the next Shift+Arrow steps from it, as in Finder.
+    @ObservationIgnored var selectionExtent: WorkspaceID?
     /// Every workspace on screen in this window, the shown one too (`sidebar.multiView`): their rows draw a
     /// soft fill under the selection's. The App sets it; empty draws nothing extra.
     public var onScreen: Set<WorkspaceID> = []

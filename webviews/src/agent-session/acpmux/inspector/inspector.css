@@ -28,7 +28,9 @@
 /* Either place, the card: inset from the pane's right edge (ChatInspector.tsx FLOAT_MARGIN), as tall
    as its sections up to a ceiling. A busy chat's sections are taller than any pane: the card still stops
    at the ceiling, never at the pane's foot (claude-sr2 for Leo, 2026-10-22: "again a full-height
-   column"). */
+   column"). The ceiling is only a maximum: with little to show, the card ends right after its last
+   section, with no fixed or minimum height (Leo, 2026-10-22: "the card should just end when there's no
+   more content to show"; chat-inspector-overlay-toggle.test.ts). */
 .acpmux-chat-inspector[data-placement] {
   max-height: min(
     var(--acpmux-inspector-max-height),
@@ -678,4 +680,99 @@ button.acpmux-chat-inspector-port:focus-visible {
 }
 .acpmux-chat-inspector-menu {
   min-width: 180px;
+}
+/* Whose panel it is while it lists a subagent's things (SubagentScopeHeader.tsx): "Subagent · <name>",
+   the kind muted and the name in the text color, with a back button to what spawned it. In the
+   panel's head (`title`, the one drawn), the back button sits where the title started, so the name
+   lines up with the sections' titles below it. */
+.acpmux-chat-inspector-scope {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.acpmux-chat-inspector-scope[data-variant="title"] {
+  margin-left: -4px;
+}
+.acpmux-chat-inspector-scope__name {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-chat-inspector-scope__kind,
+.acpmux-chat-inspector-scope__dot {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-scope__agent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-text);
+  font-weight: 500;
+}
+.acpmux-chat-inspector-scope[data-variant="crumb"] {
+  height: 24px;
+  padding: 0 4px;
+}
+.acpmux-chat-inspector-scope__parent {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 50%;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+button.acpmux-chat-inspector-scope__parent:hover {
+  background: var(--acpmux-inspector-row-hover);
+  color: var(--agent-text);
+}
+button.acpmux-chat-inspector-scope__parent:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-scope__sep {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-scope[data-variant="card"] {
+  flex: none;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: var(--acpmux-inspector-card-radius);
+}
+.acpmux-chat-inspector-scope__glyph {
+  flex: none;
+  margin-top: 2px;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-scope__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acpmux-chat-inspector-scope__task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
 }

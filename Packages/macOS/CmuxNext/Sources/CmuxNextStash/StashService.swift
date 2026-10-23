@@ -91,14 +91,17 @@ public final class StashService: StashPageSource {
     }
 
     /// Brings every member of stash `id` back where it was (a Save and Close's Undo) and shows
-    /// it: whole workspaces as workspaces, pages in their panes.
+    /// it: whole workspaces as workspaces, pages in their panes. The page lists the stashes again
+    /// even when nothing is left to show the restored pages in.
     public func restoreAll(_ id: String, workspaces: Bool) async throws {
+        let reopened: StateResourceClient.ReopenedItem
         do {
-            let reopened = try await state().restoreStash(id, target: .here, pane: host?.stashRestorePane)
-            guard let host, let connection = host.localDaemon.connection else { return }
+            reopened = try await state().restoreStash(id, target: .here, pane: host?.stashRestorePane)
+        } catch { throw Self.failure(error) }
+        if let host, let connection = host.localDaemon.connection {
             await host.localDaemon.store.applied(through: await connection.eventSequence())
             host.showRestored(reopened, asWorkspace: workspaces)
-        } catch { throw Self.failure(error) }
+        }
         await model.reload()
     }
 

@@ -90,6 +90,12 @@ struct WorkspaceSpawn: Sendable {
         opensNewTabPage = invocation.origin == .user && command == nil
     }
 
+    /// `tabs.terminalFirst` (cmux Classic Mode, #23021): a person's new workspace or window opens
+    /// a terminal, as in cmux classic, not the New Tab page. A first chat or session still opens.
+    @MainActor mutating func followClassicMode(_ services: AppServices) {
+        if NewTabKind.terminalFirst(services) { opensNewTabPage = false }
+    }
+
     /// The name of a workspace opened in `directory`: the folder's name
     /// without surrounding whitespace, or nil for the filesystem root or a
     /// blank name (the daemon names it).
@@ -112,7 +118,9 @@ extension WindowManager {
     /// the workspace id (`WorkspaceSpawner.start`).
     func startWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                         frame: CGRect? = nil) -> () async throws -> String {
-        WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+        var spawn = spawn
+        spawn.followClassicMode(services)
+        return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
     }
 }
 
