@@ -103,18 +103,24 @@ extension WorkspaceContentController {
     ///
     /// The width changes it brings hold in the layout from the key's frame on
     /// (``LayoutModel/showNewColumnSizing(_:)``), across the handoff to the daemon's column and until
-    /// the daemon's layout has them, so no frame shows a column springing back to its old width.
+    /// the daemon's layout has them, so no frame shows a column springing back to its old width. On
+    /// the reply path they show with the daemon's column.
     func newColumn(after: LayoutPaneID, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
         let command = NewColumnCommand(pane: handle, width: request.width, options: options)
+        guard command.isOptimistic(on: daemon) else {
+            // The reply path shows no column before the reply: its widths show with the daemon's
+            // column (once the store applied the reply's events), never before it, where the other
+            // columns would shrink around an empty band.
+            spawnPane("new-pane-right", then: { [daemon, layoutModel] in
+                daemon.whenApplied(.generate()) { layoutModel.commitNewColumnSizing(layoutModel.showNewColumnSizing(request)) }
+            }, send: { [daemon] in try await command.send(on: daemon) })
+            return
+        }
         let sizing = layoutModel.showNewColumnSizing(request)
         let commit: @MainActor () -> Void = { [layoutModel] in layoutModel.commitNewColumnSizing(sizing) }
         let cancel: @MainActor () -> Void = { [layoutModel] in layoutModel.cancelNewColumnSizing(sizing) }
-        guard command.isOptimistic(on: daemon) else {
-            spawnPane("new-pane-right", then: commit, failed: cancel, send: { [daemon] in try await command.send(on: daemon) })
-            return
-        }
         var widths: [DaemonColumnID: Double] = [:]
         var treeWidth: Double?
         let columns = daemon.store.screen(containing: handle)?.columns ?? []
@@ -229,11 +235,19 @@ extension WorkspaceContentController {
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
         Task { [daemon, layoutModel] in
             if await daemon.run(label, body) {
-                layoutModel.settleTransaction(transaction)
+                Self.settleGesture(transaction, daemon: daemon, layoutModel: layoutModel)
             } else {
                 layoutModel.rejectTransaction(transaction)
             }
         }
+    }
+
+    /// The gesture's command succeeded: its override yields once the store applied the events the
+    /// daemon emitted before the reply (a barrier with a transaction nothing echoes), so the next
+    /// layout has the gesture's value. Settling at the reply alone let the next unrelated layout,
+    /// still without it, drop the override: one frame sprang back (review 2 of PL-motion-core).
+    private static func settleGesture(_ transaction: LayoutTransactionID, daemon: DaemonService, layoutModel: LayoutModel) {
+        daemon.whenApplied(.generate()) { layoutModel.settleTransaction(transaction) }
     }
 
     /// ``sendGesture(_:label:_:)`` for a gesture on `pane`'s column, which may be a pending New
@@ -248,7 +262,7 @@ extension WorkspaceContentController {
                 return layoutModel.rejectTransaction(transaction)
             }
             if await daemon.run(label, { connection in try await body(connection, target) }) {
-                layoutModel.settleTransaction(transaction)
+                Self.settleGesture(transaction, daemon: daemon, layoutModel: layoutModel)
             } else {
                 layoutModel.rejectTransaction(transaction)
             }
