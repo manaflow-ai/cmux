@@ -110,24 +110,13 @@ cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 self="\$0"
-if [ -L "\$self" ]; then
-  target="\$(readlink "\$self")"
-  case "\$target" in
-    /*)
-      self="\$target"
-      ;;
-    *)
-      self="\$(cd "\$(dirname "\$self")" && pwd -P)/\$target"
-      ;;
-  esac
-fi
 case "\${1:-}" in
   version)
     echo "$ZIG_REQUIRED"
     ;;
   env)
-    zig_dir="\$(cd "\$(dirname "\$self")" && pwd -P)"
-    printf '.{\\n    .lib_dir = "%s/lib",\\n}\\n' "\$zig_dir"
+    zig_lib_dir="\${ZIG_LIB_DIR:-\$(cd "\$(dirname "\$self")" && pwd -P)/lib}"
+    printf '.{\\n    .lib_dir = "%s",\\n}\\n' "\$zig_lib_dir"
     ;;
   *)
     echo "$ZIG_REQUIRED"
