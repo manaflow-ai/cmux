@@ -158,10 +158,24 @@ export function TasksSection({
 
 /// Stop: off once sent, until the registry's update ends the row; when acpmux or the harness
 /// refuses, it says so and can be tried again (as a subagent's Stop, SubagentGroup.tsx).
-export function StopButton({ id, name, stop }: { id: string; name: string; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({
+  id,
+  name,
+  label: idleLabel,
+  stop,
+}: {
+  id: string;
+  name: string;
+  /// What it says before a failed stop, in place of "Stop <name>" (the tray: "Stop only this command").
+  label?: string;
+  stop: (id: string) => Promise<unknown>;
+}) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name });
+  const label =
+    state !== "failed" && idleLabel
+      ? idleLabel
+      : t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name });
   return (
     <button
       type="button"
