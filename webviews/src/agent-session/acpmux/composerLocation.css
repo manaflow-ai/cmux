@@ -1236,7 +1236,7 @@
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   position: relative;
-  z-index: 1;
+  z-index: var(--layer-raised);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
   left: calc(7px * var(--cmux-interface-scale, 1));
