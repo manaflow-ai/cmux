@@ -37,8 +37,9 @@ extension CloudHandlers {
             // The list is fetched at sign-in, after every machine change and on
             // activation, so a loaded store is current: no request. One that has
             // not loaded yet takes the same refresh the sidebar's does.
-            if cloud.isSignedIn, !cloud.hasLoadedMachines { await cloud.refresh() }
-            return machineListFields(context, loaded: cloud.hasLoadedMachines)
+            // One loaded for another team than the signed-in one is not loaded.
+            if cloud.isSignedIn, !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+            return machineListFields(context, loaded: cloud.hasLoadedCurrentMachines)
         }
     }
 
@@ -49,10 +50,10 @@ extension CloudHandlers {
     /// `cloud list-machines`' result: `loaded`, `machines` (one object per
     /// machine in the store), `count` and `account`.
     ///
-    /// `loaded` is whether the store holds a list the server answered
-    /// (``CloudService/hasLoadedMachines``). Before that (a relaunch, signed
-    /// out, a failed first list) the store's list says nothing about which
-    /// machines exist, so the answer has no machines: a caller never reads
+    /// `loaded` is whether the store holds a list the server answered for
+    /// the signed-in user and team (``CloudService/hasLoadedCurrentMachines``).
+    /// Before that (a relaunch, signed out, a failed first list, another
+    /// team's list) the store's list says nothing about which machines exist, so the answer has no machines: a caller never reads
     /// "not loaded yet" as "none" and creates a second one.
     ///
     /// `account` holds only what the store knows: it keeps no plan limits

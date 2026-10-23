@@ -93,7 +93,7 @@ struct CloudListMachinesTests {
         let services = Self.services()
         // A session the store holds before any list came back (a create still on its way).
         _ = MachineIconTests.cloudMachine(services, id: "vm-list-early-\(UUID().uuidString.prefix(8))")
-        #expect(!services.cloud.hasLoadedMachines)
+        #expect(!services.cloud.hasLoadedMachines && !services.cloud.hasLoadedCurrentMachines)
 
         let fields = try #require(try await Self.run(services, origin: .cli), "a CLI run tracked no result")
         #expect(fields["loaded"] == .bool(false))

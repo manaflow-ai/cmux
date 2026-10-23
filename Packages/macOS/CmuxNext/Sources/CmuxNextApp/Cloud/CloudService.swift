@@ -45,6 +45,13 @@ final class CloudService {
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false
+    /// Whom the loaded list is for (``listAccount`` when it landed).
+    @ObservationIgnored private var loadedAccount: [String?]?
+    /// Whether the store holds a list the server answered for the user and
+    /// team signed in now. A team switch keeps the user signed in, so the
+    /// previous team's list stays in the store until the next refresh lands:
+    /// it is not this team's answer.
+    var hasLoadedCurrentMachines: Bool { hasLoadedMachines && loadedAccount == listAccount }
     /// The Cloud app server's ops on the local daemon (contract 2.1).
     var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
@@ -329,6 +336,7 @@ final class CloudService {
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
+            loadedAccount = account
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = String(describing: error)
