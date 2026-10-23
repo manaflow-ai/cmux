@@ -832,6 +832,25 @@ const ENVELOPE_TOOLS = [
       metadata: { exit_code: 0, duration_seconds: 0.4 },
     }),
   }),
+  // An MCP result whose text repeats its structured content: the sentence, then the payload once.
+  tool("Look up the forecast", "fetch", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Sunny in Lisbon, 21 °C, wind 12 km/h from the north." },
+        { type: "text", text: JSON.stringify({ city: "Lisbon", tempC: 21, sky: "sunny", windKmh: 12 }) },
+      ],
+      structuredContent: { city: "Lisbon", tempC: 21, sky: "sunny", windKmh: 12 },
+      isError: false,
+    }),
+  }),
+  // A JSON-RPC error: its message, then its data.
+  tool("Create issue", "other", "failed", {
+    output: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      error: { code: -32602, message: "Invalid params: a title is required.", data: { field: "title", got: "" } },
+    }),
+  }),
   tool("Read package.json", "read", "completed", {
     output:
       '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
