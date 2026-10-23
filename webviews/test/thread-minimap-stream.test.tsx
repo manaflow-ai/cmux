@@ -312,7 +312,11 @@ test("a dropped render leaves the committed turns as they were, and the next rea
   const first = minimapTurns(streamingChat(40, "Streaming"), "s");
   const warm = streamed(first.rows, "Streaming more");
   let committed = minimapTurns(warm.next, "s", first, warm.change);
-  const snapshot = (result: MinimapTurns) => ({ turns: [...result.turns], ticks: [...result.ticks], length: result.turns.length });
+  const snapshot = (result: MinimapTurns) => ({
+    turns: [...result.turns],
+    ticks: [...result.ticks],
+    length: result.turns.length,
+  });
   const unchanged = (result: MinimapTurns, before: ReturnType<typeof snapshot>) => {
     expect(result.turns.length).toBe(before.length);
     expect(result.turns.every((turn, index) => turn === before.turns[index])).toBe(true);
@@ -322,7 +326,11 @@ test("a dropped render leaves the committed turns as they were, and the next rea
     const before = snapshot(committed);
     // Dropped: a new prompt, then a streamed token, each read from the committed turns.
     const added = [...committed.rows, row(`dropped-${step}`, "user", `Dropped question ${step}`)];
-    const dropped = minimapTurns(added, "s", committed, { base: committed.rows, rows: added, from: committed.rows.length });
+    const dropped = minimapTurns(added, "s", committed, {
+      base: committed.rows,
+      rows: added,
+      from: committed.rows.length,
+    });
     expect(dropped.turns.at(-1)?.prompt).toBe(`Dropped question ${step}`);
     unchanged(committed, before);
     const token = streamed(committed.rows, `Streaming more, step ${step} dropped`);

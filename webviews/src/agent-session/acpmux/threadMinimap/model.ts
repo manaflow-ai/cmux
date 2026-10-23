@@ -324,7 +324,13 @@ export function minimapTurns(
   for (const turn of tail) list.push(turn);
   agreed.set(list, { list: old, same: keep });
   agreed.set(old, { list, same: keep });
-  return { rows, sessionId, turns: list, ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks), spare: old as MinimapTurn[] };
+  return {
+    rows,
+    sessionId,
+    turns: list,
+    ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks),
+    spare: old as MinimapTurn[],
+  };
 }
 
 /// Whether two reply previews are the same blocks and spans.
