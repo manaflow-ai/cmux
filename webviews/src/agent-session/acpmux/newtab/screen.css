@@ -328,12 +328,10 @@
 /* Claude Code's split (NewTabScreen `split`): the mic and Send end the field's row, centred on its
    first line (52px row, 34px buttons) and staying at the bottom as a draft grows, so the empty box
    is one line tall (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */
-.nt-input > .acpmux-chrome-area {
+.nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
   margin: 0 -8px 9px 0;
-}
-.nt-input > .acpmux-chrome-area .nt-pickers {
   flex-wrap: nowrap;
   padding: 0;
 }

@@ -41,6 +41,16 @@ struct TypeAheadDeleteTests {
         #expect(queue.takeDeletes() == 0)
     }
 
+    @Test func droppingWaitingTextKeepsDeletesForTakenText() {
+        var queue = TypeAheadQueue()
+        let start = ContinuousClock.now
+        queue.append("fix the bulid", surface: "page-1", now: start)
+        #expect(queue.take(surface: "page-1", now: start + .milliseconds(50)) == "fix the bulid")
+        queue.deleteBackward(surface: "page-1", delivering: true)
+        queue.dropPendingText()
+        #expect(queue.takeDeletes() == 1)
+    }
+
     /// The page gets one `delete` per key, after the element check, as typed keys would.
     @Test func thePageScriptDeletesOncePerKey() {
         let script = PageInputReadiness.editScript(.deleteBackward(3))

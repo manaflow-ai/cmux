@@ -50,6 +50,13 @@ struct TypeAheadQueue: Equatable {
         return deletesAfterTaken
     }
 
+    /// Drops text that has not been taken for delivery while keeping Deletes already typed for the
+    /// in-flight text. A chord or focus move may cancel the waiting text, but it must not reorder a
+    /// Delete behind that text or lose it before `flushTypeAhead` takes it.
+    mutating func dropPendingText() {
+        wire = Wire()
+    }
+
     /// The queued text for `surface`, once; nil when none waits or it is
     /// older than 2 s (then it is dropped).
     mutating func take(surface: String, now: ContinuousClock.Instant) -> String? {

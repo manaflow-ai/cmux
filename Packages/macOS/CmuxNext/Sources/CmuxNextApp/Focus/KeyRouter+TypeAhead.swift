@@ -116,7 +116,13 @@ extension KeyRouter {
 
     /// A chord or another key ends the queue.
     func dropTypeAhead() {
-        typeAhead.drop()
+        if deliveringTypeAhead == nil {
+            typeAhead.drop()
+        } else {
+            // The taken text is still on its way to the page. Keep Deletes typed after it so a
+            // chord/Return cannot clear edits that must follow that text.
+            typeAhead.dropPendingText()
+        }
         typeAheadFocus = nil
     }
 
