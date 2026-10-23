@@ -32,7 +32,8 @@ Add one paragraph to `afterBullets`, after the Sparkle paragraph:
 > addresses, credentials, clipboard contents, chat content, or anything you type. The
 > Application checks every report for such data before it is sent and does not send a report
 > that appears to contain any. Settings > View Hang Report shows the exact report last sent. Our
-> server does not store or log the IP address a report comes from. You can turn hang reports off
+> application does not store the IP address a report comes from; our hosting provider processes
+> it to deliver the request and to limit how often reports can be sent. You can turn hang reports off
 > at any time in Settings, which also deletes reports waiting to be sent and the random
 > identifier.
 

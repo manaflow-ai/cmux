@@ -68,6 +68,7 @@ public actor HangReportService {
     private var isSending = false
     private var sendAgain = false
     private var isFlushing = false
+    private var flushAgain = false
     /// MetricKit deliveries not yet in a report (the daily cap was reached).
     private var waiting: [MetricKitInput] = []
     /// Reports the leak scan refused (a bug if ever above 0; logged, never sent).
@@ -190,26 +191,38 @@ public actor HangReportService {
             logger.error("hang report refused by the leak scan: \(findings.count) findings, first \(findings[0].description, privacy: .public)")
             return
         }
-        if let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         guard generation == started else { return }
         await store.enqueue(body, reportId: report.reportId)
+        // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
+        if let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         await flushOutbox()
     }
 
     private func flushOutbox() async {
-        guard isEnabled, !isFlushing else { return }
+        guard isEnabled else { return }
+        guard !isFlushing else { flushAgain = true; return }
         isFlushing = true
         defer { isFlushing = false }
+        // A report queued during a pass gets one more pass, not the next day's trigger.
+        for _ in 0..<2 {
+            flushAgain = false
+            guard await flushOnce(), flushAgain else { return }
+        }
+    }
+
+    /// One pass over the outbox, oldest first. False when it stopped early (off, or retry later).
+    private func flushOnce() async -> Bool {
         let started = generation
         for entry in await store.outbox(now: environment.now()) {
-            guard generation == started else { return }
+            guard generation == started else { return false }
             switch await transport.send(entry.body) {
             case .accepted, .refused:
                 await store.remove(entry.url)
             case .retryLater:
-                return
+                return false
             }
         }
+        return true
     }
 
     private func build(watchdog: StallAggregate, metricKit: [MetricKitInput], installId: String? = nil) async -> HangReport {
