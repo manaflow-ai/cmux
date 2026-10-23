@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 NETWORK_EXTENSION_KEY = "com.apple.developer.networking.networkextension"
+PERSONAL_VPN_KEY = "com.apple.developer.networking.vpn.api"
 UNSUPPORTED_NETWORK_EXTENSION_VALUES = frozenset({"hotspot-provider"})
 
 
@@ -33,14 +34,15 @@ def filter_app_store_entitlements(entitlements: dict) -> tuple[dict, list[str]]:
 
 
 def remove_network_extension_entitlement(entitlements: dict) -> tuple[dict, list[str]]:
-    """Remove all Network Extension permissions from an App Store host app."""
+    """Remove all Network Extension and Personal VPN permissions from a host app."""
     filtered = dict(entitlements)
-    values = filtered.pop(NETWORK_EXTENSION_KEY, None)
     removed = []
-    if isinstance(values, list):
-        removed.extend(f"{NETWORK_EXTENSION_KEY}[{value}]" for value in values)
-    elif values is not None:
-        removed.append(NETWORK_EXTENSION_KEY)
+    for key in (NETWORK_EXTENSION_KEY, PERSONAL_VPN_KEY):
+        values = filtered.pop(key, None)
+        if isinstance(values, list):
+            removed.extend(f"{key}[{value}]" for value in values)
+        elif values is not None:
+            removed.append(key)
     return filtered, removed
 
 

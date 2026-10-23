@@ -1102,6 +1102,7 @@ BUILD_FEATURE_ARGS=()
 if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
   BUILD_FEATURE_ARGS+=(
     SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE
+    CMUX_APPSTORE_BUILD=YES
     CMUX_APP_CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
     CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
     CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER=
@@ -1469,6 +1470,11 @@ if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
     echo "error: App Store builds without the system VPN must use manual signing so the archive can be stripped and re-signed without Network Extension permissions" >&2
     exit 2
   fi
+  ARCHIVE_APPSTORE_BUILD="$($PLISTBUDDY -c 'Print :CMUXAppStoreBuild' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+  if [[ "$ARCHIVE_APPSTORE_BUILD" != "YES" ]]; then
+    echo "error: App Store VPN-free export requires an archive built with CMUX_APPSTORE; the reused archive is missing CMUXAppStoreBuild=YES" >&2
+    exit 2
+  fi
   if [[ -d "$ARCHIVE_APP/PlugIns/CloudVPN.appex" ]]; then
     rm -rf "$ARCHIVE_APP/PlugIns/CloudVPN.appex"
     echo "removed CloudVPN.appex from the App Store archive"
@@ -1609,6 +1615,35 @@ IPA_PATH="$EXPORT_PATH/cmux.ipa"
 if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
+fi
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  VPN_STRIP_DIR="$(mktemp -d)"
+  if ! ( cd "$VPN_STRIP_DIR" && unzip -q "$IPA_PATH" ); then
+    echo "error: could not unpack App Store IPA while stripping the disabled system VPN" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  IPA_APP="$(find "$VPN_STRIP_DIR/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$IPA_APP" || ! -d "$IPA_APP" ]]; then
+    echo "error: exported App Store IPA has no Payload/*.app to strip the disabled system VPN from" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  if [[ -d "$IPA_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$IPA_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store IPA"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$IPA_APP/Info.plist" 2>/dev/null || true
+  rm -f "$IPA_PATH"
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$VPN_STRIP_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$VPN_STRIP_DIR" && zip -qrX "$IPA_PATH" "${IPA_MEMBERS[@]}" )
+  rm -rf "$VPN_STRIP_DIR"
 fi
 
 # Re-sign the exported app with the FULL entitlements (production aps-environment

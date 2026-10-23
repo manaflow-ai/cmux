@@ -107,6 +107,7 @@ class AppStoreEntitlementTests(unittest.TestCase):
         module = load_filter_module()
         source = {
             "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
+            "com.apple.developer.networking.vpn.api": ["allow-vpn"],
             "aps-environment": "production",
         }
 
@@ -117,8 +118,30 @@ class AppStoreEntitlementTests(unittest.TestCase):
             removed,
             [
                 "com.apple.developer.networking.networkextension[packet-tunnel-provider]",
+                "com.apple.developer.networking.vpn.api[allow-vpn]",
             ],
         )
+
+    def test_app_store_filter_rejects_personal_vpn_in_check_mode(self):
+        source = {"com.apple.developer.networking.vpn.api": ["allow-vpn"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "entitlements.plist"
+            path.write_bytes(plistlib.dumps(source))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(FILTER_SCRIPT),
+                    "--check",
+                    "--remove-network-extension",
+                    str(path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("com.apple.developer.networking.vpn.api[allow-vpn]", result.stderr)
 
     def test_app_store_release_entitlements_omit_network_extension(self):
         entitlements = plistlib.loads(
