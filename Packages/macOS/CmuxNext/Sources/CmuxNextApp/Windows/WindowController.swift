@@ -308,7 +308,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
 
-    func windowDidBecomeKey(_ notification: Notification) {
+    func windowDidBecomeKey(_ notification: Notification) { // perf-hot: 8ms cmd-tab (every window key change, Cmd-Tab back)
         services.windows.didActivate(self)
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }
