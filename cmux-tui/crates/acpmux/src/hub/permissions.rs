@@ -22,7 +22,7 @@ impl Hub {
                             m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some()
                         });
                         if breakdown
-                            && !session.child.lock().await.as_ref().is_some_and(|c| c.pid == pid)
+                            && session.child.lock().await.as_ref().is_none_or(|c| c.pid != pid)
                         {
                             continue;
                         }

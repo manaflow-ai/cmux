@@ -56,7 +56,8 @@ control request is appended to that file, one per line.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
-process of its own that writes a /context answer 1.5 s later, then creates <path>: a replaced
+process outside its own (forked twice, so a kill of its group and descendants misses it) that 1 s
+later writes a /context answer, then a `system/late_probe` line, then creates <path>: a replaced
 Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
 server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
@@ -510,15 +511,21 @@ while True:
         late = os.environ.get("FAKE_CLAUDE_LATE_CONTEXT")
         if late and die_if and os.path.exists(die_if):
             LIMITED = True
-            if os.fork() == 0:
-                # Its own session: the failover's kill of this process group leaves it.
+            first = os.fork()
+            if first == 0:
+                # Forked twice and in its own session: no longer this process's descendant or in its
+                # group by the time the failover kills those.
                 os.setsid()
+                if os.fork() != 0:
+                    os._exit(0)
                 import time
-                time.sleep(1.5)
+                time.sleep(1.0)
                 send({"type": "control_response", "response": {"subtype": "success", "request_id": "ctx-late",
                       "response": CONTEXT_USAGE}})
+                send({"type": "system", "subtype": "late_probe"})
                 open(late, "w").close()
                 os._exit(0)
+            os.waitpid(first, 0)
             said = "You've hit your usage limit"
             send({"type": "assistant", "error": "rate_limit", "message": {"model": "<synthetic>",
                   "content": [{"type": "text", "text": said}]}})

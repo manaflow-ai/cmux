@@ -4,6 +4,7 @@
 //! the session log holds the raw wire traffic.
 
 use crate::config::HarnessProfile;
+use crate::no_panic::RwLockExt;
 use crate::rpc::{Id, Message, RpcError};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
@@ -107,7 +108,7 @@ struct Hosted {
 
 impl Hosted {
     fn link(&self) -> Arc<crate::agent_host::link::Link> {
-        self.link.read().unwrap().clone()
+        self.link.read_or_recover().clone()
     }
 }
 
@@ -160,6 +161,9 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
+    /// is not the chat's context any more, and is neither logged nor handed to the hub.
+    retired: std::sync::atomic::AtomicBool,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -259,6 +263,7 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            retired: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job,
         });
@@ -371,6 +376,8 @@ impl ChildAgent {
                             s.push('\n');
                             let _ = agent_for_exit.stdin_tx.send(s).await;
                         }
+                        let mut translated = translated;
+                        translated.retain(|m| !agent_for_exit.stale_context(m));
                         // Translated ACP messages go through the same tap as
                         // native ACP traffic, so the log and viewers see them.
                         for m in &translated {
@@ -502,7 +509,24 @@ impl ChildAgent {
         None
     }
 
+    /// Mark the agent replaced (a failover) or stopping: a /context breakdown it still sends,
+    /// answering a turn that ended before, is dropped (`stale_context`).
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::SeqCst);
+    }
+
+    /// A retired agent's /context breakdown update.
+    fn stale_context(&self, m: &Message) -> bool {
+        let Message::Notification { method, params } = m else { return false };
+        self.retired.load(Ordering::SeqCst)
+            && method == crate::rpc::method::SESSION_UPDATE
+            && params
+                .as_ref()
+                .is_some_and(|p| p.pointer("/update/_meta/acpmux/contextBreakdown").is_some())
+    }
+
     pub async fn kill(&self) {
+        self.retire();
         if self.hosted.is_some() {
             self.terminate(KILL_GRACE).await;
             return;
@@ -546,6 +570,7 @@ impl ChildAgent {
     /// to `grace` for it to exit, then SIGKILL the group (stragglers
     /// included). Never waits on a lock or a pipe without a deadline.
     pub async fn terminate(&self, grace: std::time::Duration) {
+        self.retire();
         if let Some(h) = &self.hosted {
             if h.exited.load(Ordering::SeqCst) || h.link().is_closed() {
                 return;
@@ -784,8 +809,9 @@ impl ChildAgent {
     pub async fn await_response(&self, id: Id) -> oneshot::Receiver<Result<Value, RpcError>> {
         let (tx, rx) = oneshot::channel();
         let mut p = self.pending.lock().await;
-        if let Some(i) = p.orphans.iter().position(|(k, _)| *k == key(&id)) {
-            let (_, answer) = p.orphans.remove(i).expect("position is in range");
+        let orphan =
+            p.orphans.iter().position(|(k, _)| *k == key(&id)).and_then(|i| p.orphans.remove(i));
+        if let Some((_, answer)) = orphan {
             let _ = tx.send(answer);
         } else {
             p.map.insert(key(&id), tx);
@@ -887,7 +913,7 @@ impl ChildAgent {
             Connect::Ready(link, _) => Arc::from(link),
             Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
         };
-        *h.link.write().unwrap() = link.clone();
+        *h.link.write_or_recover() = link.clone();
         h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(())
@@ -972,6 +998,7 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            retired: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job: None,
         });
@@ -1042,6 +1069,10 @@ impl ChildAgent {
             },
             Entry::In { msg } => {
                 let Ok(m) = Message::from_value(msg) else { return true };
+                // Dropped as the direct reader drops it; the entry counts as handled.
+                if self.stale_context(&m) {
+                    return true;
+                }
                 if !(self.tap)(Direction::In, &m, Some(h)) {
                     return false;
                 }
