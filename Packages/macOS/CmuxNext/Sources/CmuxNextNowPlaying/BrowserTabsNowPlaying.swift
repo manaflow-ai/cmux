@@ -76,7 +76,11 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         case .seek(let seconds): .seek(seconds)
         case .pictureInPicture: .pictureInPicture
         }
-        Task { await tab.media(media) }
+        Task { [weak self] in
+            // A press still in flight when the setting turns off does nothing.
+            if media == .pictureInPicture, self?.allowsPictureInPicture() == false { return }
+            await tab.media(media)
+        }
     }
 
     /// The artwork for `url` once loaded; asks the tab for it the first time, and again a while

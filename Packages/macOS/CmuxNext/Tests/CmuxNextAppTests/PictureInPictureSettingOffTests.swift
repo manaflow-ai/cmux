@@ -61,11 +61,11 @@ struct PictureInPictureSettingOffTests {
         }
 
         // The default: every entry point offers it.
-        #expect(tabRow() != nil, describe())
-        #expect(cardRow() != nil, describe())
-        #expect(services.registry.action(for: id)?.isEnabled() == true, describe())
-        #expect(cardSource.nowPlaying?.canPictureInPicture == true, describe())
-        #expect(hubButtonShows(), describe())
+        #expect(tabRow() != nil, "\(describe())")
+        #expect(cardRow() != nil, "\(describe())")
+        #expect(services.registry.action(for: id)?.isEnabled() == true, "\(describe())")
+        #expect(cardSource.nowPlaying?.canPictureInPicture == true, "\(describe())")
+        #expect(hubButtonShows(), "\(describe())")
 
         try await settings.set(.bool(false), at: NowPlayingSettings.pictureInPicturePath)
         try await PasswordManagerRouteTests.until({ services.settings?.snapshot.nowPlaying.pictureInPicture == false })
@@ -84,6 +84,6 @@ struct PictureInPictureSettingOffTests {
 
         try await settings.set(.bool(true), at: NowPlayingSettings.pictureInPicturePath)
         try await PasswordManagerRouteTests.until({ services.settings?.snapshot.nowPlaying.pictureInPicture == true })
-        #expect(tabRow() != nil && cardRow() != nil && cardSource.nowPlaying?.canPictureInPicture == true && hubButtonShows(), describe())
+        #expect(tabRow() != nil && cardRow() != nil && cardSource.nowPlaying?.canPictureInPicture == true && hubButtonShows(), "\(describe())")
     }
 }
