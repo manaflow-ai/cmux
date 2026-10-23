@@ -175,7 +175,9 @@ export const questionSummary = (question: AgentQuestion): string => question.ite
 
 /// The catalog key of the line an unanswered ask leaves (its `{prompt}` is `questionSummary`): how it
 /// ended when the record says (`CancelReason`), else "Not answered". The card and Copy read the same.
-export const cancelledKey = (question: AgentQuestion): "question.skipped" | "question.stopped" | "question.cancelled" => {
+export const cancelledKey = (
+  question: AgentQuestion,
+): "question.skipped" | "question.stopped" | "question.cancelled" => {
   const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
   return reason === "skipped" ? "question.skipped" : reason === "stopped" ? "question.stopped" : "question.cancelled";
 };

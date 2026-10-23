@@ -635,9 +635,11 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   return (
-    <div className="acpmux-question-cancelled" data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}>
+    <div
+      className="acpmux-question-cancelled"
+      data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
+    >
       {t(cancelledKey(question), { prompt: questionSummary(question) })}
     </div>
   );
 }
-

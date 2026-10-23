@@ -92,14 +92,23 @@ const answeredBySession: AgentQuestion = {
 };
 
 /// How an unanswered ask ended, as its record says (record.ts `cancelReason`).
-const skipped: AgentQuestion = { ...(cancelled as unknown as AgentQuestion), state: { kind: "cancelled", reason: "skipped" } };
-const stopped: AgentQuestion = { ...(cancelled as unknown as AgentQuestion), state: { kind: "cancelled", reason: "stopped" } };
+const skipped: AgentQuestion = {
+  ...(cancelled as unknown as AgentQuestion),
+  state: { kind: "cancelled", reason: "skipped" },
+};
+const stopped: AgentQuestion = {
+  ...(cancelled as unknown as AgentQuestion),
+  state: { kind: "cancelled", reason: "stopped" },
+};
 
 /// Answered from the person's phone through the feed (`answeredBy {device, feedItem}`): the record
 /// names an install, not a device, so the line says another device.
 const answeredElsewhere: AgentQuestion = {
   ...(answeredCollapsed as unknown as AgentQuestion),
-  state: { kind: "answered", answer: { selections: { q0: { optionIDs: ["OAuth 2.0"] } }, respondent: { isRemote: true } } },
+  state: {
+    kind: "answered",
+    answer: { selections: { q0: { optionIDs: ["OAuth 2.0"] } }, respondent: { isRemote: true } },
+  },
 };
 
 /// Leo's ask (2026-10-20): two Claude Code questions, tabbed New tab pick | References.
