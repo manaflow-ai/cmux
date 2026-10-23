@@ -364,7 +364,7 @@ public final class TerminalModel {
             sendAttachments(pressReturn: true)
             return
         }
-        controller?.surface.sendText(composerText, pressReturn: true)
+        controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
         composerText = ""
     }
 
@@ -374,7 +374,7 @@ public final class TerminalModel {
             sendAttachments(pressReturn: false)
             return
         }
-        controller?.surface.sendText(composerText, pressReturn: false)
+        controller?.surface.sendText(composerText, pressReturn: false, fullScreenApp: isTUI)
         composerText = ""
     }
 

@@ -104,6 +104,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.focus = focus
         focus.applier = focusApplier
+        focus.window = window
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
@@ -237,6 +238,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         if let current = content { park(current) }
+        DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
@@ -248,14 +250,19 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
+        DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
+        DebugWorkspaceSwitch.mark(self, "content")
         sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
+        DebugWorkspaceSwitch.mark(self, "root")
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
         // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
         // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
         themeScope.show(controller.themeScope, animated: true)
+        DebugWorkspaceSwitch.mark(self, "theme")
         startupObservation?.cancel()
         startupObservation = nil
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
@@ -269,11 +276,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
+        DebugWorkspaceSwitch.mark(self, "did_show")
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
+        DebugWorkspaceSwitch.shown(self, in: window)
     }
 
     var focusedPane: PaneController? { content?.focusedPane }

@@ -1708,7 +1708,7 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
         ) in text
 
     typescript = workflow("sdk-publish-npm.yml")
-    assert 'node-version: "22.14.0"' in typescript
+    assert 'node-version: "22.23.4"' in typescript
     assert (
         "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
         in typescript
