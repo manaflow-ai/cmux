@@ -5,7 +5,7 @@ Builds, through the debug socket of a tagged app:
 
   * 60 workspaces in all. The measured workspace is the last one, shown and focused at the end.
   * The measured workspace: 4 side-by-side columns x 3 stacked rows = 12 panes, plus nested splits
-    inside columns (the middle pane of columns 2 and 4 split side by side once more: 14 panes).
+    inside columns (the middle pane of columns 2 and 4 split once more, top and bottom: 14 panes).
     Each pane holds 6 tabs: 2 terminals, 2 Chromium pages, 1 WebKit page, 1 agent chat.
     The selected tab of each pane is a terminal (--selected chromium selects a Chromium page).
   * 10 other workspaces with Chromium pages (2 pages each), 49 with one terminal.
@@ -13,8 +13,11 @@ Builds, through the debug socket of a tagged app:
     panes of the measured workspace (--busy-where elsewhere: of 10 other workspaces).
 
 Columns are side-by-side splits (`splitRight`), as pane-perf-terminal.py builds its grids, so all
-12 panes show in the 1600 x 1000 window; `newColumn` would make strip columns that scroll off screen.
-A split the window has no room for goes where SplitRoom puts it: the summary reports the shape built.
+panes show in the window; `newColumn` would make strip columns that scroll off screen. The same
+shape on every host: the builder first sets the window to WINDOW (1600 x 1000 points,
+`debug.window_frame`), which fits 4 columns of the 200 pt minimum pane width beside any sidebar,
+and checks the shape it made (60 workspaces, 4 columns side by side, 14 panes, 6 tabs each) before
+it returns: another shape raises StressShapeError instead of being measured as STRESS.
 
 Use it three ways:
 
@@ -52,6 +55,7 @@ NESTED_COLUMNS = (1, 3)  # 0-based: columns 2 and 4 get a nested side-by-side sp
 CHROMIUM_WORKSPACES = 10
 CHROMIUM_PER_WORKSPACE = 2
 BUSY_TERMINALS = 10
+WINDOW = [80, 40, 1600, 1000]  # x, y, width, height in points (debug.window_frame)
 BUSY_COMMAND = 'while :; do echo "$RANDOM $RANDOM $RANDOM stress output line $(date +%s)"; sleep 0.02; done\r'
 
 
@@ -234,15 +238,26 @@ class Stress:
             for _ in range(ROWS - 1):
                 self.action("focusUp", settle=0.15)
             if column in NESTED_COLUMNS:
+                # The middle pane splits once more, top and bottom: a split nested in the column's
+                # chain, which needs no more width than the column has.
                 self.action("focusDown", settle=0.15)
-                self.action("splitRight", settle=0.5)
+                self.action("splitDown", settle=0.5)
+                self.action("focusUp", settle=0.15)
                 self.action("focusUp", settle=0.15)
             if column > 0:
                 self.action("focusLeft", settle=0.15)
         self.action("equalizeSplits", settle=0.8)
 
+    def size_window(self):
+        """The window at WINDOW: the grid fits it on every host, whatever the display."""
+        reply = self.rpc("debug.window_frame", {"frame": WINDOW})
+        if isinstance(reply, dict) and reply.get("error"):
+            self.refusals.append(f"debug.window_frame: {str(reply['error'])[:160]}")
+        return reply
+
     def build_measured(self):
         """The measured workspace (new, last, focused): the grid, 6 tabs per pane, the busy terminals."""
+        self.size_window()
         workspace = self.new_workspace()
         self.build_grid()
         panes = [p["id"] for p in self.panes(self.workspace(workspace))]
@@ -280,14 +295,43 @@ class Stress:
         self.measured, self.busy = workspace, busy
         return workspace
 
-    def build(self):
+    def build(self, check=True):
         start = time.monotonic()
         self.build_background()
         self.build_measured()
         time.sleep(self.settle)  # test script: first page loads and the busy output start before a measure
         summary = self.summary()
         summary["build_s"] = round(time.monotonic() - start, 1)
+        if check:
+            self.check(summary)
         return summary
+
+    @staticmethod
+    def check(summary):
+        """Raises StressShapeError when the session is not STRESS (another layout is never measured as it)."""
+        want_panes = COLUMNS * ROWS + len(NESTED_COLUMNS)
+        tabs = sum((summary.get("measured_tabs") or {}).values())
+        problems = []
+        if (summary.get("workspaces") or 0) < WORKSPACES:
+            problems.append(f"{summary.get('workspaces')} workspaces, not {WORKSPACES}")
+        if summary.get("measured_panes") != want_panes:
+            problems.append(f"{summary.get('measured_panes')} panes, not {want_panes}")
+        if summary.get("shown_columns") != COLUMNS:
+            problems.append(f"{summary.get('shown_columns')} columns side by side, not {COLUMNS}")
+        if tabs < want_panes * 6:
+            problems.append(f"{tabs} tabs in the measured workspace, not {want_panes * 6}")
+        if problems:
+            raise StressShapeError("STRESS session has the wrong shape: " + "; ".join(problems)
+                                   + f" (window {summary.get('window')}; refusals: {summary.get('refusals')})")
+
+    def shown_columns(self):
+        """Columns of panes side by side in the shown workspace: distinct left edges of its pane rings in
+        the window (`debug.layers`); a nested split shares its column's left edge."""
+        layers = self.rpc("debug.layers")
+        window = ((layers or {}).get("windows") or [{}])[0] if isinstance(layers, dict) else {}
+        rings = [r for plane in window.get("planes") or [] for r in plane.get("rings") or []]
+        edges = {round(r["frame_in_window"][0]) for r in rings if r.get("frame_in_window")}
+        return (len(edges) or None), window.get("frame")
 
     def summary(self):
         workspaces = self.workspaces()
@@ -300,11 +344,16 @@ class Stress:
                     kind = f"page:{tab.get('page')}"
                 kinds[kind] = kinds.get(kind, 0) + 1
         columns = sorted({p.get("column") for p in self.panes(measured) if p.get("column") is not None})
-        return {"workspaces": len(workspaces), "measured": getattr(self, "measured", None),
+        shown, frame = self.shown_columns()
+        return {"workspaces": len(workspaces), "measured": getattr(self, "measured", None), "shown_columns": shown, "window": frame,
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
                 "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
                 "selected": self.selected, "chromium_workspaces": min(CHROMIUM_WORKSPACES, len(getattr(self, "background", []))),
                 "refusals": self.refusals[:10]}
+
+
+class StressShapeError(RuntimeError):
+    """The session built is not the STRESS shape."""
 
 
 def load_activation_app():
