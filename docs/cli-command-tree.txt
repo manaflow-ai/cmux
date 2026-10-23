@@ -1292,6 +1292,13 @@ command  surface ls  aliases=catalog,list,tree
   arg  --refresh  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
   arg  machine  kind=argument  completion=custom
+command  surface new-display  aliases=-
+  arg  --focus  kind=option  completion=list(false,true)
+  arg  --machine  kind=option  completion=custom
+  arg  --no-focus  kind=flag  completion=-
+  arg  --no-open  kind=flag  completion=-
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
 command  surface new-terminal  aliases=new
   arg  --cwd  kind=option  completion=directory
   arg  --focus  kind=option  completion=list(false,true)

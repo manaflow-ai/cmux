@@ -833,6 +833,8 @@ extension CMUXCLI {
                cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>]
                                  [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open]
                                  [--focus|--no-focus] [--json] [-- <command...>]
+               cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>]
+                                 [--no-open] [--focus|--no-focus] [--json]
                cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
                cmux surface size [--surface <id|ref>] [--json]
                cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols N --rows N] [--surface <id|ref>]
@@ -856,6 +858,7 @@ extension CMUXCLI {
                but this one can be disconnected (it can reattach from its device).
         new-terminal:  creates a terminal on the machine (a cloud one lands in its cmux-tui
                session, --remote-workspace picks which) and opens it unless --no-open.
+        new-display:  creates a new VNC display on a cloud machine and opens it unless --no-open.
         --focus / --no-focus:  focus the opened pane, or open it in the background.
                \(openFocusDefaultHelp)
         """
@@ -1671,7 +1674,7 @@ extension CMUXCLI {
         }
     }
 
-    // MARK: - cmux surface ls|open|new-terminal
+    // MARK: - cmux surface ls|open|new-terminal|new-display
 
     func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
@@ -1769,6 +1772,44 @@ extension CMUXCLI {
             var line = "OK resource=\(resource) terminal=\(terminalId)"
             if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty { line += " surface=\(surfaceId)" }
             if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty { line += " workspace=\(workspaceId)" }
+            print(line)
+
+        case "new-display":
+            let (machineOpt, rest1) = parseOption(rest, name: "--machine")
+            let (workspaceOpt, rest2) = parseOption(rest1, name: "--workspace")
+            let (focus, rest3) = try parseOpenFocusFlags(rest2, command: "surface new-display")
+            let noOpen = hasFlag(rest3, name: "--no-open")
+            let known = ["--no-open", "--json"]
+            if let unknown = rest3.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {
+                throw CLIError(message: "surface new-display: unknown flag '\(unknown)'\n\n\(Self.surfaceUsage)")
+            }
+            if rest3.contains(where: { !$0.hasPrefix("-") }) {
+                throw CLIError(message: "surface new-display: unexpected argument\n\n\(Self.surfaceUsage)")
+            }
+            guard let machine = machineOpt, !machine.isEmpty else {
+                throw CLIError(message: "surface new-display: --machine <cloud-id> is required\n\n\(Self.surfaceUsage)")
+            }
+            var params: [String: Any] = [
+                "machine": machine,
+                "open": !noOpen,
+                "focus": focus ?? Self.defaultFocusForUserOpen(),
+            ]
+            if let workspaceOpt { params["workspace_id"] = workspaceOpt }
+            let response = try client.sendV2(method: "surface.new_display", params: params, responseTimeout: 240)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            let resource = (response["resource"] as? String)
+                ?? (response["id"] as? String)
+                ?? "?"
+            var line = "OK resource=\(resource)"
+            if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty {
+                line += " surface=\(surfaceId)"
+            }
+            if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty {
+                line += " workspace=\(workspaceId)"
+            }
             print(line)
 
         default:

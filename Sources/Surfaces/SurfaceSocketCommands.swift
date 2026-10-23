@@ -5,7 +5,7 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
-// `surface.new_terminal`, and the `vm.tree` / `vm.terminal_open` / `vm.terminal_new` /
+// `surface.new_terminal`, `surface.new_display`, and the `vm.tree` / `vm.terminal_open` / `vm.terminal_new` /
 // `vm.desktop_open` / `vm.port_open` / `vm.link_socket` verbs that are now thin wrappers
 // over the same catalog. Every entrypoint (sidebar, CLI, agents) opens a surface through
 // `SurfaceCatalog.project`, so "is it open?" and "where does it land?" have one answer.
@@ -111,6 +111,45 @@ extension TerminalController {
                     destination: destination,
                     focus: focus
                 )
+                return await Self.markBackgroundOpen(payload, focus: focus)
+            }
+
+        case "surface.new_display":
+            guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "surface.new_display requires `machine` (a cloud machine id).")
+            }
+            let machine = SurfaceMachineID(rawValue: machineRaw)
+            guard machine.cloudMachineID != nil else {
+                return v2Error(id: id, code: "invalid_params", message: "surface.new_display requires a cloud machine id; local display creation is not supported.")
+            }
+            if let error = cloudDisabledSocketError(id: id) { return error }
+            let open = Self.surfaceBool(params["open"]) ?? true
+            let focus = Self.surfaceBool(params["focus"]) ?? false
+            let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
+            if open, workspaceID == nil {
+                return v2Error(id: id, code: "invalid_params", message: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`).")
+            }
+            let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
+            return v2VmCall(id: id, timeoutSeconds: 240) {
+                let catalog = await SurfaceCatalog.shared
+                guard try await Self.surfaceProvider(for: machine, catalog: catalog) != nil else {
+                    throw SurfaceCatalogError.noProvider(machine)
+                }
+                let resource = try await catalog.createDisplay(on: machine)
+                var payload = Self.surfaceResourcePayload(resource, projections: [])
+                payload["resource"] = resource.id.rawValue
+                payload["open"] = open
+                if let destination {
+                    let opened = try await catalog.project(
+                        resource.id,
+                        into: destination,
+                        focus: focus,
+                        reuseExisting: false
+                    )
+                    payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
+                    payload["resource"] = resource.id.rawValue
+                    payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
+                }
                 return await Self.markBackgroundOpen(payload, focus: focus)
             }
 
