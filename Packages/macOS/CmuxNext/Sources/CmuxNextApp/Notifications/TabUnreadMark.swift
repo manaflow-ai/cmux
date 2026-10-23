@@ -30,6 +30,7 @@ enum TabUnreadMark {
         case .read:
             if tab.hasUnread { try NotificationHandlers.acknowledge([tab.surface], context) }
             if tab.markedUnread { try set(false, tab: tab, daemon: daemon) }
+            if tab.attention != nil { clearAttention(tab: tab, daemon: daemon) }
         case .markUnread:
             try set(true, tab: tab, daemon: daemon)
         }
@@ -49,6 +50,14 @@ enum TabUnreadMark {
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedMarkedUnread(marked) }) {
             try await $0.state.updateTabRecord(resource, markedUnread: marked)
         }
+    }
+
+    /// Mark as Read on a tab an agent marked (tab-attention-v1) drops that mark too: the person
+    /// saw what the agent asked. A daemon without the capability holds no mark to clear.
+    static func clearAttention(tab: TabModel, daemon: DaemonService) {
+        guard daemon.supports(DaemonCapabilities.shared.tabAttention), daemon.store.servesStateResources,
+              let resource = tab.resourceID else { return }
+        daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, clearsAttention: true) }
     }
 
     /// The ids of `viewed` tabs that `previous` did not hold: the tabs that came

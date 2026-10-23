@@ -34,6 +34,12 @@ final class NotificationCenterService {
     /// Marked-unread rings the user dismissed: per tab id, the
     /// ``TabModel/markedUnreadGeneration`` hidden. Marking the tab again rings again.
     var dismissedMarks: [String: UInt64] = [:]
+    /// Attention rings (tab-attention-v1) hidden: per tab id, the lowest `at_ms` that rings again.
+    /// Going into the tab or Dismiss Highlight hides the ring; the mark and its dot stay until the
+    /// agent clears it, the page changes or the tab closes. A new request rings again.
+    var dismissedAttention: [String: UInt64] = [:]
+    /// The marked tabs at the last change, for their banners (`+Attention`); nil before the first list.
+    @ObservationIgnored var attentionSeen: [AgentPaneAttentionTabs.Item]?
     @ObservationIgnored weak var services: AppServices?
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
@@ -135,6 +141,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if self?.showAttention(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
@@ -309,6 +316,10 @@ final class NotificationCenterService {
     /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
     /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
     private func readMark(_ trigger: NotificationTrigger, tab: TabModel) {
+        // The person went into a tab an agent marked: its ring has done its job, the mark stays.
+        if let attention = tab.attention, trigger == .click || trigger == .keystroke {
+            dismissedAttention[tab.id] = attention.atMs &+ 1
+        }
         guard tab.markedUnread, trigger == .click || trigger == .keystroke, let services else { return }
         note("\(trigger.rawValue) read mark \(tab.id)")
         if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }

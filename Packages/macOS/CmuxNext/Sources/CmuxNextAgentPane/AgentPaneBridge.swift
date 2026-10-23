@@ -96,6 +96,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
             AgentPaneImportCards.shared.push(to: view)
+            AgentPaneAttentionTabs.shared.push(to: view)
         }
         return view.model
     }
