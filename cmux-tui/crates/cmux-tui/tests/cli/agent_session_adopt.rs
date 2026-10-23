@@ -12,19 +12,27 @@
 
 use std::collections::HashMap;
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
 use super::*;
 
+/// Each attached acpmux connection, with the `kinds` its newest attach asked.
+type Attached = Arc<Mutex<HashMap<usize, (UnixStream, Option<Vec<String>>)>>>;
+
 /// The acpmux stand-in's state: own-1's mode, the connections that watch
-/// session changes, and each attached connection with its `kinds`.
+/// session changes, and each attached connection with its `kinds`. `slow_modes`
+/// answers each mode read after a second; `refuse_attach` answers an attach
+/// with an error and keeps the connection's subscription.
 #[derive(Clone)]
 struct FakeAcpmux {
     mode: Arc<Mutex<&'static str>>,
     watchers: Arc<Mutex<Vec<UnixStream>>>,
-    attached: Arc<Mutex<HashMap<usize, (UnixStream, Option<Vec<String>>)>>>,
+    attached: Attached,
+    slow_modes: Arc<AtomicBool>,
+    refuse_attach: Arc<AtomicBool>,
 }
 
 /// own-1's record of `kind` at `seq`: an agent `session/update`.
@@ -83,6 +91,8 @@ fn listing_acpmux(socket: PathBuf) -> FakeAcpmux {
         mode: Arc::new(Mutex::new("bypassPermissions")),
         watchers: Arc::default(),
         attached: Arc::default(),
+        slow_modes: Arc::default(),
+        refuse_attach: Arc::default(),
     };
     let state = fake.clone();
     std::thread::spawn(move || {
@@ -95,7 +105,17 @@ fn listing_acpmux(socket: PathBuf) -> FakeAcpmux {
                     let Ok(line) = line else { return };
                     let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
                     let Some(id) = message.get("id").cloned() else { continue };
-                    let result = match message["method"].as_str().unwrap_or_default() {
+                    let method = message["method"].as_str().unwrap_or_default();
+                    if method == "_acpmux/attach" && state.refuse_attach.load(Ordering::SeqCst) {
+                        let reply = json!({"jsonrpc": "2.0", "id": id,
+                                           "error": {"code": -32000, "message": "busy"}});
+                        let _ = writer.write_all(format!("{reply}\n").as_bytes());
+                        continue;
+                    }
+                    if method == "_acpmux/web_modes" && state.slow_modes.load(Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                    let result = match method {
                         "_acpmux/sessions" => json!({"sessions": [
                             {"sessionId": "own-1", "status": "ready", "peer": null,
                              "harness": "fake", "name": "lane", "tags": {}},
@@ -167,17 +187,18 @@ impl Conn {
 
     /// The pushed events on this connection up to the next `event`, with it.
     fn events_until(&mut self, event: &str) -> Vec<Value> {
-        let mut seen = Vec::new();
-        loop {
+        self.events_until_all(&[event])
+    }
+
+    /// The pushed events on this connection until each of `events` came, in any order.
+    fn events_until_all(&mut self, events: &[&str]) -> Vec<Value> {
+        let mut seen: Vec<Value> = Vec::new();
+        while !events.iter().all(|event| seen.iter().any(|message| message["event"] == *event)) {
             let mut line = String::new();
             assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
-            let message: Value = serde_json::from_str(&line).unwrap();
-            let done = message["event"] == event;
-            seen.push(message);
-            if done {
-                return seen;
-            }
+            seen.push(serde_json::from_str(&line).unwrap());
         }
+        seen
     }
 }
 
@@ -322,5 +343,75 @@ fn agent_session_mode_reads_a_tab_that_records_the_chats_full_name() {
     let prefix = tab("own");
     let refused = daemon.mode(prefix);
     assert_eq!(refused["error_code"], "agent_session.unknown_session", "{refused}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// What an attach asks of the stream follows each attach on the connection:
+/// a repeat attach that turns `mode_events` on gets the agent's own mode
+/// changes pushed (under the app's transcript kinds too), and one that acpmux
+/// refuses leaves the stream as the attach before it asked.
+#[test]
+fn a_repeat_attach_sets_what_the_stream_carries_and_a_refused_one_keeps_it() {
+    let daemon = Daemon::start_with("adopt-reattach", None, None);
+    let acpmux = listing_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let surface = daemon.own_agent_tab();
+    assert_eq!(daemon.adopt(surface, "own-1")["ok"], true);
+    let mut app = daemon.client();
+    let kinds = json!(["transcript", "config_option_update"]);
+    let first = app.rpc(json!({"cmd": "agent-session-attach", "surface": surface, "kinds": kinds}));
+    assert_eq!(first["ok"], true, "{first}");
+    let again = app.rpc(json!({"cmd": "agent-session-attach", "surface": surface,
+                               "kinds": kinds, "mode_events": true}));
+    assert_eq!(again["ok"], true, "{again}");
+    *acpmux.mode.lock().unwrap() = "ask";
+    acpmux.agent_records(3, "current_mode_update");
+    let changed = app.next_event("agent-session-mode");
+    assert_eq!(changed["mode"]["mode"], "ask", "{changed}");
+
+    // A refused repeat attach that asked for every record and no pushes.
+    acpmux.refuse_attach.store(true, Ordering::SeqCst);
+    let refused = app.rpc(json!({"cmd": "agent-session-attach", "surface": surface,
+                                 "kinds": ["all"]}));
+    assert_eq!(refused["ok"], false, "{refused}");
+    *acpmux.mode.lock().unwrap() = "bypassPermissions";
+    acpmux.agent_records(4, "current_mode_update");
+    acpmux.agent_records(5, "agent_message_chunk");
+    let seen = app.events_until_all(&["agent-session-mode", "agent-session-record"]);
+    let pushed = seen.iter().find(|event| event["event"] == "agent-session-mode");
+    assert_eq!(pushed.map(|event| &event["mode"]["asking"]), Some(&json!(false)), "{seen:?}");
+    let records: Vec<&Value> =
+        seen.iter().filter(|event| event["event"] == "agent-session-record").collect();
+    assert_eq!(records.len(), 1, "{seen:?}");
+    assert_eq!(records[0]["record"]["kind"], "agent_message_chunk", "{seen:?}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// A mode read that finishes after the tab was bound to another chat pushes
+/// nothing for the tab: the attachment ends (`detached`) instead.
+#[test]
+fn a_mode_read_that_outlives_the_tabs_chat_pushes_nothing() {
+    let daemon = Daemon::start_with("adopt-stale", None, None);
+    let acpmux = listing_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    assert_eq!(daemon.rpc(json!({"id": 40, "cmd": "new-workspace"}))["ok"], true);
+    let tab = daemon.rpc(json!({"id": 41, "cmd": "new-conversation-tab",
+                                "agent_session": {"host": "install:mac-test"}}));
+    let surface = tab["data"]["surface"].as_u64().unwrap();
+    let bind = |session: &str, expected: Value| {
+        daemon.rpc(json!({"id": 42, "cmd": "bind-conversation-tab-session", "surface": surface,
+                          "session": session, "expected_session": expected}))
+    };
+    assert_eq!(bind("own-1", Value::Null)["ok"], true);
+    let mut app = daemon.client();
+    let attached =
+        app.rpc(json!({"cmd": "agent-session-attach", "surface": surface, "mode_events": true}));
+    assert_eq!(attached["ok"], true, "{attached}");
+    acpmux.slow_modes.store(true, Ordering::SeqCst);
+    acpmux.agent_records(3, "current_mode_update");
+    // The record reaches the client before the mode read answers.
+    let _ = app.next_event("agent-session-record");
+    let rebound = bind("other-1", json!("own-1"));
+    assert_eq!(rebound["ok"], true, "{rebound}");
+    let seen = app.events_until("agent-session-closed");
+    assert!(seen.iter().all(|event| event["event"] != "agent-session-mode"), "{seen:?}");
     let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }

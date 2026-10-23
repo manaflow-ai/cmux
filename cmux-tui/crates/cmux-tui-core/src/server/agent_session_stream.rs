@@ -12,8 +12,7 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
-    mode_events: bool,
-    hidden_kinds: Vec<&'static str>,
+    view: StreamView,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -45,7 +44,7 @@ pub(super) fn connect_and_attach(
         }
     };
     let mut page = match link.call("_acpmux/attach", params, CALL_TIMEOUT) {
-        Ok(page) => strip_kinds(bound_page(page, newest_first), &hidden_kinds),
+        Ok(page) => strip_kinds(bound_page(page, newest_first), &view.hidden),
         Err(error) => {
             release(sessions);
             link.close();
@@ -96,8 +95,7 @@ pub(super) fn connect_and_attach(
         ended: AtomicBool::new(false),
         permissions: Mutex::default(),
         prompts: Mutex::default(),
-        mode_events,
-        hidden_kinds: Mutex::new(hidden_kinds),
+        view: Mutex::new(view),
         mode_reading: AtomicBool::new(false),
         mode_again: AtomicBool::new(false),
         children: Mutex::default(),
@@ -227,7 +225,7 @@ pub(super) fn deliver(attachment: &Arc<Attachment>, inbound: Inbound) {
             }
             // A mode record only the daemon subscribed to (`hidden_mode_kinds`).
             let kind = params.get("kind").and_then(Value::as_str).unwrap_or_default();
-            if attachment.hidden_kinds.lock().unwrap_or_else(|e| e.into_inner()).contains(&kind) {
+            if attachment.view().hidden.contains(&kind) {
                 return;
             }
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
@@ -292,7 +290,7 @@ fn mode_update(record: &Value) -> bool {
 /// read runs at a time; a change during it makes it read once more, so the
 /// last push is the newest mode.
 fn reread_mode(attachment: &Arc<Attachment>) {
-    if !attachment.mode_events {
+    if !attachment.view().mode_events {
         return;
     }
     attachment.mode_again.store(true, Ordering::Release);
@@ -314,6 +312,11 @@ fn reread_mode(attachment: &Arc<Attachment>) {
                     &worker.session,
                     &worker.record_session,
                 ) {
+                    // The tab moved on (closed, or bound to another chat) during the
+                    // read: its answer is the old chat's, never pushed for the tab.
+                    if !worker.tab_current() {
+                        return worker.end(Some("detached"));
+                    }
                     let event = json!({"event": "agent-session-mode", "surface": worker.surface, "mode": facts});
                     if worker.writer.send_stream(&event, &worker.outbound).is_err() {
                         return worker.end(None);
