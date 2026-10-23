@@ -35,7 +35,10 @@ class HandshakeSocket {
   onmessage: ((message: { data: string }) => void) | null = null;
   sent: Message[] = [];
 
-  constructor(private readonly dropAt?: string, private readonly refuseGroups = false) {
+  constructor(
+    private readonly dropAt?: string,
+    private readonly refuseGroups = false,
+  ) {
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
@@ -49,7 +52,10 @@ class HandshakeSocket {
       if (message.method === this.dropAt) return this.drop();
       const result =
         message.method === "initialize"
-          ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", operations: Object.values(PERMISSION_GROUP_OPS) } } }
+          ? {
+              protocolVersion: 1,
+              _meta: { acpmux: { origin: "local", operations: Object.values(PERMISSION_GROUP_OPS) } },
+            }
           : message.method === "_acpmux/watch"
             ? { sessions: [session] }
             : message.method === "_acpmux/attach"
@@ -111,7 +117,12 @@ test.each(["initialize", "_acpmux/attach", PERMISSION_GROUP_OPS.groups])(
 
       // The next host attempt reads permissions again and becomes usable without a manual Refresh.
       const fresh = new HandshakeSocket();
-      connected = await AcpmuxDirectClient.connect(host, () => {}, undefined, () => fresh as unknown as WebSocket);
+      connected = await AcpmuxDirectClient.connect(
+        host,
+        () => {},
+        undefined,
+        () => fresh as unknown as WebSocket,
+      );
       expect(connected.permissions.state.ready).toBe(true);
       expect(connected.permissions.state.error).toBeUndefined();
     } finally {
@@ -159,7 +170,12 @@ test("an established socket loss requests one fresh host handshake and stays dis
 
 test("a refused permission read on an open socket remains a recoverable permission error", async () => {
   const socket = new HandshakeSocket(undefined, true);
-  const client = await AcpmuxDirectClient.connect(host, () => {}, undefined, () => socket as unknown as WebSocket);
+  const client = await AcpmuxDirectClient.connect(
+    host,
+    () => {},
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
   try {
     expect(socket.readyState).toBe(1);
     expect(client.permissions.state.ready).toBe(false);
