@@ -54,23 +54,31 @@ extension SidebarListViewComponents {
             endPointerGesture()
             return true
         case .leftMouseUp where eventWindow !== window:
-            DispatchQueue.main.async { [weak self] in self?.endReleasedGesture() }
+            DispatchQueue.main.async { [weak self] in self?.endReleasedGesture(at: screenPoint) }
             return false
         default:
             return false
         }
     }
 
-    /// A release went elsewhere and its dispatch is over: a gesture still alive with the button up has lost its release.
-    func endReleasedGesture() {
+    /// A release went elsewhere (`screenPoint`: where) and its dispatch is over: a gesture still alive with the button
+    /// up has lost its release. A drag released beside the sidebar (over another window or the desktop) is still a drag
+    /// out: its item comes off (`finishDragOut`).
+    func endReleasedGesture(at screenPoint: NSPoint? = nil) {
         guard holdsPointerGesture, !leftButtonIsDown() else { return }
+        if let drag, let screenPoint, let window, finishDragOut(drag, at: window.convertPoint(fromScreen: screenPoint)) {
+            press = nil
+            return syncRowStates()
+        }
         endPointerGesture()
     }
 
     /// Sees every left press and release of the app before its window does (`pointerEventSeen`); the caller removes it.
     func observePointerEnds() -> Any? {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
-            _ = self?.pointerEventSeen(event.type, in: event.window)
+            // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
+            _ = self?.pointerEventSeen(event.type, in: event.window,
+                                       at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)
             return event
         }
     }

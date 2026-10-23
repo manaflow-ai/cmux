@@ -195,10 +195,17 @@ extension SidebarDocStore {
         records.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
     }
 
-    /// Whether the loaded document holds an item showing `ref` at any depth (a band, a group, a machine list).
-    /// Every window draws from this one document, whatever its own membership leaves out. Observable.
+    /// Whether the document as the sidebar draws it (the confirmed document and the changes not yet echoed, the
+    /// mirror's rows with no group folded) holds an item showing `ref` at any depth (a band, a group, a machine list).
+    /// Every window draws from this one document, whatever its own membership leaves out. Observable: an intent
+    /// moves `version`, a batch `records` too. One mirror call per change.
     public func placesItem(with ref: LayoutItemRef) -> Bool {
-        isActive && records.items.values.contains { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
+        _ = version
+        guard let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return false }
+        return rows.contains { row in
+            guard let id = row.item else { return false }
+            return (records.items[id].map { SidebarDocProjection.ref($0.body, id: id) } ?? mirror?.added[id]) == ref
+        }
     }
 
     /// The first document item (by id) showing `ref` at any depth, as a layout item.
