@@ -180,7 +180,6 @@ final class AgentPaneDictation {
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
         resignObserver = nil
-        resignObserver = nil
     }
 
     /// The pane closed: drop any session and its text.
@@ -212,7 +211,6 @@ final class AgentPaneDictation {
     }
 
     private func endSleepWatch() {
-        sleepObserver = nil
         sleepObserver = nil
     }
 

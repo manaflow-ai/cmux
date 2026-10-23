@@ -43,16 +43,16 @@ EOF
 write_endpoint() { # optional-identifiers
   cat > "$sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift" <<EOF
 public struct DaemonCapabilities: Sendable {
-    public static let shared = Self()
-    public let required: [String] = [
+    private init() {}
+    public static let required: [String] = [
         "workspace-registry-v1",
     ]
-    public let tabDrag = "tab-drag-v1"
-    public let attachIdentity = "attach-identity-v1"
-    public let cloudConversations = "cloud-conversations-v1"
-    public let terminalResources = "terminal-resources-v1"
-    public var optional: [String] { [$1] }
-    public var unservedByBundledDaemon: [String] { [] }
+    public static let tabDrag = "tab-drag-v1"
+    public static let attachIdentity = "attach-identity-v1"
+    public static let cloudConversations = "cloud-conversations-v1"
+    public static let terminalResources = "terminal-resources-v1"
+    public static var optional: [String] { [$1] }
+    public static var unservedByBundledDaemon: [String] { [] }
 }
 EOF
 }
@@ -64,12 +64,12 @@ struct TerminalResourcesRequest {
 struct Feature {
     func run(daemon: DaemonService) {
         // daemon.supports("commented-out-v1") is not a reference.
-        if daemon.supports(DaemonCapabilities.shared.tabDrag) {}
+        if daemon.supports(DaemonCapabilities.tabDrag) {}
         if daemon.supports("attach-identity-v1") {}
-        if daemon.supports(DaemonCapabilities.shared.cloudConversations) {}
+        if daemon.supports(DaemonCapabilities.cloudConversations) {}
         registry.bindUnavailable(["later"], ActionFailure.needsDaemonCapability("layout-templates-v1"))
         let label = #"a raw "string" with { a brace"#, other = "interpolated \(f("}")) text"
-        if ctx.require(DaemonCapabilities.shared.tabDrag, on: daemon) {}
+        if ctx.require(DaemonCapabilities.tabDrag, on: daemon) {}
 $1
     }
 }

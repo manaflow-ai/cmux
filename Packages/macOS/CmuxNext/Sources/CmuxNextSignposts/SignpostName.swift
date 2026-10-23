@@ -2,71 +2,100 @@
 ///
 /// Names are `<category>.<what>` and never change meaning: the Debug benches, the Release benches
 /// (`scripts/cmux-next/perf-signposts.py`) and PL-telemetry's opt-in hang reports read the same
-/// strings. Add a name here, with what its interval spans, before a call site uses it.
+/// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
+/// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
+///
+/// Only ``actionPerform``, ``actionCommit`` and ``actionGate`` have an emitter today. The other cases are
+/// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
+/// section 7). Until then no build records them, and no bench or report may quote them.
 ///
 /// ```swift
 /// let state = Signposter.action.begin(.actionPerform, "id=tab.new")
 /// ```
-public nonisolated struct SignpostName: Sendable, Hashable, CustomStringConvertible {
-    /// The name `os_signpost` records (a compile-time string, as the API requires).
-    public let staticName: StaticString
-    /// The category whose ``Signposter`` emits this name.
-    public let category: SignpostCategory
+public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomStringConvertible {
+    // MARK: action
 
-    /// A catalog entry. Only this file declares entries.
-    init(_ name: StaticString, _ category: SignpostCategory) {
-        staticName = name
-        self.category = category
+    /// From `ActionRegistry` starting an action to its handler returning: the handler's own
+    /// synchronous main-thread time. Message: `id=<action id> origin=<origin> input_age_ms=<age>`,
+    /// where the age is that of the OS input event AppKit is dispatching for a `user` run, else -1.
+    case actionPerform
+    /// From `ActionRegistry` starting an action to the end of the next Core Animation commit
+    /// (``CommitBoundary``): the synchronous perform plus the commit of what it changed in that
+    /// turn. Work the handler defers (an awaited daemon reply, Chromium's `CreateBrowser`, a later
+    /// SwiftUI update, a frame client's next display frame) lands in a later commit, so this is
+    /// not the time to the frame that shows the action's result: use the action's own end signal
+    /// for that. Same begin message as ``actionPerform``; the end message is `commit=missed` when
+    /// the boundary missed the turn's commit (see ``CommitBoundary/Outcome/missed``).
+    case actionCommit
+    /// A gate before an action runs: the confirmation presenter of a destructive action, or the
+    /// palette opening to collect a missing argument, from `ActionRegistry` handing over to the
+    /// gate until the gate returns (or starts a timed run itself). Not a run of the action: the
+    /// run the gate lets through (often in a later turn, after a sheet or a daemon round trip)
+    /// has its own ``actionPerform`` and ``actionCommit`` with the age of the gesture that
+    /// started it, so readers keep gates out of the action's rows. Same begin message as
+    /// ``actionPerform``.
+    case actionGate
+
+    // MARK: motion (reserved: PL-motion-core, DisplayLinkDriver)
+
+    /// Reserved. One layout motion frame: the display-link tick to its presentation applied.
+    case motionFrame
+    /// Reserved. A whole motion: the structural change to the spring at rest.
+    case motionRun
+
+    // MARK: key (reserved: PL-typing)
+
+    /// Reserved. A key event received by the app to the committed frame that shows its effect.
+    case keyToFrame
+
+    // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
+
+    /// Reserved. A workspace switch: the intent to the commit that shows the new workspace.
+    case switchWorkspace
+    /// Reserved. A tab switch: the intent to the commit that shows the tab's content.
+    case switchTab
+    /// Reserved. A pane focus move: the intent to the settled focus.
+    case switchPaneFocus
+
+    // MARK: create (reserved: PL-cef-tab)
+
+    /// Reserved. A new tab: the intent to its first themed frame. Message: `kind=<terminal|chromium|webkit|chat|page>`.
+    case createTab
+    /// Reserved. A new workspace: the intent to its sidebar row drawn.
+    case createWorkspace
+
+    // MARK: cef (reserved: PL-motion-cef, PL-cef-tab)
+
+    /// Reserved. One Chromium message pump pass on the main thread.
+    case cefPump
+    /// Reserved. `CefBrowserHost::CreateBrowser` on the main thread.
+    case cefCreateBrowser
+
+    /// The name `os_signpost` records (a compile-time string, as the API requires).
+    public var staticName: StaticString {
+        switch self {
+        case .actionPerform: "action.perform"
+        case .actionCommit: "action.commit"
+        case .actionGate: "action.gate"
+        case .motionFrame: "motion.frame"
+        case .motionRun: "motion.run"
+        case .keyToFrame: "key.frame"
+        case .switchWorkspace: "switch.workspace"
+        case .switchTab: "switch.tab"
+        case .switchPaneFocus: "switch.pane_focus"
+        case .createTab: "create.tab"
+        case .createWorkspace: "create.workspace"
+        case .cefPump: "cef.pump"
+        case .cefCreateBrowser: "cef.create_browser"
+        }
+    }
+
+    /// The category whose ``Signposter`` emits this name: the part of the name before the first
+    /// dot. Nil only for a malformed name, which the catalog test refuses.
+    public var category: SignpostCategory? {
+        SignpostCategory(rawValue: String(description.prefix { $0 != "." }))
     }
 
     /// The name as a `String`.
     public var description: String { staticName.withUTF8Buffer { String(decoding: $0, as: UTF8.self) } }
-
-    public static func == (lhs: SignpostName, rhs: SignpostName) -> Bool { lhs.description == rhs.description }
-    public func hash(into hasher: inout Hasher) { hasher.combine(description) }
-
-    // MARK: action
-
-    /// From `ActionRegistry` starting an action to its handler returning (the handler's own
-    /// main-thread time). Message: `id=<action id> origin=<origin> input_age_ms=<age of the OS event>`.
-    public static let actionPerform = SignpostName("action.perform", .action)
-    /// From `ActionRegistry` starting an action to the end of the Core Animation commit after it
-    /// (``CommitBoundary``): the action's committed frame. Same message as ``actionPerform``;
-    /// input to frame is this interval plus `input_age_ms`.
-    public static let actionCommit = SignpostName("action.commit", .action)
-
-    // MARK: motion
-
-    /// One layout motion frame: the display-link tick to its presentation applied.
-    public static let motionFrame = SignpostName("motion.frame", .motion)
-    /// A whole motion: the structural change to the spring at rest.
-    public static let motionRun = SignpostName("motion.run", .motion)
-
-    // MARK: key
-
-    /// A key event received by the app to the committed frame that shows its effect.
-    public static let keyToFrame = SignpostName("key.frame", .key)
-
-    // MARK: switch
-
-    /// A workspace switch: the intent to the commit that shows the new workspace.
-    public static let switchWorkspace = SignpostName("switch.workspace", .switch)
-    /// A tab switch: the intent to the commit that shows the tab's content.
-    public static let switchTab = SignpostName("switch.tab", .switch)
-    /// A pane focus move: the intent to the settled focus.
-    public static let switchPaneFocus = SignpostName("switch.pane_focus", .switch)
-
-    // MARK: create
-
-    /// A new tab: the intent to its first themed frame. Message: `kind=<terminal|chromium|webkit|chat|page>`.
-    public static let createTab = SignpostName("create.tab", .create)
-    /// A new workspace: the intent to its sidebar row drawn.
-    public static let createWorkspace = SignpostName("create.workspace", .create)
-
-    // MARK: cef
-
-    /// One Chromium message pump pass on the main thread.
-    public static let cefPump = SignpostName("cef.pump", .cef)
-    /// `CefBrowserHost::CreateBrowser` on the main thread.
-    public static let cefCreateBrowser = SignpostName("cef.create_browser", .cef)
 }

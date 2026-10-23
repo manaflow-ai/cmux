@@ -259,6 +259,7 @@ let package = Package(
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
+                "CmuxNextSignposts",
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
@@ -1130,6 +1131,11 @@ let package = Package(
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCompatTests",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
@@ -1147,6 +1153,11 @@ let package = Package(
         .target(
             name: "CmuxNextSignposts",
             swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextSignpostsTests",
+            dependencies: ["CmuxNextSignposts"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextWakeups",
@@ -1264,7 +1275,6 @@ let package = Package(
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
-                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
@@ -1279,6 +1289,14 @@ let package = Package(
                 .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
+        ),
+        // Terminal tests that need only TerminalSession (the TextBox composer), without the
+        // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
+        .testTarget(
+            name: "CmuxNextTerminalTests",
+            dependencies: ["CmuxNextTerminal"],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("c++")]
         ),
         // Pure grid-geometry policy for terminal surfaces (which grid a
         // mirror renders, which grid it reports). No GhosttyKit, so it has
@@ -1482,6 +1500,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextScreenshots",
+                "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
                 "CmuxNextTasks",
@@ -1554,7 +1573,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

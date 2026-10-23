@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextCompat
+import CmuxNextTabs
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
 /// PR URL, to the right side or anywhere and make a split").

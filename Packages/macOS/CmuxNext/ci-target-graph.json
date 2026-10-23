@@ -52,8 +52,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests",
       "targets": [
-        "CmuxNextActions",
-        "CmuxNextSignposts"
+        "CmuxNextActions"
       ],
       "packages": [],
       "reads": [
@@ -303,6 +302,7 @@
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -379,6 +379,7 @@
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextScreenshots",
+        "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -669,6 +670,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextCompatTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextComputerUse": {
       "kind": "regular",
@@ -1494,6 +1504,15 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextSignpostsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSignpostsTests",
+      "targets": [
+        "CmuxNextSignposts"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextStash": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextStash",
@@ -1536,7 +1555,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal",
       "targets": [
-        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",
@@ -1561,6 +1579,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextTerminalTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
+      "targets": [
+        "CmuxNextTerminal"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextTestExitTrace": {
       "kind": "regular",

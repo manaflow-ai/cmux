@@ -1,5 +1,4 @@
 package import AppKit
-package import CmuxNextActions
 package import CmuxNextDesign
 package import CmuxNextIcons
 package import Observation
@@ -19,8 +18,8 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     private let actionButton = NSButton()
     private let attachButton = NSButton()
     private let separator = NSBox()
-    /// Runs an action of the registry (the cycle and attach buttons).
-    package var perform: @MainActor (ActionID) -> Void = { _ in }
+    /// Runs a registry action through the App (the cycle and attach buttons).
+    package var perform: @MainActor (TextBoxCommand) -> Void = { _ in }
 
     package init(model: TextBoxModel) {
         self.model = model
@@ -145,7 +144,7 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
 
     package override var wantsUpdateLayer: Bool { true }
 
-    @objc private func cycle(_ sender: Any?) { perform("cycleTextBoxSubmitAction") }
+    @objc private func cycle(_ sender: Any?) { perform(.cycleSubmitAction) }
 
-    @objc private func attach(_ sender: Any?) { perform("attachTextBoxFile") }
+    @objc private func attach(_ sender: Any?) { perform(.attachFile) }
 }

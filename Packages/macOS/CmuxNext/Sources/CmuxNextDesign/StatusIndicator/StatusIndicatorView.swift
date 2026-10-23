@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// `StatusIndicatorLayer` in an NSView, for view-based hosts (sidebar rows,
 /// group headers, section items, Home, pane headers). Follows the shared
@@ -39,7 +40,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         }
     }
 
-    private var occlusionObserver: (token: any NSObjectProtocol, center: NotificationCenter)?
+    private var occlusionObserver: MainActorObservation?
     private weak var observedWindow: NSWindow?
 
     public override init(frame: NSRect) {
@@ -53,16 +54,6 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
-    // A window freed with the view still inside never moves the view out, so the occlusion token
-    // goes here. cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an
-    // action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { // main-proof: the guard above returns off the main thread
-            if let occlusionObserver { occlusionObserver.center.removeObserver(occlusionObserver.token) }
-        }
-    }
 
     nonisolated public override var wantsUpdateLayer: Bool { true }
 
@@ -161,20 +152,14 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         stopObservingOcclusion()
         observedWindow = target
         guard let target else { return }
-        let token = notificationCenter.addObserver(
-            forName: NSWindow.didChangeOcclusionStateNotification, object: target, queue: .main
-        ) { [weak self] _ in
-            // main-proof: the observer runs on the main queue (queue: .main)
-            MainActor.assumeIsolated {
-                guard let self, let window = self.window else { return }
-                self.isWindowVisible = window.occlusionState.contains(.visible)
-            }
+        let token = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: target, center: notificationCenter) { [weak self] in
+            guard let self, let window = self.window else { return }
+            self.isWindowVisible = window.occlusionState.contains(.visible)
         }
-        occlusionObserver = (token, notificationCenter)
+        occlusionObserver = token
     }
 
     private func stopObservingOcclusion() {
-        if let occlusionObserver { occlusionObserver.center.removeObserver(occlusionObserver.token) }
         occlusionObserver = nil
     }
 }

@@ -2,9 +2,9 @@
 // schemas/settings/source/new-tab-widgets.json. Do not edit; edit the JSON and rerun.
 
 extension NewTabWidgetSettings {
-    /// `tabs.newTabWidgets.greeting`: On by default: a short greeting by the time of day over the composer.
+    /// `tabs.newTabWidgets.greeting`: Off by default (Leo 2026-10-22: "new tab page let's have no greeting text by default... maybe as toggle but as useful toggle"). On: a headline over the composer that asks "What should we work on in <project>?" with the project as an inline picker, never a time-of-day greeting. The key keeps its old name, so a saved true turns the headline on.
     public nonisolated static let greetingPath = ["tabs", "newTabWidgets", "greeting"]
-    public nonisolated static let greetingDefault = true
+    public nonisolated static let greetingDefault = false
     /// `tabs.newTabWidgets.projects`: Off by default. On: Default's card of this Mac and its recent projects, with the page in Default's stage. The composer's project strip picks a folder either way.
     public nonisolated static let projectsPath = ["tabs", "newTabWidgets", "projects"]
     public nonisolated static let projectsDefault = false
@@ -30,7 +30,7 @@ extension NewTabWidgetSettings {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NewTabWidgetSettingsSchema {
-    /// The Minimal New Tab layout's widgets (Leo 2026-10-20: "only do the composer for the default"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer; each other part is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).
+    /// The Minimal New Tab layout's widgets (Leo 2026-10-20: "only do the composer for the default"): Minimal, the default tabs.newTabTemplate, is the composer; each part around it is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [
@@ -38,11 +38,11 @@ nonisolated enum NewTabWidgetSettingsSchema {
                 NewTabWidgetSettings.greetingPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.tabs.newTabWidgets.greeting", "Show Greeting on New Tab"),
-                help: SettingsText.keyed("settings.tabs.newTabWidgets.greeting.help", "A short greeting over the composer."),
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.greeting", "Ask What to Work On on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.greeting.help", "A headline over the composer that asks what to work on, with the project as a picker."),
                 kind: .toggle,
                 default: .bool(NewTabWidgetSettings.greetingDefault),
-                keywords: ["new tab", "widget", "greeting", "hello"]
+                keywords: ["new tab", "widget", "headline", "greeting", "project", "question"]
             ),
             SettingDescriptor(
                 NewTabWidgetSettings.projectsPath,
