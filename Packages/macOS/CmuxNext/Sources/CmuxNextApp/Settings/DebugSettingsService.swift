@@ -167,7 +167,7 @@ final class DebugSettingsService: InternalPageProvider {
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .debugSettings, routes: routes) else { return nil }
+        guard let page = PageWebView(descriptor: .debugSettings, routes: routes, lowPowerMode: services.lowPowerMode) else { return nil }
         native.anchor = { [weak page] in page }
         return page
     }

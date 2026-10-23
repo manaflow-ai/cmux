@@ -74,14 +74,6 @@ extension PageWebView {
         recipe.owner.view = self
     }
 
-    /// Makes and starts a pooled page host in one call.
-    convenience init?(pooledHost served: PageDescriptor = .settings, routes: [PageRoute] = [],
-                      options: PageEngineOptions = .standard, lowPowerMode: LowPowerMode = .system) {
-        guard let recipe = Self.pooledHostRecipe(served, options: options, lowPowerMode: lowPowerMode) else { return nil }
-        self.init(recipe: recipe, routes: routes)
-        startLoading()
-    }
-
     /// Starts the served bundle document after the pooled view has been parked.
     func startLoading() {
         guard !loaded, webView.url == nil else { return }

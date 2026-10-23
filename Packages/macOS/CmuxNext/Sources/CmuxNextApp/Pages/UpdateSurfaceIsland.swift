@@ -140,7 +140,7 @@ extension PageFactory {
         let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
         let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
-                               options: PageEngineOptions(requiresWebKit: .transparentOverlay))
+                               options: PageEngineOptions(requiresWebKit: .transparentOverlay), lowPowerMode: services.lowPowerMode)
         native.anchor = { [weak page] in page }
         notes.anchor = { [weak page] in page }
         return page

@@ -358,7 +358,8 @@ final class FilePageService: InternalPageProvider {
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, surface: kind.surface,
-                                     dynamicResources: kind == .markdown ? provider : nil) else {
+                                     dynamicResources: kind == .markdown ? provider : nil,
+                                     lowPowerMode: services.lowPowerMode) else {
             return NSView()
         }
         native.anchor = { [weak page] in page }

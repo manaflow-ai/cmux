@@ -189,7 +189,8 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
-            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
+            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: [],
+                                                       lowPowerMode: LowPowerMode(enabled: false)))
             let rig = Rig(content: page)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: page, "page pane")

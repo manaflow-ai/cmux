@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
@@ -19,7 +20,8 @@ struct PageWebViewEngineNeutralTests {
     }
 
     private func started(_ hosting: FakeChromiumHosting, before: (PageWebView) -> Void = { _ in }) async throws -> (PageWebView, FakeChromiumPage) {
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting,
+                                                   lowPowerMode: LowPowerMode(enabled: false)))
         view.chromiumClock = PageTestClock.never
         before(view)
         await view.chromiumStart?.value

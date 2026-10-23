@@ -52,8 +52,12 @@ final class IconPickerService {
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
 
-    init(services: AppServices?) {
+    /// The app's Low Power Mode, which the picker page renders by.
+    private let lowPowerMode: LowPowerMode
+
+    init(services: AppServices?, lowPowerMode: LowPowerMode) {
         self.services = services
+        self.lowPowerMode = lowPowerMode
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -143,7 +147,7 @@ final class IconPickerService {
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
         guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
-                                     dynamicResources: symbols) else { return nil }
+                                     dynamicResources: symbols, lowPowerMode: lowPowerMode) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made

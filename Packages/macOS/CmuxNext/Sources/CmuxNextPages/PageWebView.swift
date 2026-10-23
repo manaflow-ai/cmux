@@ -153,7 +153,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     /// The Low Power Mode a ``PageRenderRate/display`` page follows (PageWebView+RenderRate.swift):
-    /// the app's `LowPowerMode.system`, or a test's own, given at init.
+    /// the app's (`AppServices.lowPowerMode`, its composition root), or a test's own, given at init.
     let lowPowerMode: LowPowerMode
     /// The Low Power Mode observation of a ``PageRenderRate/display`` page.
     var renderRateObservation: LowPowerModeObservation?
@@ -166,11 +166,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Nil when the page is missing from the resource bundle and no root is registered for it
     /// (``PageID/registerBundledRoot(_:for:)``). `lowPowerMode` is the Low Power Mode a
-    /// ``PageRenderRate/display`` page renders by and follows (the app's observer by default).
+    /// ``PageRenderRate/display`` page renders by and follows: the app passes its own
+    /// (`AppServices.lowPowerMode`), a test a fixed one (`LowPowerMode(enabled:)`).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                             lowPowerMode: LowPowerMode = .system) {
+                             lowPowerMode: LowPowerMode) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
         let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options,
@@ -251,13 +252,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake). `lowPowerMode` is the Low Power Mode a
-    /// ``PageRenderRate/display`` page renders by and follows (the app's observer by default;
-    /// tests pass their own).
+    /// ``PageRenderRate/display`` page renders by and follows: the app passes its own
+    /// (`AppServices.lowPowerMode`), a test a fixed one (`LowPowerMode(enabled:)`).
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
                              chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                             lowPowerMode: LowPowerMode = .system) {
+                             lowPowerMode: LowPowerMode) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
