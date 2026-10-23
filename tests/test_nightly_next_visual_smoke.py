@@ -2,7 +2,7 @@
 """The nightly-next visual smoke (scripts/cmux-next/visual-smoke/): its judge
 passes a drawn window and fails the visibly broken ones (blank, black, tiny, no
 sidebar, empty transcript, missing composer, a layout far from the reference),
-it tolerates small text changes, and nightly.yml runs it as an advisory diagnostic before publication."""
+it tolerates small text changes, and nightly.yml runs it as a publish gate."""
 from __future__ import annotations
 
 import importlib.util
@@ -330,18 +330,15 @@ class Wiring(unittest.TestCase):
         for name in config["scenes"]:
             self.assertRegex(driver, rf'scene\("{name}"')
 
-    def test_nightly_keeps_visual_smoke_advisory_while_publishing(self):
+    def test_nightly_publishes_only_after_the_visual_smoke(self):
         text = (ROOT / ".github/workflows/nightly.yml").read_text()
         job = text[text.index("\n  verify-signed-nightly:\n"):text.index("\n  verify-final-dmg-nightly:\n")]
         step = job[job.index("- name: Visual smoke the signed app"):]
         step = step[:step.index("\n      - name:", 1)]
         self.assertIn('visual-smoke/gate.sh "$CHANNEL_APP_PATH"', step)
-        # The diagnostic must remain visible and upload its captures, but it
-        # must not block publication while the Home fixture is repaired.
-        self.assertIn("id: visual-smoke", step)
-        self.assertIn("continue-on-error: true", step)
+        # Enforced: no continue-on-error and no repository variable can skip it.
+        self.assertNotIn("continue-on-error", step)
         self.assertNotIn("vars.", step)
-        self.assertIn("Record visual smoke advisory failure", job)
         recovered = text[text.index("\n  verify-recovered-nightly-next:\n"):text.index("\n  publish-nightly:\n")]
         self.assertIn("- name: Visual smoke the recovered app", recovered)
         self.assertIn("visual-smoke/gate.sh", recovered)
