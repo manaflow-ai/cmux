@@ -203,6 +203,26 @@ struct AgentSessionAdoptChecksTests {
         #expect(AgentSessionWorkspace.adoptRefusal(supportsAdopt: true, supportsBatchClose: false, machine: "huge-blue") == refusal)
     }
 
+    /// A failed adopt's close ends every terminal the workspace shows, not only the one the adopt
+    /// made: a daemon that lost batch close since the adopt's check closes them one by one, and a
+    /// terminal whose start answer was lost is in no list of the adopt's.
+    @Test func aFailedAdoptsCloseEndsEveryTerminalTheWorkspaceShows() throws {
+        let made = TerminalID(rawValue: "made"), late = TerminalID(rawValue: "late")
+        let key = WorkspaceKey.generate()
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: key, name: "adopt", screens: [
+            ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [
+                TabSnapshot(surface: 1, terminalID: made), TabSnapshot(surface: 2, terminalID: late),
+                TabSnapshot(surface: 3, kind: .conversation, title: "lane", url: "about:blank"),
+            ])]),
+        ])]))
+        let shown = AgentSessionWorkspace.shownTerminals(of: key, in: store)
+        #expect(shown.map(\.id) == [made, late])
+        #expect(AgentSessionWorkspace.shownTerminals(of: .generate(), in: store).isEmpty)
+        #expect(AgentSessionWorkspace.closeList([(made, nil)], mirrored: shown).map(\.id) == [made, late])
+        #expect(AgentSessionWorkspace.closeList([], mirrored: shown).map(\.id) == [made, late], "the lost terminal is not closed")
+    }
+
     /// The adopted chat is the tab's before the store echoes the bind (the adopt answers on a
     /// connection of its own): the page shows it, and its first send starts no new chat on the
     /// bound tab (which the daemon would refuse as `agent_session.bound`).

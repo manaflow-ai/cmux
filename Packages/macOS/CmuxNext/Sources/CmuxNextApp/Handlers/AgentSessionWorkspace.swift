@@ -157,9 +157,13 @@ enum AgentSessionWorkspace {
             where done { break }
             guard present(), let connection = daemon.connection else { throw DaemonError.notConnected }
             let sent = daemon.store.connectionEpoch
+            // The adopt checked batch close, but the daemon may have changed since (a handoff to an older
+            // build): the workspace's terminals as the store lists them now go too, a terminal whose start
+            // answer was lost (in no list of the adopt's) included.
+            let closing = closeList(terminals, mirrored: shownTerminals(of: key, in: daemon.store))
             do {
                 try await DaemonConnection.retryingLateReplies("close-workspace") {
-                    try await WorkspaceClose.close(key, terminals: terminals, on: connection, reason: .sessionEnd)
+                    try await WorkspaceClose.close(key, terminals: closing, on: connection, reason: .sessionEnd)
                 }
                 return
             } catch let error as DaemonError where closeRetries(after: error) && present() && !Task.isCancelled {
@@ -167,6 +171,17 @@ enum AgentSessionWorkspace {
                 daemon.logger.info("agent.openSessionWorkspace: closing a failed adopt's workspace lost its link (\(String(describing: error), privacy: .public)); again on the next connection")
             }
         }
+    }
+
+    /// The PTY terminals workspace `key` holds in `store`'s mirror.
+    static func shownTerminals(of key: WorkspaceKey, in store: DaemonStore) -> [WorkspaceClose.Terminal] {
+        let tabs = store.workspaces.first { $0.key == key }?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
+        return tabs.compactMap { tab in tab.kind == .pty ? tab.terminalID.map { ($0, tab.terminalIncarnation) } : nil }
+    }
+
+    /// The terminals a failed adopt's close ends: the ones it made, then any other the store shows.
+    nonisolated static func closeList(_ made: [WorkspaceClose.Terminal], mirrored: [WorkspaceClose.Terminal]) -> [WorkspaceClose.Terminal] {
+        made + mirrored.filter { shown in !made.contains { $0.id == shown.id } }
     }
 
     /// Whether a failed adopt's close may be sent now: the link is up (`live`) and, after a send the
