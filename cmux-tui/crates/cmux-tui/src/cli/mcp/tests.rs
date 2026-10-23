@@ -1483,12 +1483,12 @@ fn cmux_docs_answers_a_task_with_its_guide() {
 /// The tools the acpmux sub-session server's instructions point agents at
 /// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
 /// instructions reach them the way an agent's `cmux mcp serve` does: in
-/// code mode, through a `cmux_exec` script, with `cmux_docs` for arguments.
+/// code mode, through a `cmux_exec` script, with `cmux.docs` for arguments.
 #[test]
 fn the_subsession_servers_instructions_name_real_cmux_tools() {
     let mut server = code_mode_server(Fake::with_actions());
     let rules = acpmux::subsession_mcp::instructions();
-    assert!(rules.contains("cmux_exec") && rules.contains("cmux_docs"), "{rules}");
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux.docs"), "{rules}");
     let names = acpmux::subsession_mcp::CMUX_TOOLS;
     let found = call(&mut server, "cmux_docs", json!({"names": names}));
     assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");
