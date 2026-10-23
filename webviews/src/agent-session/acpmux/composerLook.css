@@ -36,12 +36,15 @@
 
 /* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
    its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
-   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). */
+   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). The plain
+   top strip (data-top-strip="plain", composerLocation.css) keeps the chat's strip bare text in this
+   look too: this sheet loads after that one, so the tray's rules skip it rather than outrank it
+   (:where adds no specificity, so every other rule wins or loses here as before). */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
   --acpmux-tray-inset: 22px;
   --acpmux-tray-tuck: 10px;
 }
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
+:where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {
   position: relative;
   z-index: var(--layer-base, 0);
