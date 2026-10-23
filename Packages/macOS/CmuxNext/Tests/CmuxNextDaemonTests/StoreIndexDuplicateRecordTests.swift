@@ -58,13 +58,16 @@ struct StoreIndexDuplicateRecordTests {
         // 0 -> 2 records in one batch: the pane came.
         index.insert(first, in: Self.screen(1))
         index.insert(second, in: Self.screen(2))
-        #expect(index.takeTabListChange(), "a pane that came with two records left the tab list unchanged")
+        let change1 = index.takeTabListChange()
+        #expect(change1, "a pane that came with two records left the tab list unchanged")
         // 2 -> 1: the pane is still listed.
         index.remove(first)
-        #expect(!index.takeTabListChange(), "a pane still listed changed the tab list")
+        let change2 = index.takeTabListChange()
+        #expect(!change2, "a pane still listed changed the tab list")
         // 1 -> 0: the pane left.
         index.remove(second)
-        #expect(index.takeTabListChange(), "a pane that left changed nothing")
+        let change3 = index.takeTabListChange()
+        #expect(change3, "a pane that left changed nothing")
     }
 
     /// A pane moved into a new screen keeps its handle, so both records of its tab hash alike:
@@ -80,7 +83,8 @@ struct StoreIndexDuplicateRecordTests {
         let oldTab = try #require(old.tabs.first), movedTab = try #require(moved.tabs.first)
         index.remove(oldTab)
         index.remove(movedTab)
-        #expect(index.takeTabListChange(), "a tab that left with both its records changed nothing")
+        let change4 = index.takeTabListChange()
+        #expect(change4, "a tab that left with both its records changed nothing")
     }
 
     /// The same tab in one pane with two records: one going leaves the tab listed, in the same pane.
@@ -92,7 +96,8 @@ struct StoreIndexDuplicateRecordTests {
         index.insert(moved, in: Self.screen(2))
         _ = index.takeTabListChange()
         index.remove(try #require(old.tabs.first))
-        #expect(!index.takeTabListChange(), "a tab still listed in a pane of the same handle changed the tab list")
+        let change5 = index.takeTabListChange()
+        #expect(!change5, "a tab still listed in a pane of the same handle changed the tab list")
     }
 
     @Test func aPaneWithNoTabThatLeavesMovesTheDigest() {
@@ -102,8 +107,10 @@ struct StoreIndexDuplicateRecordTests {
         _ = index.takeTabListChange()
         // A refresh re-indexes it: nothing changed.
         index.insert(pane, in: Self.screen(1))
-        #expect(!index.takeTabListChange())
+        let change6 = index.takeTabListChange()
+        #expect(!change6)
         index.remove(pane)
-        #expect(index.takeTabListChange(), "a pane with no tab left and the tab list revision stayed")
+        let change7 = index.takeTabListChange()
+        #expect(change7, "a pane with no tab left and the tab list revision stayed")
     }
 }
