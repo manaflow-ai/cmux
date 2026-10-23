@@ -1077,6 +1077,18 @@ export class AcpmuxDirectClient {
   /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
   /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
   private readonly sentPrompts = new Set<string>();
+  /// Told each prompt id acpmux took in the shown chat (`_acpmux/prompt_accepted`, or a live or
+  /// read `user_message` or `queued` record): the pane retires a lost prompt's id the host sent
+  /// again after its sender gave up waiting (lostPrompt.ts).
+  promptShown?: (promptId: string) => void;
+  private sawPrompt(event: EventRecord): void {
+    if (!this.promptShown || (event.kind !== "user_message" && event.kind !== "queued")) return;
+    const promptId = event.msg?.promptId;
+    if (typeof promptId === "string") this.promptShown(promptId);
+  }
+  private sawPrompts(events: readonly EventRecord[]): void {
+    if (this.promptShown) for (const event of events) this.sawPrompt(event);
+  }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
@@ -1515,6 +1527,8 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
+    // A resend wait for a chat this pane no longer shows says no (`awaitResent`).
+    for (const [settle, sessionId] of this.resendWaits) if (sessionId !== this.selectedSessionId) settle();
     // The chats started from the chat before are no longer watched.
     this.offerChildren.reset(this.socket?.readyState === WebSocket.OPEN);
     clearTimeout(this.stopTimer);
@@ -1721,7 +1735,10 @@ export class AcpmuxDirectClient {
     // acpmux took a prompt this connection sent; it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
-      if (typeof promptId === "string") this.promptAccepts.get(promptId)?.();
+      if (typeof promptId === "string") {
+        this.promptAccepts.get(promptId)?.();
+        this.promptShown?.(promptId);
+      }
     }
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
@@ -1781,6 +1798,7 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       const missed = records(result?.events);
       this.events = mergeEventRecords(this.events, missed);
+      this.sawPrompts(missed);
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined);
       if (result?.hasMore !== true || missed.length === 0) break;
       cursor = Math.max(cursor, ...missed.map((event) => event.seq));
@@ -2350,6 +2368,7 @@ export class AcpmuxDirectClient {
     this.turnOpener = opener;
     // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
+    this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
     this.queue = mergeQueue(this.queue, detail.queue ?? []);
@@ -2496,6 +2515,7 @@ export class AcpmuxDirectClient {
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId || event.seq <= this.lastSeq) return;
     this.events.push(event);
+    this.sawPrompt(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.reduce(event);
@@ -4944,6 +4964,45 @@ export class AcpmuxDirectClient {
     this.emit();
     await this.adoptChat({ ...live.adopt, ifLive: choice });
   }
+  /// This client's connection is gone (`close`): it shows nothing more.
+  get isClosed(): boolean {
+    return this.closed;
+  }
+  /// The shown chat `sessionId` has prompt `promptId`: its record or its queue row.
+  showsPrompt(sessionId: string, promptId: string): boolean {
+    if (this.selectedSessionId !== sessionId) return false;
+    return (
+      this.queue.some((entry) => entry.id === promptId) ||
+      this.events.some(
+        (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
+      )
+    );
+  }
+  /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
+  /// the pane shows another chat.
+  private resendWaits = new Map<() => void, string>();
+  /// A prompt an earlier connection lost before acpmux took it (`lostPrompt.ts`), which the host
+  /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
+  /// acceptance), false when it does not within `timeoutMs`, this pane shows (or moves to) another
+  /// chat, or this connection closes.
+  awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean> {
+    if (this.closed || this.selectedSessionId !== sessionId) return Promise.resolve(false);
+    const shown = () => this.showsPrompt(sessionId, promptId);
+    if (shown()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (landed: boolean) => {
+        clearTimeout(timer);
+        if (this.promptAccepts.get(promptId) === accept) this.promptAccepts.delete(promptId);
+        this.resendWaits.delete(gone);
+        resolve(landed);
+      };
+      const accept = () => done(true);
+      const gone = () => done(false);
+      const timer = setTimeout(() => done(shown()), timeoutMs);
+      this.promptAccepts.set(promptId, accept);
+      this.resendWaits.set(gone, sessionId);
+    });
+  }
   /// Takes over the watched chat shown here (`_acpmux/watch_take_over`), so it runs the
   /// conversation itself. While the app that runs it still does, acpmux refuses (`adopt.live`) and
   /// the pane offers Open Anyway and, for Claude Code, Fork It, which call this with `ifLive`.
@@ -4984,11 +5043,18 @@ export class AcpmuxDirectClient {
     }
     await this.create(text(summary.harness), text(summary.cwd));
   }
-  /// A line in the shown transcript (a pick the agent refused).
-  notice(text: string): void {
+  /// A line in the shown transcript (a pick the agent refused); its row id, for `dismissNotice`.
+  notice(text: string): string {
     const at = Date.now();
     const id = noticeId("notice");
     this.rows.set(id, { id, version: 1, at, kind: "notice", text });
+    this.emit();
+    return id;
+  }
+  /// Takes out a line `notice` put in (a lost prompt's "Not sent" once the host sent it after all).
+  dismissNotice(id: string): void {
+    if (this.rows.get(id)?.kind !== "notice") return;
+    this.rows.delete(id);
     this.emit();
   }
   private adoptFailed(reason?: string): void {
@@ -5226,6 +5292,7 @@ export class AcpmuxDirectClient {
     if (start > 0) older = older.slice(start);
     const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
     this.events = mergeEventRecords(older, this.events);
+    this.sawPrompts(older);
     // Held events that start mid-turn (or a read with no turn start) fold everything once.
     if (foldsAbove) this.foldOlder(older);
     else this.rebuildKeepingLiveState();
@@ -5400,6 +5467,7 @@ export class AcpmuxDirectClient {
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
     this.closed = true;
+    for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
     this.snapshotHold = undefined;
@@ -5433,6 +5501,8 @@ export class AcpmuxDirectClient {
           code: "native.timed_out",
           origin: "native",
           reason: "interrupted",
+          // The connection went, not the request's own time (`lostPrompt.ts`).
+          interrupted: true,
         }),
       );
     }
