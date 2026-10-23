@@ -854,7 +854,11 @@ async fn serve_connection_from(
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
+                        Err(mut e) => {
+                            // What kind of failure, and what to do (`recovery.rs`).
+                            crate::recovery::annotate(&mut e, None);
+                            Message::err(id, e)
+                        }
                     });
                 });
             }

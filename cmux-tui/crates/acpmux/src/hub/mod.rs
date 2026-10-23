@@ -75,6 +75,7 @@ mod silent_turn;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
+pub use shutdown::SHUTTING_DOWN;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
