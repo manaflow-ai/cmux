@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Subagent Limit… on a chat: what the dialog shows, which answers become a
+/// Subagent Limit… on a chat and a workspace: what the dialog shows, which answers become a
 /// change, and the `_acpmux/subsession/limits` requests it sends (a read, then the change).
 @MainActor struct SubagentLimitTests {
     /// A fake acpmux person connection that answers the limits method and records each request.
@@ -45,6 +45,16 @@ import Testing
         #expect(chat.params(.useDefault)["maxRunning"] is NSNull)
     }
 
+    @Test func paramsReadSetAndClearAWorkspace() throws {
+        let workspace = try #require(SubagentLimit.Scope.workspace(key: "0F8FAD5BD9CB469FA16570867728950E"))
+        #expect(workspace == .workspace("0f8fad5b-d9cb-469f-a165-70867728950e"))
+        #expect(try #require(SubagentLimit.Scope.workspace(key: "0f8fad5b-d9cb-469f-a165-70867728950e")) == workspace)
+        #expect(workspace.params(.set(2))["workspaceId"] as? String == "0f8fad5b-d9cb-469f-a165-70867728950e")
+        #expect(workspace.params(nil)["maxRunning"] == nil)
+        #expect(workspace.params(.useDefault)["maxRunning"] is NSNull)
+        #expect(SubagentLimit.Scope.workspace(key: "ws_123") == nil)
+    }
+
     @Test func currentReadsTheOwnValueOnlyWhenTheScopeSetIt() throws {
         let own = try #require(SubagentLimit.Current(reply: chatReply, scope: .chat("s-1")))
         #expect(own == SubagentLimit.Current(own: 4, effective: 4, running: 3, queued: 2))
@@ -53,6 +63,11 @@ import Testing
         #expect(inherited.own == nil && inherited.effective == 12)
         // An acpmux from before maxRunning answers a chat's read without it.
         #expect(SubagentLimit.Current(reply: ["subsessionLimits": ["maxChildren": 50]], scope: .chat("s-1")) == nil)
+        let workspace = SubagentLimit.Scope.workspace("0f8fad5b-d9cb-469f-a165-70867728950e")
+        #expect(SubagentLimit.Current(reply: ["workspaceId": "x", "maxRunning": NSNull()], scope: workspace)?.own == nil)
+        #expect(SubagentLimit.Current(reply: ["workspaceId": "x", "maxRunning": 6], scope: workspace)?.own == 6)
+        // An acpmux from before maxRunning refuses a workspace's read; a reply without workspaceId is not one.
+        #expect(SubagentLimit.Current(reply: ["maxRunning": 6], scope: workspace) == nil)
     }
 
     @Test func theDialogPrefillsTheOwnValueAndShowsTheOneInEffect() throws {
@@ -92,6 +107,25 @@ import Testing
         #expect(line.sent.last?["sessionId"] as? String == "s-1")
         #expect(line.sent.last?["maxRunning"] as? Int == 9)
         #expect(line.closed == 2)
+    }
+
+    /// A workspace's dialog says it applies to each chat in it and shows the global setting as its
+    /// placeholder (a workspace has no value in effect of its own).
+    @Test func aWorkspacesDialogShowsTheSettingAsItsPlaceholder() {
+        let spec = SubagentLimit(scope: .workspace("w"), current: SubagentLimit.Current(own: 3), setting: 16).spec
+        #expect(spec.lines == [SubagentLimitStrings.workspaceLine])
+        #expect(spec.fields == [.text(SubagentLimit.field, initial: "3", label: SubagentLimitStrings.field, placeholder: "16")])
+    }
+
+    @Test func useDefaultClearsAWorkspacesLimit() async {
+        let workspace = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        let line = FakeLine(reply: ["workspaceId": workspace, "maxRunning": 3])
+        let failure = await flow(line, answer: answer(SubagentLimit.defaultButton, "3")).run(.workspace(workspace))
+        #expect(failure == nil)
+        #expect(line.sent.count == 2)
+        #expect(line.sent.first?["workspaceId"] as? String == workspace && line.sent.first?["maxRunning"] == nil)
+        #expect(line.sent.last?["workspaceId"] as? String == workspace)
+        #expect(line.sent.last?["maxRunning"] is NSNull)
     }
 
     @Test func useDefaultClearsAChatsLimit() async {

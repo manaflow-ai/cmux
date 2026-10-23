@@ -9573,6 +9573,137 @@
         }
       }
     },
+    "subagentLimit.workspace.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most subagents each chat in this workspace runs at the same time. A chat's own limit comes first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die höchste Zahl an Subagenten, die jeder Chat in diesem Workspace gleichzeitig ausführt. Das eigene Limit eines Chats hat Vorrang."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nombre maximal de sous-agents que chaque chat de cet espace de travail exécute en même temps. La limite propre d’un chat passe en premier."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عدد من الوكلاء الفرعيين الذين تشغّلهم كل محادثة في مساحة العمل هذه في الوقت نفسه. حدّ المحادثة الخاص بها يأتي أولًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El número máximo de subagentes que cada chat de este espacio de trabajo ejecuta a la vez. El límite propio de un chat tiene prioridad."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區中每個聊天同時執行的子代理數量上限。聊天自己的上限優先。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区中每个聊天同时运行的子代理数量上限。聊天自己的上限优先。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간의 각 채팅이 동시에 실행하는 하위 에이전트의 최대 개수입니다. 채팅 자체의 제한이 우선합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースの各チャットが同時に実行するサブエージェントの最大数です。チャット自身の上限が優先されます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najveći broj podagenata koje svaki razgovor u ovom radnom prostoru pokreće u isto vrijeme. Vlastito ograničenje razgovora ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antal underagenter, hver chat i dette arbejdsområde kører på samme tid. En chats egen grænse går forud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il numero massimo di subagenti che ogni chat di questo spazio di lavoro esegue contemporaneamente. Il limite proprio di una chat ha la precedenza."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនភ្នាក់ងាររងច្រើនបំផុតដែលការជជែកនីមួយៗក្នុងកន្លែងធ្វើការនេះដំណើរការក្នុងពេលតែមួយ។ ដែនកំណត់ផ្ទាល់របស់ការជជែកមានអាទិភាពមុន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antallet underagenter hver chat i dette arbeidsområdet kjører samtidig. En chats egen grense går foran."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Największa liczba podagentów, które każdy czat w tym obszarze roboczym uruchamia jednocześnie. Własny limit czatu ma pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O número máximo de subagentes que cada chat deste espaço de trabalho executa ao mesmo tempo. O limite próprio de um chat tem prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наибольшее число субагентов, которых каждый чат в этом рабочем пространстве выполняет одновременно. Собственный лимит чата важнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนเอเจนต์ย่อยสูงสุดที่แต่ละแชทในพื้นที่ทำงานนี้ทำงานพร้อมกัน ขีดจำกัดของแชทเองมีผลก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanındaki her sohbetin aynı anda çalıştırdığı en fazla alt ajan sayısı. Sohbetin kendi sınırı önce gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найбільша кількість субагентів, яких кожен чат у цьому робочому просторі виконує одночасно. Власний ліміт чату має перевагу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số tác tử phụ tối đa mà mỗi cuộc trò chuyện trong không gian làm việc này chạy cùng lúc. Giới hạn riêng của cuộc trò chuyện được ưu tiên."
+          }
+        }
+      }
+    },
     "subagentLimit.status": {
       "comment": "Subagent Limit dialog: a chat's sub-sessions running now (%1$lld) and waiting for a slot (%2$lld).",
       "extractionState": "manual",
