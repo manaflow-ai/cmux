@@ -73,6 +73,7 @@ extension LayoutRootView {
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
                 host.noteWindowFrame()
+                overlayHostsPlaced += 1
                 shown.insert(ObjectIdentifier(chrome))
             }
         }

@@ -76,6 +76,7 @@ extension ScreenContentView {
     /// cutout the mask leaves out (the pane in front has transparent padding) and a Chromium page
     /// reads (its child window draws above every view).
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]]) {
+        stripClipsComputed += 1
         var visible = host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
         // A pane scrolled partly out of its scroll area shows only inside the area's window.
