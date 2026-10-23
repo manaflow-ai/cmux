@@ -54,8 +54,15 @@ if [[ -d "$SRCROOT/ghostty-next/src/shell-integration" ]]; then
   # bash 5.3), appended as the cmux-tui daemon appends it to its embedded copy
   # (shell_integration.rs SCRIPTS), so both spawn paths run the same script.
   # The sync above restores Ghostty's file first, so the append runs once.
+  # A missing fix file stops the build: the app would ship Ghostty's forking
+  # hook while the daemon's copy (include_str!) has the fix. Interim: delete
+  # with the ghostty-next bump to 72578da (see ghostty-preexec.bash).
   bash_fix="$SRCROOT/cmux-tui/crates/cmux-tui-core/src/shell_integration/ghostty-preexec.bash"
-  if [[ -f "$bash_fix" && -f "$dest/ghostty/shell-integration/bash/ghostty.bash" ]]; then
+  if [[ -f "$dest/ghostty/shell-integration/bash/ghostty.bash" ]]; then
+    if [[ ! -f "$bash_fix" ]]; then
+      echo "error: $bash_fix is missing; the bundled bash integration would differ from the cmux-tui daemon's" >&2
+      exit 1
+    fi
     cat "$bash_fix" >>"$dest/ghostty/shell-integration/bash/ghostty.bash"
   fi
 else
