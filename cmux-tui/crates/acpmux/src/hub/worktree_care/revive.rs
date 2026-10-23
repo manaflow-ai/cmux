@@ -99,8 +99,9 @@ impl Hub {
             matches!(
                 origin_of(&cwd, &GitState::read(&cwd)),
                 Some(Some(found))
-                    if (found.cwd, found.root, found.common_dir, found.branch)
-                        == (expected.cwd, expected.root, expected.common_dir, expected.branch)
+                    if found.cwd == expected.cwd
+                        && found.root == expected.root
+                        && found.common_dir == expected.common_dir
             )
         })
         .await
