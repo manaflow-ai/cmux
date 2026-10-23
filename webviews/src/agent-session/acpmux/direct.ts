@@ -59,18 +59,14 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import {
-  incomingPrompt,
-  renderedReply,
-  type IncomingContext,
-  type IncomingMessage,
-} from "./conversation/incomingMessage";
+import { incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
+import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
@@ -1084,8 +1080,6 @@ export class AcpmuxDirectClient {
   /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
   /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
   private readonly sentPrompts = new Set<string>();
-  /// Replies in place waiting for acpmux to take them (`_acpmux/prompt_accepted`), by prompt id.
-  private replyAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
@@ -1168,7 +1162,8 @@ export class AcpmuxDirectClient {
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
-  /// before it, so the call and its updates draw no tool row.
+  /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
+  /// draw none either.
   private planCalls = new Set<string>();
   /// Why subagents stopped, as far as this pane knows, kept across the fold's rebuilds (a new
   /// session forgets them).
@@ -1725,10 +1720,10 @@ export class AcpmuxDirectClient {
       this.asks.pending(notification.params);
       this.applyPermission(notification.params);
     } else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
-    // acpmux took a prompt this connection sent (a reply too); it comes even when the event stream lags.
+    // acpmux took a prompt this connection sent; it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
-      if (typeof promptId === "string") (this.promptAccepts.get(promptId) ?? this.replyAccepts.get(promptId))?.();
+      if (typeof promptId === "string") this.promptAccepts.get(promptId)?.();
     }
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
@@ -3217,10 +3212,14 @@ export class AcpmuxDirectClient {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      // Plumbing (Claude Code's ToolSearch) draws no row and leaves the text segment open.
+      if (isPlumbingCall(update)) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
+      // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
+      if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
       if (!knownRow) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
@@ -4277,53 +4276,28 @@ export class AcpmuxDirectClient {
       .catch(() => undefined);
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
-  /// goes to the chat that sent it as this chat's message in the same thread, the way the cmux
-  /// daemon hands an acpmux chat a `cmux agent message` (cmux-tui-core agent_message_acpmux.rs):
-  /// an `agent_message` provenance from and to the chats' `acp:<id>` addresses, whose message id
-  /// is the prompt id, with `threadId` the message's thread and `replyTo` the message, and the text
-  /// wrapped as cmux renders a message (incomingMessage.ts `renderedReply`). The sender's chat then
-  /// draws it as this chat's reply, its name a link back. acpmux checks the reply answers a message
-  /// this chat got and signs it with this chat's own name (hub/withdraw.rs `app_reply_fits`).
-  /// Sent unseen, as a started task's prompt is. Resolves once acpmux took it; rejects with its
-  /// refusal.
+  /// goes to the chat that sent it as this chat's cmux agent message in the same thread, as
+  /// `cmux agent message --reply-to` sends one. `_acpmux/app_reply` names this chat, the sending
+  /// chat (its bare id), the message and its thread; acpmux checks that this chat got that message
+  /// from that chat (server/app_reply.rs) and signs it with this chat's own name, and the app sends
+  /// it as this chat on its own daemon connection (CmuxNextAgentPane AgentPaneAgentReply.swift).
+  /// The daemon stores it under its own id and delivers it with its `Reply with` line, so
+  /// `--reply-to`, unsend and the inbox know it. `replyId` is its idempotency key in the store
+  /// (each Send is a new one). Resolves once the daemon stored it; rejects with the refusal.
   async reply(message: Pick<IncomingMessage, "sessionId" | "msgId" | "threadId">, text: string): Promise<void> {
     const from = this.selectedSessionId;
     // `cmux agent message` names its sender `acp:<id>`; acpmux's chat id is the bare one.
     const to = message.sessionId?.replace(/^acp:/, "");
     const body = text.trim();
     if (!from || !to || to === from || !message.msgId || !body) throw new Error(translate("message.replyFailed"));
-    const msgId = `m-${crypto.randomUUID()}`;
-    const provenance = {
-      kind: "agent_message",
-      from: `acp:${from}`,
-      to: `acp:${to}`,
-      msgId,
+    await this.request("_acpmux/app_reply", {
+      sessionId: from,
+      to,
+      replyTo: message.msgId,
       threadId: message.threadId ?? message.msgId,
-      replyTo: message.msgId,
-    };
-    const title = this.summary?.sessionId === from ? (this.summary?.title ?? this.summary?.name) : undefined;
-    const rendered = renderedReply({
-      from: provenance.from,
-      fromName: typeof title === "string" ? title : undefined,
-      msgId,
-      replyTo: message.msgId,
       text: body,
+      replyId: `m-${crypto.randomUUID()}`,
     });
-    const accepted = new Promise<void>((resolve) => this.replyAccepts.set(msgId, resolve));
-    const sent = this.offerChildren.prompting(to, () =>
-      this.request("session/prompt", {
-        sessionId: to,
-        prompt: promptBlocks(rendered, []),
-        _meta: { acpmux: { promptId: msgId, provenance } },
-      }),
-    );
-    // Its turn may end long after acpmux took it; a refusal after that shows in the sender's chat.
-    sent.catch(() => undefined);
-    try {
-      await Promise.race([accepted, sent]);
-    } finally {
-      this.replyAccepts.delete(msgId);
-    }
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
@@ -4418,6 +4392,10 @@ export class AcpmuxDirectClient {
       ...(options.rescan ? { rescan: true } : {}),
     });
     return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
+  }
+  /// This Mac's acpmux forum rules (`_acpmux/forum/rules`, hq#2570): the current rule per key.
+  async forumRules(): Promise<unknown> {
+    return this.request("_acpmux/forum/rules", {});
   }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
