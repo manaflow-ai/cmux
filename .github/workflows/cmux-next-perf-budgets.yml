@@ -1,0 +1,73 @@
+name: cmux-next perf budgets
+
+# The perf regression gate (Lawrence 2026-10-21: "a ton of performance issues ... introduced
+# recently"). Every push to feat-cmux-next that touches the app measures the pushed tip with
+# scripts/cmux-next/perf-budgets.py on a fleet mini (class exclusive, through the allowlisted
+# scripts/measure/split-spring.sh --suite=budgets) and fails when any budget row's p95 is more than
+# 10 % (and its noise floor) over scripts/cmux-next/perf-budgets-baseline/<chip>-macos<major>.json.
+# The concurrency group keeps one run going and one waiting: a burst of pushes is measured at its
+# newest commit; a red run's culprit is in the range since the last green run of this workflow
+# (bisect it with the same fleet step at --arg=--only=<bench>).
+# A push lands before this measures it: the red check on the commit is the signal, and the fix (or
+# a revert) is the next push. To accept a deliberate cost, refresh the baseline in the same push
+# (perf-budgets.py --write-baseline on a fleet run of that commit).
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "Packages/macOS/**"
+      - "webviews/**"
+      - "cmux-tui/**"
+      - "ghostty-next"
+      - "scripts/cmux-next/perf-budgets*"
+      - "scripts/cmux-next/perf-budgets-baseline/**"
+      - ".github/workflows/cmux-next-perf-budgets.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "commit to measure (empty: the branch tip)"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-perf-budgets
+  cancel-in-progress: false
+
+jobs:
+  budgets:
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 1
+          submodules: false
+      - name: perf budgets on a fleet mini
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the budgets did not run."
+            exit 127
+          fi
+          sha="$(git rev-parse HEAD)"
+          status=0
+          # The AWS minis have no console login: the app never shows a window there, so every row would
+          # read n/a. cmuxs-Mac-mini (user cmux at the console, M4 Pro, macOS 27) is the baseline's host.
+          "$client" run --class exclusive --measurement --label measure --target-worker cmuxs-Mac-mini.local \
+            --script scripts/measure/split-spring.sh --ref "$sha" --timeout 7200 \
+            --key "perf-budgets-$sha" --artifact artifacts/split-spring/report.json \
+            --arg=--suite=budgets --arg=--gate | tee "$RUNNER_TEMP/budgets.log" || status=$?
+          sed -n '/^# cmux-next perf budgets/,/^PERF-BUDGETS /p' "$RUNNER_TEMP/budgets.log" >> "$GITHUB_STEP_SUMMARY" || true
+          grep '^PERF-BUDGETS' "$RUNNER_TEMP/budgets.log" >> "$GITHUB_STEP_SUMMARY" || true
+          if [ "$status" -ne 0 ] && grep -q '^PERF-BUDGETS-REGRESSION' "$RUNNER_TEMP/budgets.log"; then
+            grep '^PERF-BUDGETS-REGRESSION' "$RUNNER_TEMP/budgets.log" | while read -r _ row rest; do
+              echo "::error title=Perf budget regressed: $row::$rest"
+            done
+          fi
+          exit "$status"

@@ -1155,6 +1155,16 @@ pre.cv-math-source {
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
+  /* Its scrollbar stays shown (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE); under the opt-in fade it
+     paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
+     Motion (0 with animations off). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+}
+/* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
+   composer's; the transcript never scrolls sideways. */
+.acpmux-scroll[data-cmux-shown-scroller] {
+  overflow-x: hidden;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
@@ -1531,19 +1541,43 @@ pre.cv-math-source {
 .cv-worked.is-quiet {
   visibility: hidden;
 }
+/* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
+.cv-thinking.is-shimmer {
+  position: relative;
+}
+.cv-shimmer__band {
+  display: none;
+}
 @media (prefers-reduced-motion: no-preference) {
+  /* SPINNERS-OFF-MAIN: a band masked to a soft stripe slides across the dim words while its lit copy
+     slides back by as much, so the lit words hold still under the moving stripe. Transform only: the
+     compositor runs both loops, the page paints nothing per frame. */
   :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
-    background: linear-gradient(
-        100deg,
-        var(--cv-text-dim) 35%,
-        color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text)) 50%,
-        var(--cv-text-dim) 65%
-      )
-      0 0 / 250% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+    color: var(--cv-text-dim);
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__band {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
+    mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
+    animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
+    animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  /* The lit words are generated content: the DOM holds the line's words once. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
+    content: attr(data-text);
   }
 }
 
@@ -1599,9 +1633,10 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"])[data-working-look="spinner"] .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
+  /* The dot breathes as its whole svg (the arc is hidden in this look): an svg box gets a compositor
+     layer, a shape inside it does not, so the dot's own opacity would repaint the svg every frame. */
   :root:not([data-status-indicators="static"]):not([data-working-look="spinner"]):not([data-working-look="shimmer"])
-    .cv-spinner[data-working]
-    .cv-spinner__dot {
+    .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
@@ -1999,6 +2034,14 @@ pre.cv-math-source {
 .cv-message__text.has-more {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
+   muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
+.cv-message[data-delivery="failed"] .cv-message__status {
+  color: color-mix(in srgb, var(--agent-warning, var(--agent-danger)) 75%, var(--cv-text-dim));
+}
+.cv-message[data-delivery="failed"] .cv-agentmsg__icon {
+  color: inherit;
 }
 /* Copy, at the sent line's end: shown while the message is pointed at or focused, as a received
    message's row is. Opacity, not display, so the line never reflows under the pointer. */
@@ -3554,6 +3597,13 @@ a.cv-sha:focus-visible {
   min-height: 0;
 }
 .acpmux-row.acpmux-row--before-step {
+  padding-bottom: 0;
+}
+/* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
+   payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
+article.acpmux-row:empty {
+  min-height: 0;
   padding-bottom: 0;
 }
 .acpmux-row--after-step > .cv-tools {
