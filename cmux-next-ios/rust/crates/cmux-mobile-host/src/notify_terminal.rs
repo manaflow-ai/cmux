@@ -182,7 +182,10 @@ impl TerminalClassifier {
         if ask {
             // Named by its tool use: one push per question, which the phone matches an
             // answer to (a question without one is never answered from a notification).
-            let tool = event.pointer("/question/tool_use_id").and_then(Value::as_str).filter(|t| !t.is_empty());
+            let tool = event
+                .pointer("/question/tool_use_id")
+                .and_then(Value::as_str)
+                .filter(|t| t.chars().any(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-')));
             let event_id = match tool {
                 Some(tool) => crate::notify::event_id("q", &[tool]),
                 None => format!("n-{id}"),
