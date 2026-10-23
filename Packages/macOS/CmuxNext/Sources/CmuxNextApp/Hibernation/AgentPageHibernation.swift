@@ -16,6 +16,11 @@ import os
 /// builds the page on the same chat (``AgentTabStore/view(for:)``), which acpmux replays with its
 /// draft. Its last frame is drawn under the pane until the new page paints.
 ///
+/// Hidden chat pages also share the page warm budget (`WarmSetBudget.pageCapacity`, as the browser
+/// pages do, perf-lead.md row 15): past it the chats the person left longest ago go once hidden
+/// `HibernationPlanner.overBudgetMinimumHidden`, not after the whole timeout. Each pane's shown
+/// chat (`fronts`, a parked workspace's too) stays out of the budget, so a switch shows a live page.
+///
 /// A page stays when its tab is pinned (unless the setting includes pinned tabs), its chat's
 /// turn runs or waits on the person (acpmux's turn state, `AgentTurnStateStore`), it is a New
 /// Tab page or another machine's chat, or a shell command ran in it (closing the page ends the
@@ -48,6 +53,10 @@ final class AgentPageHibernation {
     /// never loads).
     var wakeState: @MainActor (AgentPaneView) async -> AgentPaneWakeState? = { await $0.wakeState(limit: .seconds(3)) }
     var isPinned: (String) -> Bool = { _ in false }
+    /// Hidden chat pages kept live beyond each pane's shown chat (nil: no budget, the timeout alone).
+    var warmPages: () -> Int? = { nil }
+    /// The tab each pane shows, on screen or not (`BrowserHibernation.fronts`): out of the budget.
+    var fronts: () -> Set<String> = { [] }
     /// The pane still hosting tab `key`'s page lets it go (it shows the tab again on demand).
     var displace: (String) -> Void = { _ in }
     /// The clock (tests set it).
@@ -76,6 +85,8 @@ final class AgentPageHibernation {
         turnsWatched = { AgentTurnStateFeed.shared == nil || AgentTurnStateStore.shared.watching }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
+        warmPages = { [weak cache] in cache?.warmBudget.pageCapacity }
+        fronts = { [weak cache] in cache?.hibernation?.fronts ?? [] }
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
             self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
@@ -144,8 +155,11 @@ final class AgentPageHibernation {
         }
         let current = now()
         var next: Double?
-        for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
-            let remaining = threshold - (current - at).seconds
+        let releasable = hiddenAt.filter { !releasing.contains($0.key) && keepsPage($0.key, onScreen: false) == nil }
+        let over = Self.overBudget(releasable, fronts: fronts(), warmPages: warmPages())
+        let overThreshold = min(threshold, max(Self.minimumHidden, HibernationPlanner.overBudgetMinimumHidden))
+        for (key, at) in releasable {
+            let remaining = (over.contains(key) ? overThreshold : threshold) - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsPage(key) == nil {
@@ -163,6 +177,15 @@ final class AgentPageHibernation {
         } else {
             deadline.cancel()
         }
+    }
+
+    /// The hidden pages past the warm budget: all but the `warmPages` most recently hidden, leaving
+    /// out each pane's shown chat (`fronts`). Pages that must stay (a busy turn, pinned) are not in
+    /// `hidden`, so they neither go for the budget nor hold a place in it.
+    static func overBudget(_ hidden: [String: ContinuousClock.Instant], fronts: Set<String>, warmPages: Int?) -> Set<String> {
+        guard let warmPages else { return [] }
+        let budgeted = hidden.filter { !fronts.contains($0.key) }.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+        return Set(budgeted.dropFirst(max(0, warmPages)).map(\.key))
     }
 
     /// Why tab `key`'s hidden page stays, or nil when it can go. `onScreen: false` leaves out
