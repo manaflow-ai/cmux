@@ -31,6 +31,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
     /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
     var parked: [String: WorkspaceContentController] = [:]
+    /// The room whose theme the window took last (``applyRoomTheme()``).
+    private var themedRoom: ProfileID?
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
     unowned let services: AppServices
@@ -138,13 +140,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: Workspace
 
-    /// The window recolors when it switches room.
+    /// The window recolors when it switches room: in the switch's own turn (`WindowManager.switchProfile`), else when
+    /// this observer sees the new room.
     private func observeRoom() {
         let state = state
         roomObservation = Task { [weak self] in
             for await _ in ObservationStream({ state.profileID }) {
-                guard let self else { return }
-                services.themes.windowDidChange(self)
+                self?.applyRoomTheme()
             }
         }
         // The room's browser profile for tab badges: set in the switch's own turn (`WindowState.profileID`),
@@ -286,6 +288,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
+
+    /// Takes the theme of the window's room once per room (`ThemeCoordinator.windowDidChange`): a space switch applies
+    /// it in its own turn, and the room observer then finds it applied.
+    func applyRoomTheme() {
+        guard themedRoom != state.profileID else { return }
+        themedRoom = state.profileID
+        services.themes.windowDidChange(self)
+    }
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
