@@ -623,6 +623,7 @@ extension WorkspaceHoverCardView {
         performWithTheme {
             // The notification blue, as on the sidebar's own unread dots: the default theme's
             // accent is a grey, and a grey dot read as missing (2026-10-21).
+            // glass-opaque-allow: a 6 pt unread dot on the title row, not a body or surface over the glass.
             unreadDot.layer?.backgroundColor = Palette.notificationBlue.cgColor
             // The last message in its own styles (bold, italic, code), never its raw marks.
             for (index, row) in factViews.enumerated() where index < (content?.facts.count ?? 0) && !row.isHidden {
