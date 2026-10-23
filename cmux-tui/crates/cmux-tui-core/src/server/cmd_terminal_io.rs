@@ -118,7 +118,7 @@ pub(super) fn send(
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };
-    let surface = get_surface(mux, surface)?;
+    let surface = get_shell_surface(mux, surface)?;
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
@@ -218,7 +218,7 @@ pub(super) fn wait_for(
     if cancelled() {
         anyhow::bail!("connection closed while waiting for pattern");
     }
-    let surface = get_surface(mux, surface)?;
+    let surface = get_shell_surface(mux, surface)?;
     require_pty(&surface)?;
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
@@ -346,7 +346,7 @@ pub(super) fn send_key(
     surface: SurfaceId,
     keys: Vec<String>,
 ) -> anyhow::Result<Value> {
-    let surface = get_surface(mux, surface)?;
+    let surface = get_shell_surface(mux, surface)?;
     require_pty(&surface).map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
     if keys.is_empty() {
         anyhow::bail!("bad request: keys must be non-empty");

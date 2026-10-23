@@ -210,7 +210,7 @@ fn terminal_output_read(
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
+    let (_, surface) = resolve_shell_terminal_surface(mux, &request.selectors)?;
     let pattern = required_string(&request.fields, "pattern")?;
     let regex = Regex::new(pattern).map_err(|error| {
         validation_error(
@@ -354,7 +354,7 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
         let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
             resolve_terminal_wait_exit_id(mux, &request.selectors)?
         } else {
-            resolve_terminal_surface(mux, &request.selectors)?.0
+            resolve_shell_terminal_surface(mux, &request.selectors)?.0
         };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
@@ -391,7 +391,8 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
-    let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
+    // A kept tab no frontend started yet starts first (#17587).
+    let Some(surface_id) = mux.live_terminal_starting_kept(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
             prepared,
@@ -1061,6 +1062,24 @@ fn resolve_terminal_surface(
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
     let surface = mux
         .surface(surface_id)
+        .filter(|surface| surface.kind() == SurfaceKind::Pty)
+        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
+    Ok((terminal_id, surface))
+}
+
+/// [`resolve_terminal_surface`] for an operation that needs the terminal's
+/// shell (input, a wait for output): a kept tab no frontend started yet starts
+/// first and is waited for (`Mux::live_terminal_starting_kept`, #17587).
+fn resolve_shell_terminal_surface(
+    mux: &Arc<Mux>,
+    selectors: &ResourceSelectors,
+) -> Result<(TerminalPublicId, Arc<Surface>), ResourceError> {
+    let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
+    let terminal_id =
+        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let surface = mux
+        .live_terminal_starting_kept(&terminal_id)
+        .and_then(|surface_id| mux.surface(surface_id))
         .filter(|surface| surface.kind() == SurfaceKind::Pty)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
     Ok((terminal_id, surface))

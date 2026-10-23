@@ -18,8 +18,9 @@ impl ImagePasteRequest {
         let Self { surface: surface_id, terminal_id, lease, upload_id, .. } = self;
         // Bytes queued for this terminal while it was being created go before the pasted path.
         // Waited for here, before the sizing lock: a live terminal never gets a new queue.
+        // A kept tab no frontend started yet starts first (#17587).
         if self.op == "commit"
-            && let Some(surface) = mux.surface(surface_id)
+            && let Some(surface) = mux.live_surface_starting_kept_tab(surface_id)
         {
             mux.wait_for_creating_input_flush(&surface);
         }

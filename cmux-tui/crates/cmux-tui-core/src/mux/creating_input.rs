@@ -147,9 +147,11 @@ impl Mux {
                 return Ok(TerminalInputTarget::Queued);
             }
         }
-        // Live, and no flush is pending: written outside the creating lock.
+        // Live, and no flush is pending: written outside the creating lock. A kept tab no
+        // frontend started yet starts first (#17587).
         let surface = self
             .live_surface_for_terminal(terminal_id)
+            .or_else(|| self.live_host_terminal_starting_kept(terminal_id))
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
         if paste {
             surface.write_paste(bytes)?;

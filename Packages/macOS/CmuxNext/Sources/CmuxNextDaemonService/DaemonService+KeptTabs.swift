@@ -4,7 +4,11 @@ import Foundation
 // Kept tabs: dead terminal tabs with the workspace store's `relaunch` record, left by End
 // Sessions, Keep Layout or parked by the classic migration (`park-tabs`). Each starts its new
 // shell when a window shows its workspace, never at connect: a launch starts the terminals the
-// person sees, not every terminal of every workspace (#17587, speed-of-sound 1).
+// person sees, not every terminal of every workspace (#17587, speed-of-sound 1). A request
+// that needs a hidden kept tab's shell (the CLI's `send`, socket input, MCP's `terminal_*`
+// tools, `terminal.wait`) starts it in the daemon by the same `restart-tab` path and waits for
+// it (cmux-tui `Mux::live_surface_starting_kept_tab`), so every entrypoint sees the terminal
+// these tabs draw as.
 extension DaemonService {
     /// Starts the shells of `workspace`'s kept tabs in place (`restart-tab`), together. A window
     /// calls it whenever it shows the workspace and when the live tree of a connection lands; each
