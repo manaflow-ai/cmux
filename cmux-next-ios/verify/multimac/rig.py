@@ -39,6 +39,16 @@ def mac():
     # CMUX_NEXT_MOBILE_DEVICE_NAME, passed at launch with open --env), so two Macs can share one.
     if os.environ.get("MULTIMAC_DEVICE_NAME"):
         m.launch_env = dict(m.launch_env, CMUX_NEXT_MOBILE_DEVICE_NAME=os.environ["MULTIMAC_DEVICE_NAME"])
+    # LINKREL_HOSTD_LOG: cmux-mobile-host's log filter (CMUX_MOBILE_LOG). The app hands hostd
+    # no environment of its own, so a wrapper (CMUX_NEXT_MOBILE_HOST_BIN, Debug builds) sets it.
+    if os.environ.get("LINKREL_HOSTD_LOG"):
+        wrapper = os.path.join(BASE, "rig", "bin", "hostd-log")
+        os.makedirs(os.path.dirname(wrapper), exist_ok=True)
+        bundled = os.path.join(m.app, "Contents/Resources/bin/cmux-mobile-host")
+        with open(wrapper, "w") as f:
+            f.write(f'#!/bin/sh\nexport CMUX_MOBILE_LOG="{os.environ["LINKREL_HOSTD_LOG"]}"\nexec "{bundled}" "$@"\n')
+        os.chmod(wrapper, 0o755)
+        m.launch_env = dict(m.launch_env, CMUX_NEXT_MOBILE_HOST_BIN=wrapper)
     m.pid = (m.main_pids() or [None])[0]
     return m
 

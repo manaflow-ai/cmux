@@ -781,7 +781,7 @@ fn media_manager(
         ice,
         options: DialOptions {
             include_loopback: request.include_loopback,
-            relay_only: request.relay_only,
+            relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
             block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
             ..DialOptions::default()
         },
@@ -1059,7 +1059,9 @@ async fn dial(
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,
-        relay_only: request.relay_only,
+        // The rig's relay-only and UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
+        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
         block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
