@@ -209,6 +209,7 @@ public final class AgentPageProvider: PageProvider {
             // acpmux resync, while this page stream starts from current replay state.
             bufferedEvents.removeAll(keepingCapacity: true)
             deliveryOverflowed = false
+            bufferedQueueOverflowed = false
         }
         let id = nextListener
         nextListener += 1
