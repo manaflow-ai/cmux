@@ -63,9 +63,10 @@ import Testing
             let looseText = list.convert(loose.title.frame, from: loose).minX
             #expect(memberText == looseText, "\(id.rawValue): title starts at \(memberText), ungrouped at \(looseText)")
         }
-        // The header bar starts there too.
-        let header = try #require(list.rowViews[.group(Self.group)])
-        #expect(header.frame.minX == loose.frame.minX, "header starts at \(header.frame.minX), rows at \(loose.frame.minX)")
+        // The header bar starts at its members' rail, just left of the rows (Lawrence 2026-10-23), its name on their text column.
+        let header = try #require(list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        #expect(header.frame.minX == loose.frame.minX - SidebarStyle.groupRailReach,
+                "header starts at \(header.frame.minX), rows at \(loose.frame.minX)")
     }
 
     /// The members' line stays (the group's mark) but sits in the inset left of the rows: it never pushes them in
