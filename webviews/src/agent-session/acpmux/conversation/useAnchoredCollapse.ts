@@ -12,10 +12,14 @@
 // - Anywhere else (no one answers the event), the hook moves the nearest scroller itself after each
 //   layout until the fold is over.
 //
+// Only the reader's toggles hold. A Find reveal (useFindReveal) opens through the row's own
+// disclosure setter on purpose: Find then scrolls the view to its match, and a hold would put the
+// header back on every placement pass, undoing that scroll.
+//
 //   const collapse = useAnchoredCollapse({ open, onOpenChange: setOpen });
 //   <button ref={collapse.headerRef} aria-expanded={collapse.open} onClick={collapse.toggle}>…</button>
 //   {collapse.present && <div {...collapse.bodyProps}>…</div>}
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { foldMs, useFold } from "./fold";
 import { ANCHORED_COLLAPSE_EVENT, FOLD_SETTLE_MS } from "./foldAnchor";
 
@@ -75,21 +79,28 @@ function scrollerOf(node: HTMLElement): HTMLElement | undefined {
 
 /// Keeps `header` where it is drawn now with no transcript to hold it: returns what to call once the
 /// change is laid out, which moves the nearest scroller by however far the header moved, then again
-/// on each frame until the fold is over.
-function keepHeader(header: HTMLElement): () => void {
+/// on each frame until the fold is over. That call returns the stop: a later toggle or an unmount
+/// cancels the loop, so two corrections never add up.
+function keepHeader(header: HTMLElement): () => () => void {
   const top = header.getBoundingClientRect().top;
   const view = header.ownerDocument.defaultView;
   return () => {
     const scroller = scrollerOf(header);
-    if (!scroller) return;
+    if (!scroller) return () => {};
     const until = performance.now() + foldMs(header) + FOLD_SETTLE_MS;
+    let frame: number | undefined;
     const correct = () => {
+      frame = undefined;
       if (!header.isConnected) return;
       const moved = header.getBoundingClientRect().top - top;
       if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
-      if (performance.now() < until) view?.requestAnimationFrame(correct);
+      if (performance.now() < until) frame = view?.requestAnimationFrame(correct);
     };
     correct();
+    return () => {
+      if (frame !== undefined) view?.cancelAnimationFrame(frame);
+      frame = undefined;
+    };
   };
 }
 
@@ -107,21 +118,33 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
   // Read when the reader toggles, so `setOpen` and `toggle` stay the same function across renders.
   const latest = useRef({ open, controlled, onOpenChange: options.onOpenChange });
   latest.current = { open, controlled, onOpenChange: options.onOpenChange };
-  const pendingKeep = useRef<(() => void) | undefined>(undefined);
-  const setOpen = useCallback((next: boolean) => {
-    const { open: now, controlled: held, onOpenChange } = latest.current;
-    if (next === now) return;
-    const line = header.current;
-    if (line && !holdHeader(line)) pendingKeep.current = keepHeader(line);
-    if (!held) setInner(next);
-    onOpenChange?.(next);
+  const pendingKeep = useRef<(() => () => void) | undefined>(undefined);
+  // The running fallback correction (no transcript listening), stopped by the next toggle and on unmount.
+  const keeping = useRef<(() => void) | undefined>(undefined);
+  const stopKeeping = useCallback(() => {
+    keeping.current?.();
+    keeping.current = undefined;
   }, []);
+  const setOpen = useCallback(
+    (next: boolean) => {
+      const { open: now, controlled: held, onOpenChange } = latest.current;
+      if (next === now) return;
+      stopKeeping();
+      const line = header.current;
+      // Measured after the previous correction stopped, so the new one starts from where the header is drawn.
+      if (line && !holdHeader(line)) pendingKeep.current = keepHeader(line);
+      if (!held) setInner(next);
+      onOpenChange?.(next);
+    },
+    [stopKeeping],
+  );
   const toggle = useCallback(() => setOpen(!latest.current.open), [setOpen]);
   useLayoutEffect(() => {
     const keep = pendingKeep.current;
     pendingKeep.current = undefined;
-    keep?.();
+    if (keep) keeping.current = keep();
   }, [open]);
+  useEffect(() => stopKeeping, [stopKeeping]);
   return {
     open,
     present: fold.present,
