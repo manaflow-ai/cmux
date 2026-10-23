@@ -73,7 +73,8 @@ final class CloudMachineCreation: Identifiable {
     nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
         if case let CloudAPIError.planRequired(message, url) = error { return ProRefusal(message: message, upgradeURL: url) }
         guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
-        return ProRefusal(message: failure.message.isEmpty ? nil : failure.message, upgradeURL: nil)
+        // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
+        return ProRefusal(message: nil, upgradeURL: nil)
     }
 
     func fail(_ error: any Error) {

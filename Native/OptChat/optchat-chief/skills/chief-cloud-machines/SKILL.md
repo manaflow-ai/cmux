@@ -19,7 +19,7 @@ arguments. With `--json`, an action's fields are under `.result`.
 ## 1. Find or make a machine
 
 ```sh
-cmux --json cloud diagnostics | jq '.result.details | fromjson | {signed_in, unavailable, machines: [.machines[] | {id, title, status}]}'
+cmux --json cloud diagnostics | jq '.result.details | (fromjson? // {}) | {signed_in, unavailable, machines: [.machines[]? | {id, title, status}]}'
 ```
 
 That lists every Cloud machine, paused ones too; `id` is the target
@@ -67,11 +67,14 @@ and `cmux terminal term_… screen read`. A new terminal there:
 
 ## 3. Drive the desktop (computer use)
 
-Install the step helper once per machine (it starts `cua-driver`'s daemon when
-it is not running, runs one tool, then saves a screenshot):
+Install the step helper once per machine. It starts `cua-driver`'s daemon
+when it is not running, runs one tool, then saves a fresh screenshot, and
+fails when no screenshot was saved (`cua-driver` exits 0 even then). Make its
+folder with exec, which runs as the machine's `cmux` user like the daemon:
+`cloud file-mkdir` makes a root-owned folder the daemon cannot write to.
 
 ```sh
-cmux cloud file-mkdir --target machine:<id> --path /home/cmux/.cache/chief
+cmux cloud exec --target machine:<id> --command 'mkdir -p /home/cmux/.cache/chief'
 cmux cloud file-write --target machine:<id> --path /home/cmux/.cache/chief/cua.sh --contents "$(cat <<'EOF'
 export HOME=/home/cmux
 . /etc/cmux/desktop-env.sh
@@ -80,7 +83,9 @@ if ! cua-driver status >/dev/null 2>&1; then
   i=0; while [ "$i" -lt 20 ] && ! cua-driver status >/dev/null 2>&1; do i=$((i+1)); sleep 0.5; done
 fi
 cua-driver call "$1" "$2" || exit $?
+rm -f /home/cmux/.cache/chief/screen.png
 cua-driver call get_desktop_state '{"screenshot_out_file": "/home/cmux/.cache/chief/screen.png"}' >/dev/null
+test -s /home/cmux/.cache/chief/screen.png || { echo "no screenshot saved: run cua-driver doctor" >&2; exit 1; }
 EOF
 )"
 ```
@@ -103,6 +108,8 @@ cmux --json cloud exec --target machine:<id> --command "$step"
   `cua-driver describe <tool>` (after `. /etc/cmux/desktop-env.sh`).
   `cua-driver doctor` explains a failure; a machine without `cua-driver`
   (`command -v cua-driver` fails) is too old: say so.
+- A `click` or `type_text` result can say `"effect": "unverifiable"`: the
+  input was sent, so check what changed (a window title, or the screenshot).
 - Look before you claim. Text results (`list_windows`, `get_window_state`)
   confirm a window or title. To see the screen, bring the screenshot here and
   look at it, and send it to the user when it shows what they asked for:

@@ -29,7 +29,7 @@ import Testing
 
     @Test func theAppServersPlanRequiredOffersPro() async {
         let (_, offers) = await run(failingWith: CloudAppOpFailure(code: CloudAppOpFailure.planRequired, message: "this team has no Cloud plan"))
-        #expect(offers == [CloudMachineCreation.ProRefusal(message: "this team has no Cloud plan", upgradeURL: nil)])
+        #expect(offers == [CloudMachineCreation.ProRefusal(message: nil, upgradeURL: nil)])
     }
 
     @Test func anOrdinaryRefusalOffersNothing() async {
