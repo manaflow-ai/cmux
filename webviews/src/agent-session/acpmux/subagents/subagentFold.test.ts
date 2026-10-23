@@ -333,3 +333,59 @@ test("late root seeding removes a phantom and promotes its children", () => {
 
   expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["child", null]]);
 });
+
+test("late root seeding removes phantom groups from existing child views", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "root-native" }] });
+  // The root's group and the child's view were both materialized before the summary supplied the
+  // native identity. A cleanup must remove the old group marker, not merely hide its agent object.
+  fold.takeRows();
+  fold.setRoot("root-native");
+
+  expect(fold.views().root).toBeUndefined();
+  expect(fold.views().child).toBeUndefined();
+  expect(
+    fold
+      .takeRows()
+      .flatMap((row) => row.subagents ?? [])
+      .map(({ id, parent }) => [id, parent]),
+  ).toEqual([["child", null]]);
+
+  const childView = new SubagentFold();
+  feed(childView, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: "child" }] });
+  feed(childView, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "root-native" }] });
+  childView.setRoot("root-native");
+  expect(childView.views().child).toEqual([]);
+});
+
+test("a known root repairs a historical child parent before drawing it", () => {
+  const fold = new SubagentFold();
+  fold.setRoot("root-native");
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "review", parent: "root-native" }] });
+  const update = {
+    sessionUpdate: "subagent_spawned",
+    _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "root-native" } } },
+  };
+  seq += 1;
+  fold.reduce(
+    {
+      seq,
+      at: seq * 1000,
+      msg: {
+        method: "session/update",
+        params: { update, _meta: { acpmux: { subagents: [{ id: "review", parent: "root-native" }] } } },
+      },
+    },
+    update,
+  );
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["review", null]]);
+  expect(fold.views().review).toBeUndefined();
+  expect(
+    fold
+      .takeRows()
+      .flatMap((row) => row.subagents ?? [])
+      .map(({ id, parent }) => [id, parent]),
+  ).toEqual([["review", null]]);
+});

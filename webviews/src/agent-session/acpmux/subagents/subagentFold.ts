@@ -101,13 +101,25 @@ export class SubagentFold {
     // anything it had already acquired so a later root seed repairs the in-memory tree too.
     const phantom = this.agents.get(id);
     if (!phantom) return;
+    const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
     this.agents.delete(id);
+    const phantomGroup = this.groupOf.get(id);
     this.groupOf.delete(id);
     this.own.delete(id);
     this.drawn.delete(id);
     this.versions.delete(id);
-    for (const group of this.changed) {
-      if (group.ids.includes(id)) group.ids = group.ids.filter((child) => child !== id);
+    for (const group of groups) {
+      if (!group.ids.includes(id)) continue;
+      group.ids = group.ids.filter((child) => child !== id);
+      this.changed.add(group);
+    }
+    if (phantomGroup) this.changed.add(phantomGroup);
+    for (const [parent, entries] of this.own) {
+      const kept = entries.filter((entry) => entry.spawned !== id);
+      if (kept.length !== entries.length) {
+        this.own.set(parent, kept);
+        this.bump(parent);
+      }
     }
     const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
     if (promoted.length === 0) return;
@@ -141,16 +153,17 @@ export class SubagentFold {
     // fallback for older persisted records that lifted `_meta` beside `update`.
     const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
     const sender = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
-    // A top-level collaboration call is the only replay signal that can teach us a native root
-    // when an old session summary did not retain agentSessionId. Never infer it from a child-owned
-    // update: a child sender is the parent of its own grandchildren.
-    if (sender && typeof mux?.subagent !== "string" && this.rootThreads.size === 0 && !this.agents.has(sender))
-      this.setRoot(sender);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) {
       if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
-      const normalized = sender === undefined ? change : { ...change, parent: this.parentFor(sender) };
+      const rootRepair = typeof change.parent === "string" && this.rootThreads.has(change.parent);
+      const normalized =
+        sender === undefined
+          ? rootRepair
+            ? { ...change, parent: null, __rootRepair: true }
+            : change
+          : { ...change, parent: this.parentFor(sender), ...(rootRepair ? { __rootRepair: true } : {}) };
       this.apply(normalized, event, spawn);
     }
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
@@ -302,6 +315,23 @@ export class SubagentFold {
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
     } else {
+      if (change.__rootRepair && agent.parent !== null) {
+        const oldParent = agent.parent;
+        const repaired = agent;
+        repaired.parent = null;
+        const entries = this.own.get(oldParent);
+        if (entries) {
+          const kept = entries.filter((entry) => entry.spawned !== repaired.id);
+          if (kept.length !== entries.length) {
+            this.own.set(oldParent, kept);
+            this.bump(oldParent);
+          }
+        }
+        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
+        if (!this.open.ids.includes(repaired.id)) this.open.ids.push(repaired.id);
+        this.groupOf.set(repaired.id, this.open);
+        this.changed.add(this.open);
+      }
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;

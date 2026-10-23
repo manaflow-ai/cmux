@@ -150,11 +150,6 @@ impl SubagentTree {
             && collab.get("tool").and_then(Value::as_str) == Some("spawnAgent")
         {
             let sender = collab.get("senderThreadId").and_then(Value::as_str);
-            if let Some(sender) = sender.filter(|_| owner.is_none())
-                && !self.parents.contains_key(sender)
-            {
-                self.remember_root(sender);
-            }
             let input = update.get("rawInput");
             let states = input.and_then(|i| i.get("agentsStates"));
             let task = input.and_then(|i| i.get("prompt")).and_then(Value::as_str);
