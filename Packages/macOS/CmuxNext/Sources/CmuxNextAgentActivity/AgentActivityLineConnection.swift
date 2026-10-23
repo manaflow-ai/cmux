@@ -41,6 +41,18 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         self.acceptsServer = acceptsServer
     }
 
+    /// A connection released without ``cancel()`` (its owner went away) ends here, so its
+    /// descriptor and read source do not outlive it and the owner needs no deinit. No callback
+    /// runs. Nothing else can touch the fields now: every `queue` block holds `self` strongly and
+    /// the read source holds it weakly.
+    deinit {
+        if let source {
+            source.cancel()
+        } else if descriptor >= 0 {
+            Darwin.close(descriptor)
+        }
+    }
+
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
             // A `cancel()` queued before this block (a task cancelled as `oneShot` began) already
