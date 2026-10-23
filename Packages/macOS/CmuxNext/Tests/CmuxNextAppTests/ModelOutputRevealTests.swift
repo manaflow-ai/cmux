@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
 import Testing
@@ -13,10 +13,10 @@ import Testing
 /// own link to the same workspace still shows it in a window.
 @MainActor @Suite(.serialized)
 struct ModelOutputRevealTests {
-    private static let workspace = "ws_0123456789abcdef0123456789abcdef"
-    private static let pane = "pane_0123456789abcdef0123456789abcdef"
-    private static let tab = "tab_0123456789abcdef0123456789abcdef"
-    private static let key = "3f2a9c1e-7d4b-4e8a-9c11-2e5f6a7b8c9d"
+    nonisolated private static let workspace = "ws_0123456789abcdef0123456789abcdef"
+    nonisolated private static let pane = "pane_0123456789abcdef0123456789abcdef"
+    nonisolated private static let tab = "tab_0123456789abcdef0123456789abcdef"
+    nonisolated private static let key = "3f2a9c1e-7d4b-4e8a-9c11-2e5f6a7b8c9d"
 
     /// App services whose store has one workspace (with one pane and one tab) that no window lists.
     private static func services() throws -> AppServices {
