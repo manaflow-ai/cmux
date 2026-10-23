@@ -14,8 +14,9 @@ extension WindowManager {
     /// in it (the last one shown there is selected), else the profile's
     /// workspaces no open window showing that profile holds, else a new
     /// workspace created in it.
-    func switchProfile(_ profile: ProfileID, in state: WindowState) {
+    func switchProfile(_ profile: ProfileID, in state: WindowState) { // perf-hot: 1ms workspace-switch (every space switch)
         guard profile != state.profileID else { return }
+        if DebugWorkspaceSwitch.timer.isRecording, let controller = controller(for: state.id) { DebugWorkspaceSwitch.began(controller) }
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
