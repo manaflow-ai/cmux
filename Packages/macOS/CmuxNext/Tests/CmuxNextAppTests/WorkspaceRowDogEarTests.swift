@@ -308,6 +308,8 @@ struct WorkspaceRowDogEarTests {
         let ear = row.moreButton
         #expect(row.closeButton.isHidden, "the home row shows a close")
         #expect(!ear.isHidden && ear.alphaValue == 1, "the home row shows no menu dog-ear")
+        #expect(ear.isAccessibilityElement(), "the Home menu dog-ear is missing from VoiceOver")
+        #expect(ear.accessibilityLabel() == Strings.workspaceMenu, "the Home menu dog-ear has no menu label")
         #expect(abs(ear.frame.maxX - row.bounds.maxX) < 0.5 && abs(ear.frame.minY - row.bounds.minY) < 0.5,
                 "the menu dog-ear \(ear.frame) is not on the row's top-right corner")
         #expect(ear.accessibilityIdentifier() == "cmux.sidebar.workspace.ws-home.more")
