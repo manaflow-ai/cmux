@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "build": "3994065441401",
+  "notes": "notes/3994065441401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24058,
+      "title": "Agent chat: the wave rail is back, and its band reaches the bottom of the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24516,
+      "title": "Agent pane tests: a peer-relayed message addressed sender first is remote (incomingMessage base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24494,
+      "title": "Agent chat: the right-hand panel is called Session Info, not Inspector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24496,
+      "title": "Agent chat: a tool result shows what its envelope holds besides its text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23711,
+      "title": "cmux NEXT: cmux machine list shows the app's Cloud machines (kind: cloud)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23711/84b38d51/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "84b38d51",
+      "tour": "core"
+    },
+    {
+      "pr": 24515,
+      "title": "release rails tests: add migrations after the newest cmux-vm file, not at 0016 (base red)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24372,
+      "title": "acpmux: a media reader that opens a chat's images and videos through the descriptor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24482,
+      "title": "ci(cmux-tui): hand off unmarked tree testers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24493,
+      "title": "Agent chat: persist first-use Composer drafts across remounts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24450,
+      "title": "Question card: say whether an unanswered ask was skipped or stopped, and mark answers from another device",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24348,
+      "title": "Question card: HTML option previews (Claude Code previewFormat html), drawn in a frame that runs nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24503,
+      "title": "cmux NEXT Inspector: pushing, the chat narrows and widens with the panel, so the slide ends without a jump",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24432,
+      "title": "fix(spec): browser.profile.list carries the profile proxy",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24413,
+      "title": "fix(browser): any agent may drive any tab; lease write verbs per tab",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    }
+  ]
+}
