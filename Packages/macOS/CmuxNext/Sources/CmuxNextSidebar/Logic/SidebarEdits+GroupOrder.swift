@@ -3,24 +3,33 @@ public extension SidebarEdits {
     /// `group` as `move` says (``SidebarGroupMove``).
     ///
     /// The index counts the section's rows, loose workspaces and groups
-    /// alike, after the group is taken out (`reorderGroup`'s rule).
+    /// alike, after the group is taken out (`reorderGroup`'s rule). A group
+    /// steps over the top-level rows: a neighbour group moves with the
+    /// subgroups listed after it, so one step passes it whole, and the index
+    /// never names a subgroup's row (that gap is inside its parent).
     /// - Parameters:
     ///   - group: The group to move.
     ///   - move: Where it goes.
     ///   - sections: The sidebar's sections.
-    /// - Returns: The index, or nil when the group is not listed or already
-    ///   is where `move` would send it.
+    /// - Returns: The index, or nil when the group is not listed, is a
+    ///   subgroup (it moves with its parent), or already is where `move`
+    ///   would send it.
     nonisolated static func groupIndex(_ group: GroupID, _ move: SidebarGroupMove, in sections: [SidebarSection]) -> Int? {
         guard let (section, node) = locateGroup(group, in: sections) else { return nil }
-        let last = sections[section].nodes.count - 1
+        var staying = sections[section].nodes
+        guard case let .group(moved) = staying.remove(at: node), moved.parent == nil else { return nil }
+        let topLevel = staying.indices.filter { index in
+            if case let .group(other) = staying[index] { other.parent == nil } else { true }
+        }
+        let current = topLevel.count(where: { $0 < node })
         let target = switch move {
         case .top: 0
-        case .bottom: last
-        case .up: node - 1
-        case .down: node + 1
+        case .bottom: topLevel.count
+        case .up: current - 1
+        case .down: current + 1
         }
-        guard (0...last).contains(target), target != node else { return nil }
-        return target
+        guard (0...topLevel.count).contains(target), target != current else { return nil }
+        return target < topLevel.count ? topLevel[target] : staying.count
     }
 
     /// The groups whose collapse Collapse Other Groups toggles, in sidebar
