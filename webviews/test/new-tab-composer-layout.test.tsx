@@ -65,7 +65,14 @@ function Chips() {
   return <span className="acpmux-chips">Claude Opus 5.5</span>;
 }
 
-async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot } = {}) {
+async function mount(
+  options: {
+    machineName?: string;
+    snapshot?: AcpmuxSnapshot;
+    footer?: React.ReactNode;
+    onCommands?(harness: string, cwd?: string): void;
+  } = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -80,6 +87,8 @@ async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot 
         startCwd="/Users/you/src/app"
         projects={[{ cwd: "/Users/you/src/app", label: "app" }]}
         chips={Chips}
+        {...{ footer: options.footer }}
+        onCommands={options.onCommands}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -91,6 +100,34 @@ async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot 
     ),
   );
 }
+
+test("look controls belong to the composer before the first message", async () => {
+  await mount({ footer: <div className="nt-page-dots">Claude · Codex</div> });
+  const composer = host.querySelector(".nt-composer")!;
+  expect(composer.querySelector(".nt-page-dots")?.textContent).toBe("Claude · Codex");
+  expect(composer.querySelector(".nt-box .nt-page-dots")).toBeNull();
+  const field = composer.querySelector(".nt-field")!;
+  const controls = composer.querySelector(".nt-page-dots")!;
+  expect(field.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("Codex slash commands are available before the first message and selecting one keeps its arguments", async () => {
+  const snapshot = noChat();
+  snapshot.summary = { sessionId: "", harness: "codex", model: "m" };
+  snapshot.commands = [{ name: "goal", description: "Set a goal", hint: "<objective>" }];
+  const requests: string[] = [];
+  await mount({ snapshot, onCommands: (harness) => requests.push(harness) });
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, "/go");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  const row = host.querySelector<HTMLElement>(".acpmux-slash-row")!;
+  expect(row?.textContent).toContain("/goal");
+  await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+  expect(field.value).toBe("/goal ");
+  expect(requests).toEqual(["codex"]);
+});
 
 test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
   await mount();
@@ -128,4 +165,29 @@ test("the location row names the machine the chat starts on and offers no other"
   const options = [...document.querySelectorAll(".acpmux-menu-label")].map((item) => item.textContent);
   expect(options).toContain("studio");
   expect(options).not.toContain("devbox");
+});
+
+test("a deferred chat's later command publication reaches New Tab and a superseded read stays behind", async () => {
+  const { useSessionCommands } = await import("../src/agent-session/acpmux/newtab/useSessionCommands");
+  const { createRoot } = await import("react-dom/client");
+  const goal = [{ name: "goal", description: "Set a goal" }];
+  let commands = [] as typeof goal;
+  let late!: (value: typeof goal) => void;
+  const read = (id: string) =>
+    id === "old" ? new Promise<typeof goal>((resolve) => (late = resolve)) : Promise.resolve(commands);
+  function Pending({ id, revision }: { id: string; revision: object }) {
+    const loaded = useSessionCommands(id, revision, read);
+    return <div>{loaded?.map((command) => command.name).join(",")}</div>;
+  }
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<Pending id="old" revision={{}} />));
+  await act(async () => root!.render(<Pending id="new" revision={{}} />));
+  expect(host.textContent).toBe("");
+  // Commands are published after session/new answered. Its metadata change triggers this read.
+  commands = goal;
+  await act(async () => root!.render(<Pending id="new" revision={{ commands: true }} />));
+  expect(host.textContent).toBe("goal");
+  await act(async () => late([{ name: "obsolete", description: "Old session" }]));
+  expect(host.textContent).toBe("goal");
 });
