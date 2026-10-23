@@ -80,13 +80,13 @@ export default componentEntry<Props>({
   },
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {
-    "deepseek-key": {
-      note: 'Lawrence\'s card: "DeepSeek has no valid API key". No CodeRouter route serves DeepSeek here, so the action opens the CodeRouter docs.',
-      props: { harness: deepseek, error: "Invalid API key: DEEPSEEK_API_KEY is not set", routes: "none" },
-    },
     "claude-key": {
       note: "An API key failure on a chat a CodeRouter route serves: one click moves the chat there and sends the turn again.",
       props: { harness: claude, error: "invalid x-api-key", routes: "coderouter" },
+    },
+    "deepseek-key": {
+      note: 'Lawrence\'s card: "DeepSeek has no valid API key". No CodeRouter route serves DeepSeek here, so the action opens the CodeRouter docs.',
+      props: { harness: deepseek, error: "Invalid API key: DEEPSEEK_API_KEY is not set", routes: "none" },
     },
     "sign-in": {
       note: "Claude Code signed out: Sign in again stays in the footer; CodeRouter sits beside Switch model.",
@@ -106,5 +106,11 @@ export default componentEntry<Props>({
       play: move,
     },
   },
-  experiment: { definition: codeRouterOffer, script: [] },
+  experiment: {
+    definition: codeRouterOffer,
+    script: [
+      // Runs on a variant whose chat a CodeRouter route serves (claude-key, first), in every arm.
+      { name: "move to CodeRouter", run: move },
+    ],
+  },
 });
