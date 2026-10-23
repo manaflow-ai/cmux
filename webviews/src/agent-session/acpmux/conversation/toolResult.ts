@@ -252,7 +252,10 @@ function fromJSON(value: unknown, printed: string, depth: number, clean: (text: 
   // An envelope with nothing in it shows as the JSON it is, and so does one whose other parts
   // cannot be printed again unchanged (a number a double rounds, nesting too deep).
   if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images.length) peeled = undefined;
-  if (peeled?.rest.length && (losesNumbers(printed) || !peeled.rest.every(printable))) peeled = undefined;
+  if (peeled?.rest.length && !peeled.rest.every(printable)) peeled = undefined;
+  // A number a double would change anywhere in an envelope that holds more than text: the whole of
+  // it as printed, its images included, as the opened MCP call shows it (mcpCalls.ts prettyOutput).
+  if ((peeled?.rest.length || peeled?.images.length) && losesNumbers(printed)) peeled = undefined;
   // Its images show in the strip only when its text leaves them out: each image shows once.
   const images = peeled?.images ?? [];
   if (peeled) {

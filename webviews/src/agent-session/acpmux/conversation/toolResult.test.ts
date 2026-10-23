@@ -274,6 +274,13 @@ test("an envelope that shows as printed keeps its images there, out of the strip
   expect(envelopeImages(rounded)).toEqual([]);
 });
 
+test("an image envelope holding a number a double would change shows as printed in the row and the MCP call", () => {
+  const output = `{"jsonrpc":"2.0","id":9007199254740993,"result":{"content":[${JSON.stringify(shot(0))}]}}`;
+  expect(toolResult(output, cleanText).text).toBe(output);
+  expect(envelopeImages(output, cleanText)).toEqual([]);
+  expect(prettyOutput(output)).toBe(output);
+});
+
 test("the strip keeps every image an envelope's text leaves out, ahead of the call's own", () => {
   const output = JSON.stringify([{ type: "text", text: "Four" }, ...[0, 1, 2, 3].map(shot)]);
   const own = "data:image/png;base64,OWN";
