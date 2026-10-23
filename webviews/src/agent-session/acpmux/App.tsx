@@ -62,6 +62,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
+import { TaskGoalStrip } from "./TaskGoalStrip";
 import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
@@ -8122,6 +8123,15 @@ function AcpmuxPane() {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
+  const newTabFooter = !harnessesOpen && showNewTab && !newTab.history && (
+    <PageDots
+      template={shownTemplate(newTab)}
+      styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+      callNative={callNative}
+      show={(next) => setNewTab((current) => current && { ...current, template: next })}
+      onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+    />
+  );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
       <section
@@ -8137,16 +8147,11 @@ function AcpmuxPane() {
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
-          {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: the composer's two looks, then with the style dots on (on
-            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
-            // (newtab/PageDots.tsx); a pick shows in place at once.
-            <PageDots
-              template={shownTemplate(newTab)}
-              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
-              callNative={callNative}
-              show={(next) => setNewTab((current) => current && { ...current, template: next })}
-              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+          {!showNewTab && snapshot.summary?.goal && (
+            <TaskGoalStrip
+              key={snapshot.summary.sessionId}
+              goal={snapshot.summary.goal}
+              command={(action) => callNative("chat.send", { text: `/goal ${action}`, attachments: [] })}
             />
           )}
           {harnessesOpen ? (
@@ -8172,6 +8177,12 @@ function AcpmuxPane() {
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
+              footer={newTabFooter}
+              onCommands={(harness, cwd) => {
+                void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
+                  () => undefined,
+                );
+              }}
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
@@ -8244,6 +8255,7 @@ function AcpmuxPane() {
             />
           ) : showNewTab ? (
             <NewTabPage
+              footer={newTabFooter}
               key={newTabGeneration}
               snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
