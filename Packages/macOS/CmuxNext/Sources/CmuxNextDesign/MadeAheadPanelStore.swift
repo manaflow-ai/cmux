@@ -6,7 +6,8 @@ private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "openP
 
 /// What ``MadeAheadOpenPanel`` does, over any ``ReusableOpenPanel``: keep one panel made ahead of the click, hand
 /// it out while it is free, and make it while the person is idle. The panel factory, the warm-up check and the
-/// clock are injected, so a test drives it with stand-in panels and a manual clock (`MadeAheadPanelStoreTests`).
+/// clock are injected, so a test drives it with stand-in panels and a manual clock, and awaits each check on
+/// ``checksRan`` (`MadeAheadPanelStoreTests`).
 @MainActor
 final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     private let makePanel: @MainActor () -> Panel
@@ -27,6 +28,13 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     private(set) var warmChecks = 0
     /// Whether a warm-up check is pending.
     var isWarming: Bool { timer.isScheduled }
+    /// One element each time a warm-up check has run to its end (made a panel, rescheduled or gave up), so a test
+    /// awaits the check instead of polling ``warmChecks``. Keeps only the newest element: nothing grows when no one
+    /// listens.
+    let checksRan: AsyncStream<Void>
+    private let checkRan: AsyncStream<Void>.Continuation
+    /// Whether the one notice for a warm-up that may never run (``OpenPanelWarmCheck/never(reason:)``) was logged.
+    private var saidNever = false
 
     /// - Parameters:
     ///   - clock: The clock of the warm-up's checks; tests pass a manual clock.
@@ -37,6 +45,9 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
         self.makePanel = makePanel
         self.warmCheck = warmCheck
         timer = DemandTimer(owner: "openPanel.madeAhead.warm", clock: clock)
+        let ran = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        checksRan = ran.stream
+        checkRan = ran.continuation
     }
 
     // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050 / #23233); the timer
@@ -67,26 +78,36 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     /// gives up and the next click makes a new panel.
     private func keep(_ panel: Panel) {
         guard let defaults = OpenPanelDefaults(of: panel) else {
-            warmGaveUp = true
-            droppedPanels += 1
-            let dropped = droppedPanels
-            logger.notice(
-                "made-ahead open panel dropped (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
-            )
+            dropDead()
             return
         }
         made = (panel, defaults)
         warmGaveUp = false
     }
 
+    /// Records a dead panel: no warm-up runs until a click makes a working one, and a notice says so.
+    private func dropDead() {
+        warmGaveUp = true
+        droppedPanels += 1
+        let dropped = droppedPanels
+        logger.notice(
+            "made-ahead open panel dropped (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
+        )
+    }
+
     private func check(after delay: Duration, triesLeft: Int) {
         timer.schedule(after: delay) { @MainActor [weak self] in
             guard let self else { return }
             warmChecks += 1
+            defer { checkRan.yield() }
             guard made == nil, !warmGaveUp else { return }
             switch warmCheck() {
-            case .never:
-                return
+            case .never(let reason):
+                // Once per store (the app has one): a test host or a fleet step without the console session would repeat it per view.
+                if !saidNever {
+                    saidNever = true
+                    logger.notice("open panel warm-up off: \(reason, privacy: .public); each click makes its panel")
+                }
             case .busy:
                 if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
             case .ready:

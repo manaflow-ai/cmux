@@ -42,29 +42,34 @@ struct MadeAheadPanelStoreTests {
         MadeAheadPanelStore(clock: clock, makePanel: { factory.make() }, warmCheck: { check })
     }
 
-    /// Fires the pending warm-up check and waits (bounded) until it ran on the main actor.
-    private static func fire(_ store: MadeAheadPanelStore<Panel>, _ clock: ThinScrollerManualClock) async throws {
-        let checks = store.warmChecks
+    /// Fires the pending warm-up check. The test then awaits the check's end on its one local iterator of
+    /// ``MadeAheadPanelStore/checksRan`` (`await runs.next()`, as MachineCatalogPublisherTests reads its stream; an
+    /// iterator passed `inout` through a main-actor helper would cross isolation), bounded by the suite's time limit.
+    private static func fire(_ clock: ThinScrollerManualClock) async throws {
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(2))
-        for _ in 0..<500 where store.warmChecks == checks { try await Task.sleep(for: .milliseconds(5)) }  // bounded
-        #expect(store.warmChecks == checks + 1, "the warm-up check never ran")
     }
 
     @Test func aWarmUpThatGotADeadPanelKeepsNoneAndArmsNoOtherWarmUp() async throws {
         let factory = Factory([nil])
         let clock = ThinScrollerManualClock()
         let store = Self.store(factory, clock: clock)
+        var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()
         #expect(store.isWarming)
-        try await Self.fire(store, clock)
+        try await Self.fire(clock)
+        _ = await runs.next()
+        #expect(store.warmChecks == 1, "the warm-up check never ran")
         #expect(factory.made.count == 1)
         #expect(!store.isMade, "a panel whose view service never answered was kept")
 
         // The next chat or Home view in a window: no new warm-up, so no second NSOpenPanel() on the main thread.
         store.warmWhenIdle()
         #expect(!store.isWarming, "a warm-up that got a dead panel armed another one")
-        if store.isWarming { try await Self.fire(store, clock) }
+        if store.isWarming {
+            try await Self.fire(clock)
+            _ = await runs.next()
+        }
         #expect(factory.made.count == 1, "the warm-up made another panel after the first came back dead")
     }
 
@@ -72,8 +77,10 @@ struct MadeAheadPanelStoreTests {
         let factory = Factory([nil])
         let clock = ThinScrollerManualClock()
         let store = Self.store(factory, clock: clock)
+        var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()
-        try await Self.fire(store, clock)
+        try await Self.fire(clock)
+        _ = await runs.next()
         #expect(!store.isMade)
 
         let clicked = store.panel()
@@ -102,9 +109,26 @@ struct MadeAheadPanelStoreTests {
     @Test func aProcessThatCannotMakeAPanelMakesNoneAndEndsTheWarmUp() async throws {
         let factory = Factory([])
         let clock = ThinScrollerManualClock()
-        let store = Self.store(factory, clock: clock, check: .never)
+        let store = Self.store(factory, clock: clock, check: .never(reason: "test host"))
+        var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()
-        try await Self.fire(store, clock)
+        try await Self.fire(clock)
+        _ = await runs.next()
         #expect(factory.made.isEmpty && !store.isMade && !store.isWarming)
+    }
+
+    /// The app's gate in a running app whose account is not the console user (an app started over SSH or by a fleet
+    /// worker): the warm-up makes no panel, so no `NSOpenPanel()` blocks the main thread about 40 s on ViewBridge.
+    @Test func aRunningAppOffTheConsoleSessionMakesNoPanel() async throws {
+        let gate = OpenPanelWarmGate(appIsRunning: { true }, sessionIsOnConsole: { false }, personIsIdle: { true })
+        let factory = Factory([])
+        let clock = ThinScrollerManualClock()
+        let store = MadeAheadPanelStore(clock: clock, makePanel: { factory.make() }, warmCheck: { gate.check() })
+        var runs = store.checksRan.makeAsyncIterator()
+        store.warmWhenIdle()
+        try await Self.fire(clock)
+        _ = await runs.next()
+        #expect(factory.made.isEmpty, "the warm-up made a panel off the console session")
+        #expect(!store.isMade && !store.isWarming)
     }
 }
