@@ -217,13 +217,33 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        if items != self.items && !updateLabelsInPlace(items) { rebuild(items) }
         self.highlighted = highlighted
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
         needsLayout = true
         layoutSubtreeIfNeeded()
         scrollToHighlight()
+    }
+
+    /// Keeps native row views when only tooltip labels change; menu structure and state changes
+    /// still rebuild their rows.
+    private func updateLabelsInPlace(_ next: [WebPopupHost.Item]) -> Bool {
+        guard plain, plain == builtPlain, next.count == items.count, rows.count == next.count,
+              zip(items, next).allSatisfy({ old, new in
+                  old.id == new.id && old.shortcut == new.shortcut && old.checked == new.checked &&
+                      old.disabled == new.disabled && old.separator == new.separator
+              }) else { return false }
+        for (index, item) in next.enumerated() {
+            guard let row = rows[index].view as? PopupRowView else { return false }
+            if row.titleLabel.stringValue != item.label {
+                row.titleLabel.stringValue = item.label
+                row.setAccessibilityLabel(item.label)
+                row.needsLayout = true
+            }
+        }
+        self.items = next
+        return true
     }
 
     private func rebuild(_ items: [WebPopupHost.Item]) {
