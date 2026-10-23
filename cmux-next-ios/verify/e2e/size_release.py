@@ -31,12 +31,20 @@ DEVICE = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"
 class Probe:
     """The rig Mac's grid samples, read from size_probe.py over ssh."""
 
-    def __init__(self, host, socket_path, surface, probe_path, policy=None):
-        cmd = ["python3", "-u", probe_path, "--socket", socket_path, "--surface", str(surface)]
-        if policy:
-            cmd += ["--policy", policy]
-        self.proc = subprocess.Popen(["ssh", "-o", "ServerAliveInterval=10", host, " ".join(f"'{c}'" for c in cmd)],
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    def __init__(self, host, socket_path, surface, probe_path, policy=None, mac_view=None, samples_file=None):
+        if samples_file:
+            # The probe runs elsewhere and its lines are relayed into this file
+            # (the simulator host cannot reach the rig Mac); read them as they land.
+            argv = ["tail", "-n", "0", "-F", samples_file]
+        else:
+            cmd = ["python3", "-u", probe_path, "--socket", socket_path, "--surface", str(surface)]
+            if mac_view:
+                cmd += ["--mac-view", mac_view]
+            if policy:
+                cmd += ["--policy", policy]
+            argv = ["ssh", "-o", "ServerAliveInterval=10", host,
+                    " ".join(c if c.startswith("~") else f"'{c}'" for c in cmd)]
+        self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.samples = []
         self.lock = threading.Lock()
         self.q = queue.Queue()
@@ -104,8 +112,9 @@ def main():
     ap.add_argument("--sim", required=True)
     ap.add_argument("--runtime", required=True)
     ap.add_argument("--workspace", required=True)
-    ap.add_argument("--mac-ssh", required=True)
-    ap.add_argument("--mac-socket", required=True)
+    ap.add_argument("--mac-ssh", default="")
+    ap.add_argument("--samples-file", help="read the probe's lines from this file (relayed) instead of ssh")
+    ap.add_argument("--mac-socket", default="")
     ap.add_argument("--mac-probe", default="~/msr-20261021/size_probe.py")
     ap.add_argument("--surface", type=int, required=True)
     ap.add_argument("--mac-cols", type=int, required=True)
@@ -127,7 +136,8 @@ def main():
     if not (email and password):
         sys.exit("CMUX_MOBILE_STACK_EMAIL / CMUX_MOBILE_STACK_PASSWORD not set")
     mac = (a.mac_cols, a.mac_rows)
-    probe = Probe(a.mac_ssh, a.mac_socket, a.surface, a.mac_probe, policy="smallest")
+    probe = Probe(a.mac_ssh, a.mac_socket, a.surface, a.mac_probe, policy="smallest",
+                  mac_view=f"{a.mac_cols}x{a.mac_rows}", samples_file=a.samples_file)
     deadline = time.time() + 15
     while probe.grid() is None and time.time() < deadline:
         time.sleep(0.2)
@@ -144,6 +154,23 @@ def main():
         sim.launch(a.bundle, env={"CMUX_MOBILE_STACK_EMAIL": email, "CMUX_MOBILE_STACK_PASSWORD": password})
 
     def to_list():
+        """The Workspaces list: the grid's Done, the workspace's top-left back
+        ("Workspaces"), a sheet swiped down; else the rig journey's walk."""
+        for _ in range(8):
+            els = sim.tree()
+            if any(e.ident == "workspaces.list" for e in els):
+                return
+            done = [e for e in els if e.kind == "Button" and e.label == "Done" and 700 < e.frame[1] < 874]
+            back = [e for e in els if e.kind == "Button" and e.label == "Workspaces" and e.frame[1] < 120]
+            if done:
+                sim.tap_el(done[0])
+            elif back:
+                sim.tap_el(back[0])
+            elif sim.find(label="Back", kind="Button", elements=els):
+                sim.tap_el(sim.find(label="Back", kind="Button", elements=els)[0])
+            else:
+                sim.drag(201, 300, 201, 870, 0.3, 20, 0.1)
+            time.sleep(1.0)
         Journey.back_to_list(j)
 
     def open_terminal():
@@ -172,21 +199,42 @@ def main():
             sim.shot(f"{path}-before")
             t = time.time()
             note = action() or ""
+            done = time.time()  # the driver's taps and waits end here: the app's bound starts
             if expect_hold:
                 held, g = probe.stays(phone, expect_hold)
                 note += f"; held {phone} for {expect_hold}s: {held} ({g})"
-            restored = probe.wait_grid(mac, bound + 10, since=t)
+            since_start = probe.wait_grid(mac, bound + 15, since=t)
+            # From the action's end; a grid already back before it ends counts as 0.
+            restored = None if since_start is None else round(max(0.0, since_start - (done - t)), 2)
             after = probe.grid()
-            ok = restored is not None and restored <= bound + 1.5
+            ok = restored is not None and restored <= bound + 0.5
             results.append(dict(path=path, mechanism=mechanism, before=before, phone=phone, claim_s=claim,
-                                restored_s=restored, after=after, bound_s=bound, ok=ok, note=note))
+                                restored_s=restored, restored_from_action_start_s=since_start,
+                                driver_action_s=round(done - t, 2), after=after, bound_s=bound, ok=ok, note=note))
             log(f"[{'pass' if ok else 'FAIL'}] {path}: before {before} phone {phone} -> Mac {mac} in {restored}s "
-                f"(bound {bound}s) {note}")
+                f"after the action ({since_start}s from its start; bound {bound}s) {note}")
         except Exception as e:  # noqa: BLE001 - a broken path is a recorded failure
             results.append(dict(path=path, mechanism=mechanism, ok=False, note=f"{type(e).__name__}: {e}"))
             log(f"[FAIL] {path}: {type(e).__name__}: {e}")
         finally:
             sim.shot(f"{path}-after")
+            reset_ui()
+
+    def reset_ui():
+        if not sim.find(label="Workspaces", kind="RadioButton") and not sim.find(ident="terminal.composer.field"):
+            sim.launch(a.bundle, env={"CMUX_MOBILE_STACK_EMAIL": email, "CMUX_MOBILE_STACK_PASSWORD": password},
+                       terminate=False)
+            time.sleep(3)
+        """Back to the list for the next path: dismiss what is open, else relaunch the app
+        (a relaunch is a link drop the next path's open waits out)."""
+        close_grid()
+        try:
+            to_list()
+        except Exception:  # noqa: BLE001
+            launch(); time.sleep(4)
+            to_list()
+        # The previous path's release lands before the next path opens the terminal.
+        probe.wait_grid(mac, 50)
 
     def back():
         to_list()
@@ -199,7 +247,7 @@ def main():
     def close_grid():
         done = [e for e in sim.find(kind="Button", label="Done") if 700 < e.frame[1] < 874]
         if done:
-            sim.tap_el(done[0])
+            sim.tap_el(done[0]); time.sleep(1.0)
 
     def files_sheet():
         Journey.hide_keyboard(j)
@@ -262,17 +310,15 @@ def main():
         for name, mech, action, bound in paths:
             if wanted and name not in wanted:
                 continue
-            if name == "force_quit":
-                record(name, mech, action, bound)
-                launch(); time.sleep(3)
-                continue
-            if name == "background":
-                record(name, mech, action, bound)
-                launch(); time.sleep(2)
+            if name in ("force_quit", "background"):
+                # The app is gone or in the background: bring it back first, then reset.
+                orig = action
+                def action(orig=orig):
+                    return orig()
+                record_then = record
+                record_then(name, mech, action, bound)
                 continue
             record(name, mech, action, bound)
-            if name == "tab_grid":
-                close_grid()
         if not wanted or "quick_switch" in wanted:
             try:
                 phone, _ = open_terminal()

@@ -49,15 +49,32 @@ def main():
     ap.add_argument("--list", action="store_true", help="print the terminals and exit")
     ap.add_argument("--policy", help="set this size policy on the terminal first (e.g. smallest)")
     ap.add_argument("--interval", type=float, default=0.2)
+    ap.add_argument("--mac-view", help="COLSxROWS: also hold a Mac view of the terminal at this size "
+                    "(a hidden rig app draws no window, so this plays the Mac pane)")
     a = ap.parse_args()
     d = Daemon(a.socket)
     if a.list:
         print(json.dumps(d.request("list-terminals"), indent=1))
         return
+    mac_view = None
+    if a.mac_view:
+        cols, rows = (int(x) for x in a.mac_view.lower().split("x"))
+        mac_view = Daemon(a.socket)
+        mac_view.request("set-client-info", name="rig Mac pane", kind="mac", device_kind="mac")
+        mac_view.request("attach-surface", surface=a.surface, cols=cols, rows=rows)
     if a.policy:
         d.request("set-size-policy", surface=a.surface, policy={"mode": a.policy})
     last = None
     while True:
+        if mac_view is not None:
+            # Drain the Mac view's stream so the daemon never blocks on it.
+            mac_view.sock.setblocking(False)
+            try:
+                while mac_view.sock.recv(1 << 20):
+                    pass
+            except BlockingIOError:
+                pass
+            mac_view.sock.setblocking(True)
         vt = d.request("vt-state", surface=a.surface)
         state = d.request("get-size-state", surface=a.surface).get("state") or {}
         parts = [[p.get("device_kind"), (p.get("viewport") or {}).get("cols"), (p.get("viewport") or {}).get("rows"),
