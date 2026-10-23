@@ -6,9 +6,10 @@ import CmuxNextWakeups
 import Foundation
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
-// Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. The
-// WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
-// WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
+// Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts,
+// made when the view first shows (PageWebView+ChromiumCost.swift). The WebKit view stays as an
+// unloaded, hidden subview, so a page that fails in Chromium reopens in WebKit at once
+// (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
@@ -58,26 +59,28 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Loads `url` (a document of this page) in whichever engine shows it.
+    /// Loads `url` (a document of this page) in whichever engine shows it. A Chromium page that has
+    /// not started yet takes nothing: it loads ``route`` when it starts, and the unused WebKit view
+    /// never loads (that would start a web content process for a page WebKit does not show).
     func loadDocument(_ url: URL) {
-        if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
+        if let page = awakeChromiumPage { page.load(url) } else { documentWebView?.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it.
+    /// Reloads the document in whichever engine shows it; nothing for a Chromium page that has not
+    /// started yet (its start loads the document fresh).
     func reloadPage() {
-        if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
+        if let page = awakeChromiumPage { page.reload() } else { documentWebView?.reload() }
     }
 
     // MARK: Start
 
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
-    /// page does not reach the host in time.
+    /// page does not reach the host in time. Called on the view's first show.
     func startChromium(hosting: any PageChromiumHosting) {
         #if DEBUG
         traceMark(.chromiumStart)
         #endif
-        webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
         #if DEBUG
@@ -91,6 +94,8 @@ extension PageWebView {
                 #endif
                 page = try await hosting.makePage(descriptor)
             } catch {
+                // The view closed or fell back while the page waited to be made: nothing to reopen.
+                guard !Task.isCancelled else { return }
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
             }
@@ -101,14 +106,15 @@ extension PageWebView {
             #if DEBUG
             traceMark(.browserCreated)
             #endif
-            await self.attachChromium(page, scripts: scripts)
+            await self.attachChromium(page, scripts: scripts, hosting: hosting)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts) async {
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts,
+                                hosting: any PageChromiumHosting) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
-        let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
+        let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock, hosting: hosting)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
@@ -130,14 +136,24 @@ extension PageWebView {
         #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
-        bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
+        bridge.onFirstMessage = { [weak self, weak session] in
+            guard let session else { return }
+            session.deadline.cancel()
+            session.reachedHost = true
+            // A page that hid while it booted may freeze from now on: its grace starts here.
+            if let self, self.chromiumSession === session, session.isHidden { session.freezePolicy?.hiddenPageWoke(self) }
+        }
+        // Pushes and replies thaw a frozen page first (PageWebView+ChromiumCost.swift).
+        bridge.willSend = { [weak self, weak session] in
+            guard let self, let session, self.chromiumSession === session else { return }
+            self.wake(session)
+        }
         inputReadiness.editor = { [weak self, weak page] edit, expectedEpoch in
             guard let page else { return false }
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
-        bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
@@ -145,7 +161,7 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
-        page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        showChromium(session, isShownForChromium)
         #if DEBUG
         traceMark(.navigationStart)
         #endif
@@ -161,9 +177,11 @@ extension PageWebView {
 
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed.
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
+        chromiumAwaitingShow = nil
         chromiumStart?.cancel()
         chromiumStart = nil
         logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
+        chromiumSession?.freezePolicy?.pageIsNoLongerHidden(self)
         chromiumSession?.end()
         chromiumSession = nil
         chromiumUserEventUptime = nil
@@ -179,8 +197,10 @@ extension PageWebView {
 
     /// Ends Chromium mode for good (the page closed).
     func endChromium() {
+        chromiumAwaitingShow = nil
         chromiumStart?.cancel()
         chromiumStart = nil
+        chromiumSession?.freezePolicy?.pageIsNoLongerHidden(self)
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
@@ -293,8 +313,8 @@ extension PageWebView {
     ///   - arguments: Named JSON-compatible values (`NSNull` for null).
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
-        guard let page = chromiumSession?.page else {
-            return try? await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
+        guard let page = awakeChromiumPage else {
+            return try? await documentWebView?.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
         }
         let names = arguments.keys.sorted()
         guard let values = try? JSONSerialization.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),
