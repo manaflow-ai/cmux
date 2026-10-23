@@ -176,6 +176,39 @@ struct AgentPageHibernationTests {
         #expect((again["value"] as? [String: Any])?["wake"] == nil)
     }
 
+    /// Hidden things cost almost nothing (plans/cmux-next/perf-lead.md row 15): a hidden chat page
+    /// is a whole web content process (about 75 MB) and stayed for the full 30 minute timeout, so
+    /// a pane's five hidden chats held 375 MB. Past the page warm budget
+    /// (`WarmSetBudget.pageCapacity`, as for browser pages) the chats the person left longest ago
+    /// let their pages go once hidden `HibernationPlanner.overBudgetMinimumHidden`; the most
+    /// recently left stay, and each pane's shown chat (a parked workspace's, what a switch shows
+    /// again) stays out of the budget.
+    @Test func hiddenChatsPastTheWarmBudgetLetGoAfterAMinute() async throws {
+        let rig = Rig()
+        rig.hibernation.warmPages = { 1 }
+        rig.hibernation.fronts = { ["tab_front"] }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let front = try rig.hiddenChat("tab_front", session: "s-front")
+        let old = try rig.hiddenChat("tab_old", session: "s-old")
+        rig.elapsed += .seconds(1)
+        let recent = try rig.hiddenChat("tab_recent", session: "s-recent")
+        #expect(rig.hibernation.hasDeadline, "no deadline for the chat past the budget")
+
+        // Half a minute: the person may come straight back, every page stays.
+        rig.advance(minutes: 0.5)
+        await rig.settle { false }
+        #expect(rig.tabs.existingView("tab_old") === old, "a chat left half a minute ago let its page go")
+
+        // A minute and a half, well short of the 30 minute timeout: the chat past the budget goes.
+        rig.advance(minutes: 1)
+        await rig.settle { rig.tabs.existingView("tab_old") == nil }
+        #expect(rig.tabs.existingView("tab_old") == nil, "a hidden chat past the warm budget kept its page until the timeout")
+        #expect(rig.displaced == ["tab_old"])
+        #expect(rig.tabs.existingView("tab_recent") === recent, "the most recently left chat (inside the budget) let its page go")
+        #expect(rig.tabs.existingView("tab_front") === front, "a pane's shown chat counted in the budget")
+        #expect(rig.tabs.session(of: "tab_old") == "s-old", "the released chat lost its session")
+    }
+
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and
     /// keeps its page until the watch is back.
     @Test func withTheTurnWatchDownEveryChatKeepsItsPage() async throws {
