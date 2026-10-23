@@ -107,6 +107,25 @@ or the previous frame unchanged (never a frame with stale text at a new size, ne
 5. G6 thread and atlas sharing.
 G3, G5, G8 and the daemon half of G2 go to PL-daemon with these citations.
 
+## 4b. Done so far (2026-10-23)
+
+ghostty-next (PR 46, then one GhosttyNextKit pin bump), each with a red test commit first:
+- G1: a new host size draws at once on the renderer thread with rebuilt cells; the display pass
+  presents that frame in its own CA commit (bounded 4 ms futex wait), never draws stale cells on main;
+  no wait while frames are held; hidden surfaces draw nothing in a display pass. Counters
+  `host_display_passes/main_draws/fresh_presents/late_presents`.
+- G2 app half: a local-history restore holds frames only when a READY-only frame would show less.
+- Mirror pixel-only resize: no `Terminal.resize`, mode 2026 survives a drag, `live_epoch` stays, the
+  main thread never waits behind a parsed chunk.
+- G6 part: a hidden surface's output does not wake its renderer per chunk.
+- G7 part: a blink tick of a hidden or steady cursor wakes nothing (agent TUIs hide the cursor).
+- Key to frame: the first frame update of each refresh interval draws at once while the link runs.
+- Bash integration: no fork per command on 5.3, none at start for PROMPT_COMMAND (PR 47, for
+  PL-shell-integration).
+
+cmux: G4 (output off the main actor, `TerminalOutputOffMainTests`), `bench-terminal-resize.py`,
+`debug.terminal_display`.
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
