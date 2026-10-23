@@ -17,8 +17,7 @@ public final class MadeAheadOpenPanel {
     public static let shared = MadeAheadOpenPanel()
 
     private var made: NSOpenPanel?
-    private var madePrompt = ""
-    private var madeMessage = ""
+    private var madeDefaults: OpenPanelDefaults?
     /// Whether the panel was made ahead of a click.
     public var isMade: Bool { made != nil }
     /// The warm-up checks run so far, and whether another is pending.
@@ -44,8 +43,7 @@ public final class MadeAheadOpenPanel {
         panel.canChooseFiles = true
         panel.resolvesAliases = true
         panel.allowedContentTypes = []
-        panel.prompt = madePrompt
-        panel.message = madeMessage
+        madeDefaults?.apply(to: panel)
         return panel
     }
 
@@ -57,10 +55,12 @@ public final class MadeAheadOpenPanel {
         check(after: .seconds(2), triesLeft: 10)
     }
 
+    /// Keeps `panel` for later clicks, unless its view service never answered (no prompt): then the next
+    /// click makes a new one, and the launch goes on.
     private func keep(_ panel: NSOpenPanel) {
+        guard let defaults = OpenPanelDefaults(of: panel) else { return }
         made = panel
-        madePrompt = panel.prompt
-        madeMessage = panel.message
+        madeDefaults = defaults
     }
 
     private func check(after delay: Duration, triesLeft: Int) {

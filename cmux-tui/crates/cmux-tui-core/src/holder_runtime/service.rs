@@ -7,27 +7,50 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use cmux_holder::link::{HolderLink, TerminalSink};
+use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
 
 use super::{HolderSink, HolderTerminal};
 use crate::panic_free::RecoverPoison;
 
+/// The current link and the CLOSEs waiting for one. Held only for a
+/// moment: never while connecting, launching or re-adopting.
+#[derive(Default)]
+struct LinkSlot {
+    link: Option<Arc<HolderLink>>,
+    /// Every CLOSE asked for (`grace_ms` by channel), kept until the
+    /// terminal is untracked: each new link sends them again once it
+    /// re-adopted every terminal. A CLOSE written to a holder that was
+    /// already dying (killed, its link not yet seen closed) is lost, and a
+    /// new holder would otherwise keep the closed tab's shell running.
+    pending_close: HashMap<u32, u32>,
+}
+
 /// The holder of one terminal host root (one daemon session).
 pub(crate) struct HolderService {
     socket: PathBuf,
     token: [u8; 32],
-    link: Mutex<Option<Arc<HolderLink>>>,
+    link: Mutex<LinkSlot>,
+    /// Serializes connecting, launching and re-adopting. Its holder may
+    /// take a surface's terminal lock (a re-adoption's prologue), so no
+    /// caller that holds a surface lock may wait for it: a surface's kill
+    /// and acknowledgements use [`Self::open_link`] only.
+    connecting: Mutex<()>,
     next_chan: AtomicU32,
     /// Terminals this daemon runs on the holder, for a re-adoption after a
     /// holder crash.
     live: Mutex<HashMap<u32, Weak<HolderTerminal>>>,
     /// What the holder ran when this daemon first reached it: the
-    /// terminals a restarted daemon re-attaches, by terminal id.
+    /// terminals a restarted daemon re-attaches, by terminal id. Filled by
+    /// the first connection only, emptied after the startup pass
+    /// ([`Self::release_unclaimed`]).
     listed: Mutex<HashMap<[u8; 16], Listed>>,
+    /// Another daemon of the session took the holder: this one never
+    /// connects again, so the two do not take it from each other in turn.
+    superseded: AtomicBool,
 }
 
 impl HolderService {
@@ -43,10 +66,12 @@ impl HolderService {
         let service = Arc::new(Self {
             socket: socket_path(host_root)?,
             token: load_or_create_token(host_root)?,
-            link: Mutex::new(None),
+            link: Mutex::default(),
+            connecting: Mutex::new(()),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
             listed: Mutex::default(),
+            superseded: AtomicBool::new(false),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
@@ -64,16 +89,28 @@ impl HolderService {
         self.link_or_launch(true)
     }
 
+    /// The link when one is open. Never connects, launches or waits for a
+    /// connect: safe under any surface lock.
+    fn open_link(&self) -> Option<Arc<HolderLink>> {
+        self.link.lock().recover_poison().link.clone().filter(|link| link.is_open())
+    }
+
     /// [`Self::link`]; with `launch` false a holder that does not run is not
     /// started (a restart only asks whether one kept terminals).
     fn link_or_launch(self: &Arc<Self>, launch: bool) -> io::Result<Arc<HolderLink>> {
-        let mut slot = self.link.lock().recover_poison();
-        if let Some(link) = slot.as_ref()
-            && link.is_open()
-        {
-            return Ok(link.clone());
+        if let Some(link) = self.open_link() {
+            return Ok(link);
         }
-        let had_link = slot.is_some();
+        let _connecting = self.connecting.lock().recover_poison();
+        if let Some(link) = self.open_link() {
+            return Ok(link);
+        }
+        if self.superseded.load(Ordering::Acquire) {
+            return Err(io::Error::other(
+                "another daemon of this session took the terminal holder",
+            ));
+        }
+        let had_link = self.link.lock().recover_poison().link.is_some();
         let (link, listed) = match self.connect() {
             Ok(connected) => connected,
             Err(_) if launch => {
@@ -82,30 +119,56 @@ impl HolderService {
             }
             Err(error) => return Err(error),
         };
-        {
+        for entry in &listed {
+            self.next_chan.fetch_max(entry.chan + 1, Ordering::AcqRel);
+        }
+        if had_link {
+            // A reconnect: what the holder lists are this daemon's own
+            // terminals (the same holder) or nothing (a new one). Their
+            // master dups drop here; the daemon keeps its own custody
+            // copies. The link is published only after the re-adoption, so
+            // a CLOSE meanwhile waits for it instead of reaching a holder
+            // that does not know the terminal yet.
+            let still_held: HashMap<u32, [u8; 16]> =
+                listed.iter().map(|entry| (entry.chan, entry.id)).collect();
+            drop(listed);
+            self.readopt(&link, &still_held);
+        } else {
             let mut known = self.listed.lock().recover_poison();
             for entry in listed {
-                self.next_chan.fetch_max(entry.chan + 1, Ordering::AcqRel);
                 known.entry(entry.id).or_insert(entry);
             }
         }
-        *slot = Some(link.clone());
-        drop(slot);
-        if had_link {
-            self.readopt(&link);
-        }
+        self.publish(&link);
         Ok(link)
     }
 
+    /// Make `link` the current link and send the CLOSEs that waited for it.
+    fn publish(&self, link: &Arc<HolderLink>) {
+        let pending: Vec<(u32, u32)> = {
+            let mut slot = self.link.lock().recover_poison();
+            slot.link = Some(link.clone());
+            slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
+        };
+        for (chan, grace_ms) in pending {
+            if let Err(error) = link.close(chan, grace_ms) {
+                eprintln!("cmux-tui: end holder terminal {chan}: {error}");
+            }
+        }
+    }
+
     /// Start `request` on the holder. Returns the terminal (its custody
-    /// master, pid and output sink).
+    /// master, pid and output sink); `seed` reaches the parser before the
+    /// shell's first byte.
     pub(crate) fn spawn(
         self: &Arc<Self>,
         request: &SpawnRequest,
+        seed: &[u8],
     ) -> io::Result<Arc<HolderTerminal>> {
         let link = self.link()?;
         let chan = self.next_chan.fetch_add(1, Ordering::AcqRel);
         let sink = HolderSink::new(0);
+        sink.prepend(seed);
         let (pid, custody) = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
         Ok(self.track(chan, request.id, pid, custody, sink))
     }
@@ -120,27 +183,98 @@ impl HolderService {
     ) -> io::Result<Option<Arc<HolderTerminal>>> {
         let link = self.link()?;
         let Some(entry) = self.listed.lock().recover_poison().remove(id) else { return Ok(None) };
-        let Some(custody) = entry.master.filter(|_| !entry.exited) else { return Ok(None) };
+        // A shell that ended while no daemon ran still re-attaches: its last
+        // output replays and the holder's EXIT records its real status.
+        let Some(custody) = entry.master else { return Ok(None) };
         let sink = HolderSink::new(entry.oldest);
+        if entry.oldest > 0 {
+            // The ring's first byte may be inside an escape sequence or a
+            // UTF-8 character the ring dropped the start of.
+            sink.prepend(&[super::sink::CANCEL]);
+        }
         link.attach(entry.chan, entry.oldest, sink.clone() as Arc<dyn TerminalSink>)?;
         Ok(Some(self.track(entry.chan, *id, entry.pid, custody, sink)))
     }
 
-    /// Whether the holder ran terminal `id` when this daemon reached it.
+    /// Whether the holder ran terminal `id` (running or ended) when this
+    /// daemon reached it.
     pub(crate) fn lists(self: &Arc<Self>, id: &[u8; 16]) -> bool {
-        self.link_or_launch(false).is_ok()
-            && self.listed.lock().recover_poison().get(id).is_some_and(|e| !e.exited)
+        self.link_or_launch(false).is_ok() && self.listed.lock().recover_poison().contains_key(id)
     }
 
-    /// Hang up `chan`'s terminal; SIGKILL its group after `grace_ms`.
-    pub(crate) fn close(self: &Arc<Self>, chan: u32, grace_ms: u32) -> io::Result<()> {
-        self.link()?.close(chan, grace_ms)
+    /// After the startup pass: end every terminal the holder runs that no
+    /// surface re-attached (its registry row ended, was removed, or never
+    /// ran), and drop the master dups the holder passed for them. Without
+    /// this the holder would keep those shells, their PTYs and their rings
+    /// for ever. Starts no holder.
+    pub(crate) fn release_unclaimed(self: &Arc<Self>) {
+        let Ok(link) = self.link_or_launch(false) else { return };
+        let unclaimed: Vec<Listed> =
+            self.listed.lock().recover_poison().drain().map(|(_, entry)| entry).collect();
+        for entry in unclaimed {
+            // A shell's usual hang-up grace; the holder forgets it once it ended.
+            if let Err(error) = link.close(entry.chan, 2000) {
+                eprintln!("cmux-tui: end unclaimed holder terminal {}: {error}", entry.chan);
+            }
+        }
+    }
+
+    /// Tell the holder `chan`'s parser read every byte before `offset`.
+    /// Starts no holder: without a link there is nothing to free.
+    fn ack(&self, chan: u32, offset: u64) {
+        if let Some(link) = self.open_link() {
+            let _ = link.ack(chan, offset);
+        }
+    }
+
+    /// Hand the holder a VT replay of `chan`'s screen at `base` (its
+    /// prologue for a restarted daemon). Without an open link nothing is
+    /// sent: a new holder gets a fresh replay with the master.
+    pub(super) fn snapshot(&self, chan: u32, base: u64, replay: &[u8]) {
+        if let Some(link) = self.open_link() {
+            let _ = link.snapshot(chan, base, replay);
+        }
+    }
+
+    /// Hang up `chan`'s terminal; SIGKILL its groups after `grace_ms`.
+    /// Never connects or starts a holder, so a surface may call it under
+    /// its own locks. The CLOSE is kept until `chan` is untracked and each
+    /// new link (a holder restart) sends it again; without an open link
+    /// this returns an error, so the caller can signal the shell itself.
+    pub(crate) fn close(&self, chan: u32, grace_ms: u32) -> io::Result<()> {
+        let link = {
+            let mut slot = self.link.lock().recover_poison();
+            slot.pending_close.insert(chan, grace_ms);
+            match slot.link.clone().filter(|link| link.is_open()) {
+                Some(link) => link,
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "no terminal holder link: the close waits for the next one",
+                    ));
+                }
+            }
+        };
+        link.close(chan, grace_ms)
+    }
+
+    /// The daemon leaves `chan` running on the holder for its shutdown.
+    /// Never connects.
+    pub(super) fn detach(&self, chan: u32) {
+        if let Some(link) = self.open_link() {
+            let _ = link.detach(chan);
+        }
     }
 
     /// Stop tracking `chan` (its terminal ended or its surface left).
     pub(crate) fn untrack(&self, chan: u32) {
         self.live.lock().recover_poison().remove(&chan);
-        if let Some(link) = self.link.lock().recover_poison().as_ref() {
+        let link = {
+            let mut slot = self.link.lock().recover_poison();
+            slot.pending_close.remove(&chan);
+            slot.link.clone()
+        };
+        if let Some(link) = link {
             link.forget(chan);
         }
     }
@@ -153,27 +287,64 @@ impl HolderService {
         custody: OwnedFd,
         sink: Arc<HolderSink>,
     ) -> Arc<HolderTerminal> {
-        let terminal =
-            Arc::new(HolderTerminal { chan, id, pid, custody, sink, service: self.clone() });
+        let service = Arc::downgrade(self);
+        sink.set_acker(Box::new(move |offset| {
+            if let Some(service) = service.upgrade() {
+                service.ack(chan, offset);
+            }
+        }));
+        let terminal = Arc::new(HolderTerminal {
+            chan,
+            id,
+            pid,
+            custody,
+            sink,
+            service: self.clone(),
+            replay: Mutex::new(None),
+        });
         self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
         terminal
     }
 
-    /// Hand every live terminal to the new holder `link` after a holder
-    /// crash: its custody master, pid, and the offset its output continues
-    /// from. Output the shells wrote meanwhile waited in their PTYs.
-    fn readopt(&self, link: &HolderLink) {
+    /// End every live terminal as lost: no holder can stream it.
+    fn lose_all(&self) {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
         for terminal in live {
+            terminal.sink.lose();
+        }
+    }
+
+    /// After the link was lost: a terminal the holder `link` still runs
+    /// (`still_held`, by channel: the same holder) resumes from the last
+    /// byte this daemon received; every other live terminal goes to the new
+    /// holder with its custody master, pid, and the offset its output
+    /// continues from. Output the shells wrote meanwhile waited in their
+    /// PTYs.
+    fn readopt(&self, link: &HolderLink, still_held: &HashMap<u32, [u8; 16]>) {
+        let live: Vec<_> =
+            self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
+        for terminal in live {
+            if still_held.get(&terminal.chan) == Some(&terminal.id) {
+                let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
+                if let Err(error) = link.resume(terminal.chan, terminal.sink.received(), sink) {
+                    eprintln!("cmux-tui: resume holder terminal {}: {error}", terminal.chan);
+                }
+                continue;
+            }
+            // The old holder is gone, so nothing more arrives: once the
+            // reader parsed what it had, the daemon's screen is the screen
+            // at `base`, the new holder's prologue for a later restart.
+            terminal.sink.wait_drained(std::time::Duration::from_secs(1));
             let base = terminal.sink.received();
+            let prologue = terminal.prologue(super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
             if let Err(error) = link.adopt(
                 terminal.chan,
                 &terminal.id,
                 (terminal.pid, base),
                 &terminal.custody,
-                sink,
+                (sink, &prologue),
             ) {
                 eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
             }
@@ -185,13 +356,24 @@ impl HolderService {
         HolderLink::connect(
             &self.socket,
             &self.token,
-            Box::new(move || {
-                // The holder died: start a new one and hand it every master.
+            Box::new(move |end| {
                 let Some(service) = weak.upgrade() else { return };
+                if end == LinkEnd::Superseded {
+                    // Another daemon of this session took the holder (a
+                    // restart overlap): taking it back would make the two
+                    // take turns for ever. This daemon is on its way out.
+                    eprintln!("cmux-tui: another daemon took the terminal holder");
+                    service.superseded.store(true, Ordering::Release);
+                    return;
+                }
+                // The holder died: start a new one and hand it every master.
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if let Err(error) = service.link() {
+                            // No holder streams their output any more: their
+                            // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
+                            service.lose_all();
                         }
                     });
             }),
@@ -205,6 +387,12 @@ impl HolderService {
             command
                 .args(["__holder", "--socket"])
                 .arg(&self.socket)
+                // Every shell gets back the open-file limit cmux started
+                // with; the holder keeps the daemon's raised one.
+                .envs(
+                    cmux_pty::original_open_file_limit()
+                        .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
+                )
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null());

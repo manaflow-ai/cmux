@@ -1,10 +1,14 @@
 public import Foundation
+import MachO
 
 /// Decides what a report may say about the image of a frame (hang-reports-DESIGN.md section 3).
 ///
 /// An image is named only when it is ours (loaded from inside the running app bundle, or a name
-/// in ``ownNamePrefixes``) or Apple's (loaded from `/System/` or `/usr/lib/`, or, for a name with
-/// no loaded image, a framework or library of that exact name in those folders). The name sent is
+/// in ``ownNamePrefixes``) or Apple's (loaded from `/System/` or `/usr/lib/` on the sealed system
+/// volume or an OS cryptex, or, for a name with no loaded image, a framework or library of that
+/// exact name in those folders). `/System/Volumes/` (the firmlinked Data volume holds every user's
+/// files there), the firmlinked writable folders under `/System/Library/`, and any path with `.`,
+/// `..` or empty components are never Apple's. The name sent is
 /// the last path component, and only when it matches ``namePattern`` and holds none of
 /// ``forbiddenTerms``. Every other image is ``HangReportFrame/other``: no name, UUID or offset.
 ///
@@ -27,24 +31,38 @@ public nonisolated struct ImageClassifier: Sendable {
     public static let namePattern = #"^[A-Za-z0-9 ._+()\-]{1,64}$"#
     /// The largest offset a frame may name (the server's limit, 2^40).
     public static let maxOffset: UInt64 = 1 << 40
-    /// The folders whose images are Apple's.
+    /// The folders whose images are Apple's (minus ``notApplePathPrefixes``).
     public static let applePathPrefixes = ["/System/", "/usr/lib/"]
+    /// Folders under ``applePathPrefixes`` that are not the sealed system volume: `/System/Volumes/`
+    /// holds the Data volume (`/System/Volumes/Data/Users/<name>/...`) and other writable volumes,
+    /// and the firmlinked folders below live on the Data volume.
+    public static let notApplePathPrefixes = [
+        "/System/Volumes/", "/System/Library/Caches/", "/System/Library/Assets/", "/System/Library/AssetsV2/",
+        "/System/Library/PreinstalledAssets/", "/System/Library/PreinstalledAssetsV2/", "/System/Library/Speech/",
+        "/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/",
+    ]
+    /// The OS cryptexes under `/System/Volumes/`: Apple's sealed images (macOS 13 and later).
+    public static let cryptexSystemPrefixes = [
+        "/System/Volumes/Preboot/Cryptexes/OS/System/", "/System/Volumes/Preboot/Cryptexes/App/System/",
+    ]
 
     private let appBundlePath: String?
-    private let forbiddenTerms: [String]
+    private let forbiddenTerms: @Sendable () -> [String]
     private let systemImageExists: @Sendable (String) -> Bool
 
     /// - Parameters:
     ///   - appBundlePath: The running app's bundle (`Bundle.main.bundlePath`); images inside it are ours.
     ///   - forbiddenTerms: Words a sent name must not hold (the user's short and full name, the
     ///     host name; ``personalTerms()``), compared case-insensitively; terms under 4 letters, and
-    ///     words of our own vocabulary (``isOwnWord(_:)``), are ignored.
+    ///     words of our own vocabulary (``isOwnWord(_:)``), are ignored. Read at each name
+    ///     check, never at init: ``personalTerms()`` does an OpenDirectory lookup, so the app
+    ///     passes a value computed once on the first check (a utility task or the service actor).
     ///   - systemImageExists: Whether an image of that name exists in an Apple folder (the default
     ///     looks on disk); tests pass a fixed answer.
-    public init(appBundlePath: String?, forbiddenTerms: [String],
+    public init(appBundlePath: String?, forbiddenTerms: @autoclosure @escaping @Sendable () -> [String],
                 systemImageExists: @escaping @Sendable (String) -> Bool = { ImageClassifier.systemImageOnDisk($0) }) {
         self.appBundlePath = appBundlePath.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
-        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }.filter { $0.count >= Self.minimumTermLength && !Self.isOwnWord($0) }
+        self.forbiddenTerms = { Self.normalizedTerms(forbiddenTerms()) }
         self.systemImageExists = systemImageExists
     }
 
@@ -78,9 +96,21 @@ public nonisolated struct ImageClassifier: Sendable {
 
     /// Who `path` belongs to.
     public func owner(path: String) -> Owner {
+        // `/usr/lib/../../Users/x/libhook.dylib` starts with an Apple folder but is not in one.
+        guard Self.isPlainAbsolutePath(path) else { return .other }
         if let appBundlePath, path.hasPrefix(appBundlePath) { return .ours }
+        if Self.cryptexSystemPrefixes.contains(where: { path.hasPrefix($0) }) { return .apple }
+        if Self.notApplePathPrefixes.contains(where: { path.hasPrefix($0) }) { return .other }
         if Self.applePathPrefixes.contains(where: { path.hasPrefix($0) }) { return .apple }
         return .other
+    }
+
+    /// Whether `path` is absolute with no empty, `.` or `..` component (dyld reports a path as it
+    /// was given, for example through `DYLD_INSERT_LIBRARIES`).
+    static func isPlainAbsolutePath(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        return !path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+            .contains { $0.isEmpty || $0 == "." || $0 == ".." }
     }
 
     /// The last path component of `path` when it may be sent, else nil.
@@ -88,8 +118,13 @@ public nonisolated struct ImageClassifier: Sendable {
         let name = path.split(separator: "/").last.map(String.init) ?? ""
         guard name.range(of: Self.namePattern, options: .regularExpression) != nil else { return nil }
         let lowered = name.lowercased()
-        guard !forbiddenTerms.contains(where: { lowered.contains($0) }) else { return nil }
+        guard !forbiddenTerms().contains(where: { lowered.contains($0) }) else { return nil }
         return name
+    }
+
+    /// `terms` lowercased, without the short ones and our own words.
+    static func normalizedTerms(_ terms: [String]) -> [String] {
+        terms.map { $0.lowercased() }.filter { $0.count >= minimumTermLength && !isOwnWord($0) }
     }
 
     /// Shorter personal terms are ignored: a three-letter name ("max") would refuse common words.
@@ -108,13 +143,20 @@ public nonisolated struct ImageClassifier: Sendable {
                     options: .regularExpression) != nil
     }
 
-    /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` or
-    /// `/usr/lib/<name>` exists (a bare name with no slash; anything else is false).
+    /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` exists on disk,
+    /// or `/usr/lib/<name>` or `/usr/lib/system/<name>` is in the dyld shared cache or on disk (a
+    /// bare name with no slash; anything else is false). Since macOS 11 the system dylibs exist
+    /// only in the shared cache, so a disk check alone would make `libdispatch.dylib`,
+    /// `libsystem_kernel.dylib` and `libobjc.A.dylib` frames `other` once their UUID is no
+    /// longer loaded (after an update).
     public static func systemImageOnDisk(_ name: String) -> Bool {
         guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return false }
         let manager = FileManager.default
-        return ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework",
-                "/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains { manager.fileExists(atPath: $0) }
+        if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
+            .contains(where: { manager.fileExists(atPath: $0) }) { return true }
+        return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
+            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+        }
     }
 
     /// The user's short name, the words of their full name and the host name's labels: words a

@@ -11,8 +11,8 @@
 //!    and hands it every master, input and output still work and no screen
 //!    resets;
 //! 4. SIGKILL the daemon again: the new holder's terminals come back with
-//!    what they printed since it took over (the old holder's ring died with
-//!    it; the screen before that needs the journal snapshot, slice 4).
+//!    their whole screen: the daemon handed the new holder a VT replay of
+//!    each screen (its prologue) with the master, and the output since.
 
 #![cfg(unix)]
 
@@ -46,6 +46,8 @@ fn request(socket: &Path, mut body: Value) -> Value {
 
 struct Daemon {
     child: Option<Child>,
+    /// Extra daemon arguments, kept for every restart.
+    args: Vec<String>,
     dir: PathBuf,
     socket: PathBuf,
     /// Holder and shell pids this test made, ended at drop: a holder
@@ -55,6 +57,10 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
+        Self::start_with(&[])
+    }
+
+    fn start_with(args: &[&str]) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!(
             "cmux-holder-{}-{}",
@@ -62,8 +68,13 @@ impl Daemon {
             stamp % 1_000_000_000
         ));
         fs::create_dir_all(&dir).unwrap();
-        let mut daemon =
-            Self { child: None, socket: dir.join("mux.sock"), dir, cleanup: Vec::new() };
+        let mut daemon = Self {
+            child: None,
+            args: args.iter().map(ToString::to_string).collect(),
+            socket: dir.join("mux.sock"),
+            dir,
+            cleanup: Vec::new(),
+        };
         daemon.restart();
         daemon
     }
@@ -75,6 +86,7 @@ impl Daemon {
             .arg(&self.socket)
             .arg("--state")
             .arg(self.dir.join("state"))
+            .args(&self.args)
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env("CMUX_TUI_TERMINAL_HOST_MODEL", "holder")
             .env("SHELL", "/bin/sh")
@@ -90,6 +102,17 @@ impl Daemon {
         while UnixStream::connect(&self.socket).is_err() {
             assert!(Instant::now() < deadline, "the daemon never listened");
             std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// End `surface`'s shell and its holder when the test ends, whatever
+    /// step fails: a holder outlives every daemon on purpose.
+    fn track(&mut self, surface: u64) {
+        let shell = shell_pid(&self.socket, surface);
+        self.cleanup.push(shell);
+        let holder = parent_of(shell);
+        if holder > 1 && !self.cleanup.contains(&holder) {
+            self.cleanup.push(holder);
         }
     }
 
@@ -174,6 +197,8 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
         );
         let surface = created["surface"].as_u64().unwrap();
         let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+        // Owned by the test from here: a failing step still ends them.
+        daemon.track(surface);
         request(
             &daemon.socket,
             json!({"cmd": "send", "surface": surface, "text": format!("first-{index}\n")}),
@@ -194,10 +219,8 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
 
     let shells: Vec<i32> =
         terminals.iter().map(|(_, surface)| shell_pid(&daemon.socket, *surface)).collect();
-    daemon.cleanup.extend(&shells);
     let holder = parent_of(shells[0]);
     assert!(holder > 1, "the shell's parent is the holder");
-    daemon.cleanup.push(holder);
 
     // 2. The daemon crashes and starts again on the same state: every
     // terminal comes back with its whole screen from the holder's ring.
@@ -235,11 +258,10 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
         &daemon.socket,
         json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "probe", "cols": 80, "rows": 24}),
     );
-    let probe_shell = shell_pid(&daemon.socket, probe["surface"].as_u64().unwrap());
-    daemon.cleanup.push(probe_shell);
-    let new_holder = parent_of(probe_shell);
+    let probe_surface = probe["surface"].as_u64().unwrap();
+    daemon.track(probe_surface);
+    let new_holder = parent_of(shell_pid(&daemon.socket, probe_surface));
     assert!(new_holder > 1 && new_holder != holder, "a new holder runs the new terminal");
-    daemon.cleanup.push(new_holder);
 
     // 4. The daemon crashes again: the new holder lists every terminal it
     // took over, and they come back with what they printed since.
@@ -247,10 +269,128 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     daemon.restart();
     for (index, (terminal_id, _)) in terminals.iter().enumerate() {
         let surface = running_surface(&daemon.socket, terminal_id);
-        screen_contains(&daemon.socket, surface, &format!("after-holder-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("after-holder-{index}"));
+        // The screen from before the holder crash comes from the prologue
+        // the daemon handed the new holder.
+        assert!(
+            screen.contains(&format!("first-{index}"))
+                && screen.contains(&format!("after-daemon-{index}")),
+            "terminal {index}: the screen before the holder crash is gone:\n{screen}"
+        );
         send(&daemon.socket, surface, &format!("last-{index}"));
         screen_contains(&daemon.socket, surface, &format!("last-{index}"));
     }
+}
+
+/// The daemon holds the custody master of every holder terminal for its
+/// whole life; a shell that exits must still end its terminal, with its
+/// own status.
+#[test]
+fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
+    let mut daemon = Daemon::start();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", "read line; echo bye-$line; exit 3"],
+            "new_workspace": true, "name": "exit-3", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    send(&daemon.socket, surface, "now");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let resolved = loop {
+        let resolved =
+            request(&daemon.socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+        if resolved["lifecycle"] == "exited" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "the terminal never ended: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
+}
+
+/// Review 2: closing a tab right after the holder died must not connect,
+/// start a holder or re-adopt under the surface's runtime lock (a lock rank
+/// panic in a debug daemon, a deadlock against a resize in release). The
+/// close answers, the other terminal keeps working on the new holder, and
+/// the closed shell ends.
+#[test]
+fn a_tab_closed_right_after_a_holder_crash_ends_without_a_lock_rank_panic() {
+    // Reap at once, as the app's close does after its grace: the reaper
+    // ends the closed tab's terminal under its surface's runtime lock.
+    let mut daemon = Daemon::start_with(&["--terminal-reap-grace-seconds", "0"]);
+    let mut surfaces = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("close-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("ready-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("ready-{index}"));
+        surfaces.push(surface);
+    }
+    let closed_shell = shell_pid(&daemon.socket, surfaces[0]);
+    let holder = parent_of(closed_shell);
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(holder, libc::SIGKILL) };
+    request(&daemon.socket, json!({"cmd": "close-surface", "surface": surfaces[0]}));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while alive(closed_shell) {
+        assert!(Instant::now() < deadline, "the closed tab's shell kept running");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    send(&daemon.socket, surfaces[1], "after-close");
+    screen_contains(&daemon.socket, surfaces[1], "after-close");
+    // A new terminal's shell is the new holder's child: track it so the
+    // test ends that holder too.
+    let probe = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "probe", "cols": 80, "rows": 24}),
+    );
+    daemon.track(probe["surface"].as_u64().unwrap());
+}
+
+/// Review 2: a daemon restart restores a terminal's modes and screen even
+/// after it printed more than the holder's 1 MiB ring: the holder keeps the
+/// daemon's newest screen snapshot as the terminal's prologue. The program
+/// enters the alternate screen, draws a mark, then prints 2 MiB that never
+/// touch the mark's row.
+#[test]
+fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
+    let mut daemon = Daemon::start();
+    let script = r#"printf '[?1049h[1;1HALT-MARK'; yes "$(printf '[5;1H')bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" | head -c 2200000; printf '[6;1Hflood-done'; exec cat"#;
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", script], "new_workspace": true,
+            "name": "alt-screen", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    let screen = screen_contains(&daemon.socket, surface, "flood-done");
+    assert!(
+        screen.contains("ALT-MARK"),
+        "the mark is not on the screen:
+{screen}"
+    );
+    // An echo after the flood: the reader went idle once and handed the
+    // holder its snapshot before it read this.
+    send(&daemon.socket, surface, "synced");
+    screen_contains(&daemon.socket, surface, "synced");
+
+    daemon.sigkill();
+    daemon.restart();
+    let surface = running_surface(&daemon.socket, &terminal_id);
+    let screen = screen_contains(&daemon.socket, surface, "flood-done");
+    assert!(
+        screen.contains("ALT-MARK"),
+        "the restart lost the alternate screen set before the ring's oldest byte:
+{screen}"
+    );
 }
 
 fn send(socket: &Path, surface: u64, line: &str) {

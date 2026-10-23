@@ -153,6 +153,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.background`: ``BackdropSelectionSetting/defaultSelection`` (off) when unset,
     /// nil for `none`.
     public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
+    /// `ui.reducedBackgrounds`: off when unset or invalid. On, windows draw the plain theme
+    /// background; ``backdropSelection`` and ``windowBackground`` keep the person's values.
+    public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -338,6 +341,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
+        snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)

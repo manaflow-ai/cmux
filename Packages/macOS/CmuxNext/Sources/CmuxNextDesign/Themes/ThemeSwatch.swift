@@ -1,5 +1,6 @@
 package import CmuxNextDesign
 package import Foundation
+public import CmuxNextDesignTokens
 
 /// A theme's swatch strip for the theme pickers (R98): its background, ANSI
 /// red, green, yellow, blue, magenta and cyan, then its foreground, read

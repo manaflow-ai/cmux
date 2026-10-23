@@ -61,4 +61,9 @@ unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled) {
   return fork_api().browser_set_layer_hosting(browser_id, enabled ? 1 : 0);
 }
 
+int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms) {
+  if (!fork_api().browser_set_resize_sync) return 0;
+  return fork_api().browser_set_resize_sync(browser_id, timeout_ms);
+}
+
 }  // extern "C"
