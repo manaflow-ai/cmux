@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "3995677351701",
+  "notes": "notes/3995677351701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24535,
+      "title": "Agent pane: a key, sign-in or capacity failure offers cmux CodeRouter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24526,
+      "title": "[cx-ncc.112.66, cx-ncc.112.74] cmux NEXT agent chat: the rail's lit band glides at rest, shows at 75%, and stays lit on hover",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24523,
+      "title": "Agent chat: a tool result's images show in the call's strip, not as base64",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
