@@ -356,7 +356,7 @@ export default componentEntry<Props>({
       play: effortPick,
     },
     "fast-mode": {
-      note: "The free Fast mode is the bolt beside the model name: a click turns it on and the model picker stays the one control.",
+      note: "The free Fast mode is the bolt beside the model name: a click turns it on while the model picker remains adjacent.",
       props: {},
       play: fastMode,
     },

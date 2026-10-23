@@ -359,7 +359,7 @@ export default agentPaneEntry({
       },
     },
     "layout-codex-tabs-above": {
-      note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in one picker button.",
+      note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in the model picker.",
       ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
       snapshot: noChat(manySessions(12)),
     },
