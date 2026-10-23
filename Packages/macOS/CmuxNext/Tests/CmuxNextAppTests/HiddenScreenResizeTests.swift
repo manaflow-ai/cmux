@@ -36,6 +36,7 @@ import Testing
         #expect(hidden.geometry.panes == before)
 
         model.selectScreen("s2")
+        root.syncWithModel()
         root.layoutSubtreeIfNeeded()
         try #require(!hidden.isHidden)
         #expect(!hidden.needsReconcileOnShow)
