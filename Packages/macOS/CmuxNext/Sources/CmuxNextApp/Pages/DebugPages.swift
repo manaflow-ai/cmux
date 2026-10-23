@@ -24,10 +24,13 @@ import WebKit
 //   running: id, op, age_ms);
 // - `frames` (`window_ms` default 1000, at most 1500; `scroll_px`, default 0; `selector`?): the
 //   page's own requestAnimationFrame intervals over the window (`PageFrameCadence`: frames,
-//   observed_fps, p50/p95/max_ms, long_frames over 1.5 refreshes, intervals_ms), with `engine`,
-//   `render_rate` and `display_fps`, so one reply says whether a cadence number is valid (row 23
-//   needs engine webkit on a 120 Hz display; a default build opens Settings, History and Cloud in
-//   Chromium). `scroll_px` > 0 scrolls the page's scroller that far each frame;
+//   observed_fps, p50/p95/max_ms, long_frames over 1.5 refreshes (null without display_fps),
+//   intervals_ms, scrolled_px), with `engine`, `render_rate` and `display_fps`, so one reply says
+//   whether a cadence number is valid (row 23 needs engine webkit on a 120 Hz display; a default
+//   build opens Settings, History and Cloud in Chromium). `scroll_px` > 0 scrolls the element
+//   matching `selector` (default the document's scroller) that far each frame, and `scrolled_px`
+//   says how far it really moved (0: that element does not scroll, as Settings' document does not;
+//   its scroller is `.content`). An invalid selector, or one that matches nothing, is an error;
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
@@ -101,11 +104,16 @@ enum DebugPages {
             return state
         case "frames":
             let displayFPS = page.window?.screen.map { Double($0.maximumFramesPerSecond) }
-            guard let cadence = await page.debugFrameCadence(windowMs: params["window_ms"]?.doubleValue ?? 1000,
-                                                             scrollPixels: params["scroll_px"]?.doubleValue ?? 0,
-                                                             selector: params["selector"]?.stringValue,
-                                                             displayFPS: displayFPS),
-                  case .object(var members) = cadence.json else { return ["error": "page not loaded"] }
+            let cadence: PageFrameCadence
+            do throws(PageFrameCadence.ProbeError) {
+                cadence = try await page.debugFrameCadence(windowMs: params["window_ms"]?.doubleValue ?? 1000,
+                                                           scrollPixels: params["scroll_px"]?.doubleValue ?? 0,
+                                                           selector: params["selector"]?.stringValue,
+                                                           displayFPS: displayFPS)
+            } catch {
+                return ["error": .string(error.message)]
+            }
+            guard case .object(var members) = cadence.json else { return ["error": "page not loaded"] }
             members["engine"] = .string(page.showsChromium ? "chromium" : "webkit")
             members["render_rate"] = .string(renderRate(page))
             members.merge(identity(page)) { _, new in new }
