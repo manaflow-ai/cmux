@@ -278,6 +278,10 @@ public struct DaemonCapabilities: Sendable {
     /// The folder trust of a chat of that machine (`agent-session-trust`, cx-1bhjj): the person's
     /// Trust answer for a folder there, recorded in that machine's acpmux.
     public let agentSessionTrust = "agent-session-trust-v1"
+    /// `agent-session-adopt`: the session daemon binds a chat that already runs in its own
+    /// machine's acpmux to one of its agent tabs and says whether its mode asks (cmux-tui/spec/commands.md
+    /// "agent-session-adopt"): how the app opens another machine's running chat as a workspace.
+    public let agentSessionAdopt = "agent-session-adopt-v1"
     /// `agent-session-start` takes `require_person_key` and answers the typed
     /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
     /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
@@ -479,7 +483,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, columnMove, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, workspaceCreateFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionObserve, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, agentSessionChildren, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, cloudAttachments, cloudSelfHost, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionObserve, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, agentSessionAdopt, agentSessionChildren, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, cloudAttachments, cloudSelfHost, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,

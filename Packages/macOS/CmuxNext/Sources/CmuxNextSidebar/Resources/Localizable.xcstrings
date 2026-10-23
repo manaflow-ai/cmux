@@ -8782,134 +8782,134 @@
         }
       }
     },
-    "sidebar.workspace.notificationsMuted": {
-      "comment": "Sidebar: muted workspace mark tooltip and the Priority bell's attention count.",
+    "sidebar.workspace.agentBypass": {
+      "comment": "Sidebar workspace row warning: a chat in the workspace runs in a mode that acts without asking first.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "الإشعارات مكتومة"
+            "state": "translated",
+            "value": "تجاوز: يتصرف دون أن يسأل"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Obavještenja utišana"
+            "state": "translated",
+            "value": "Zaobilaženje: djeluje bez pitanja"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Notifikationer slået fra"
+            "state": "translated",
+            "value": "Omgåelse: handler uden at spørge"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mitteilungen stummgeschaltet"
+            "state": "translated",
+            "value": "Umgehung: handelt ohne Nachfrage"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications muted"
+            "value": "Bypass: acts without asking"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Notificaciones silenciadas"
+            "state": "translated",
+            "value": "Omisión: actúa sin preguntar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Notifications désactivées"
+            "state": "translated",
+            "value": "Contournement : agit sans demander"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Notifiche silenziate"
+            "state": "translated",
+            "value": "Bypass: agisce senza chiedere"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知をミュート中"
+            "value": "バイパス: 確認せずに実行"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បានបិទសំឡេងការជូនដំណឹង"
+            "state": "translated",
+            "value": "រំលង៖ ធ្វើសកម្មភាពដោយមិនសួរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "알림 음소거됨"
+            "state": "translated",
+            "value": "우회: 묻지 않고 실행"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Varsler dempet"
+            "state": "translated",
+            "value": "Omgåelse: handler uten å spørre"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Powiadomienia wyciszone"
+            "state": "translated",
+            "value": "Obejście: działa bez pytania"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Notificações silenciadas"
+            "state": "translated",
+            "value": "Bypass: age sem perguntar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Уведомления отключены"
+            "state": "translated",
+            "value": "Обход: действует без запроса"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดเสียงการแจ้งเตือนแล้ว"
+            "state": "translated",
+            "value": "ข้าม: ทำงานโดยไม่ถาม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildirimler sessize alındı"
+            "state": "translated",
+            "value": "Atlama: sormadan çalışır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сповіщення вимкнено"
+            "state": "translated",
+            "value": "Обхід: діє без запиту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã tắt tiếng thông báo"
+            "state": "translated",
+            "value": "Bỏ qua: hành động mà không hỏi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "通知已静音"
+            "state": "translated",
+            "value": "绕过：不询问即执行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "通知已靜音"
+            "state": "translated",
+            "value": "略過：不詢問即執行"
           }
         }
       }
@@ -21225,6 +21225,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "優先檢視已關閉；請在 App Store 或設定中開啟"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.notificationsMuted": {
+      "comment": "Sidebar: muted workspace mark tooltip and the Priority bell's attention count.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإشعارات مكتومة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obavještenja utišana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifikationer slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mitteilungen stummgeschaltet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications muted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificaciones silenciadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifications désactivées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifiche silenziate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をミュート中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបិទសំឡេងការជូនដំណឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림 음소거됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsler dempet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiadomienia wyciszone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificações silenciadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уведомления отключены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดเสียงการแจ้งเตือนแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildirimler sessize alındı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сповіщення вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tắt tiếng thông báo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通知已静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通知已靜音"
           }
         }
       }

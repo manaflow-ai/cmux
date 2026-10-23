@@ -117,6 +117,8 @@ public final class DaemonService {
     /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an
     /// agent chat that runs on that machine); nil for this app's own daemon.
     @ObservationIgnored public private(set) var remoteEndpoint: DaemonConnection.EndpointProvider?
+    /// This connection's agent mode reads (DaemonService+AgentModes).
+    @ObservationIgnored var agentModeReads: Task<Void, Never>?
     /// Hands an owner without `ws-listen-v1` off to the bundled build (DaemonService+PageListener).
     @ObservationIgnored var pageListenerHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
     /// Hands the local daemon off for a confirmed server-update restart (`restartForUpdate`); nil
@@ -330,6 +332,7 @@ public final class DaemonService {
         startup = .connected
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
+        readAgentModes()
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the
@@ -460,6 +463,7 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
+        endAgentModeReads()
         // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil

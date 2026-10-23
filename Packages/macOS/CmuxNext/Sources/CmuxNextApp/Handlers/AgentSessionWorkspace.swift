@@ -1,8 +1,10 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWorkspaceRepair
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
@@ -18,13 +20,14 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
-/// `group` (the name of the sidebar group it goes in: any group of that name
-/// that can hold the row, made only when none can; `acpmux new --group` sends
-/// it). A `key` that names a listed workspace opens nothing: a launcher run
-/// again finds its row. A `name` that already has a row in that group (a lane
-/// re-homed to another machine, whose new session has a new key) gets the
-/// chat as a tab of that row, never a second row of the same name.
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux; another machine's name, as
+/// the sidebar or `acpmux ls` shows it: the session runs there), `group` (the name of the sidebar
+/// group it goes in: any group of that name that can hold the row, made only when none can;
+/// `acpmux new --group` sends it; another machine's chat joins that machine's group of the name).
+/// A `key` that names a listed workspace opens nothing: a launcher run again finds its row. A
+/// `name` that already has a row of this Mac in that group (a lane re-homed to another machine,
+/// whose new session has a new key) gets the chat as a tab of that row, never a second row of the
+/// same name.
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -41,9 +44,95 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
+        // A host that names another machine (`cmux agent open NAME --host huge-blue`): its chat opens there.
+        let remote = host.flatMap(context.services.machines.remoteDaemon(named:)), group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try remote.map { try adopt(session: session, name: name, key: key, cwd: cwd, group: group, on: $0, services: context.services) }
+            ?? open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
         context.services.registry.track(task)
+    }
+
+    /// Another machine's running chat in a new workspace on that machine's daemon: its agent tab is
+    /// bound to `session` there (`agent-session-adopt`; a chat never leaves its machine, cx-k21v), and
+    /// a chat that acts without asking shows the bypass warning on its row. A refused adopt closes
+    /// the workspace. Nothing takes focus.
+    private static func adopt(session: String, name: String?, key: WorkspaceKey, cwd: String?, group: String?, on daemon: DaemonService,
+                              services: AppServices) throws -> ActionWork {
+        try requireChatPage(services)
+        guard let connection = daemon.connection, let endpoint = daemon.remoteEndpoint, let host = AgentTabStore.registryHost(of: daemon) else {
+            throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
+        }
+        let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
+        let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
+        // A caller's key that names a listed workspace already shows the session: nothing opens twice.
+        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
+        // `group`: that machine's group of the name (made when missing), once the row is listed.
+        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        if let group { join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) } }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
+        return Task { @MainActor in
+            do {
+                // The workspace, its terminal, the agent tab and the adopt, owned by `repair` while they run
+                // (as WorkspaceCreation does): a failure leaves the key closing, never repaired or settling.
+                // Any failure closes the workspace with its terminal and any tab, bound or not (refused, or
+                // the tab or adopt reply never came); closing only detaches a session, so a lost reply after
+                // a bind ends nothing. WorkspaceCreation's own close takes only an empty workspace.
+                var created: WorkspaceMutationResult?
+                let opened: (tab: NewConversationTabRequest.Response, adopted: AgentSessionAttachClient.Adopted) = try await repair.populating(key) {
+                    try await WorkspaceCreation.withTerminal(
+                        key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
+                        createTerminal: { _ in
+                            guard let created else { throw DaemonError.notConnected }
+                            try await connection.createTerminal(in: created.key, cwd: cwd)
+                            // One mutation id for every send: a tab the daemon made after the deadline replays.
+                            let request = NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: created.workspace,
+                                                                    origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue)
+                            let tab = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+                            return (tab: tab, adopted: try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
+                        },
+                        closeWorkspace: { try await closeFailedAdopt($0, on: daemon, repair: repair, services: services) })
+                }
+                let (tab, adopted) = (opened.tab, opened.adopted)
+                AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
+                if let pane = await daemon.store.firstPane(mirroring: key) {
+                    for window in services.windows.controllers { window.state.selection.select(tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)", in: pane.id) }
+                }
+                return nil
+            } catch let error as AgentSessionAttachError {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(AgentSessionAdoptRefusal.message(code: error.code, machine: machine) ?? AgentRemoteStartRefusal(code: error.code, machine: machine, detail: error.message).userMessage)")
+            } catch {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+            }
+        }
+    }
+
+    /// Closes workspace `key` that a failed adopt made on `daemon`, with its terminal and any tab, kept
+    /// out of Recently Closed. On `daemon`'s live connection: when its link is down (the adopt may
+    /// have failed on that drop), once it is up again, unless `present` turns false first (the
+    /// machine left the app). Never on the connection the adopt started on, which may be dead.
+    @MainActor
+    static func closeFailedAdopt(_ key: WorkspaceKey, on daemon: DaemonService, present: @escaping @MainActor @Sendable () -> Bool) async throws {
+        let failure = await daemon.failureOnceConnected("close-workspace", waits: !daemon.isLive, while: present) { connection in
+            try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
+        }
+        if let failure { throw failure }
+    }
+
+    /// ``closeFailedAdopt(_:on:present:)`` while `daemon` is one of the app's machines; a workspace
+    /// still open after it is released to `repair` with the adopt's failure, as WorkspaceCreation does.
+    @MainActor
+    private static func closeFailedAdopt(_ key: WorkspaceKey, on daemon: DaemonService, repair: EmptyWorkspaceRepair, services: AppServices) async throws {
+        do {
+            try await closeFailedAdopt(key, on: daemon, present: { services.machines.daemons.contains { $0 === daemon } })
+        } catch {
+            repair.closeFailed(key)
+            throw error
+        }
+    }
+
+    /// Refuses before anything is made when this build has no agent page to show the chat in (a local
+    /// open and another machine's adopt alike).
+    private static func requireChatPage(_ services: AppServices) throws {
+        guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
@@ -53,10 +142,15 @@ enum AgentSessionWorkspace {
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      group: String? = nil, services: AppServices) throws -> ActionWork {
-        guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+        try requireChatPage(services)
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
+        }
+        // A host that names no machine here is refused before anything is made (no empty workspace).
+        let agentTabs = services.agentTabs
+        if let refusal = AgentTabStore.hostRefusal(host, localHost: agentTabs.localHost, chiefHost: agentTabs.chiefHost, daemonIsLocal: daemon.isLocal) {
+            throw ActionFailure(message: refusal)
         }
         let logger = daemon.logger
         // A caller's key that names a listed workspace already shows the

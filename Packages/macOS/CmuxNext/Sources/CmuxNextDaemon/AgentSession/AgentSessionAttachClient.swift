@@ -64,6 +64,8 @@ public actor AgentSessionAttachClient {
     private var servesStart = false
     /// The connected daemon serves `agent-session-trust-v1`.
     private var servesTrust = false
+    /// The connected daemon serves `agent-session-adopt-v1`.
+    private var servesAdopt = false
     /// The connected daemon serves `agent-session-start-keyed-reason-v1`.
     private var servesKeyedReason = false
     /// The connected daemon serves `agent-session-children-v1`.
@@ -85,11 +87,38 @@ public actor AgentSessionAttachClient {
         self.requestTimeout = requestTimeout
     }
 
-    /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
+    /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on. The
+    /// chat's mode (the reply's `agentMode`, then each `agent-session-mode` push of a daemon with
+    /// `agent-session-adopt-v1`) goes to ``AgentBypassSessions`` instead.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
-        handler.set(events)
-        return try await call(mode.command, page(afterSeq, beforeSeq, limit, kinds))
+        handler.set { event, line in
+            guard event == "agent-session-mode" else { return events(event, line) }
+            AgentBypassSessions.note(.push, of: line)
+        }
+        _ = try await liveTransport()
+        var params = page(afterSeq, beforeSeq, limit, kinds)
+        if servesAdopt { params["mode_events"] = true }
+        let data = try await call(mode.command, params)
+        AgentBypassSessions.note(.attachReply, of: data)
+        return data
+    }
+
+    /// `agent-session-mode` (`agent-session-adopt-v1`) of tab `surface` over a connection of its
+    /// own: the answer (``AgentBypassSessions/Carrier/answer``), nil from a daemon without the verb.
+    /// The caller notes it only while its connection is current.
+    public static func readMode(surface: UInt64, endpoint: @escaping EndpointProvider) async throws -> Data? {
+        let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
+        let result: Result<Data?, any Error>
+        do { result = .success(try await client.chatMode()) } catch { result = .failure(error) }
+        await client.close()
+        return try result.get()
+    }
+
+    /// The `agent-session-mode` answer; nil from a daemon without the verb.
+    private func chatMode() async throws -> Data? {
+        _ = try await liveTransport()
+        return servesAdopt ? try await call("agent-session-mode", [:]) : nil
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -142,6 +171,43 @@ public actor AgentSessionAttachClient {
         if let level { params["level"] = level }
         if homeConfirmed { params["home_confirmed"] = true }
         return try await call("agent-session-trust", params)
+    }
+
+    /// A chat that already runs in the daemon's machine's acpmux, as `agent-session-adopt` bound it
+    /// to the tab: `asking` is false for a mode that does not ask before acting (bypass).
+    public struct Adopted: Sendable, Equatable {
+        public let session: String
+        public let mode: String?
+        public let asking: Bool
+    }
+
+    /// `agent-session-adopt` (`agent-session-adopt-v1`): the daemon binds `session`, a chat of its
+    /// own machine's acpmux (never a peer's mirror or the Home Chief's), to the tab, keeping its
+    /// mode. A daemon that does not serve the verb is refused here (``startUnsupported``).
+    public func adopt(session: String) async throws -> Adopted {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot adopt a chat")
+        }
+        _ = try await liveTransport()
+        guard servesAdopt else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session adopt")
+        }
+        let data = try await call("agent-session-adopt", ["session": session])
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let bound = object["session"] as? String, bound == session else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-adopt answered another session")
+        }
+        // An answer without `asking` never reads as asking.
+        return Adopted(session: bound, mode: object["mode"] as? String, asking: object["asking"] as? Bool ?? false)
+    }
+
+    /// ``adopt(session:)`` on tab `surface` over a connection of its own, closed after the answer.
+    public static func adopt(session: String, surface: UInt64, endpoint: @escaping EndpointProvider) async throws -> Adopted {
+        let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
+        let result: Result<Adopted, any Error>
+        do { result = .success(try await client.adopt(session: session)) } catch { result = .failure(error) }
+        await client.close()
+        return try result.get()
     }
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
@@ -261,6 +327,7 @@ public actor AgentSessionAttachClient {
             }
             servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
             servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
+            servesAdopt = identity.supports(DaemonCapabilities.shared.agentSessionAdopt)
             servesKeyedReason = identity.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason)
             servesChildren = identity.supports(DaemonCapabilities.shared.agentSessionChildren)
             _ = try await DaemonConnection.perform(
