@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cmux_holder::ExitStatus;
 use cmux_pty::ChildKiller;
 
-use super::sink::SinkReader;
+use super::sink::{SinkEnd, SinkReader};
 use super::{HolderService, HolderSink};
 use crate::surface::spawn::LocalLaunch;
 use crate::terminal_end::TerminalEnd;
@@ -73,7 +73,7 @@ pub(crate) fn holder_local_launch(
         killer: Box::new(HolderKiller(terminal.clone())),
         wait: Box::new(move || {
             let end = waited.sink.wait_end();
-            if end.is_some() {
+            if end != SinkEnd::Detached {
                 // Ended: the holder may forget it.
                 let _ = waited.service.close(waited.chan, 0);
                 waited.service.untrack(waited.chan);
@@ -88,22 +88,23 @@ pub(crate) fn holder_local_launch(
     })
 }
 
-fn terminal_end(end: Option<ExitStatus>) -> TerminalEnd {
+fn terminal_end(end: SinkEnd) -> TerminalEnd {
     match end {
-        Some(ExitStatus::Exited(code)) => {
+        SinkEnd::Exited(ExitStatus::Exited(code)) => {
             TerminalEnd::ProcessEnded(TerminalExit::now(TerminalExitOutcome::Exit { code }))
         }
-        Some(ExitStatus::Signaled(signal)) => {
+        SinkEnd::Exited(ExitStatus::Signaled(signal)) => {
             TerminalEnd::ProcessEnded(TerminalExit::now(TerminalExitOutcome::Signal {
                 signal,
                 core_dumped: false,
             }))
         }
-        Some(ExitStatus::Unobserved) => {
+        SinkEnd::Exited(ExitStatus::Unobserved) => {
             TerminalEnd::ProcessEnded(TerminalExit::unknown(crate::terminal_end::EXIT_UNOBSERVED))
         }
+        SinkEnd::Lost => TerminalEnd::host_lost("holder-lost"),
         // Detached for a daemon shutdown: never recorded (exit_state).
-        None => TerminalEnd::host_lost("holder-detached"),
+        SinkEnd::Detached => TerminalEnd::host_lost("holder-detached"),
     }
 }
 

@@ -98,14 +98,17 @@ impl HolderService {
     }
 
     /// Start `request` on the holder. Returns the terminal (its custody
-    /// master, pid and output sink).
+    /// master, pid and output sink); `seed` reaches the parser before the
+    /// shell's first byte.
     pub(crate) fn spawn(
         self: &Arc<Self>,
         request: &SpawnRequest,
+        seed: &[u8],
     ) -> io::Result<Arc<HolderTerminal>> {
         let link = self.link()?;
         let chan = self.next_chan.fetch_add(1, Ordering::AcqRel);
         let sink = HolderSink::new(0);
+        sink.prepend(seed);
         let (pid, custody) = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
         Ok(self.track(chan, request.id, pid, custody, sink))
     }
@@ -159,6 +162,15 @@ impl HolderService {
         terminal
     }
 
+    /// End every live terminal as lost: no holder can stream it.
+    fn lose_all(&self) {
+        let live: Vec<_> =
+            self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
+        for terminal in live {
+            terminal.sink.lose();
+        }
+    }
+
     /// Hand every live terminal to the new holder `link` after a holder
     /// crash: its custody master, pid, and the offset its output continues
     /// from. Output the shells wrote meanwhile waited in their PTYs.
@@ -191,7 +203,10 @@ impl HolderService {
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if let Err(error) = service.link() {
+                            // No holder streams their output any more: their
+                            // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
+                            service.lose_all();
                         }
                     });
             }),
