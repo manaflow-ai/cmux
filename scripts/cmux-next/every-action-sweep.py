@@ -525,6 +525,9 @@ class Sweep:
     # Restore.
 
     def restore(self, action_id, toggled):
+        if self.app.process and self.app.process.poll() is not None:
+            # The app is gone (it quit or crashed): rebuilding through a dead socket would only time out.
+            raise RuntimeError(f"the app exited (code {self.app.process.returncode})")
         for _ in range(2):
             rpc("debug.key", {"key": "escape"}, timeout=5)
         rpc("debug.key", {"key": "escape", "target": "palette"}, timeout=5)
