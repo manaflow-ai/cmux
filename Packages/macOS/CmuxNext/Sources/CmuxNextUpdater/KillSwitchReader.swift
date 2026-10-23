@@ -11,8 +11,9 @@ public import Foundation
 /// one observation of the updater (no timer, no poll). The app's reader is owned by ``app``
 /// (``start(updater:)``); ``stop()``, or starting a new one, cancels its observation, which also
 /// ends at its next wake after the reader or the updater is gone. One read runs at a time, so
-/// fetches and cache writes never overlap: a read asked for the same ring joins it, one for
-/// another ring runs after it, and a read whose ring moved meanwhile applies nothing.
+/// fetches and cache writes never overlap: a read asked while one runs is done once after it (that
+/// one may have fetched before a check published a newer document, or for a ring that moved), and
+/// a read whose ring moved meanwhile applies nothing.
 @MainActor
 public final class KillSwitchReader {
     private weak var updater: UpdaterService?
@@ -20,7 +21,7 @@ public final class KillSwitchReader {
     private let store: @MainActor (UpdaterService) -> ReleaseNotesStore?
     private var observation: Task<Void, Never>?
     private var reading: (cohort: String, task: Task<Void, Never>)?
-    /// A read for another ring was asked while ``reading`` ran: it runs next.
+    /// A read was asked while ``reading`` ran: one more runs after it.
     private var readsAgain = false
 
     /// The app's reader, set by ``start(updater:)``.
@@ -69,14 +70,20 @@ public final class KillSwitchReader {
     }
 
     /// Reads the document once and replaces the turned-off switches: a verified document's list for
-    /// the updater's ring, else none. Nil when the updater is gone.
+    /// the updater's ring, else none. While a read runs, the task returned ends after the one read
+    /// that follows it. Nil when the updater is gone.
     @discardableResult
     func read() -> Task<Void, Never>? {
         guard let updater else { return nil }
         let cohort = updater.ring.rawValue
         if let reading {
-            if reading.cohort != cohort { readsAgain = true }
-            return reading.task
+            readsAgain = true
+            let current = reading.task
+            return Task { [weak self] in
+                await current.value
+                // The read in flight started the next one before it ended.
+                await self?.reading?.task.value
+            }
         }
         let store = store(updater)
         let switches = switches

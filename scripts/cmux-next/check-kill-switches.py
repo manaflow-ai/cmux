@@ -17,6 +17,7 @@ This check fails when:
   - `default` is not `new-path` (the change ships; only the signed document turns it off);
   - a `killSwitch(...)` call in app or web sources is not a `"pr-<N>"` literal, names an undeclared
     switch, or a switch is evaluated in more than one file per surface (Swift, web);
+  - `killSwitch` is used other than by calling it (`let check = killSwitch`), which hides its key;
   - a declared switch has no call site;
   - flags.json turns off a `pr-<N>` that is not declared.
 
@@ -42,6 +43,8 @@ SURFACES = {
 NOT_CALL_SITES = re.compile(r"(\.test\.tsx?|/test/|/tests/|Tests/)")
 KEY = re.compile(r"^pr-([1-9][0-9]*)$")
 CALL = re.compile(r"(?<![\w$])killSwitch\s*\(([^)]*)\)")
+# Any use of the name: one that is not a call (`let check = killSwitch`) hides its key from this check.
+NAME = re.compile(r"(?<![\w$])killSwitch(?![\w$])")
 LITERAL = re.compile(r'^"(pr-[1-9][0-9]*)"$')
 DEFINITION = re.compile(r"\b(func|function|const|let|export)\s+killSwitch\b")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -166,6 +169,12 @@ def call_sites(root: Path, errors: list[str]) -> dict[str, dict[str, list[str]]]
             # Comments, strings and the definition are not call sites.
             code = "\n".join(" " * len(line) if DEFINITION.search(line) else line
                               for line in masked(text, path.suffix == ".swift").split("\n"))
+            calls = {call.start() for call in CALL.finditer(code)}
+            for use in NAME.finditer(code):
+                if use.start() not in calls:
+                    number = code.count("\n", 0, use.start()) + 1
+                    errors.append(f"{rel}:{number}: killSwitch is only called, as killSwitch(\"pr-<N>\"); "
+                                  f"a reference hides its key from this check")
             for call in CALL.finditer(code):
                 number = code.count("\n", 0, call.start()) + 1
                 argument = text[call.start(1):call.end(1)]
@@ -189,11 +198,22 @@ def flagged_off(root: Path, errors: list[str]) -> set[str]:
     except (OSError, ValueError) as error:
         errors.append(f"{FLAGS}: not JSON: {error}")
         return set()
-    objects = [document.get("default")] + list((document.get("cohorts") or {}).values())
+    if not isinstance(document, dict):
+        errors.append(f"{FLAGS}: not an object")
+        return set()
+    cohorts = document.get("cohorts", {})
+    if not isinstance(cohorts, dict):
+        errors.append(f"{FLAGS}: `cohorts` is not an object")
+        cohorts = {}
     off = set()
-    for item in objects:
+    for name, item in [("default", document.get("default"))] + list(cohorts.items()):
+        if item is None:
+            continue
         features = item.get("DisabledFeatures") if isinstance(item, dict) else None
-        off.update(name for name in features or [] if isinstance(name, str) and name.startswith("pr-"))
+        if not isinstance(item, dict) or not isinstance(features or [], list):
+            errors.append(f"{FLAGS}: `{name}` is not an object with a `DisabledFeatures` list")
+            continue
+        off.update(key for key in features or [] if isinstance(key, str) and key.startswith("pr-"))
     return off
 
 
