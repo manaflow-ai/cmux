@@ -70,13 +70,12 @@ export function FastToggle({ speed }: { speed: SpeedTiers }) {
   );
 }
 
-/// The bolt glyph, shared by the toggle and the `/` menu's Fast row (Composer.tsx SlashMenu).
-export function BoltIcon({ size = 16 }: { size?: number }) {
+function BoltIcon() {
   return (
     <svg
       className="acpmux-icon"
-      width={size}
-      height={size}
+      width={16}
+      height={16}
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"

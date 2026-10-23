@@ -390,6 +390,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/FastToggle.tsx",
+    // The `/` menu's Fast row (slash-menu-fast-on, slash-menu-fast-off).
+    "agent-session/acpmux/BoltIcon.tsx#BoltIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",

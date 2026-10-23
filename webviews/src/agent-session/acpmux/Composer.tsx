@@ -54,7 +54,7 @@ import {
   type SlashCommand,
   type SlashMatch,
 } from "./slashCommands";
-import { BoltIcon } from "./FastToggle";
+import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
   hasPendingDraftWrite,
