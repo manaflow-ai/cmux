@@ -370,18 +370,30 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
     let r = c.request(method::SESSION_PROMPT, again).await;
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["harness"], "direct", "{r:?}");
-    // The old process's answer is written after the failover; give the hub time to read it.
+    // The old process writes its answer after the failover, then a probe line: once the probe is
+    // logged, the reader has read the answer before it.
+    let events = |hub: &Arc<Hub>| hub.events(&id, 0, 10_000).unwrap();
+    let mut probed = false;
     for _ in 0..100 {
-        if root.join("late").exists() {
+        probed = events(&hub).iter().any(|e| e.kind.contains("late_probe"));
+        if probed {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(root.join("late").exists(), "the replaced process never answered");
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(probed, "the replaced process's late lines never reached its reader");
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["contextBreakdown"].is_null(), "the late answer came back: {info}");
     assert!(session.meta().context_breakdown.is_none());
+    // Nor is it in the log after the failover, where a pane's replay would take it up.
+    let log = events(&hub);
+    let failover = log.iter().find(|e| e.kind == "failover").map(|e| e.seq).unwrap();
+    let late: Vec<_> = log
+        .iter()
+        .filter(|e| e.seq > failover)
+        .filter(|e| e.msg.pointer("/params/update/_meta/acpmux/contextBreakdown").is_some())
+        .collect();
+    assert!(late.is_empty(), "a breakdown was logged after the failover: {late:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

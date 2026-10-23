@@ -446,6 +446,11 @@ impl Hub {
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
+                // Before the failover is logged: a /context answer the old agent sends from here
+                // on is not logged after it as the fallback's.
+                if let Some(old) = session.child.lock().await.as_ref() {
+                    old.retire();
+                }
                 self.append(
                     session,
                     "mux",

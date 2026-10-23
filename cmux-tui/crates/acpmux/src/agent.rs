@@ -160,6 +160,9 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
+    /// is not the chat's context any more, and is neither logged nor handed to the hub.
+    retired: std::sync::atomic::AtomicBool,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -259,6 +262,7 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            retired: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job,
         });
@@ -371,6 +375,8 @@ impl ChildAgent {
                             s.push('\n');
                             let _ = agent_for_exit.stdin_tx.send(s).await;
                         }
+                        let mut translated = translated;
+                        translated.retain(|m| !agent_for_exit.stale_context(m));
                         // Translated ACP messages go through the same tap as
                         // native ACP traffic, so the log and viewers see them.
                         for m in &translated {
@@ -502,7 +508,24 @@ impl ChildAgent {
         None
     }
 
+    /// Mark the agent replaced (a failover) or stopping: a /context breakdown it still sends,
+    /// answering a turn that ended before, is dropped (`stale_context`).
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::SeqCst);
+    }
+
+    /// A retired agent's /context breakdown update.
+    fn stale_context(&self, m: &Message) -> bool {
+        let Message::Notification { method, params } = m else { return false };
+        self.retired.load(Ordering::SeqCst)
+            && method == crate::rpc::method::SESSION_UPDATE
+            && params
+                .as_ref()
+                .is_some_and(|p| p.pointer("/update/_meta/acpmux/contextBreakdown").is_some())
+    }
+
     pub async fn kill(&self) {
+        self.retire();
         if self.hosted.is_some() {
             self.terminate(KILL_GRACE).await;
             return;
@@ -546,6 +569,7 @@ impl ChildAgent {
     /// to `grace` for it to exit, then SIGKILL the group (stragglers
     /// included). Never waits on a lock or a pipe without a deadline.
     pub async fn terminate(&self, grace: std::time::Duration) {
+        self.retire();
         if let Some(h) = &self.hosted {
             if h.exited.load(Ordering::SeqCst) || h.link().is_closed() {
                 return;
@@ -972,6 +996,7 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            retired: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job: None,
         });
@@ -1042,6 +1067,10 @@ impl ChildAgent {
             },
             Entry::In { msg } => {
                 let Ok(m) = Message::from_value(msg) else { return true };
+                // Dropped as the direct reader drops it; the entry counts as handled.
+                if self.stale_context(&m) {
+                    return true;
+                }
                 if !(self.tap)(Direction::In, &m, Some(h)) {
                     return false;
                 }
