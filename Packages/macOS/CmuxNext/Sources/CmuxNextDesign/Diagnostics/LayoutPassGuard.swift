@@ -1,6 +1,5 @@
 public import AppKit
 import CoreFoundation
-import ObjectiveC
 import os
 
 /// Catches a layout feedback loop before AppKit does.
@@ -108,22 +107,16 @@ public final class LayoutPassGuard {
     }
 
     /// Installs the counters on `-[NSView layout]` and
-    /// `-[NSWindow layoutIfNeeded]`. Idempotent.
+    /// `-[NSWindow layoutIfNeeded]` (``LayoutPassHooks``). Idempotent.
     public func install() {
         guard !isInstalled else { return }
         isInstalled = true
-        Self.swizzleLayout()
-        Self.swizzleWindowLayout()
-        // No window layout runs while the main run loop waits: an entry left
-        // then leaked (AppKit's layout exception skipped its end) and goes.
-        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { _, _ in
-            MainActor.assumeIsolated { LayoutPassGuard.shared.dropLeakedWindowLayouts() } // main-proof: main run loop observer
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-        self.observer = observer
+        observer = LayoutPassHooks(guardian: self).install()
     }
 
-    private func dropLeakedWindowLayouts() {
+    /// No window layout runs while the main run loop waits: an entry left then leaked (AppKit's
+    /// layout exception skipped its end) and goes. Called by ``LayoutPassHooks`` only.
+    func dropLeakedWindowLayouts() {
         if !windowLayouts.isEmpty { windowLayouts.removeAll() }
     }
 
@@ -152,7 +145,11 @@ public final class LayoutPassGuard {
         return views
     }
 
-    fileprivate func windowLayoutWillBegin(_ window: NSWindow) {
+    /// Whether a `layoutIfNeeded` of `window` is in progress (tests read it to check the hooks' bracket).
+    func isInWindowLayout(_ window: NSWindow) -> Bool { windowLayouts[ObjectIdentifier(window)] != nil }
+
+    /// A `layoutIfNeeded` of `window` begins (``LayoutPassHooks`` only).
+    func windowLayoutWillBegin(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         windowLayouts[id, default: WindowLayout()].depth += 1
         #if DEBUG
@@ -160,7 +157,8 @@ public final class LayoutPassGuard {
         #endif
     }
 
-    fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
+    /// A `layoutIfNeeded` of `window` ended (``LayoutPassHooks`` only).
+    func windowLayoutDidEnd(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
@@ -170,7 +168,8 @@ public final class LayoutPassGuard {
         windowLayouts[id] = layout.depth > 0 ? layout : nil
     }
 
-    fileprivate func record(_ view: NSView) {
+    /// One `-[NSView layout]` call of `view` (``LayoutPassHooks`` only).
+    func record(_ view: NSView) {
         #if DEBUG
         viewLayoutCalls &+= 1
         #endif
@@ -220,45 +219,5 @@ public final class LayoutPassGuard {
     struct Weak {
         weak var object: NSView?
         init(_ object: NSView) { self.object = object }
-    }
-
-    private typealias Layout = @convention(c) (NSView, Selector) -> Void
-    private typealias WindowLayoutIMP = @convention(c) (NSWindow, Selector) -> Void
-
-    private static func swizzleLayout() {
-        let selector = #selector(NSView.layout)
-        guard let method = class_getInstanceMethod(NSView.self, selector) else { return }
-        let original = unsafeBitCast(method_getImplementation(method), to: Layout.self)
-        method_setImplementation(method, imp_implementationWithBlock(override(calling: original, selector)))
-    }
-
-    private static func swizzleWindowLayout() {
-        let selector = #selector(NSWindow.layoutIfNeeded)
-        guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
-        let original = unsafeBitCast(method_getImplementation(method), to: WindowLayoutIMP.self)
-        method_setImplementation(method, imp_implementationWithBlock(windowOverride(calling: original, selector)))
-    }
-
-    /// Built outside the main actor so the block carries no isolation
-    /// check: AppKit lays out on the main thread, and a view laid out
-    /// elsewhere is passed through uncounted.
-    private nonisolated static func override(calling original: Layout, _ selector: Selector) -> @convention(block) (NSView) -> Void {
-        { view in
-            original(view, selector)
-            guard Thread.isMainThread else { return }
-            MainActor.assumeIsolated { LayoutPassGuard.shared.record(view) } // main-proof: checked above
-        }
-    }
-
-    /// Brackets one `layoutIfNeeded` of a window (AppKit's unit for its
-    /// pass limit); off the main thread it passes through.
-    private nonisolated static func windowOverride(calling original: WindowLayoutIMP,
-                                                   _ selector: Selector) -> @convention(block) (NSWindow) -> Void {
-        { window in
-            guard Thread.isMainThread else { return original(window, selector) }
-            MainActor.assumeIsolated { LayoutPassGuard.shared.windowLayoutWillBegin(window) } // main-proof: checked above
-            original(window, selector)
-            MainActor.assumeIsolated { LayoutPassGuard.shared.windowLayoutDidEnd(window) } // main-proof: checked above
-        }
     }
 }
