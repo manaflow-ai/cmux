@@ -125,7 +125,12 @@ export function EffortPicker({
   return (
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
+        <MenuButton
+          className="acpmux-picker-button acpmux-pill"
+          label={t("effort.title")}
+          data-menu={label}
+          aria-haspopup="menu"
+        >
           <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>

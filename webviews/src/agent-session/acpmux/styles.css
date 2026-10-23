@@ -45,12 +45,12 @@
 /* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
    and 10px from the box edge, so (48 - 28) / 2 is the same inset on every side. */
 .acpmux-composer-bar{display:flex;align-items:center;gap:8px;height:48px;padding:0 10px;font-size:14px;line-height:18px}
-.acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:28px;padding:0;color:var(--agent-muted)}
+.acpmux-composer-plus .acpmux-picker-button{justify-content:center;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls. A running session's
    look (the lit mic, the waveform, the finish key) is dictation.css's; hover and press are in composerStates.css. */
-.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted);cursor:default}
+.acpmux-mic{flex:none;display:grid;place-items:center;border:0;background-color:transparent;color:var(--agent-muted);cursor:default}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}}
@@ -72,24 +72,17 @@
 .acpmux-composer-bar select{height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
 .acpmux-icon{flex:none;display:block}
 .acpmux-picker{display:flex;min-width:0}
-.acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
+.acpmux-picker-button{display:flex;align-items:center;min-width:0;border:0;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
-.acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 .acpmux-picker-button:focus-visible,:where(button).acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
-.acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
-:where(button).acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
-:where(button).acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+.acpmux-mode .acpmux-picker-button{color:var(--agent-muted)}
+:where(button).acpmux-plan{display:flex;align-items:center;border:0;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
+:where(button).acpmux-plan:hover{color:var(--agent-text)}
 /* Plan on is the lit-glyph ink (the accent, never fainter than at rest) with no pill at rest (Leo 2026-10-19); hover, focus and a press draw the chips' soft pill. */
 :where(button).acpmux-plan[aria-pressed=true]{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
-/* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */
-.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
-/* No pill at rest: the label shows and the pill comes only under the pointer, while open, or on keyboard focus (the Claude app's chips, Leo 2026-10-19). */
-.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:none}
-/* A pill pressed or open keeps the hover step and no edge: no brighter press tone that flashes on a click (Leo 2026-10-18). */
-.acpmux-model .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-effort .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-access .acpmux-picker-button:is(:active,[aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
-@media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
+/* The chips' size, corner, rest and hover are the composer pill's (composerLocation.css, .acpmux-pill). */
 /* The model picker follows T3: one harness/model button and a stable two-column popover. */
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
@@ -99,14 +92,14 @@
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
 .acpmux-context{flex:none}
-.acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
+.acpmux-context-ring{flex:none;display:grid;place-items:center;border:0;background:none;color:var(--agent-muted)}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
 /* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--agent-muted)}
+.acpmux-send{flex:none;display:grid;place-items:center;border:0;background:transparent;color:var(--agent-muted)}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
 /* The one off look, for an empty draft and for Send turned off (composerStates.css): the same glyph, dimmed to 45% of the text. A draft brings the secondary text color back (.acpmux-send-ready). */
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){color:var(--acpmux-send-off-fg)}

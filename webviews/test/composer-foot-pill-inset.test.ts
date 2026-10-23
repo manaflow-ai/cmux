@@ -1,11 +1,10 @@
 // The quiet row's hover pill is the native selection pill's size (Leo 2026-10-22: "the highlight
 // pill is too small"). Under the composer box (ComposerFoot.tsx, `.acpmux-composer-foot`) the mode,
 // Plan and the model are text chips; each one's hover, open and press pill (the bar's states in
-// composerLocation.css) is padded by the row's --acpmux-row-inset. At 4 px the pill hugged the
-// label like a sliver; it is 8 px, the inset of an NSMenu row's highlight and of Codex's and
-// ChatGPT's mode chip. The row's own padding is counted from the same inset, so the mode's text
-// stays 17 px in from the box's side and the model's 14 px in from the other, and neighbouring chips
-// tuck the extra padding under each other: only the pill grows.
+// composerLocation.css) is the composer pill (.acpmux-pill), padded by --acpmux-pill-pad, which the
+// row sets. At 4 px the pill hugged the label like a sliver; it is 8 px, the inset of an NSMenu row's
+// highlight and of Codex's and ChatGPT's mode chip. The row spans the box (#24216: no padding of its
+// own), and neighbouring chips tuck the extra padding under each other: only the pill grows.
 // test/composer-row-rhythm.test.ts measures the drawn row in Chromium.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -33,21 +32,19 @@ test("the quiet row's chips get the native pill inset, 8 px from the text", () =
   const foot = rules(".acpmux-composer-foot");
   expect(foot.length).toBeGreaterThan(0);
   // The last declaration wins, as in the cascade.
-  const insets = foot.map((body) => px(body, "--acpmux-row-inset")).filter((value) => value !== undefined);
+  const insets = foot.map((body) => px(body, "--acpmux-pill-pad")).filter((value) => value !== undefined);
   expect(insets[insets.length - 1]).toBe(8);
 });
 
 test("each chip's pill is padded by the row's inset", () => {
-  const chip = rules(".acpmux-composer-bar .acpmux-chips .acpmux-picker-button").join(";");
-  expect(chip).toMatch(/padding-inline\s*:\s*var\(--acpmux-row-inset\)/);
+  const pill = rules(".acpmux-pill").join(";");
+  expect(pill).toMatch(/padding\s*:\s*0 var\(--acpmux-pill-pad\)/);
 });
 
-test("the row's padding is counted from the inset, so only the pill grows, not the text's place", () => {
+test("the row spans the box, so only the pill grows, not the text's place", () => {
   const foot = rules(".acpmux-composer-foot").join(";");
-  // The mode's text 17 px in from the box's side; the model's --acpmux-row-edge in from the other.
-  expect(foot).toMatch(
-    /padding-inline\s*:\s*calc\(17px - var\(--acpmux-row-inset\)\)\s+calc\(var\(--acpmux-row-edge\) - var\(--acpmux-row-inset\)\)/,
-  );
+  // The mode's pill starts on the box's left edge and the last control's ends on its right (#24216).
+  expect(foot).toMatch(/padding-inline\s*:\s*0\s*(?:;|$)/);
   // Chips touch (no gap of their own), so neighbouring pills never overlap.
   expect(px(foot, "--acpmux-row-gap")).toBe(0);
 });
@@ -59,16 +56,16 @@ test("neighbouring chips on the right keep their labels 8 px apart, as with the 
   const neighbour = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access)").join(
     ";",
   );
-  expect(neighbour).toMatch(/margin-inline-start\s*:\s*calc\(8px - 2 \* var\(--acpmux-row-inset\)\)/);
+  expect(neighbour).toMatch(/margin-inline-start\s*:\s*calc\(8px - 2 \* var\(--acpmux-pill-pad\)\)/);
   // The effort chip kept 1 px more (its own margin) and still does.
   const effort = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort").join(";");
-  expect(effort).toMatch(/margin-inline-start\s*:\s*calc\(9px - 2 \* var\(--acpmux-row-inset\)\)/);
+  expect(effort).toMatch(/margin-inline-start\s*:\s*calc\(9px - 2 \* var\(--acpmux-pill-pad\)\)/);
   expect(px(rules(".acpmux-composer-foot .acpmux-effort").join(";"), "margin-inline-start")).toBe(1);
 });
 
 test("the context ring keeps its place past the model's text", () => {
   const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(
-    /margin-inline\s*:\s*calc\(12px - var\(--acpmux-row-inset\)\)\s+calc\(var\(--acpmux-row-inset\) - 4px\)/,
-  );
+  // 8 px past the model's text and on the row's end (#23785, #24216: the row adds no inset).
+  expect(ring).toMatch(/margin-inline-start\s*:\s*8px/);
+  expect(ring).toMatch(/--acpmux-pill-icon\s*:\s*24px/);
 });

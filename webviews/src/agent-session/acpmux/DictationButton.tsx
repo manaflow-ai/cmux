@@ -19,7 +19,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
   return (
     <button
       type="button"
-      className="acpmux-mic"
+      className="acpmux-mic acpmux-pill acpmux-pill-icon"
       data-state={state}
       aria-label={label}
       aria-pressed={isActive(state)}

@@ -711,7 +711,7 @@ export function NewTabPage({
             </span>
             <button
               type="submit"
-              className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
+              className={`acpmux-send acpmux-pill acpmux-pill-icon${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
               aria-label={t(NEW_TAB_LABELS.open)}
               title={`${t(NEW_TAB_LABELS.open)} ↵`}
             >

@@ -222,44 +222,90 @@
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
 .acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-highlight); outline: none; }
 
+/* The composer pill (Leo 2026-10-22, ask-d4eed794c9: "did we have a genearlized solulu to the weird
+   pills? that you added to the bottom?"). Every control of the composer (+, the mode, the model
+   button, Options, Plan, ↵, Stop, Send, Codex's bolt, the mic, the dictation finish key and the
+   context ring, in the chat, the New Tab card and the quiet row under either) is one primitive,
+   `.acpmux-pill`, and these tokens are its only geometry: a text pill is --acpmux-pill-height tall
+   with --acpmux-pill-pad each side; an icon pill (`.acpmux-pill-icon`) is an --acpmux-pill-icon
+   square. One corner for all of them: the soft pill of the Claude app's chips (#22107), so a label
+   pill is a capsule and an icon pill a circle. Inside the box the controls sit --acpmux-box-inset
+   from its top, bottom and right edges, and the prompt's line is centred in the same height, so +
+   is as far from the box's top as from its bottom (Lawrence: "left/top/bottom padding"); + leads
+   --acpmux-box-lead from the left, which puts its glyph 16 px in, Claude desktop's (Leo
+   2026-10-20, measured). No fill at
+   rest; the soft pill shows under the pointer and while its menu is open, never as press feedback
+   (Leo 2026-10-19). A narrower row changes these tokens, never a control.
+   The values are the "even" variant of the gallery's agent-pane.composer-row pills-* variants (a
+   label's pill as far from its text at the sides as above and below it, and a one-line box 44 px
+   tall, Claude desktop's); "tight" and "roomy" are there to compare. */
+:root {
+  --acpmux-pill-height: 24px;
+  --acpmux-pill-icon: 28px;
+  --acpmux-pill-pad: 6px;
+  --acpmux-pill-gap: 4px;
+  --acpmux-pill-radius: 999px;
+  --acpmux-box-inset: 8px;
+  --acpmux-box-lead: 10px;
+}
+.acpmux-pill {
+  box-sizing: border-box;
+  flex: none;
+  gap: var(--acpmux-pill-gap);
+  height: var(--acpmux-pill-height);
+  min-height: 0;
+  padding: 0 var(--acpmux-pill-pad);
+  border-radius: var(--acpmux-pill-radius);
+}
+.acpmux-pill.acpmux-pill-icon {
+  width: var(--acpmux-pill-icon);
+  height: var(--acpmux-pill-icon);
+  padding: 0;
+  justify-content: center;
+}
+.acpmux-pill[aria-expanded="true"] {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  box-shadow: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-pill:not(:disabled):not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):hover {
+    background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  }
+}
+/* The context ring is the one pill with no hover or open fill: its card is the feedback (#23785).
+   Each selector outranks the primitive's state rule above it. */
+.acpmux-pill.acpmux-context-ring[aria-expanded="true"] { background: none; }
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-pill.acpmux-context-ring:not(:disabled):not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):hover {
+    background: none;
+  }
+}
 /* The controls row's rhythm (Leo 2026-10-14: "one consistent gap, group related controls, and
    right-align the trailing cluster"). Its groups: [+] [model · effort] [permission mode · Plan]
-   ……… [Interrupt · mic · Send]. Every control draws its text or icon --acpmux-row-inset in from its
-   own edge (where its hover wash ends), so what a person sees between two controls is
-   inset + gap + inset: --acpmux-row-gap inside a group, --acpmux-row-group-gap between groups, one
-   gap scale and no per-control spacing. Send's disc is drawn to its edge, so it keeps its inset
-   outside it. The + glyph and Send's disc sit --acpmux-row-edge from the card's sides (the
-   leading padding gives + its inset back).
-   test/composer-row-rhythm.test.ts measures it. */
+   ……… [Interrupt · mic · Send]. Every pill draws its text --acpmux-pill-pad in from its own edge
+   (where its hover wash ends), so what a person sees between two controls is pad + gap + pad:
+   --acpmux-row-gap inside a group, --acpmux-row-group-gap between groups, one gap scale and no
+   per-control spacing. The + glyph and Send's sit --acpmux-row-edge from the card's sides (the
+   leading padding gives + its inset back). test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
-  --acpmux-row-inset: 6px;
-  /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
-     and Send draw apart with the trailing cluster's own 4 px gap below. */
   --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
-  --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
   min-height: 52px;
   height: auto;
   gap: var(--acpmux-row-group-gap);
   padding-block: 6px;
-  padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
+  padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-pill-pad)) var(--acpmux-row-edge);
 }
+/* Outside the composer's rows (the classic New Tab page) the mode is its shield alone, a 30 px
+   square, or the shield and its chevron; in a row it is a text pill like the rest. */
 .acpmux-mode .acpmux-mode-text { display: none; }
-.acpmux-mode .acpmux-picker-button {
-  width: 30px;
-  justify-content: center;
-  gap: 0;
-  padding: 0;
-}
+.acpmux-mode .acpmux-picker-button { justify-content: center; --acpmux-pill-pad: 7px; --acpmux-pill-gap: 0px; }
+.acpmux-mode .acpmux-access-trigger { --acpmux-pill-pad: 3px; --acpmux-pill-gap: 1px; }
+.acpmux-composer-bar .acpmux-mode .acpmux-pill { --acpmux-pill-pad: inherit; --acpmux-pill-gap: inherit; }
 .acpmux-mode .acpmux-picker-button .acpmux-icon:last-child { display: none; }
 .acpmux-mode .acpmux-picker-button[aria-expanded="true"],
 .acpmux-mode .acpmux-picker-button:hover { color: var(--agent-text); }
-.acpmux-mode .acpmux-access-trigger {
-  width: 34px;
-  gap: 1px;
-  padding: 0 3px;
-}
 .acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: block; width: 12px; height: 12px; }
 .acpmux-access-trigger { color: var(--agent-muted); }
 .acpmux-access-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
@@ -415,106 +461,57 @@
   margin-left: 0;
   margin-inline-start: auto;
 }
-/* + and the mic draw a 16 px glyph, as Send does, so a 28 px button keeps the row's inset. */
+/* + and the mic draw a 16 px glyph, as Send does, so an icon pill keeps the row's inset. */
 .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button .acpmux-icon,
 .acpmux-composer-bar .acpmux-mic .acpmux-icon {
   width: 16px;
   height: 16px;
 }
-/* Interrupt (or Steer) and Plan: the chips' inset and radius. */
-.acpmux-composer-bar .acpmux-steer,
-.acpmux-composer-bar .acpmux-plan {
-  gap: var(--acpmux-row-icon-gap);
-  padding-inline: var(--acpmux-row-inset);
-  border-radius: 7px;
-}
-.acpmux-composer-bar .acpmux-steer {
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-}
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
   white-space: nowrap;
 }
-.acpmux-composer-bar .acpmux-access-trigger {
-  position: relative;
-  width: auto;
-  gap: 4px;
-}
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button,
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
-  height: 28px;
-  border-radius: 999px;
+.acpmux-composer-bar .acpmux-access-trigger { position: relative; }
+:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button {
   color: var(--agent-muted);
 }
-/* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
-   distance from the text. */
-.acpmux-composer-bar .acpmux-chips .acpmux-picker-button {
-  gap: var(--acpmux-row-icon-gap);
-  padding-inline: var(--acpmux-row-inset);
-}
-/* Hover is the shared quiet wash (ui/ui.css --ui-hover, which the agent pane does not load): the
-   control's own ink at 6% over the card, tight to the control; no opaque block. */
+/* The row's wash is the pill's (styles.css --acpmux-pill-hover), the control's own ink over the card,
+   tight to the control; no opaque block. */
 :is(.acpmux-composer-bar, .nt-pickers) {
   --acpmux-row-hover: var(--acpmux-pill-hover, var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent)));
 }
-/* Every chip open or pressed (+, the model, effort and mode chips, the combobox pickers) holds the
-   hover's pill with no edge: no brighter tone and no ring flash on a click (Leo 2026-10-19).
-   Opening a picker moves focus into its popup before the browser paints the held frame, which
-   clears :active, so data-press-active (popoverTrigger.ts) keeps that first frame on the same pill. */
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
+/* A pill pressed or open holds the hover's pill with no edge: no brighter tone and no ring flash on
+   a click (Leo 2026-10-19). Opening a picker moves focus into its popup before the browser paints
+   the held frame, which clears :active, so data-press-active (popoverTrigger.ts) keeps that first
+   frame on the same pill. The context ring draws no pill in any state (its card is the feedback,
+   #23785), so it is left out here and under keyboard focus below. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not(.acpmux-context-ring):is(:active, [data-press-active]):not(:disabled) {
   background: var(--acpmux-row-hover);
   box-shadow: none;
 }
-/* No control draws a pill at rest; the one under the pointer gets the soft pill, as the Claude app's
-   chips do (Leo 2026-10-19). Hover only under a fine pointer (cg-composer click polish): a tap never
-   leaves a wash behind. A press keeps that same pill: no brighter or tinted press tone, and no
-   shrink or dip (Leo 2026-10-19). */
+/* No pill at rest; the one under the pointer gets the soft pill (.acpmux-pill above) and its ink
+   steps up (Send keeps its glyph's color), as the Claude app's chips do (Leo 2026-10-19). Hover only under a fine pointer
+   (cg-composer click polish): a tap never leaves a wash behind. */
 @media (hover: hover) and (pointer: fine) {
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-fast:hover {
-    background: var(--acpmux-row-hover);
+  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-fast, .acpmux-mic:not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"])):hover {
     color: var(--agent-text);
   }
 }
-/* Keyboard focus draws the same pill on any button, beside its focus outline (below). A lit mic
-   (a running dictation, dictation.css) keeps its accent square. */
-:is(.acpmux-composer-bar, .nt-pickers)
-  :is(
-    .acpmux-picker-button,
-    .acpmux-plan,
-    .acpmux-steer,
-    .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]),
-    .acpmux-fast
-  ):focus-visible {
+/* Keyboard focus draws the same pill on any pill, beside its focus outline (below). A lit mic
+   (a running dictation, dictation.css) keeps its accent square; the context ring keeps only the outline. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not(.acpmux-context-ring):not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):focus-visible {
   background: var(--acpmux-row-hover);
   box-shadow: none;
 }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
   color: var(--agent-text);
 }
-/* The model, reasoning and access pills keep their fill, so their hover is the pill's quiet step
-   (--acpmux-pill-hover), as Claude's and ChatGPT's composer chips do (Leo 2026-10-18). */
-@media (hover: hover) and (pointer: fine) {
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button:hover {
-    color: var(--agent-text);
-  }
-  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:hover:not([aria-expanded="true"]) {
-    background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
-  }
-}
-:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 0;
 }
 @media (prefers-contrast: more) {
-  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:focus-visible {
     outline-offset: 2px;
   }
 }
@@ -752,8 +749,8 @@
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
 @container composer (max-width: 260px) {
-  .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; --acpmux-row-inset: 4px; }
-  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
+  .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; --acpmux-pill-pad: 4px; }
+  .acpmux-composer-bar .acpmux-composer-plus { --acpmux-pill-icon: 24px; }
 }
 /* The composer is one material surface; the location strip on its top edge shares its fill and
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
@@ -768,11 +765,9 @@
 .acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* Send, Stop and ↵ are the bar's 28 px, plain line glyphs in the secondary text color, as the mic is
+/* Send, Stop and ↵ are icon pills, plain line glyphs in the secondary text color, as the mic is
    (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
-   ready Send are the secondary color, a step above an empty draft's 45% Send. Their hover pill is
-   composerStates.css's. */
-.acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
+   ready Send are the secondary color, a step above an empty draft's 45% Send. */
 .acpmux-composer-bar .acpmux-send:is(.acpmux-send-ready, .acpmux-cancel) { color: var(--agent-muted); }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
@@ -1087,21 +1082,15 @@
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
 
-/* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
-   drawn as the mic is: a 28 px button with no bezel and no disc, a plain 16 px outline glyph in muted
-   ink, the soft pill only on hover or keyboard focus. On, the glyph takes the theme accent; nothing
-   fills. It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
+/* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic:
+   a text pill (the composer pill's height, sides and gap) with no bezel and no disc, a plain 16 px
+   outline glyph and the tier's name in muted ink, the soft pill only on hover or keyboard focus, and
+   the tier menu's chevron beside it (#24488). On, the glyph takes the theme accent; nothing fills.
+   It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
 .acpmux-fast {
-  flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
-  place-items: center;
-  width: auto;
-  height: 28px;
-  padding: 0 6px;
   border: 0;
-  border-radius: 6px;
   background: none;
   color: var(--agent-muted);
   cursor: default;
@@ -1111,7 +1100,7 @@
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
+  .acpmux-fast:hover { color: var(--agent-text); }
 }
 .acpmux-fast[aria-pressed="true"],
 .acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
@@ -1130,7 +1119,8 @@
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 8px;
+  /* The native selection pill's inset (#24138): the quiet row's pills are 8 px from their text. */
+  --acpmux-pill-pad: 8px;
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
   --acpmux-row-edge: 14px;
@@ -1145,7 +1135,7 @@
   padding-block: 0;
   /* The row spans the box (Leo 2026-10-21: "stop with the left right padding"): the mode's pill
      starts on the box's left edge and the last control's ends on its right edge, so the row adds no
-     inset of its own on either side. Each chip keeps its --acpmux-row-inset hover inset. */
+     inset of its own on either side. Each chip keeps its --acpmux-pill-pad hover inset. */
   padding-inline: 0;
   gap: 0;
   justify-content: flex-end;
@@ -1181,16 +1171,14 @@
 /* With a mode beside it, the mode holds the row's free space after the left pair. */
 .acpmux-composer-foot .acpmux-foot-harness:has(~ .acpmux-access) { margin-inline-end: 0; }
 /* The row's control text: its size and the composer's family, as the mode's and the model's (a
-   button here would otherwise draw in the engine's control font). The fixed harness's face is a
-   span, so it takes the chip's box here itself: the same height and insets as the button. */
+   button here would otherwise draw in the engine's control font). A new chat's harness is a button,
+   the composer pill (.acpmux-pill); a started chat's is a span, not a control, so it takes the
+   pill's box here from the same tokens: the same height, sides and gap as the button. */
 .acpmux-composer-foot .acpmux-foot-harness .acpmux-foot-harness-face {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--acpmux-row-icon-gap);
   min-width: 0;
-  height: 28px;
-  padding-inline: var(--acpmux-row-inset);
   overflow: clip;
   white-space: nowrap;
   color: var(--agent-muted);
@@ -1198,6 +1186,12 @@
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
   cursor: default;
+}
+.acpmux-composer-foot .acpmux-foot-harness span.acpmux-foot-harness-face {
+  box-sizing: border-box;
+  gap: var(--acpmux-pill-gap);
+  height: var(--acpmux-pill-height);
+  padding-inline: var(--acpmux-pill-pad);
 }
 .acpmux-composer-foot .acpmux-foot-harness-face > * { flex: none; }
 .acpmux-composer-foot .acpmux-foot-harness-face [data-fit-part] { display: block; white-space: nowrap; }
@@ -1212,10 +1206,10 @@
    padding under the one before it, so the wider pill moves no label. The later chip takes the
    pointer over the shared 8 px. */
 .acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access) {
-  margin-inline-start: calc(8px - 2 * var(--acpmux-row-inset));
+  margin-inline-start: calc(8px - 2 * var(--acpmux-pill-pad));
 }
 .acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort {
-  margin-inline-start: calc(9px - 2 * var(--acpmux-row-inset));
+  margin-inline-start: calc(9px - 2 * var(--acpmux-pill-pad));
 }
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
    its own under the prompt. + sits left of the prompt and the mic and Send or Stop right of it, all
@@ -1247,21 +1241,32 @@
   grid-column: 2;
   grid-row: 2;
 }
+/* + and the actions sit --acpmux-box-inset from the box's bottom (and the actions from its right),
+   and the prompt's first line is centred in a pill's height, so on one line + is that same inset
+   from the box's top too (Lawrence: "left/top/bottom padding"). + leads --acpmux-box-lead from the
+   left; the text starts one inset after it. */
+/* The shell field's line is its own (composerStates.css, 22 px monospace against the prompt's
+   20 px title line), so it centres with its own padding: both fields make the same one-line box
+   (test/composer-shell-box-height.test.ts). */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+  --acpmux-field-pad-block: calc(var(--acpmux-box-inset) + (var(--acpmux-pill-icon) - var(--text-title--line-height, 20px)) / 2);
+  --acpmux-shell-pad-block: calc(var(--acpmux-box-inset) + (var(--acpmux-pill-icon) - var(--acpmux-shell-line-height, 22px)) / 2);
+}
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 8px 10px;
+  margin: 0 0 var(--acpmux-box-inset) var(--acpmux-box-lead);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  margin: 0 8px 8px 0;
+  margin: 0 var(--acpmux-box-inset) var(--acpmux-box-inset) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
-  padding: calc(11px * var(--cmux-interface-scale, 1))
-    max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
-    calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1));
+  padding: var(--acpmux-field-pad-block)
+    max(0px, calc(var(--acpmux-box-inset) - var(--cmux-scroller-size, 8px)))
+    var(--acpmux-field-pad-block) var(--acpmux-box-inset);
 }
 /* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
    2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
@@ -1292,17 +1297,17 @@
   z-index: var(--layer-raised);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
-  left: calc(7px * var(--cmux-interface-scale, 1));
-  top: calc(11px * var(--cmux-interface-scale, 1));
-  right: calc(8px * var(--cmux-interface-scale, 1));
+  left: var(--acpmux-box-inset);
+  top: var(--acpmux-field-pad-block);
+  right: var(--acpmux-box-inset);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
-  min-height: 44px;
-  padding: 11px 8px 11px 23px;
+  min-height: calc(var(--acpmux-pill-icon) + 2 * var(--acpmux-box-inset));
+  padding: var(--acpmux-shell-pad-block) var(--acpmux-box-inset) var(--acpmux-shell-pad-block) calc(var(--acpmux-box-inset) + 16px);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
-  left: 7px;
-  top: 11px;
+  left: var(--acpmux-box-inset);
+  top: var(--acpmux-shell-pad-block);
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. */
@@ -1319,8 +1324,12 @@
   top: var(--acpmux-attach-gap);
 }
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
-   shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
+   shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. It is the
+   row's smaller icon pill (24 px), 8 px past the model's text. */
+.acpmux-composer-foot .acpmux-context-ring {
+  --acpmux-pill-icon: 24px;
+  margin-inline-start: 8px;
+}
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

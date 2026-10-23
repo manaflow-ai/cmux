@@ -955,7 +955,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerButton
           ref={trigger}
           type="button"
-          className="acpmux-picker-button"
+          className="acpmux-picker-button acpmux-pill"
           data-menu={modelText}
           aria-label={modelText}
           /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */

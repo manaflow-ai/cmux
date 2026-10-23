@@ -1402,7 +1402,7 @@ export function Composer({
       key="stop"
       ref={sendButton}
       type="button"
-      className="acpmux-send acpmux-cancel"
+      className="acpmux-send acpmux-pill acpmux-pill-icon acpmux-cancel"
       data-escape-armed={escapeStop.armed ? "" : undefined}
       aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
       // tooltip-allow: names the icon-only Stop, and once armed says to press Esc again.
@@ -1710,7 +1710,7 @@ export function Composer({
               <button
                 key="steer"
                 type="button"
-                className="acpmux-send acpmux-send-ready acpmux-steer-now"
+                className="acpmux-send acpmux-pill acpmux-pill-icon acpmux-send-ready acpmux-steer-now"
                 aria-label={t("composer.steerLabel")}
                 // tooltip-allow: names the icon-only control, what it does and its key.
                 title={t("composer.steerTooltip")}
@@ -1740,7 +1740,7 @@ export function Composer({
               ref={sendButton}
               type="submit"
               disabled={Boolean(blocked) && !shell}
-              className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
+              className={`acpmux-send acpmux-pill acpmux-pill-icon${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
                 shell

@@ -246,14 +246,11 @@
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
-/* The Options chip (AgentOptionsMenu): the harness's other settings, a quiet small-radius rect
-   (no capsule: agent-pane-no-capsules), its face one option's name and choice or "Options". */
+/* The Options chip (AgentOptionsMenu): the harness's other settings, the composer pill
+   (composerLocation.css), its face one option's name and choice or "Options". */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-options .acpmux-picker-button {
   width: auto;
-  height: 28px;
   min-width: 0;
-  gap: 4px;
-  padding: 0 6px 0 8px;
   color: var(--agent-muted);
 }
 .acpmux-options .acpmux-picker-button[aria-expanded="true"],

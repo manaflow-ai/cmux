@@ -924,7 +924,7 @@ export function ComposerPickers({
         harnessesListed &&
         onAddAgent && (
           <span className="acpmux-picker acpmux-model">
-            <button type="button" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
+            <button type="button" className="acpmux-picker-button acpmux-pill acpmux-add-harness" onClick={onAddAgent}>
               <span className="acpmux-model-name">{t("composer.addHarness")}</span>
             </button>
           </span>
@@ -985,7 +985,7 @@ export function ComposerPickers({
         >
           <button
             type="button"
-            className="acpmux-plan"
+            className="acpmux-plan acpmux-pill"
             aria-pressed={planning}
             onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
           >
@@ -1012,7 +1012,7 @@ function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown;
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return (
     <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
-      <span className="acpmux-picker-button acpmux-access-trigger">
+      <span className="acpmux-picker-button acpmux-pill acpmux-access-trigger">
         <ModeIcon modeId={modeId} icon={icon} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {label}
@@ -1133,7 +1133,7 @@ function AccessMenu({
     >
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton
-          className="acpmux-picker-button acpmux-access-trigger"
+          className="acpmux-picker-button acpmux-pill acpmux-access-trigger"
           label={label}
           /* tooltip-allow: the chip is its shield alone; the tooltip names the mode and what the control is */
           title={tooltip}
@@ -1365,7 +1365,7 @@ export function ContextRing({
       <button
         ref={trigger}
         type="button"
-        className="acpmux-context-ring"
+        className="acpmux-context-ring acpmux-pill acpmux-pill-icon"
         data-menu={t("context.title")}
         aria-label={label}
         aria-haspopup="dialog"
@@ -1623,7 +1623,7 @@ export function Picker({
         type="button"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
-        className="acpmux-picker-button"
+        className="acpmux-picker-button acpmux-pill acpmux-pill-icon"
         data-menu={label}
         aria-label={label}
         // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.

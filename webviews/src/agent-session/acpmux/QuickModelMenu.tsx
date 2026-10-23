@@ -418,7 +418,7 @@ export function QuickModelMenu({
   );
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
+      <MenuButton className="acpmux-picker-button acpmux-pill" aria-haspopup="menu" buttonRef={trigger} {...chip}>
         {children}
       </MenuButton>
       <MenuPopup

@@ -1068,7 +1068,11 @@ export function NewTabScreen(props: Props) {
           {!pill && (
             <button
               type="button"
-              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              className={
+                text.trim()
+                  ? "acpmux-send acpmux-pill acpmux-pill-icon acpmux-send-ready nt-send"
+                  : "acpmux-send acpmux-pill acpmux-pill-icon nt-send"
+              }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
               disabled={!text.trim()}

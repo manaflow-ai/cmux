@@ -84,7 +84,8 @@
   align-items: center;
   gap: 2px;
   min-height: 34px;
-  padding: 0 10px 6px;
+  /* The pills sit the box's one inset from its edges, as the chat composer's do (composerLocation.css). */
+  padding: 0 var(--acpmux-box-inset) var(--acpmux-box-inset);
   box-sizing: border-box;
 }
 /* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
@@ -324,11 +325,6 @@
   .nt-box:focus-within {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
-}
-/* The dictation mic beside Send (DictationMic), both in the bar's end group. */
-.nt-pickers .acpmux-mic {
-  width: 24px;
-  height: 24px;
 }
 /* Send is the mic's plain glyph at the mic's size (Leo 2026-10-21: no disc; composerStates.css). */
 .nt-pickers .acpmux-send .acpmux-icon {

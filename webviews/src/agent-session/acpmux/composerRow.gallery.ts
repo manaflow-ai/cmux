@@ -112,6 +112,35 @@ function toggleFast(current: "on" | "off"): Play {
   };
 }
 
+// The composer pill's spacing, three ways (composerLocation.css .acpmux-pill; Leo 2026-10-22,
+// ask-d4eed794c9). Each sets the --acpmux-pill-* tokens and points at the model button so its pill
+// shows. "even" is the shipped default.
+export const PILL_SPACINGS = {
+  tight: { height: "22px", pad: "4px", inset: "6px" },
+  even: { height: "24px", pad: "6px", inset: "8px" },
+  roomy: { height: "28px", pad: "8px", inset: "10px" },
+} as const;
+
+/** A variant's tokens as a stylesheet. A row sets its own --acpmux-pill-pad (the quiet row under the
+ * box its native 8 px, a narrow bar 4 px), which a token on the page's root cannot reach, so the
+ * sheet sets them on every row as well, with a selector that outranks the row's own
+ * (test/composer-pill-spacing-gallery.test.ts). */
+export function pillSpacingCss(name: keyof typeof PILL_SPACINGS): string {
+  const tokens = PILL_SPACINGS[name];
+  return `:root, :root .acpmux-composer-bar { --acpmux-pill-height: ${tokens.height}; --acpmux-pill-pad: ${tokens.pad}; --acpmux-box-inset: ${tokens.inset}; }`;
+}
+
+function pillSpacing(name: keyof typeof PILL_SPACINGS): Play {
+  return async (ctx) => {
+    const sheet =
+      ctx.document.querySelector<HTMLStyleElement>("style[data-gallery-pill-spacing]") ??
+      ctx.document.head.appendChild(ctx.document.createElement("style"));
+    sheet.dataset.galleryPillSpacing = name;
+    sheet.textContent = pillSpacingCss(name);
+    await ctx.hover({ selector: ".acpmux-model .acpmux-picker-button" });
+  };
+}
+
 const LONG_MODEL = "claude-opus-5-5-1m";
 const longCatalog = CATALOG.map((entry) =>
   entry.id === "claude"
@@ -158,6 +187,21 @@ export default agentPaneEntry({
     "claude-auto": {
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
+    },
+    "pills-tight": {
+      note: "Pill spacing, tight: 22 px labels with 4 px sides (Claude Code's hover inset), a 6 px box inset (a 40 px box). The model button is hovered.",
+      snapshot: row(),
+      play: pillSpacing("tight"),
+    },
+    "pills-even": {
+      note: "Pill spacing, even (the default): 24 px labels with 6 px sides, so a pill is as far from its text at the sides as above and below; + and the mic 8 px from the box's top and bottom (a 44 px box, Claude desktop's). The model button is hovered.",
+      snapshot: row(),
+      play: pillSpacing("even"),
+    },
+    "pills-roomy": {
+      note: "Pill spacing, roomy: 28 px labels with 8 px sides, a 10 px box inset (a 48 px box). The model button is hovered.",
+      snapshot: row(),
+      play: pillSpacing("roomy"),
     },
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",

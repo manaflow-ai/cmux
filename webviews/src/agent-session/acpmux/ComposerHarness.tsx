@@ -46,14 +46,15 @@ export function ComposerHarness({
       {openSwitcher ? (
         <button
           type="button"
-          className="acpmux-picker-button acpmux-foot-harness-face"
+          className="acpmux-picker-button acpmux-pill acpmux-foot-harness-face"
           aria-label={name}
           onClick={openSwitcher}
         >
           {face}
         </button>
       ) : (
-        // Not a control: no `acpmux-picker-button`, so nothing takes it for one (no pill, no focus).
+        // Not a control: no `acpmux-picker-button` and no `acpmux-pill`, so nothing takes it for one
+        // (no pill, no focus); composerLocation.css gives it the pill's box from the same tokens.
         <span className="acpmux-foot-harness-face">{face}</span>
       )}
     </span>

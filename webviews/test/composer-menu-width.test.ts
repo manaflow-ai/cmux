@@ -237,21 +237,37 @@ ${css}
         }
       });
 
-      test("Interrupt shows whole while a turn runs; the chips give way, not the action", async () => {
+      // Mid-turn the box ends with ↵ (put the draft into the turn, Composer.tsx acpmux-steer-now),
+      // the mic and Send, each the shipped icon pill (composerLocation.css .acpmux-pill-icon). The
+      // chips give way to them: ↵ keeps the pill's whole square at every width and stays in the bar.
+      test("↵ keeps its whole icon pill while a turn runs; the chips give way, not the action", async () => {
         for (const width of [600, 420, 360]) {
           const page = await open(width);
           await page.$eval(".acpmux-composer-actions", (node) => {
+            const icon = '<svg class="acpmux-icon" viewBox="0 0 16 16" width="16" height="16"></svg>';
             node.innerHTML =
-              '<button class="acpmux-steer">Interrupt</button>' +
-              '<button class="acpmux-send" style="width:28px;height:28px">mic</button>' +
-              '<button class="acpmux-send acpmux-send-ready">↑</button>';
+              `<button type="button" class="acpmux-send acpmux-pill acpmux-pill-icon acpmux-send-ready acpmux-steer-now" aria-label="Send now">${icon}</button>` +
+              `<button type="button" class="acpmux-mic acpmux-pill acpmux-pill-icon" aria-label="Dictate">${icon}</button>` +
+              `<button type="submit" class="acpmux-send acpmux-pill acpmux-pill-icon acpmux-send-ready" aria-label="Send">${icon}</button>`;
           });
           const geometry = await page.$eval(".acpmux-composer-bar", (node) => {
             const bar = node.getBoundingClientRect();
-            const steer = node.querySelector<HTMLElement>(".acpmux-steer")!;
+            const steer = node.querySelector<HTMLElement>(".acpmux-send.acpmux-pill.acpmux-steer-now")!;
             const rect = steer.getBoundingClientRect();
-            return { barRight: bar.right, right: rect.right, client: steer.clientWidth, scroll: steer.scrollWidth };
+            return {
+              barRight: bar.right,
+              right: rect.right,
+              width: rect.width,
+              height: rect.height,
+              pill: Number.parseFloat(getComputedStyle(steer).getPropertyValue("--acpmux-pill-icon")),
+              client: steer.clientWidth,
+              scroll: steer.scrollWidth,
+            };
           });
+          // The shipped square (28 px), never squeezed by the row nor sized by the user agent.
+          expect(geometry.pill).toBe(28);
+          expect(geometry.width).toBe(geometry.pill);
+          expect(geometry.height).toBe(geometry.pill);
           expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
           expect(geometry.right).toBeLessThanOrEqual(geometry.barRight + 1);
           await page.close();
