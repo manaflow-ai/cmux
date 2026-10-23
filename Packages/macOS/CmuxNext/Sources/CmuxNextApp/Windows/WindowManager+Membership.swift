@@ -127,9 +127,7 @@ extension WindowManager {
     func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) { // perf-hot: 1ms workspace-switch (every workspace switch: click, Cmd-1..9, next/previous)
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
-        if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
-            DebugWorkspaceSwitch.began(timed)
-        }
+        DebugWorkspaceSwitch.began(DebugWorkspaceSwitch.timer.isRecording ? controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) : nil)
         if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
