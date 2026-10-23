@@ -131,19 +131,25 @@ fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64, u64) {
         "shell_args": ["-c", "printf ready; sleep 30"]}));
     let reply_ms = sent.elapsed().as_millis() as u64;
     let replied = Instant::now();
+    // `None` from a daemon that does not report its WAL syncer.
     let write_path = |client: &mut Client| {
         let stats = client.call(json!({"cmd": "server-stats", "include": ["write_path"]}));
         let path = &stats["write_path"];
-        (path["wal_commits"].as_u64().unwrap(), path["wal_synced_commits"].as_u64().unwrap())
+        Some((path["wal_commits"].as_u64()?, path["wal_synced_commits"].as_u64()?))
     };
-    let (committed_at_reply, _) = write_path(&mut client);
-    let durable_ms = loop {
-        let (_, synced) = write_path(&mut client);
-        if synced >= committed_at_reply {
-            break replied.elapsed().as_millis() as u64;
-        }
-        assert!(replied.elapsed() < Duration::from_secs(30), "the registry WAL was never flushed");
-        std::thread::sleep(Duration::from_millis(20));
+    let durable_ms = match write_path(&mut client) {
+        None => u64::MAX,
+        Some((committed_at_reply, _)) => loop {
+            let (_, synced) = write_path(&mut client).unwrap_or_default();
+            if synced >= committed_at_reply {
+                break replied.elapsed().as_millis() as u64;
+            }
+            assert!(
+                replied.elapsed() < Duration::from_secs(30),
+                "the registry WAL was never flushed"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        },
     };
 
     let deadline = Instant::now() + Duration::from_secs(30);
