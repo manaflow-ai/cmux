@@ -53,8 +53,10 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         }
     }
 
-    /// The ring color when neither the source nor `notifications.attention.color` sets one.
-    @MainActor public var defaultColor: NSColor { Palette.notificationBlue }
+    /// The ring color when neither the source nor `notifications.attention.color` sets one: the
+    /// theme accent (Leo, 2026-10-21), never a fixed blue. The sidebar's unread dot keeps the
+    /// notification blue.
+    @MainActor public var defaultColor: NSColor { Palette.accentFill }
 
     public static let tunable = Tunable<AttentionHighlightLook>.choice(
         "notifications.attention.look", .status, "Notification highlight",

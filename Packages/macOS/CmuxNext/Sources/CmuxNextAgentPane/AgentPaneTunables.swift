@@ -305,11 +305,12 @@ public nonisolated struct AgentPaneTunables {
 
     @MainActor private static var codexToolRunsFollow: Task<Void, Never>?
 
-    /// The page's `<html>` `data-*` attributes from these tunables.
-    static var documentAttributes: [String: String] {
+    /// The page's `<html>` `data-*` attributes from these tunables and the Needs you App Store item.
+    @MainActor static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value, needsYou: needsYou.value,
+                   thoughtFoldThreshold: thoughtFoldThreshold.value,
+                   needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
                    needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
                    streamWords: streamWords.value)
     }
@@ -336,10 +337,11 @@ public nonisolated struct AgentPaneTunables {
 
     /// `documentAttributes` as a script run at document start, for the pane's own web view. Names
     /// and values are the fixed lowercase strings above, so they need no escaping.
-    static var documentScript: String? {
-        guard !documentAttributes.isEmpty else { return nil }
-        let sets = documentAttributes.keys.sorted().map { name in
-            "document.documentElement.setAttribute('data-\(name)', '\(documentAttributes[name] ?? "")');"
+    @MainActor static var documentScript: String? {
+        let attributes = documentAttributes
+        guard !attributes.isEmpty else { return nil }
+        let sets = attributes.keys.sorted().map { name in
+            "document.documentElement.setAttribute('data-\(name)', '\(attributes[name] ?? "")');"
         }.joined(separator: " ")
         // At document start the parser may not have made <html> yet; the page's scripts run later.
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
@@ -410,7 +412,7 @@ public nonisolated struct AgentPaneTunables {
             modelMenu.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
-            pagesFollowLinkPlacement.descriptor,
+            newTabPicksFollowLinks.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             openOutsideChatsViewOnly.descriptor,
@@ -419,6 +421,7 @@ public nonisolated struct AgentPaneTunables {
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
+            scrollerFade.descriptor,
             sideSessions.descriptor,
             streamWords.descriptor,
             subagentTray.descriptor,

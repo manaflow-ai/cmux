@@ -29,6 +29,9 @@ import {
 const MAX_RECTS = 32;
 /** How far past each glass the copy continues and fades out, CSS px. */
 const MARGIN = 48;
+/** How far a joined edge (--glass-join) carries the shape past the box, CSS px: past any rim band,
+ * so the joined side has no bend; the glass itself is still clipped to the box. */
+const JOIN_REACH = 240;
 /** Unchanged frames before the loop stops. */
 const STABLE_FRAMES = 20;
 /** Floats per vertex: position 2, rect 4, clip 4, shape 4 (radius, refraction, blur, dispersion),
@@ -42,6 +45,9 @@ type Surface = {
   radius: number;
   /** The radius was a percentage of the box (`border-radius: 50%`), as a fraction. */
   radiusFraction: number;
+  /** --glass-join: the top or bottom edge continues into a neighbouring glass. */
+  joinTop: boolean;
+  joinBottom: boolean;
   refraction: number;
   blur: number;
   dispersion: number;
@@ -430,6 +436,15 @@ class GlassLens {
       return;
     }
     for (const record of records) {
+      // A sibling came or went: a glass beside it may join it or stop (--glass-join reads :has()).
+      if (record.type === "childList") {
+        const children = (record.target as Partial<ParentNode>).children;
+        for (let index = 0; children && index < children.length; index++) {
+          const child = children[index]!;
+          if (child.classList.contains(GLASS_CLASS)) this.markStale(child);
+        }
+        continue;
+      }
       if (record.type !== "attributes" || record.attributeName !== "class") continue;
       const target = record.target as Element;
       if (target.classList.contains(GLASS_CLASS)) this.markStale(target);
@@ -614,10 +629,16 @@ class GlassLens {
 
   private refresh(element: Element, previous: Surface | undefined): Surface {
     const style = this.view.getComputedStyle(element);
-    const radius = style.borderTopLeftRadius;
+    const join = style.getPropertyValue("--glass-join").trim();
+    const joinTop = join === "top" || join === "both";
+    const joinBottom = join === "bottom" || join === "both";
+    // A joined edge's corners are square: the radius is the free edge's (both joined: none).
+    const radius = joinTop && joinBottom ? "0px" : joinTop ? style.borderBottomLeftRadius : style.borderTopLeftRadius;
     const surface: Surface = previous ?? {
       radius: 0,
       radiusFraction: 0,
+      joinTop: false,
+      joinBottom: false,
       refraction: 0,
       blur: 0,
       dispersion: 0,
@@ -626,6 +647,8 @@ class GlassLens {
       clippers: [],
       stale: false,
     };
+    surface.joinTop = joinTop;
+    surface.joinBottom = joinBottom;
     surface.radiusFraction = radius.endsWith("%") ? px(radius, 0) / 100 : 0;
     surface.radius = surface.radiusFraction ? 0 : px(radius, 0);
     surface.refraction = Math.max(0, px(style.getPropertyValue("--glass-refraction"), 14));
@@ -682,12 +705,24 @@ class GlassLens {
         clip[3] = Math.min(clip[3]!, bounds.bottom);
         open = clip[2]! > clip[0]! && clip[3]! > clip[1]!;
       }
+      // A joined edge: the shape runs on past it (no rim bend there) and the glass is clipped to it.
+      let shapeTop = box.top;
+      let shapeBottom = box.bottom;
+      if (surface.joinTop) {
+        shapeTop -= JOIN_REACH;
+        clip[1] = Math.max(clip[1]!, box.top);
+      }
+      if (surface.joinBottom) {
+        shapeBottom += JOIN_REACH;
+        clip[3] = Math.min(clip[3]!, box.bottom);
+      }
+      open = open && clip[3]! > clip[1]!;
       if (!open) continue;
       const radius = surface.radiusFraction ? surface.radiusFraction * Math.min(box.width, box.height) : surface.radius;
       const x0 = Math.max(0, box.left - MARGIN);
-      const y0 = Math.max(0, box.top - MARGIN);
+      const y0 = Math.max(0, shapeTop - MARGIN);
       const x1 = Math.min(width, box.right + MARGIN);
-      const y1 = Math.min(height, box.bottom + MARGIN);
+      const y1 = Math.min(height, shapeBottom + MARGIN);
       let at = count * VERTICES * FLOATS;
       for (let corner = 0; corner < VERTICES; corner++) {
         // Two triangles: (0,0) (1,0) (0,1), (0,1) (1,0) (1,1).
@@ -696,9 +731,9 @@ class GlassLens {
         out[at++] = right ? x1 : x0;
         out[at++] = bottom ? y1 : y0;
         out[at++] = box.left;
-        out[at++] = box.top;
+        out[at++] = shapeTop;
         out[at++] = box.width;
-        out[at++] = box.height;
+        out[at++] = shapeBottom - shapeTop;
         out[at++] = clip[0]!;
         out[at++] = clip[1]!;
         out[at++] = clip[2]!;

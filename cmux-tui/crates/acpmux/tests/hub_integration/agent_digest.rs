@@ -200,9 +200,9 @@ async fn from_agent_must_be_one_short_line() {
     assert!(refused.as_ref().is_err_and(|e| e.contains("fromAgent")), "{refused:?}");
 }
 
-/// A failed turn holds the prompts behind it until the chat completes a turn again: then the
-/// person's go in, and the agent messages together (coord-deputy held 121 after one "agent
-/// process closed", 2026-10-21, behind every newer message, until the app's Resume).
+/// A failed turn holds the prompts behind it. The person's wait for the person; agent messages
+/// go in once the chat completes a turn again (coord-deputy held 121 after one "agent process
+/// closed", 2026-10-21, behind every newer message).
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -227,14 +227,14 @@ async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn()
     }
     assert_eq!(queue_order(&mut c, &id).await, ["p-me", "p-a", "p-b"]);
 
-    // A new prompt completes: the person's held prompt goes in, then the agent messages together.
+    // A new prompt completes: the held agent messages go in together; the person's still waits.
     c.send(method::SESSION_PROMPT, person(&id, "p-next", "next")).await;
     let echoes = echoes_until(&mut c, "held from b").await;
-    assert_eq!(echoes.len(), 3, "{echoes:?}");
-    assert_eq!(echoes[..2], ["echo: next", "echo: mine"]);
-    assert!(echoes[2].contains("held from a") && echoes[2].contains("[agent message 2 of 2]"));
+    assert_eq!(echoes.len(), 2, "{echoes:?}");
+    assert_eq!(echoes[0], "echo: next");
+    assert!(echoes[1].contains("held from a") && echoes[1].contains("[agent message 2 of 2]"));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(queue_order(&mut c, &id).await.is_empty(), "a held prompt still waits");
+    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
 }
 
 /// A turn of agent messages that fails puts the messages that joined it back, held, in order:
@@ -378,15 +378,12 @@ async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "test"}});
     app.request(method::INITIALIZE, init).await.unwrap();
     app.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-    let hidden = json!({"sessionId": sender, "limit": 0, "visible": false});
-    app.request(method::MUX_ATTACH, hidden).await.unwrap();
-    // A reply to the second, which joined the first's turn.
-    let reply = json!({"kind": "agent_message", "from": format!("acp:{id}"), "to": format!("acp:{sender}"),
-                       "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-1"});
-    let params = json!({"sessionId": sender, "prompt": [{"type": "text", "text": "Got it."}],
-                        "_meta": {"acpmux": {"promptId": "p-reply", "provenance": reply}}});
-    let answered = app.request(method::SESSION_PROMPT, params).await;
-    assert!(answered.is_ok(), "{answered:?}");
+    // A reply to the second, which joined the first's turn (`server/app_reply.rs`).
+    let params = json!({"sessionId": id, "to": sender, "replyTo": "msg-1", "threadId": "thread-1",
+                        "text": "Got it.", "replyId": "m-reply"});
+    let answered = app.request(method::MUX_APP_REPLY, params).await;
+    let reply_to = answered.as_ref().ok().map(|a| a["reply"]["replyTo"].clone());
+    assert_eq!(reply_to, Some(json!("msg-1")), "{answered:?}");
 }
 
 /// An agent's slash command (`/compact`) runs only as a turn's first words: it goes in alone,
@@ -405,4 +402,27 @@ async fn an_agent_slash_command_goes_in_alone() {
     assert!(echoes[0].contains("[agent message 2 of 2] from lane-b"), "{echoes:?}");
     assert_eq!(echoes[1], "echo: /compact");
     assert_eq!(echoes[2], "echo: from c");
+}
+
+/// Agent messages a failed turn held never wait for a person, nor for a turn that may never come
+/// (an agent that died does not complete one): they go in again by themselves after the
+/// `autoResumeDelaysMs` wait, with no Resume. The person's held prompt still waits for them.
+#[tokio::test]
+async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
+    let id = busy(&mut c).await;
+    queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
+    queue(&mut c, from_agent(&id, "p-b", "lane-b", "held from b")).await;
+    queue(&mut c, person(&id, "p-me", "mine")).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
+
+    // Nobody sends anything: the held agent messages go in together.
+    let echoes = echoes_until(&mut c, "held from b").await;
+    assert_eq!(echoes.len(), 1, "{echoes:?}");
+    assert!(echoes[0].contains("held from a") && echoes[0].contains("[agent message 2 of 2]"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
 }

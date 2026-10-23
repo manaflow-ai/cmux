@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
 //! turn (`update` its prompt, or its text, which keeps its images; `move` it, `send_now` or
 //! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
-//! the queue's prompts names it, or none). Every change is a record in the log, so a new daemon rebuilds
-//! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
+//! the queue's prompts names it, or none). Every change is a record in the log, so a new daemon
+//! rebuilds the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
 use super::queue::PromptRun;
 use super::*;
@@ -173,6 +173,7 @@ impl Hub {
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
                 agent: None,
+                supersede: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -242,6 +243,7 @@ impl Hub {
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    supersede: q.run.supersede.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

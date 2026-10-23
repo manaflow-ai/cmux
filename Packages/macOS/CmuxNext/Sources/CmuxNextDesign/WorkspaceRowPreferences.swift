@@ -15,13 +15,13 @@ public nonisolated struct WorkspaceRowElements: Hashable, Sendable {
     /// agent-working indicator shows (WORKING-AND-LOADING-INDICATORS).
     public static let minimal = Self(shown: [.icon, .working])
 
-    /// The default set: `minimal` plus what agents and scripts report
-    /// (status entries, the log line, progress), which a row draws only for
-    /// a workspace that reported some (#16431, classic's status block). An
-    /// unread notification's text is opt-in (`notification`, classic's second
-    /// line): a compact row stays one line, its status glyph says the state
-    /// and the hover card says the text (Leo 2026-10-14; #19862 had it on).
-    public static let standard = Self(shown: minimal.shown.union([.agentStatus, .log, .progress]))
+    /// The default set: `minimal` plus progress (the busy glyph and bar of
+    /// work that is not an agent turn). What agents and scripts report as
+    /// words (status entries, the log line) is opt-in since Lawrence
+    /// 2026-10-21 ("sidebar must be kept minimal by default"): a row is its
+    /// name and one state mark; the hover card says the rest. An unread
+    /// notification's text is opt-in too (`notification`, classic's second line).
+    public static let standard = Self(shown: minimal.shown.union([.progress]))
 
     public func shows(_ element: WorkspaceRowElement) -> Bool { shown.contains(element) }
 
@@ -70,5 +70,10 @@ public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
             if on { shown.insert(element) } else { shown.remove(element) }
         }
         return WorkspaceRowElements(shown: shown, secondLineOrder: change.secondLineOrder ?? base.secondLineOrder)
+    }
+
+    /// Whether a row of some kind shows `element`, with that kind's override.
+    public func showsAnywhere(_ element: WorkspaceRowElement) -> Bool {
+        WorkspaceRowKind.allCases.contains { resolved(for: $0).shows(element) }
     }
 }

@@ -1,7 +1,7 @@
 //! A failed turn holds the prompts that waited behind it (`hub/queue.rs` `pause_queue`); the
-//! hold is not for hours. The next turn that completes runs them, and the session's own agent or
-//! its coordinator resumes them over the unix socket with no prompt id to name (2026-10-21: a
-//! coordinator's chat held 121 prompts that only the app's Resume button let go).
+//! hold is not for hours. The session's own agent or its coordinator resumes them over the unix
+//! socket with no prompt id to name, and a send whose agent cannot start does not hold the rest
+//! (2026-10-21: a coordinator's chat held 121 prompts that only the app's Resume button let go).
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -121,19 +121,6 @@ impl Client {
     async fn ran(&mut self, session: &str, prompt_id: &str) {
         self.wait_record(session, "user_message", |m| m["promptId"] == prompt_id).await;
     }
-}
-
-#[tokio::test]
-async fn the_next_turn_that_completes_runs_the_held_prompts() {
-    let hub = hub();
-    let mut c = Client::open(&hub);
-    let session = c.held().await;
-
-    // A prompt sent now runs ahead of them; when it completes, the chat works again.
-    c.call("session/prompt", prompt(&session, "p-next", "next")).await;
-    c.ran(&session, "p-held").await;
-    c.wait_record(&session, "queue_resumed", |_| true).await;
-    assert!(!hub.resolve(&session).unwrap().queue_paused());
 }
 
 #[tokio::test]

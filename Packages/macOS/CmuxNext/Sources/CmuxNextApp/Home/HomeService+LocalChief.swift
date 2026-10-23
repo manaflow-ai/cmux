@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
 import Foundation
+import os
 
 /// New Chief on this Mac's Chief owner (UniiChat and Codex, ``ChiefBackend/createsOnThisMac``)
 /// and the engines the Home list's Chief rows show as badges.
@@ -24,6 +25,22 @@ extension HomeService {
             }
         } catch {
             return .refused(String(describing: error))
+        }
+    }
+
+    /// Opens the person's direct message with each of this Mac's Chiefs that has none, so a Chief
+    /// made outside New Chief (a Chief's chiefs tool, `cmux chief new`) is in the Home list and the
+    /// pinned Chief row at once (``HomeChiefDirectMessages``). Runs after each conversation-list read,
+    /// so a Chief whose direct message exists is never opened twice.
+    func openChiefDirectMessages() {
+        guard let connection else { return }
+        let direct = Set(conversations.filter { $0.participants.count == 2 }.flatMap { $0.participants.map(\.id) })
+        let opener = HomeChiefDirectMessages(connection: connection, me: Self.localUser)
+        // task-owner: one chief.profile.list and an idempotent conversation-create per Chief without one;
+        // the owner's conversation-changed event then lists each new direct message
+        Task { [logger] in
+            let opened = await opener.open(missingFrom: direct)
+            if !opened.isEmpty { logger.info("opened Chief direct messages: \(opened.keys.sorted().joined(separator: ","), privacy: .public)") }
         }
     }
 
