@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write # read runs and dispatch continuation/starvation builds
+      checks: read # the nightly-next tick's refusal annotation
       contents: read # the nightly-next release body's published commit
       issues: write # the nightly-next-feed-stale issue
     steps:
