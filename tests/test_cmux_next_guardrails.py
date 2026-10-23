@@ -68,6 +68,12 @@ CASES = {
                   "    static let shared = Cache()\n}\n"),
     "assume-isolated": ("func f() {\n    MainActor.assumeIsolated { print(1) }\n}\n",
                         "func f() {\n    MainActor.assumeIsolated { print(1) } // main-proof: observer on queue: .main\n}\n"),
+    "deinit-main-only": ("final class Feed {\n    var task: Task<Void, Never>?\n    nonisolated deinit {\n"
+                         "        guard Thread.isMainThread else { return } // main-proof: returns off the main thread\n"
+                         "        MainActor.assumeIsolated { task?.cancel() } // main-proof: guarded above\n    }\n}\n",
+                         "final class Feed {\n    var task: Task<Void, Never>?\n    nonisolated deinit {\n"
+                         "        task?.cancel()\n    }\n    func f() {\n"
+                         "        guard Thread.isMainThread else { return }\n    }\n}\n"),
     "unchecked-sendable": ("final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
                            "// crash-allow: x is written once in init, then only read\n"
                            "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"),
@@ -166,6 +172,18 @@ class RuleTests(Fixture):
                 self.commit(f"right pattern for {rule}")
                 refusals, _ = self.check()
                 self.assertEqual([r.id for r, _ in refusals], [], f"{rule}: the right pattern was refused")
+
+    def test_every_main_thread_test_in_a_deinit_is_refused(self):
+        for check in ("if !Thread.isMainThread { return }",
+                      "if Thread.isMainThread { MainActor.assumeIsolated { task?.cancel() } } // main-proof: guarded",
+                      "guard Thread.current.isMainThread else { return }",
+                      "guard pthread_main_np() != 0 else { return }"):
+            with self.subTest(check=check):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", "final class Feed {\n    var task: Task<Void, Never>?\n"
+                                                 f"    nonisolated deinit {{\n        {check}\n        task?.cancel()\n    }}\n}}\n")
+                self.commit("main-thread test in a deinit")
+                self.assertIn("deinit-main-only", [r.id for r, _ in self.check()[0]])
 
     def test_base_debt_and_moved_lines_never_count(self):
         self.git("mv", f"{KIT}/Old.swift", f"{KIT}/Moved.swift")
