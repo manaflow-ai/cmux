@@ -398,31 +398,34 @@ fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
 /// byte, and a restart after it must restore the exact screen, also when
 /// the holder dies inside an escape sequence or a UTF-8 character.
 ///
-/// The program prints numbered colored lines. The daemon is stopped
-/// (SIGSTOP) so the holder fills up: it reads the PTY until it holds its
-/// limit of unsent output and the program blocks. The holder is then
-/// SIGKILLed and the daemon continued: the lines the dead holder had read
-/// but never sent must still reach the screen, so the history has no gap.
-/// Then the program stops in the middle of an SGR sequence, and later in
-/// the middle of `é`, and the holder is SIGKILLed at each stop. The live
-/// history and screen must be exact, and a daemon restart must show the
-/// same screen and the same styled history rows.
+/// The program waits behind a gate file. The daemon is stopped (SIGSTOP),
+/// the gate opens and the program prints [`FLOOD_LINES`] numbered colored
+/// lines: with nobody reading its link, the holder takes one credit window
+/// and reads the rest into its ring. The holder is then SIGKILLed and the
+/// daemon continued: every line, the last included, must reach the screen
+/// in order. Then the program stops in the middle of an SGR sequence, and
+/// later in the middle of `é`, and the holder is SIGKILLed at each stop.
+/// The live history and screen must be exact, and a daemon restart must
+/// show the same screen and the same styled history rows.
 #[test]
 fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
     let mut daemon = Daemon::start();
-    let progress = daemon.dir.join("progress");
-    let stop = daemon.dir.join("stop");
+    let gate = daemon.dir.join("gate");
+    let flood = daemon.dir.join("flood.txt");
     let script = daemon.dir.join("flood.sh");
+    let mut lines = String::new();
+    for number in 0..FLOOD_LINES {
+        lines
+            .push_str(&format!("\x1b[3{}mline {number:06} é {FLOOD_LETTERS}\x1b[0m\n", number % 8));
+    }
+    fs::write(&flood, lines).unwrap();
     fs::write(
         &script,
         format!(
             r#"stty -echo
-i=0
-while [ ! -e '{stop}' ]; do
-  printf '\033[3%dmline %06d \303\251 abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx\033[0m\n' $((i % 8)) "$i"
-  i=$((i + 1))
-  echo "$i" > '{progress}'
-done
+printf 'ready\n'
+while [ ! -e '{gate}' ]; do sleep 0.05; done
+cat '{flood}'
 printf 'flood-end\n'
 printf 'X\033[38;5;1'
 read a
@@ -433,8 +436,8 @@ i=0
 while [ $i -lt 30 ]; do printf 'tail %02d\n' "$i"; i=$((i + 1)); done
 exec sleep 3600
 "#,
-            stop = stop.display(),
-            progress = progress.display(),
+            gate = gate.display(),
+            flood = flood.display(),
         ),
     )
     .unwrap();
@@ -448,32 +451,24 @@ exec sleep 3600
     daemon.track(surface);
     let shell = shell_pid(&daemon.socket, surface);
     let holder = parent_of(shell);
-    screen_contains(&daemon.socket, surface, "line 000001");
+    screen_contains(&daemon.socket, surface, "ready");
 
-    // The daemon stops reading its link: the holder reads the PTY until it
-    // holds its limit of unsent output, and then the program blocks in its
-    // write. A program whose progress stands still is blocked.
+    // The daemon stops reading its link; then the flood starts. The holder
+    // sends one credit window (into the socket and its queue) and reads the
+    // rest of the PTY's output into its ring: nobody has parsed it.
     let daemon_pid = daemon.child.as_ref().unwrap().id() as i32;
     // SAFETY: SIGSTOP of the daemon this test started.
     unsafe { libc::kill(daemon_pid, libc::SIGSTOP) };
-    let read_progress = || fs::read_to_string(&progress).unwrap_or_default().trim().to_string();
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let mut last = read_progress();
-    let mut still = 0;
-    while still < 5 {
-        std::thread::sleep(Duration::from_millis(200));
-        let now = read_progress();
-        still = if now == last { still + 1 } else { 0 };
-        last = now;
-        assert!(Instant::now() < deadline, "the program never blocked: progress {last}");
-    }
-    // The holder dies holding output nobody parsed. The program stops at its
-    // next line once it can write again.
-    fs::write(&stop, b"").unwrap();
+    fs::write(&gate, b"").unwrap();
+    // `cat` writes the whole file in well under a millisecond of PTY
+    // turns; nothing a test can wait on shows the holder's ring, so this
+    // bounded wait covers it with a wide margin.
+    std::thread::sleep(Duration::from_millis(1500));
     // SAFETY: SIGKILL of the holder this test's daemon started.
     unsafe { libc::kill(holder, libc::SIGKILL) };
     // SAFETY: SIGCONT of the daemon this test stopped.
     unsafe { libc::kill(daemon_pid, libc::SIGCONT) };
+
     // `X` comes in the write that ends inside `ESC [ 38;5;1`: once it shows,
     // the parser is inside that sequence, and the program waits for a line.
     screen_contains(&daemon.socket, surface, "flood-end\nX");
@@ -489,15 +484,24 @@ exec sleep 3600
     unsafe { libc::kill(third, libc::SIGKILL) };
     request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
     let live_screen = screen_contains(&daemon.socket, surface, "tail 29");
+    // The fourth holder runs the terminals from here; it ends with the test.
+    let fourth = probe_holder(&mut daemon, "probe-4");
+    assert_ne!(fourth, third, "a new holder took over after the third one died");
 
     let live = history(&daemon.socket, surface);
     let flood = flood_rows(&live);
+    assert_eq!(
+        flood.last().copied(),
+        Some(FLOOD_LINES - 1),
+        "the flood's last lines never arrived:\n{}",
+        dump(&live)
+    );
     assert!(flood.len() > 100, "too little flood history kept: {} rows", flood.len());
     let red = live
         .iter()
         .position(|row| row_text(row) == "XREDé END")
         .unwrap_or_else(|| panic!("no exact `XREDé END` row in the history:\n{}", dump(&live)));
-    let runs = live[red]["runs"].as_array().unwrap();
+    let runs = content_runs(&live[red]);
     assert_eq!(runs.len(), 2, "X then the red text: {}", live[red]);
     assert_eq!(runs[1]["text"], "REDé END");
     assert_ne!(runs[1]["fg"], runs[0]["fg"], "the split SGR colored the text: {}", live[red]);
@@ -519,9 +523,12 @@ exec sleep 3600
     for (index, (want, got)) in tail.iter().zip(&restored).enumerate() {
         assert_eq!(got["runs"], want["runs"], "restored history row {index} differs");
     }
-    // The holder that runs the terminals now ends with the test.
-    probe_holder(&mut daemon, "probe-4");
 }
+
+/// Lines of the replay-race flood: more than the holder's credit window and
+/// unsent limit together hold, fewer than the history keeps.
+const FLOOD_LINES: u64 = 10_000;
+const FLOOD_LETTERS: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
 
 /// A new terminal's shell is the current holder's child: its parent is the
 /// holder (and the test ends both at drop).
@@ -561,6 +568,17 @@ fn row_text(row: &Value) -> String {
     text.trim_end().to_string()
 }
 
+/// A row's runs without the blank run that pads it to the full width.
+fn content_runs(row: &Value) -> Vec<Value> {
+    let mut runs = row["runs"].as_array().cloned().unwrap_or_default();
+    while runs.last().is_some_and(|run| {
+        run["text"].as_str().is_some_and(|text| text.trim().is_empty()) && run["bg"].is_null()
+    }) {
+        runs.pop();
+    }
+    runs
+}
+
 fn dump(rows: &[Value]) -> String {
     let from = rows.len().saturating_sub(40);
     rows[from..].iter().map(row_text).collect::<Vec<_>>().join("\n")
@@ -569,7 +587,7 @@ fn dump(rows: &[Value]) -> String {
 /// The flood rows of a history: each is exactly `line N é <letters>` in
 /// color N % 8, and N counts up by one, with no row missing or cut.
 fn flood_rows(rows: &[Value]) -> Vec<u64> {
-    let letters = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
+    let letters = FLOOD_LETTERS;
     let mut numbers = Vec::new();
     let mut colors: std::collections::HashMap<u64, Value> = Default::default();
     for row in rows {
@@ -579,7 +597,7 @@ fn flood_rows(rows: &[Value]) -> Vec<u64> {
         }
         let number: u64 = text[5..11].parse().unwrap_or_else(|_| panic!("cut row {text:?}"));
         assert_eq!(text, format!("line {number:06} é {letters}"), "a garbled flood row");
-        let runs = row["runs"].as_array().unwrap();
+        let runs = content_runs(row);
         assert_eq!(runs.len(), 1, "a flood row is one run: {row}");
         let color = colors.entry(number % 8).or_insert_with(|| runs[0]["fg"].clone());
         assert_eq!(&runs[0]["fg"], color, "row {number} has the wrong color");
