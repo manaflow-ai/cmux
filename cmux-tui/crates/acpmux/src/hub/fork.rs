@@ -254,6 +254,7 @@ impl Hub {
             title_prompt: None,
             title_asking: false,
             title_failures: 0,
+            title_thin: false,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
