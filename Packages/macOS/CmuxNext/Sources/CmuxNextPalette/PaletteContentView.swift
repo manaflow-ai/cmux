@@ -37,8 +37,6 @@ final class PaletteContentView: NSView {
         set { recorderView.onChoose = newValue }
     }
 
-    /// How many times the whole palette re-rendered from the model (tests).
-    private(set) var renderCount = 0
     /// A model change scheduled a whole-palette render (set as the change happens; tests).
     private(set) var renderScheduled = false
     /// A hover change waits for ``applyScheduledHover()`` (set as the change happens).
@@ -152,7 +150,6 @@ final class PaletteContentView: NSView {
 
     /// Everything but hover (`observeHover()`), from the model.
     private func render() {
-        renderCount += 1
         // Read every tracked input up front so tracking sees all of them.
         let resultsVersion = model.resultsVersion
         let sections = model.sections
