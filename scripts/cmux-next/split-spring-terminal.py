@@ -113,6 +113,12 @@ if "--suite=perf-gate" in sys.argv:
     print(f"split-spring --suite=perf-gate: perf-gate.py exited {code}; report {report_path}"
           f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
+# `--suite=batch2-verify`: base against head on this worker, interleaved (scripts/cmux-next/batch2-verify-bench.py):
+# perf-gate.py with a hang watchdog, and Cmd-Tab, tab switch and pane focus in STRESS. The base app comes from
+# this worker's app cache (a `--build-only` step of --base-sha). It keeps --tag/--app/--out/--json.
+if "--suite=batch2-verify" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "batch2-verify-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=batch2-verify"])
 # `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
 # CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
 # The step passes whenever the JSON was written (an over-budget launch is in it).
