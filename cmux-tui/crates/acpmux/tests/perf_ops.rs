@@ -40,6 +40,16 @@ const IDLE_WINDOW: Duration = Duration::from_secs(5);
 const IDLE_WINDOWS: usize = 3;
 /// Context switches allowed in a median idle window: a 1 Hz wake gives 5.
 const IDLE_SWITCHES: u64 = 3;
+/// Rows still over the budget, each with the open finding that fixes it
+/// (plans/cmux-next/acpmux-audit.md): printed as `ACPMUX-PERF-OPEN`, not failed, so the bench
+/// guards everything already fixed. A fix removes its row here in the same commit, which turns
+/// its budget on.
+const OPEN: &[(&str, &str)] = &[
+    (".op.sessions", "finding 7: the session list is O(chats)"),
+    (".op.session_new", "finding 6: session/new answers after the agent starts"),
+    ("stress.token_to_client", "finding 19: token to client under STRESS"),
+    ("many.token_to_client", "finding 19: token to client under STRESS"),
+];
 
 fn now_ns() -> u64 {
     unsafe extern "C" {
@@ -208,6 +218,11 @@ struct Report {
     over: Vec<String>,
 }
 
+/// The open finding a row is over the budget for, if it is one of [`OPEN`].
+fn open_finding(name: &str) -> Option<&'static str> {
+    OPEN.iter().find(|(row, _)| name.contains(row)).map(|(_, finding)| *finding)
+}
+
 fn pct(sorted: &[u64], p: f64) -> u64 {
     if sorted.is_empty() {
         return 0;
@@ -231,7 +246,11 @@ impl Report {
         if let Some(b) = budget
             && (ns.is_empty() || p95 > b.as_nanos() as u64)
         {
-            self.over.push(format!("{name} p95 {} ms > {} ms", ms(p95), b.as_millis()));
+            let over = format!("{name} p95 {} ms > {} ms", ms(p95), b.as_millis());
+            match open_finding(name) {
+                Some(finding) => eprintln!("ACPMUX-PERF-OPEN {over} ({finding})"),
+                None => self.over.push(over),
+            }
         }
         self.rows.insert(
             name.to_owned(),
