@@ -80,6 +80,15 @@ public final class LayoutRootView: NSView {
     /// Pane rings and dims the overlay syncs placed, cumulative (PaneMotionWorkTests: per frame it
     /// is the panes that moved, not every pane).
     var overlayHostsPlaced = 0
+    /// The panes whose ring, dim or window frame the last overlay sync changed: a pane that moved,
+    /// resized, faded or was newly covered. Observers of ``observeOverlaySync(_:)`` read it to touch
+    /// only those panes (a Chromium page's geometry post, a divider catcher); empty for a sync that
+    /// moved nothing.
+    public internal(set) var panesMovedInLastOverlaySync: Set<PaneID> = []
+    /// Whether a layout motion runs now (``observeLayoutMotion(_:)``).
+    public private(set) var isLayoutInMotion = false
+    /// Layout motion observers by id (`observeLayoutMotion`).
+    var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
 
     /// A split or a pane close is springing on some screen: the panes it resizes change size every
     /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
@@ -386,6 +395,8 @@ public final class LayoutRootView: NSView {
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames || snapshot.gestureActive { driver.start() }
+        // A change that starts springs (a split, a close) is in motion from the frame it lands in.
+        if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
 
     // MARK: Frames
@@ -405,10 +416,20 @@ public final class LayoutRootView: NSView {
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
+        // The frame that lands still syncs as part of the motion; observers hear it ended after it.
+        if moving { setLayoutInMotion(true) }
         flushOverlaySync()
+        if !moving { setLayoutInMotion(false) }
         // A gesture requests frames on each pointer change; an active
         // gesture with a still pointer needs none.
         return moving
+    }
+
+    /// Tells the layout motion observers when the first spring starts and when the last one lands.
+    func setLayoutInMotion(_ moving: Bool) {
+        guard moving != isLayoutInMotion else { return }
+        isLayoutInMotion = moving
+        for block in layoutMotionObservers.values { block(moving) }
     }
 
     func updateVisibility() {
