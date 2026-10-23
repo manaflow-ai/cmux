@@ -34,12 +34,8 @@ public final class HoverCardCoordinator {
     private var activated: HoverTargetID?
     /// The dismissal monitor (key presses, clicks, wheel scrolls), while a card is pending or shown.
     private(set) var monitor: LocalEventMonitor?
-    /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
-    /// sees the pointer leave it; this sees it at once (no wait for a deadline).
-    private(set) var moveMonitor: LocalEventMonitor?
-    /// The card's parent and whether it took mouse moves before the card showed: while a
-    /// card shows, the parent takes them everywhere, so moves over the card reach `moveMonitor`.
-    private var movesParent: (window: NSWindow, accepted: Bool)?
+    /// Pointer moves on the card and its parent's mouse-move setting, while a card shows.
+    private(set) var moveWatch: HoverCardMoveWatch?
     /// The last pointer move was on the card.
     private var pointerWasOnCard = false
     private var observers: [MainActorObservation] = []
@@ -120,13 +116,17 @@ public final class HoverCardCoordinator {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Reads Sendable state only: the timer cancels on any thread; the event monitors leave on the main
-    // thread (inline when released there, as before; a release elsewhere skipped them before).
+    // Reads Sendable state only: the timer cancels on any thread; the event monitors leave, and a shown
+    // card's parent gets its mouse-move setting back, on the main thread (inline when released there;
+    // a release elsewhere skipped them before, and no release restored the parent's setting).
     nonisolated deinit {
         timer.cancel()
-        let monitors = [monitor, moveMonitor].compactMap { $0 }
-        guard !monitors.isEmpty else { return }
-        MainDelivery().run { for monitor in monitors { monitor.remove() } }
+        let monitor = monitor, moveWatch = moveWatch
+        guard monitor != nil || moveWatch != nil else { return }
+        MainDelivery().run {
+            monitor?.remove()
+            moveWatch?.end()
+        }
     }
 
     // MARK: Sources
@@ -387,24 +387,21 @@ public final class HoverCardCoordinator {
     /// card hides it on that move (Lawrence 2026-10-19), not at the next deadline.
     private func updateMoveMonitor() {
         let parent = machine.shownTarget == nil ? nil : panel?.parent
-        if movesParent?.window !== parent {
-            if let old = movesParent { old.window.acceptsMouseMovedEvents = old.accepted }
-            movesParent = parent.map { ($0, $0.acceptsMouseMovedEvents) }
-            parent?.acceptsMouseMovedEvents = true
-        }
-        if parent != nil, moveMonitor == nil {
-            moveMonitor = LocalEventMonitor(NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+        if let parent {
+            let watch = moveWatch ?? HoverCardMoveWatch(monitor: LocalEventMonitor(NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
                 self?.cardPointerMoved(event.window.map { $0.convertPoint(toScreen: event.locationInWindow) })
                 return event
-            })
-        } else if parent == nil, let moveMonitor {
-            moveMonitor.remove()
-            self.moveMonitor = nil
+            }))
+            moveWatch = watch
+            watch.follow(parent)
+        } else if let moveWatch {
+            moveWatch.end()
+            self.moveWatch = nil
             pointerWasOnCard = false
         }
     }
 
-    /// A pointer move seen by `moveMonitor`: only one on the card, or the first off it, is news
+    /// A pointer move seen by `moveWatch`: only one on the card, or the first off it, is news
     /// (a source reports moves over its own targets itself).
     func cardPointerMoved(_ eventPoint: CGPoint?) {
         let point = eventPoint ?? pointerLocation()

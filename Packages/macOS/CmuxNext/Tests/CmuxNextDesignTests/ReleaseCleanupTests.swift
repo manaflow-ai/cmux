@@ -122,28 +122,28 @@ import Testing
         defer { parent.close() }
         let source = CardSource(window: parent)
 
-        var seen: [(monitor: LocalEventMonitor?, move: LocalEventMonitor?, panel: HoverCardPanel?)] = []
+        var seen: [(monitor: LocalEventMonitor?, watch: HoverCardMoveWatch?, panel: HoverCardPanel?)] = []
         func showing() -> HoverCardCoordinator {
             let coordinator = HoverCardCoordinator()
             coordinator.appIsActive = { true }
             coordinator.register(source)
             coordinator.pin(HoverTarget(id: CardSource.id, window: parent.windowNumber, delay: .zero), from: source)
             // The panel stays with the test, so a release off main frees no window there.
-            seen.append((coordinator.monitor, coordinator.moveMonitor, coordinator.panel))
+            seen.append((coordinator.monitor, coordinator.moveWatch, coordinator.panel))
             return coordinator
         }
 
         var coordinator: HoverCardCoordinator? = showing()
-        #expect(coordinator != nil && seen[0].monitor?.isInstalled == true && seen[0].move?.isInstalled == true)
+        #expect(coordinator != nil && seen[0].monitor?.isInstalled == true && seen[0].watch?.monitor.isInstalled == true)
         #expect(parent.acceptsMouseMovedEvents, "a shown card's parent takes mouse moves")
         coordinator = nil
-        #expect(seen[0].monitor?.isInstalled == false && seen[0].move?.isInstalled == false,
+        #expect(seen[0].monitor?.isInstalled == false && seen[0].watch?.monitor.isInstalled == false,
                 "a coordinator released on main left its monitors installed")
         #expect(!parent.acceptsMouseMovedEvents, "a coordinator released on main left its card's parent taking mouse moves")
 
         await releaseOffMain { showing() }
-        #expect(seen.count == 2 && seen[1].monitor != nil && seen[1].move != nil, "the second card did not show")
-        #expect(seen[1].monitor?.isInstalled == false && seen[1].move?.isInstalled == false,
+        #expect(seen.count == 2 && seen[1].monitor != nil && seen[1].watch != nil, "the second card did not show")
+        #expect(seen[1].monitor?.isInstalled == false && seen[1].watch?.monitor.isInstalled == false,
                 "a coordinator released off main left its monitors installed")
         #expect(!parent.acceptsMouseMovedEvents, "a coordinator released off main left its card's parent taking mouse moves")
     }
