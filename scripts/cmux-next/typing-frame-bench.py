@@ -231,61 +231,29 @@ def home_stream(tab=None):
 
 # ---------------------------------------------------------------- STRESS
 def build_stress():
-    """The STRESS session (perf-lead brief): the shared builder when it exists, else the closest layout built here.
-    Returns the typed workspace's ref; the typed terminal is its top-left pane's first tab."""
-    shared = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
-    if os.path.exists(shared):
-        done = subprocess.run([sys.executable, shared, "--socket", SOCKET, "--cli", CLI, "--json", os.path.join(OUT, "stress.json")],
-                              capture_output=True, text=True, timeout=1800)
-        note(f"stress: shared builder exit {done.returncode}: {(done.stdout + done.stderr).strip()[-300:]}")
-        try:
-            built = json.load(open(os.path.join(OUT, "stress.json")))
-            if built.get("measured_workspace"):
-                results["stress"] = {"builder": "perf-stress-session.py", **{k: built.get(k) for k in ("measured_workspace", "counts")}}
-                return built["measured_workspace"]
-        except (OSError, ValueError):
-            pass
-        note("stress: the shared builder gave no measured workspace; building here")
-    t0 = time.monotonic()
-    for index in range(49):
-        cli("workspace", "create", "--empty", "--name", f"stress {index:02d}")
-    for index in range(10):
-        ref = cli("workspace", "create", "--name", f"stress web {index}").stdout.strip()
-        cli("workspace", ref, "focus")
-        action("openBrowser.chromium", {"url": "about:blank"}, settle=1.0, timeout=120)
-    ws = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f").stdout.strip()
-    cli("workspace", ws, "focus")
-    time.sleep(1)  # the first pane is up
-    printing = [0]
-
-    def fill():
-        # 6 tabs per pane: this terminal, one more terminal (the first 10 print), 2 Chromium, 1 WebKit, 1 agent chat.
-        action("newSurface", settle=0.4)
-        if printing[0] < 10:
-            action("terminal.sendText", {"text": BUSY + "\r"})
-            printing[0] += 1
-        action("openBrowser.chromium", {"url": "about:blank"}, settle=0.8, timeout=120)
-        action("openBrowser.chromium", {"url": "about:blank"}, settle=0.8, timeout=120)
-        action("openBrowser.webkit", {"url": "about:blank"}, settle=0.6, timeout=120)
-        action("palette.newAgentChat", settle=1.5)
-    fill()
-    for _ in range(3):
-        action("splitRight", settle=0.6)
-        fill()
-    for column in range(4):
-        for _ in range(2):
-            action("splitDown", settle=0.6)
-            fill()
-        for _ in range(2):
-            action("focusUp", settle=0.2)
-        if column < 3:
-            action("focusLeft", settle=0.2)
-    action("equalizeSplits", settle=0.8)
-    for _ in range(4):
-        action("focusLeft", settle=0.15)
-    results["stress"] = {"builder": "typing-frame-bench.py (closest layout; no nested splits)", "seconds": round(time.monotonic() - t0, 1),
-                         "workspaces": len(workspaces()), "printing_terminals": printing[0]}
-    note(f"stress: built here in {results['stress']['seconds']} s: {json.dumps(results['stress'])}")
+    """STRESS through the shared builder (scripts/cmux-next/perf-stress-session.py). The typed terminal is the
+    selected terminal of the measured workspace's last pane (the first 10 panes' terminals print), at `zsh -f`.
+    Returns the measured workspace's id."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                       "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    stress = module.Stress(rpc, log=note)
+    summary = stress.build()
+    note("STRESS-SESSION " + json.dumps(summary))
+    results["stress"] = summary
+    ws = summary.get("measured")
+    panes = stress.panes(stress.workspace(ws))
+    if panes:
+        last = panes[-1]
+        stress.focus_pane(last["id"])
+        tab = next((t for t in reversed(last.get("tabs") or []) if t.get("kind") == "terminal"), None)
+        if tab:
+            stress.action("tab.focus", target=f"tab:{tab['id']}")
+            action("terminal.sendText", {"text": "exec /bin/zsh -f\r"})
+            time.sleep(1)  # the prompt draws
+        LOAD["stress_pane"] = last["id"]
     return ws
 
 
@@ -376,13 +344,19 @@ def surface_terminal(phase, pid):
         LOAD["terminal_ws"] = ws
         time.sleep(2)  # the prompt draws
     cli("workspace", ws, "focus")
-    action("focusLeft", settle=0.3)
+    if LOAD.get("stress_pane"):
+        rpc("action.run", {"action": "pane.focus", "target": f"pane:{LOAD['stress_pane']}", "focus": True, "origin": "script"})
+    else:
+        action("focusLeft", settle=0.3)
     streams = []
     if phase == "load":
         make_load(ws)
         cli("workspace", ws, "focus")
-        for _ in range(4):
-            action("focusLeft", settle=0.15)
+        if LOAD.get("stress_pane"):
+            rpc("action.run", {"action": "pane.focus", "target": f"pane:{LOAD['stress_pane']}", "focus": True, "origin": "script"})
+        else:
+            for _ in range(4):
+                action("focusLeft", settle=0.15)
         s = chat_streams()
         streams = [s] if s else []
     entry = measure("terminal", phase, {}, "contents_ms", pid, streams)
@@ -442,26 +416,18 @@ def surface_omnibar(phase, pid):
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
 
 
-def find_socket():
-    """The app's debug socket: /tmp, or the state directory (a fleet step's HOME); True once it answers."""
-    global SOCKET
-    for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
-        if os.path.exists(path):
-            SOCKET = path
-            if (rpc("debug.windows") or {}).get("windows"):
-                return True
-    return False
-
-
 def run_session(session):
     """One launch of the app: the light session, or STRESS (built first); every surface and phase in it."""
     global app, SESSION
     SESSION = session
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
-    for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
-        if os.path.exists(path):
-            os.unlink(path)
+    global SOCKET
+    # An explicit socket (CMUX_NEXT_SOCKET_PATH): the tag convention's path differs between a fleet step's HOME and
+    # a person's, and a stale /tmp link from an earlier step points nowhere.
+    SOCKET = os.path.join(tempfile.gettempdir(), f"cmux-typing-{os.getpid()}-{session}.sock")
+    if os.path.exists(SOCKET):
+        os.unlink(SOCKET)
     scratch = tempfile.mkdtemp(prefix=f"typing-{TAG}-{session}-")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "CMUX_NEXT_NO_ACTIVATE": "1",
@@ -469,14 +435,23 @@ def run_session(session):
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
            "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(scratch, "chief"),
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)), "CMUX_NEXT_TYPING_PROBE": PROBE,
-           "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+           "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_SOCKET_PATH": SOCKET}
     log_path = os.path.join(OUT, f"app-{session}.log")
     log = open(log_path, "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     note(f"{session}: launched pid {app.pid}")
     try:
-        if not wait(find_socket, 180):
+        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
             log.flush()
+            note(f"{session}: socket {SOCKET} exists={os.path.exists(SOCKET)} debug.windows={json.dumps(rpc('debug.windows'))[:300]}")
+            if app.poll() is None:
+                stuck = os.path.join(OUT, f"sample-launch-{session}.txt")
+                subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
+                try:
+                    graph = open(stuck, errors="replace").read().split("Call graph:", 1)[-1].splitlines()
+                    note("main thread while the app does not answer:\n" + "\n".join(l[:180] for l in graph[:60]))
+                except OSError:
+                    pass
             note(f"{session}: the tagged app did not come up (exit={app.poll()}); log tail: "
                  f"{open(log_path, errors='replace').read()[-3000:]}")
             return
