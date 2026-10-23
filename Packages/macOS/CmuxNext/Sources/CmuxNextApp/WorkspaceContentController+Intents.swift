@@ -23,8 +23,8 @@ extension WorkspaceContentController {
         case .setColumnWidth(_, let anyPane, let width, let transaction, _):
             guard let handle = handles.panes[anyPane] else { return layoutModel.rejectTransaction(transaction) }
             let daemonTransaction = nextDaemonTransaction()
-            sendGesture(transaction, label: "set-viewport-pane-width") { connection in
-                try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
+            sendGesture(transaction, label: "set-viewport-pane-width", on: handle) { connection, pane in
+                try await connection.setColumnWidth(of: pane, width: width, transaction: daemonTransaction)
             }
         case .setColumnDock(_, let anyPane, let dock, let transaction):
             // Hidden until the daemon serves it; a stale intent rolls back.
@@ -38,8 +38,8 @@ extension WorkspaceContentController {
             }
             let daemonTransaction = nextDaemonTransaction()
             let wire = dock.map(LayoutMapping.snapshot)
-            sendGesture(transaction, label: "set-column-dock") { connection in
-                try await connection.setColumnDock(of: handle, dock: wire, transaction: daemonTransaction)
+            sendGesture(transaction, label: "set-column-dock", on: handle) { connection, pane in
+                try await connection.setColumnDock(of: pane, dock: wire, transaction: daemonTransaction)
             }
         case .setRowHeights(let column, let heights, let fit):
             setRowHeights(column, heights: heights, fit: fit)
@@ -197,7 +197,9 @@ extension WorkspaceContentController {
 
     /// A row divider release: one typed intent in the store's log, shown
     /// over the mirror until the daemon settles or refuses it (rows.md Z1;
-    /// the layout model keeps no copy).
+    /// the layout model keeps no copy). On a pending New Column's or New Row's stand-in column or
+    /// rows it shows at once and sends the daemon's ids once its create's records are in
+    /// (``DaemonStore/daemonColumnTarget(column:heights:)``), so it never rolls back mid-motion.
     private func setRowHeights(_ column: LayoutColumnID, heights: [RowHeight], fit: Bool) {
         guard daemon.supports(DaemonCapabilities.rows), let handle = handles.columns[column] else { return }
         var mapped: [RowHeightValue] = []
@@ -209,12 +211,13 @@ extension WorkspaceContentController {
         // The daemon echoes the uint64 transaction as a decimal string in
         // the commit's screen-changed delta, which settles the intent.
         let wire = RowCommands.makeTransaction()
-        Task {
-            _ = await daemon.intend("set-row-heights", .setRowHeights(column: handle, heights: values),
-                                    transaction: ClientTransactionID(rawValue: String(wire))) { connection in
-                try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit, transaction: wire)
-            }
+        let store = daemon.store
+        let send = daemon.intendNow("set-row-heights", .setRowHeights(column: handle, heights: values),
+                                    transaction: ClientTransactionID(rawValue: String(wire)),
+                                    prepare: { try await store.daemonColumnTarget(column: handle, heights: values) }) { connection, target in
+            try await RowCommands(connection).setRowHeights(column: target.column, heights: target.heights, fit: fit, transaction: wire)
         }
+        Task { _ = await send() }
     }
 
     private func nextDaemonTransaction() -> UInt64 {
@@ -226,6 +229,25 @@ extension WorkspaceContentController {
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
         Task { [daemon, layoutModel] in
             if await daemon.run(label, body) {
+                layoutModel.settleTransaction(transaction)
+            } else {
+                layoutModel.rejectTransaction(transaction)
+            }
+        }
+    }
+
+    /// ``sendGesture(_:label:_:)`` for a gesture on `pane`'s column, which may be a pending New
+    /// Column's or New Row's stand-in: the command names the daemon's pane, waiting for it while
+    /// the create is in flight (``DaemonStore/daemonTarget(for:)``). The layout's override stays
+    /// pending meanwhile, so the gesture holds through the create's motion instead of the daemon
+    /// refusing a stand-in's handle and the gesture snapping back.
+    private func sendGesture(_ transaction: LayoutTransactionID, label: String, on pane: DaemonPaneID,
+                             _ body: @escaping @Sendable (isolated DaemonConnection, DaemonPaneID) async throws -> Void) {
+        Task { [daemon, layoutModel] in
+            guard let target = try? await daemon.store.daemonTarget(for: pane) else {
+                return layoutModel.rejectTransaction(transaction)
+            }
+            if await daemon.run(label, { connection in try await body(connection, target) }) {
                 layoutModel.settleTransaction(transaction)
             } else {
                 layoutModel.rejectTransaction(transaction)

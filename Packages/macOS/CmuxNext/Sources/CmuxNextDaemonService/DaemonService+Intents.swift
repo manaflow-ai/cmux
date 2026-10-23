@@ -36,7 +36,11 @@ extension DaemonService {
         return intendNow(label, intent, transaction: transaction, prepare: { try await store.daemonTarget(for: target) }, body)
     }
 
-    private func intendNow<P: Sendable, T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+    /// ``intendNow(_:_:transaction:_:)`` whose command needs ids resolved at send time: `intent`
+    /// shows at once, `prepare` runs right before the send (a stand-in's daemon ids, waiting for
+    /// them while its create is in flight) and `body` sends with its result. A `prepare` that
+    /// throws refuses the intent, which leaves exactly; nothing is sent.
+    public func intendNow<P: Sendable, T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                                                      prepare: @escaping @MainActor () async throws -> P,
                                                      _ body: @escaping @Sendable (isolated DaemonConnection, P) async throws -> T)
         -> @MainActor () async -> T? {
