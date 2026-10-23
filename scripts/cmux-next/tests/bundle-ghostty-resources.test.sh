@@ -4,7 +4,9 @@
 # libghostty-vt build from (not the classic `ghostty` submodule). The bundled
 # shell-integration tree must equal ghostty-next/src/shell-integration file for
 # file, so the app and the cmux-tui daemon (which embeds the same files) inject
-# the same scripts.
+# the same scripts. One exception, the same in both: bash/ghostty.bash ends with
+# cmux-tui's shell_integration/ghostty-preexec.bash (no fork per command on bash
+# 5.3), appended once however often the phase runs.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 source_tree="$ROOT/ghostty-next/src/shell-integration"
@@ -15,15 +17,19 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 src="$TMP/src"
 mkdir -p "$src"
 ln -s "$ROOT/ghostty-next" "$src/ghostty-next"
-for path in Resources/ghostty Resources/cmux-themes Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path; do
+bash_fix=cmux-tui/crates/cmux-tui-core/src/shell_integration/ghostty-preexec.bash
+for path in Resources/ghostty Resources/cmux-themes Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path "$bash_fix"; do
   if [[ -e "$ROOT/$path" ]]; then mkdir -p "$src/$(dirname "$path")"; ln -s "$ROOT/$path" "$src/$path"; fi
 done
 # An app bundle built before the classic tree stopped shipping: the phase removes it.
 mkdir -p "$TMP/build/app.app/Contents/Resources/shell-integration/fish"
 echo stale >"$TMP/build/app.app/Contents/Resources/shell-integration/fish/config.fish"
-env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=app.app/Contents/Resources \
-  SRCROOT="$src" bash "$ROOT/scripts/cmux-next/bundle-ghostty-resources.sh" >"$TMP/log" 2>&1 \
-  || { cat "$TMP/log" >&2; echo "FAIL: the phase failed" >&2; exit 1; }
+# Twice, as an incremental build runs it: the bash fix must not pile up.
+for run in 1 2; do
+  env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=app.app/Contents/Resources \
+    SRCROOT="$src" bash "$ROOT/scripts/cmux-next/bundle-ghostty-resources.sh" >"$TMP/log" 2>&1 \
+    || { cat "$TMP/log" >&2; echo "FAIL: the phase failed (run $run)" >&2; exit 1; }
+done
 bundled="$TMP/build/app.app/Contents/Resources/ghostty/shell-integration"
 [[ -d "$bundled" ]] || { cat "$TMP/log" >&2; echo "FAIL: no bundled shell integration" >&2; exit 1; }
 # This tree is Ghostty's alone, and the classic app's scripts
@@ -32,7 +38,10 @@ bundled="$TMP/build/app.app/Contents/Resources/ghostty/shell-integration"
 fail=0
 [[ ! -e "$TMP/build/app.app/Contents/Resources/shell-integration" ]] \
   || { echo "FAIL: the classic Resources/shell-integration is bundled (or an old copy stayed)" >&2; fail=1; }
-diff -r "$source_tree" "$bundled" >"$TMP/diff" 2>&1 || { cat "$TMP/diff" >&2; echo "FAIL: bundled shell integration differs from ghostty-next" >&2; fail=1; }
+diff -r -x ghostty.bash "$source_tree" "$bundled" >"$TMP/diff" 2>&1 || { cat "$TMP/diff" >&2; echo "FAIL: bundled shell integration differs from ghostty-next" >&2; fail=1; }
+cat "$source_tree/bash/ghostty.bash" "$ROOT/$bash_fix" >"$TMP/ghostty.bash"
+cmp -s "$TMP/ghostty.bash" "$bundled/bash/ghostty.bash" \
+  || { echo "FAIL: bundled bash/ghostty.bash is not ghostty-next's with $bash_fix appended once" >&2; fail=1; }
 # The layers that keep the bundled `cmux` first on PATH (BundledCLIEnvironment).
 diff -r "$ROOT/Resources/cmux-cli-path" "$TMP/build/app.app/Contents/Resources/cmux-cli-path" >"$TMP/diff2" 2>&1 \
   || { cat "$TMP/diff2" >&2; echo "FAIL: bundled cmux-cli-path differs from Resources/cmux-cli-path" >&2; fail=1; }
@@ -42,4 +51,4 @@ for theme in "$ROOT"/Resources/cmux-themes/*; do
     || { echo "FAIL: $(basename "$theme") is not bundled in ghostty/themes" >&2; fail=1; }
 done
 [[ $fail -eq 0 ]] || exit 1
-echo "PASS: bundled shell integration equals ghostty-next/src/shell-integration"
+echo "PASS: bundled shell integration equals ghostty-next/src/shell-integration (bash/ghostty.bash with the cmux fix appended once)"
