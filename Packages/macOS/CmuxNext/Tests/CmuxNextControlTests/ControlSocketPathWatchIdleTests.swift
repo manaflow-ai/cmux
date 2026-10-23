@@ -96,6 +96,67 @@ import Testing
         #expect(unlink(path) == 0)
         #expect(try await eventually { restores.value.load(ordering: .relaxed) > restoresAtStart }, "the entry's removal was not noticed")
     }
+
+    /// A listening Unix socket at `path` (another app's live socket); its descriptor.
+    func liveSocket(at path: String) throws -> Int32 {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(descriptor >= 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        _ = withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            path.utf8CString.withUnsafeBytes { bytes in buffer.copyBytes(from: bytes.prefix(capacity - 1)) }
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        try #require(bound == 0)
+        try #require(listen(descriptor, 1) == 0)
+        return descriptor
+    }
+
+    /// A classic cmux of the same channel or tag holds the /tmp compatibility link's path with its
+    /// live socket: the link cannot be made, a socket cannot be opened, and the watch fell back to
+    /// /tmp, waking (one lstat, one failed open) on every write there by any process while both
+    /// apps ran. The link's watch now yields: it watches nothing while that socket is there.
+    @Test func aLinkPathHeldByAnotherLiveSocketWatchesNothingInTmp() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let descriptor = try liveSocket(at: path)
+        defer { close(descriptor); unlink(path) }
+        let queue = DispatchQueue(label: "test.path-watch")
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) { true }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        let settled = watch.checks.load(ordering: .relaxed)
+        for index in 0..<50 {
+            let other = "/tmp/cspw-other-\(UUID().uuidString.prefix(8).lowercased())-\(index)"
+            FileManager.default.createFile(atPath: other, contents: Data("x".utf8))
+            unlink(other)
+        }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "writes in /tmp woke the link's watch")
+    }
+
+    /// This app's own socket at a socket-path override in /tmp keeps its directory watch (the
+    /// hq#1870 cleaner case): deleted, it is noticed.
+    @Test func anOwnSocketInTmpIsStillPutBackWhenDeleted() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let descriptor = try liveSocket(at: path)
+        defer { close(descriptor); unlink(path) }
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue) {
+            restores.value.add(1, ordering: .relaxed)
+            return true
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        #expect(unlink(path) == 0)
+        #expect(try await eventually { restores.value.load(ordering: .relaxed) > 0 }, "the deleted socket was not noticed")
+    }
 }
 
 /// Restores the watch asked for (a class: an `Atomic` cannot be captured).
