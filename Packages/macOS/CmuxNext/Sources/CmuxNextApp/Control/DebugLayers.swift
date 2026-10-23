@@ -9,6 +9,11 @@ import CmuxNextSettings
 /// overlay (focus ring, dim, drop highlight) draws above content child
 /// windows (Chromium pages). WebKit pages are in-window views and never
 /// appear as child windows. `titlebar_band: true` adds `NSWindow.titlebarBandMap`.
+/// Each shown Chromium page counts the `CALayerHost` layers (the class Chromium shows its
+/// GPU output with) in the pane's own layer tree (`hosted_layer_hosts`: the app's
+/// `CEFHostedPageView` with layer hosting) and in its page window's
+/// (`page_window_layer_hosts`): a page the fork really hosts has 0 in its page window,
+/// because the fork moved Chromium's layers into the context the pane shows.
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -101,6 +106,8 @@ enum DebugLayers {
                 fields["host_screen_rect"] = rect(host)
                 fields["page_window_frame"] = page.map { rect($0.frame) } ?? .null
                 fields["page_in_sync"] = .bool(synced)
+                fields["hosted_layer_hosts"] = .number(Double(layerHostCount(content.layer)))
+                fields["page_window_layer_hosts"] = page.map { .number(Double(layerHostCount($0.contentView?.layer))) } ?? .null
             }
             return .object(fields)
         }
@@ -141,6 +148,13 @@ enum DebugLayers {
             "consistent": .bool(above && inSync && pagesInSync && ringsInSync),
         ]
         return .object(fields.merging(base) { _, new in new })
+    }
+
+    /// `CALayerHost` layers in `layer`'s tree (a remote context's layers never show in-process).
+    private static func layerHostCount(_ layer: CALayer?) -> Int {
+        guard let layer else { return 0 }
+        let own = NSStringFromClass(type(of: layer)) == "CALayerHost" ? 1 : 0
+        return own + (layer.sublayers ?? []).reduce(0) { $0 + layerHostCount($1) }
     }
 
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {
