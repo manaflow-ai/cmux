@@ -8,6 +8,9 @@ import Testing
 struct TabMenuTrimPaletteTests {
     @Test func everyTrimmedTabActionResolvesFromItsPaletteTitle() throws {
         let registry = ActionRegistry.standard()
+        // The palette search is a vocabulary check, so make every target-scoped
+        // action available just as the full-context palette does when focused.
+        registry.context = ActionContext(rawValue: .max)
         let items = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
         var index = PaletteSearchIndex(items: items)
         let ranker = PaletteRanker()
