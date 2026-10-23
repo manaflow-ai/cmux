@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { type ComposerAttachment, MAX_ATTACHMENTS } from "../attachments";
+import type { ComposerAttachment } from "../attachments";
+import { MAX_STAGED_ATTACHMENTS } from "./messageLimit";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
 /// the chat, restoring it from the archive or relaunching after a crash brings them back with the
@@ -90,7 +91,9 @@ export function useKeptAttachments(
         readOne.current = true;
         setAttachments((held) => {
           const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
-          return back.length || others.length !== held.length ? [...back, ...others].slice(0, MAX_ATTACHMENTS) : held;
+          return back.length || others.length !== held.length
+            ? [...back, ...others].slice(0, MAX_STAGED_ATTACHMENTS)
+            : held;
         });
         setReadFor(sessionId);
       });

@@ -16,14 +16,15 @@ import {
   type LinkItem,
   type RefusedFile,
 } from "../attachments";
-import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES, type UploadResult } from "../cloudUploads";
+import { MAX_UPLOAD_FILES, MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES, type UploadResult } from "../cloudUploads";
 
 /// The refusals a link stands in for.
 const LINKABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge", "imagesUnsupported"]);
 
 export type IntakeOptions = {
-  /// The chips the composer already holds.
+  /// The chips the composer already holds, and the most it holds (MAX_ATTACHMENTS unless set).
   held: number;
+  limit?: number;
   allowImages: boolean;
   /// Where each file of the batch is on this Mac, in order, for a chat on this Mac (`chat.attach.dropped`);
   /// undefined or another count: the host does not know (the batch is not its drop or paste).
@@ -41,23 +42,32 @@ export async function intakeFiles(
   // Asked before the files are read (decoding and scaling photos can take seconds): the host's
   // record of the drop or paste lasts only a few.
   const paths = options.localPaths?.(files).catch(() => undefined);
-  const read = await readAttachments(files, options.held, options.allowImages);
-  const local = await localLinks(files, read.errors, MAX_ATTACHMENTS - options.held - read.attachments.length, paths);
+  const limit = options.limit ?? MAX_ATTACHMENTS;
+  const read = await readAttachments(files, options.held, options.allowImages, limit);
+  const local = await localLinks(files, read.errors, limit - options.held - read.attachments.length, paths);
   const errors = read.errors.filter((refused) => !local.linked.has(refused));
-  const room = MAX_ATTACHMENTS - options.held - read.attachments.length - local.linked.size;
-  const sendable = options.upload ? savable(errors, room) : [];
+  const room = limit - options.held - read.attachments.length - local.linked.size;
+  // One upload takes at most MAX_UPLOAD_FILES (the host's AgentPaneUpload.maximumFiles).
+  const uploadRoom = Math.min(room, MAX_UPLOAD_FILES);
+  const sendable = options.upload ? savable(errors, uploadRoom) : [];
   const sent = sendable.length > 0 ? await options.upload?.(sendable.map((refused) => refused.file)) : undefined;
   const linked = [...local.linked.values()];
   if (sent && "error" in sent) return { attachments: [...read.attachments, ...linked], error: { text: sent.error } };
   const saved = sent ? sent.paths.map((path, index) => savedAttachment(path, sendable[index]?.file.name ?? "")) : [];
   // What the host did not link or save keeps its refusal; one it would have linked or saved but for
   // the composer's chip limit is refused for that limit.
-  const full = sent !== undefined && saved.length >= room;
+  const full = sent !== undefined && saved.length >= uploadRoom;
   const [first] = errors.filter((refused) => !sent || !sendable.includes(refused));
   const attachments = [...read.attachments, ...linked, ...saved];
   if (!first) return { attachments };
   const overLimit = (local.full && links(first)) || (full && saves(first));
-  return { attachments, error: { name: first.name, reason: overLimit ? "tooMany" : first.reason } };
+  if (!overLimit) return { attachments, error: { name: first.name, reason: first.reason } };
+  // Past one upload's files while the composer still had room: that number is the limit.
+  const uploadFull = full && saves(first) && !local.full && uploadRoom < room;
+  return {
+    attachments,
+    error: { name: first.name, reason: "tooMany", ...(uploadFull ? { limit: MAX_UPLOAD_FILES } : {}) },
+  };
 }
 
 /// The refused files of the batch that go as links to where they are on this Mac, by the host's

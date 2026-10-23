@@ -416,3 +416,36 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;
 }
+/* One message's limit (composer/messageLimit.ts): the chips past what this message takes wait for
+   the next one and say so by fading back; the line under the strip names the limit and, after a
+   message took the first ones, offers to send the rest. */
+.acpmux-attachment[data-later] {
+  opacity: 0.45;
+}
+.acpmux-attachment-limit {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px var(--acpmux-attach-inset) 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-attachment-send-rest {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-attachment-send-rest:hover {
+  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 14%, transparent));
+}
+.acpmux-attachment-send-rest:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 1px;
+}

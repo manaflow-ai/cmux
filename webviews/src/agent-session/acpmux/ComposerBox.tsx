@@ -1,6 +1,6 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
+import { type AttachmentLimitNotice, AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -39,6 +39,10 @@ export type ComposerBoxProps = {
   /// attached at once), so a paste right after it counts it. Unset, the box keeps its own.
   attachmentsRef?: RefObject<ComposerAttachment[]>;
   attachError?: string;
+  /// The most chips the box holds (a huge paste past it stays text); MAX_ATTACHMENTS unset.
+  attachmentCap?: number;
+  /// What the strip says about one message's limit (a chat's composer, composer/messageLimit.ts).
+  attachmentLimit?: AttachmentLimitNotice;
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
@@ -83,6 +87,8 @@ export function ComposerBox({
   setAttachments,
   attachmentsRef,
   attachError,
+  attachmentCap,
+  attachmentLimit,
   codex = false,
   onRemoveAttachment,
   fieldMenu,
@@ -117,7 +123,7 @@ export function ComposerBox({
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
+  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, attachmentCap);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
@@ -154,6 +160,7 @@ export function ComposerBox({
           attachments={attachments}
           {...(pending ? { pending } : {})}
           {...(attachError ? { error: attachError } : {})}
+          {...(attachmentLimit ? { limit: attachmentLimit } : {})}
           codex={codex}
           onRemove={onRemoveAttachment}
           onExpand={pastedChips.expand}
