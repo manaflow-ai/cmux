@@ -27,7 +27,8 @@ final class AttentionTabsWatch {
         }
     }
 
-    deinit { task.cancel() }
+    // cx-t7hu: nonisolated; the task is a Sendable let, so cancelling needs no main-actor hop.
+    nonisolated deinit { task.cancel() }
 
     /// The marked tabs of `workspaces`, newest mark first: the agent's reason, the workspace and
     /// tab titles the person knows them by (never an id), and when it was marked.
