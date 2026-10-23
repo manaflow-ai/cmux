@@ -8,7 +8,7 @@
 use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
@@ -180,18 +180,32 @@ struct Attachment {
 }
 
 /// What an attach asked of its attachment's stream; each attach sets it.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug)]
 pub(super) struct StreamView {
     /// The attach asked for `agent-session-mode` pushes (`mode_events`).
     pub(super) mode_events: bool,
-    /// The mode record kinds acpmux streams only for those pushes
-    /// ([`stream::hidden_mode_kinds`]): never sent to the client.
+    /// The mode record kinds the attach's `kinds` leave out
+    /// ([`stream::hidden_mode_kinds`]): never sent to the client, whatever
+    /// acpmux streams.
     pub(super) hidden: Vec<&'static str>,
+    /// Which attach set it: a refused re-attach puts back the view before it
+    /// only while its own is still the attachment's.
+    generation: u64,
 }
+
+/// The next [`StreamView::generation`].
+static NEXT_VIEW: AtomicU64 = AtomicU64::new(0);
 
 impl StreamView {
     pub(super) fn of(kinds: Option<&[String]>, mode_events: bool) -> Self {
-        Self { mode_events, hidden: stream::hidden_mode_kinds(kinds, mode_events) }
+        let generation = NEXT_VIEW.fetch_add(1, Ordering::Relaxed);
+        Self { mode_events, hidden: stream::hidden_mode_kinds(kinds), generation }
+    }
+
+    /// The kinds acpmux streams besides the attach's own: the hidden mode
+    /// kinds, only for `agent-session-mode` pushes.
+    pub(super) fn subscribed(&self) -> &[&'static str] {
+        if self.mode_events { &self.hidden } else { &[] }
     }
 }
 
@@ -703,7 +717,7 @@ fn attach(
     };
     let record_session = session.clone();
     let view = StreamView::of(params.kinds.as_deref(), params.mode_events);
-    let acpmux_params = match page_params(&session, &params, true, &view.hidden) {
+    let acpmux_params = match page_params(&session, &params, true, view.subscribed()) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
@@ -868,13 +882,13 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             // for it. A re-attach that fails leaves the old subscription, so the
             // old view comes back (unless a later attach set another meanwhile).
             let view = StreamView::of(params.kinds.as_deref(), params.mode_events);
-            let params = page_params(session, &params, true, &view.hidden)?;
+            let params = page_params(session, &params, true, view.subscribed())?;
             let old = std::mem::replace(&mut *attachment.view(), view.clone());
             let page = match attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT) {
                 Ok(page) => page,
                 Err(error) => {
                     let mut current = attachment.view();
-                    if *current == view {
+                    if current.generation == view.generation {
                         *current = old;
                     }
                     return Err(Refusal::of(error));

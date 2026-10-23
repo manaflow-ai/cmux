@@ -190,6 +190,23 @@ impl Conn {
         self.events_until_all(&[event])
     }
 
+    /// Sends `request` with a fresh id: its reply, and the pushed events that came before it.
+    fn rpc_with_events(&mut self, mut request: Value) -> (Value, Vec<Value>) {
+        self.next += 1;
+        request["id"] = json!(self.next);
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        let mut events = Vec::new();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == request["id"] {
+                return (message, events);
+            }
+            events.push(message);
+        }
+    }
+
     /// The pushed events on this connection until each of `events` came, in any order.
     fn events_until_all(&mut self, events: &[&str]) -> Vec<Value> {
         let mut seen: Vec<Value> = Vec::new();
@@ -413,5 +430,61 @@ fn a_mode_read_that_outlives_the_tabs_chat_pushes_nothing() {
     assert_eq!(rebound["ok"], true, "{rebound}");
     let seen = app.events_until("agent-session-closed");
     assert!(seen.iter().all(|event| event["event"] != "agent-session-mode"), "{seen:?}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// A mode read under way when a repeat attach stops asking for pushes sends
+/// nothing: the stream follows the newest attach.
+#[test]
+fn a_mode_read_under_way_when_the_pushes_stop_sends_nothing() {
+    let daemon = Daemon::start_with("adopt-stop", None, None);
+    let acpmux = listing_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let surface = daemon.own_agent_tab();
+    assert_eq!(daemon.adopt(surface, "own-1")["ok"], true);
+    let mut app = daemon.client();
+    let kinds = json!(["transcript"]);
+    let attached = app.rpc(json!({"cmd": "agent-session-attach", "surface": surface,
+                                  "kinds": kinds, "mode_events": true}));
+    assert_eq!(attached["ok"], true, "{attached}");
+    acpmux.slow_modes.store(true, Ordering::SeqCst);
+    acpmux.agent_records(3, "current_mode_update");
+    // The read has started (it answers a second later); the repeat attach waits behind it.
+    std::thread::sleep(Duration::from_millis(300));
+    acpmux.slow_modes.store(false, Ordering::SeqCst);
+    let (again, before) = app.rpc_with_events(
+        json!({"cmd": "agent-session-attach", "surface": surface, "kinds": kinds}),
+    );
+    assert_eq!(again["ok"], true, "{again}");
+    acpmux.agent_records(4, "agent_message_chunk");
+    let seen = [before, app.events_until("agent-session-record")].concat();
+    assert!(seen.iter().all(|event| event["event"] != "agent-session-mode"), "{seen:?}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// An `agent-session-mode` read that answers after the tab was bound to
+/// another chat is refused (`agent_session.unknown_tab`): its answer is the
+/// old chat's.
+#[test]
+fn agent_session_mode_refuses_a_read_that_outlives_the_tabs_chat() {
+    let daemon = Daemon::start_with("adopt-mode-stale", None, None);
+    let acpmux = listing_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    assert_eq!(daemon.rpc(json!({"id": 50, "cmd": "new-workspace"}))["ok"], true);
+    let tab = daemon.rpc(json!({"id": 51, "cmd": "new-conversation-tab",
+                                "agent_session": {"host": "install:mac-test"}}));
+    let surface = tab["data"]["surface"].as_u64().unwrap();
+    let bind = |session: &str, expected: Value| {
+        daemon.rpc(json!({"id": 52, "cmd": "bind-conversation-tab-session", "surface": surface,
+                          "session": session, "expected_session": expected}))
+    };
+    assert_eq!(bind("own-1", Value::Null)["ok"], true);
+    acpmux.slow_modes.store(true, Ordering::SeqCst);
+    let mut reader = daemon.client();
+    let read = std::thread::spawn(move || {
+        reader.rpc(json!({"cmd": "agent-session-mode", "surface": surface}))
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(bind("other-1", json!("own-1"))["ok"], true);
+    let answer = read.join().unwrap();
+    assert_eq!(answer["error_code"], "agent_session.unknown_tab", "{answer}");
     let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
