@@ -233,6 +233,12 @@ public final class FeedStore {
         didSet { if unseenNewIDs != oldValue { refreshDerived() } }
     }
 
+    /// Held events the list would show (not done, matching the filter, not muted): the pill's count.
+    public var unseenVisibleCount: Int {
+        let unseen = Set(unseenNewIDs)
+        return items.count { unseen.contains($0.id) && !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
+    }
+
     /// The person reads below the top of the Feed (set by the Feed screen). A
     /// new event inserted above them would shift every row under their finger
     /// and re-lay out the list, so it waits behind the pill instead; going

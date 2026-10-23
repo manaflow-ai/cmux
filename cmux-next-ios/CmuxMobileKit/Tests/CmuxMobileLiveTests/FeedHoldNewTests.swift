@@ -95,4 +95,18 @@ import Testing
         #expect(store.visibleItems.map(\.id) == ["n1", "a"])
         #expect(store.unseenNewIDs.isEmpty)
     }
+
+    /// The pill counts only held events the list would show.
+    @Test func thePillCountsOnlyWhatTheListWouldShow() {
+        let store = FeedStore(items: [Self.item("a", ago: 10)])
+        store.isReadingBelowTop = true
+        store.upsert(Self.item("ask", ago: 2, kind: .needsInput), atTop: true)
+        store.upsert(Self.item("done", ago: 1), atTop: true)
+        #expect(store.unseenVisibleCount == 2)
+        store.filter = .needsYou
+        #expect(store.unseenVisibleCount == 1)
+        store.filter = .all
+        store.markDone("done")
+        #expect(store.unseenVisibleCount == 1)
+    }
 }

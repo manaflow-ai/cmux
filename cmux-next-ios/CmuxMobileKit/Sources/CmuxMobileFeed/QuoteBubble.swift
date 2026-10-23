@@ -63,11 +63,12 @@ struct QuoteBubble: View {
 /// One shape (one path, one layer) rather than a stack of two: every Feed row with a quote draws it.
 struct BubbleWithTail: Shape {
     func path(in rect: CGRect) -> Path {
-        var path = RoundedRectangle(cornerRadius: 16, style: .continuous).path(in: rect)
-        // The tail's 22 x 18 box, 6 pt left of the bubble and 1 pt below its bottom edge.
+        let bubble = RoundedRectangle(cornerRadius: 16, style: .continuous).path(in: rect)
+        // The tail's 22 x 18 box, 6 pt left of the bubble and 1 pt below its bottom edge. A union,
+        // not a second subpath: the two wind in opposite directions, and a nonzero fill would cut
+        // the overlap out of the bubble.
         let tail = CGRect(x: rect.minX - 6, y: rect.maxY - 18 + 1, width: 22, height: 18)
-        path.addPath(BubbleTail().path(in: tail))
-        return path
+        return bubble.union(BubbleTail().path(in: tail))
     }
 }
 

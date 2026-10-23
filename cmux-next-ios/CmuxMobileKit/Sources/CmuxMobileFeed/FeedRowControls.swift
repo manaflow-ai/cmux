@@ -67,23 +67,40 @@ struct FeedMenuButton: UIViewRepresentable {
     }
 }
 
+/// A Feed row's long-press menu. A view of its own, so SwiftUI builds its
+/// body (the date title and the actions) when the menu opens, not for every
+/// row that scrolls in.
+struct FeedContextMenu: View {
+    let title: () -> String
+    let actions: () -> [FeedMenuAction]
+
+    var body: some View {
+        Section(title()) {
+            ForEach(actions()) { action in
+                Button(action.title, systemImage: action.systemImage, role: action.isDestructive ? .destructive : nil, action: action.perform)
+            }
+        }
+    }
+}
+
 /// The share sheet for a Feed event, made when Share is tapped: a
 /// `ShareLink` per row built its share representation for every row that
 /// scrolled in (verify/feed-perf-20261021.md).
 @MainActor
 enum FeedShareSheet {
-    static func present(_ text: String) {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive }) ?? UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            let window = scene.keyWindow ?? scene.windows.first,
-            var top = window.rootViewController else { return }
-        while let presented = top.presentedViewController { top = presented }
+    /// Presents the sheet from the key window's frontmost controller, anchored at `source` (the
+    /// Share button's frame in window coordinates; on iPad the popover points at it).
+    static func present(_ text: String, from source: CGRect?) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let window = scenes.lazy.compactMap(\.keyWindow).first ?? scenes.first?.windows.first,
+              var top = window.rootViewController else { return }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        guard !top.isBeingDismissed else { return }
         let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
         if let popover = sheet.popoverPresentationController {
             popover.sourceView = window
-            popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
-            popover.permittedArrowDirections = []
+            popover.sourceRect = source ?? CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
+            if source == nil { popover.permittedArrowDirections = [] }
         }
         top.present(sheet, animated: true)
     }

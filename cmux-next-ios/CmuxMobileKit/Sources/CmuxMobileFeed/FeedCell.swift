@@ -29,6 +29,8 @@ struct FeedCell: View {
     @State private var copied = false
     /// The body's web view was shown once: it stays, even if a fling starts again.
     @State private var webShown = false
+    /// Where the Share button is (the iPad popover's anchor).
+    @State private var shareFrame: CGRect?
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -69,8 +71,6 @@ struct FeedCell: View {
                 // its padding and the gaps never navigate (a mis-tap must not leave the Feed
                 // mid-answer).
                 header
-                    .contentShape(.rect)
-                    .onTapGesture(perform: open)
                 if let quote = item.quote {
                     QuoteBubble(quote: quote)
                         .padding(.bottom, -4)
@@ -113,7 +113,9 @@ struct FeedCell: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .contextMenu { menuItems }
+        // A view, so its body (the menu's date title and actions) is built when the menu opens,
+        // not for every row that scrolls in (verify/feed-perf-20261021.md).
+        .contextMenu { FeedContextMenu(title: { menuTitle }, actions: { menuActions }) }
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
@@ -123,6 +125,21 @@ struct FeedCell: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 4) {
+            headerText
+                // The name, source and time open the tab; the "…" button beside them only opens its
+                // menu (a UIKit button under the tap gesture would do both).
+                .contentShape(.rect)
+                .onTapGesture(perform: open)
+            Spacer(minLength: 4)
+            FeedMenuButton(title: { menuTitle }, actions: { menuActions })
+                .frame(width: 44, height: 44)
+                .padding(.vertical, -12)
+                .padding(.trailing, -10)
+        }
+    }
+
+    @ViewBuilder
+    private var headerText: some View {
             if dynamicTypeSize.isAccessibilitySize {
                 // At accessibility sizes the source wraps under the name instead of truncating.
                 VStack(alignment: .leading, spacing: 2) {
@@ -143,12 +160,6 @@ struct FeedCell: View {
                     .layoutPriority(1)
                 }
             }
-            Spacer(minLength: 4)
-            FeedMenuButton(title: { menuTitle }, actions: { menuActions })
-                .frame(width: 44, height: 44)
-                .padding(.vertical, -12)
-                .padding(.trailing, -10)
-        }
     }
 
     private func relativeTime(at now: Date) -> String {
@@ -183,14 +194,6 @@ struct FeedCell: View {
         ]
     }
 
-    @ViewBuilder
-    private var menuItems: some View {
-        Section(menuTitle) {
-            ForEach(menuActions) { action in
-                Button(action.title, systemImage: action.systemImage, role: action.isDestructive ? .destructive : nil, action: action.perform)
-            }
-        }
-    }
 
     @ViewBuilder
     private var statusChip: some View {
@@ -239,7 +242,7 @@ struct FeedCell: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .contentShape(.rect)
                         .onTapGesture(perform: open)
-                } else if context.motion.isFast, !webShown {
+                } else if !webShown, context.motion.isFast {
                     // During a fling: the body's text at the height its web view will take, no web view
                     // (verify/feed-perf-20261021.md). It renders when the Feed slows down.
                     FeedBodyPlaceholder(markdown: item.markdown, height: placeholderHeight)
@@ -428,7 +431,8 @@ struct FeedCell: View {
                 }
             }
             Spacer()
-            footerButton("square.and.arrow.up", "Share") { FeedShareSheet.present(item.markdown) }
+            footerButton("square.and.arrow.up", "Share") { FeedShareSheet.present(item.markdown, from: shareFrame) }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { shareFrame = $0 }
         }
         // 44 pt targets; the row keeps its 32 pt rhythm.
         .frame(height: 44)

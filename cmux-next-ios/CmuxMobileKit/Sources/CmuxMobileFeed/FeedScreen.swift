@@ -70,7 +70,13 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .scrollDismissesKeyboard(.interactively)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
-                if phase == .idle { rowContext.motion.settled() }
+                // Speed counts only while a finger drives the scroll (or it decelerates from one).
+                rowContext.motion.isScrolling = phase == .interacting || phase == .decelerating
+                if !rowContext.motion.isScrolling { rowContext.motion.settled() }
+                #if DEBUG
+                // The rig's autoscroll moves the offset with no scroll phase: count it as a drag.
+                if FeedStressRig.shared.config.autoscrollPasses != nil { rowContext.motion.isScrolling = true }
+                #endif
                 #if DEBUG
                 // G-04: a finger-driven scroll is one frame-interval window (CMUX_MOBILE_FRAMELOG=1).
                 if FeedStressRig.shared.config.autoscrollPasses == nil {
@@ -113,6 +119,12 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
         }
         .onAppear {
+            // A rebuilt Feed starts at its top: new events show (the store may still say otherwise).
+            store.isReadingBelowTop = !atTop
+            #if DEBUG
+            // The rig's autoscroll moves the offset with no scroll phase: count it as a drag.
+            if FeedStressRig.shared.config.autoscrollPasses != nil { rowContext.motion.isScrolling = true }
+            #endif
             rowContext.open = { open($0) }
             rowContext.setExpanded = { id, on in
                 if on { expanded.insert(id) } else { expanded.remove(id) }
@@ -219,12 +231,12 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     @ViewBuilder
     private var newPill: some View {
-        if !store.unseenNewIDs.isEmpty, !atTop {
+        if store.unseenVisibleCount > 0, !atTop {
             Button {
                 withAnimation(.cmuxMobileSmooth) { position.scrollTo(id: "top") }
                 store.clearUnseen()
             } label: {
-                Label("\(store.unseenNewIDs.count) new", systemImage: "arrow.up")
+                Label("\(store.unseenVisibleCount) new", systemImage: "arrow.up")
                     .font(.footnote.weight(.semibold))
                     .padding(.horizontal, 14)
                     .frame(height: 36)

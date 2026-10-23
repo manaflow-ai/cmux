@@ -16,8 +16,22 @@ import Testing
         }
     }
 
-    @Test func aFlingIsFastAndASlowDragIsNot() {
+    func scrollingMotion() -> FeedScrollMotion {
         let motion = FeedScrollMotion()
+        motion.isScrolling = true
+        return motion
+    }
+
+    /// Offset changes at rest (keyboard avoidance, an inset change, a programmatic scroll) are never a fling.
+    @Test func movementAtRestIsNotAFling() {
+        let motion = FeedScrollMotion()
+        var time = 100.0
+        scroll(motion, step: 30, frames: 6, at: &time)
+        #expect(!motion.isFast)
+    }
+
+    @Test func aFlingIsFastAndASlowDragIsNot() {
+        let motion = scrollingMotion()
         var time = 100.0
         // 3 pt per frame at 120 Hz: 360 pt/s, a reading drag.
         scroll(motion, step: 3, frames: 20, at: &time)
@@ -28,7 +42,7 @@ import Testing
     }
 
     @Test func slowingDownOrStoppingSettles() {
-        let motion = FeedScrollMotion()
+        let motion = scrollingMotion()
         var time = 100.0
         scroll(motion, step: 30, frames: 6, at: &time)
         #expect(motion.isFast)
@@ -44,7 +58,7 @@ import Testing
     }
 
     @Test func aJumpAfterAPauseIsNotAFling() {
-        let motion = FeedScrollMotion()
+        let motion = scrollingMotion()
         var time = 100.0
         motion.offsetChanged(0, at: time)
         // A programmatic jump (scroll to top) after a second: no velocity from it.

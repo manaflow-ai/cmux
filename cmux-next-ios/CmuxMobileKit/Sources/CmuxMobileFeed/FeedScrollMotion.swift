@@ -19,9 +19,13 @@ final class FeedScrollMotion {
 
     private(set) var isFast = false
     @ObservationIgnored private var last: (y: CGFloat, time: Double)?
+    /// The person drags or the Feed decelerates from a drag: only then is speed a fling. An offset
+    /// change at rest (keyboard avoidance, an inset change, a programmatic scroll) never is.
+    @ObservationIgnored var isScrolling = false
 
     /// The scroll offset at a frame's time (seconds).
     func offsetChanged(_ y: CGFloat, at time: Double) {
+        guard isScrolling else { last = nil; return }
         defer { last = (y, time) }
         guard let last else { return }
         let dt = time - last.time
