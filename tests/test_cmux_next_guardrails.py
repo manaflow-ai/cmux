@@ -81,6 +81,8 @@ CASES = {
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
     "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
                              "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "ambient-theme-root": ("import AppKit\nfunc tint(_ view: NSView) -> Bool {\n    ThemeScope.app.tokens.isDark\n}\n",
+                           "import AppKit\nfunc tint(_ view: NSView) -> Bool {\n    view.themeScope.tokens.isDark\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -225,6 +227,10 @@ class RuleTests(Fixture):
             "actor Clock {\n    static let live = Clock()\n}\n": True,
             "struct Style {\n    static let standard = Style()\n}\n": False,
             "enum Spacing {\n    static let `default` = 8.0\n}\n": False,
+            # ThemeScope.app, FrameScheduler.app: a class's stored `app` is a singleton by another name.
+            "final class Root {\n    static let app = Root(name: \"app\")\n}\n": True,
+            "final class Relay {\n    static let app = \"cmux/cloud\"\n}\n": False,
+            "final class Ids {\n    static let app: Set<String> = [\"a\"]\n}\n": False,
         }
         for text, refused in cases.items():
             with self.subTest(text=text):
@@ -232,6 +238,22 @@ class RuleTests(Fixture):
                 self.write(f"{KIT}/Added.swift", text)
                 self.commit("named static")
                 self.assertEqual("singleton" in [r.id for r, _ in self.check()[0]], refused)
+
+    def test_the_ambient_theme_root_is_refused_outside_design_and_by_default_argument(self):
+        cases = {
+            f"{KIT}/Added.swift": ("@MainActor final class Card {\n    init(theme: ThemeScope = .app) {}\n}\n", True),
+            f"{KIT}/Store.swift": ("func repaint() {\n    ThemeScope.app.store.repaintAll()\n}\n", True),
+            f"{PKG}/Sources/CmuxNextDesign/Palette.swift": ("func tokens() -> ThemeTokens {\n"
+                                                            "    ThemeContext.active ?? ThemeScope.app.tokens\n}\n", False),
+            f"{APP}/AppDelegate.swift": ("func launch() {\n    let root = ThemeScope.app  "
+                                         "// theme-root-allow: the composition root\n}\n", False),
+        }
+        for path, (text, refused) in cases.items():
+            with self.subTest(path=path):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, text)
+                self.commit("theme root")
+                self.assertEqual("ambient-theme-root" in [r.id for r, _ in self.check()[0]], refused)
 
     def test_short_notification_names_in_a_name_extension_are_refused(self):
         for decl in ('Self("pagesChanged")', '.init("pagesChanged")'):
