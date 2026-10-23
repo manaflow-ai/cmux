@@ -101,8 +101,6 @@ final class FilePageService: InternalPageProvider {
         tabs[key] = Tab(file: URL(fileURLWithPath: route), userChose: isRecent(route))
     }
 
-    var openKeys: [String] { tabs.keys.sorted() }
-
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 
     #if DEBUG

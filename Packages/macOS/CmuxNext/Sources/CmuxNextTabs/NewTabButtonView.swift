@@ -9,7 +9,6 @@ final class NewTabButtonView: NSView {
             guard oldValue != isHovered else { return }
             updateColors(animated: true)
             if isHovered {
-                TabStripSignals.shared.onNewTabButtonHover?()
                 if themedToolTip != nil { themedToolTipShortcut = shortcut?() }
             }
         }

@@ -17,14 +17,10 @@ public import Foundation
 ///   moment: no key or mouse input to this app for `Policy.idleInput` and no
 ///   menu tracking, waited for with one-shot deadlines (a deadline re-arms
 ///   for the rest of the quiet period after input, and the end of menu
-///   tracking re-arms it; nothing polls). Likely means a Chromium tab in any window (restored or
-///   not), the "+" menu, the palette's Chromium entries, and while Chromium
-///   is the default engine (`browser.defaultEngine`) also any browser tab in
-///   any window, the palette's default browser entries (New Browser Tab,
-///   Split Browser, New Browser Workspace), or switching the default to
-///   Chromium. While new browser tabs default to Chromium, the pointer on
-///   the "+" button, a New Tab key (Cmd-T) and the palette opening are
-///   signals too (`tabSignal`), and so is launch itself (`Reason.launch`).
+///   tracking re-arms it; nothing polls). Likely means launch itself while
+///   Chromium is the default engine (`browser.defaultEngine`, `Reason.launch`),
+///   and otherwise a Chromium tab in any window (restored or not), the "+"
+///   menu, the palette's Chromium entries, or switching the default to Chromium.
 ///   With WebKit as the default engine CEF stays lazy: a user who never opens
 ///   a Chromium tab never pays for it (AppServices+Chromium).
 /// - Once Chromium runs, the next idle moment builds a spare Chromium window
@@ -40,19 +36,11 @@ public final class ChromiumWarmup {
         case restoredTab
         case newTabMenu
         case palette
-        /// A browser tab exists and new ones default to Chromium.
-        case browserTab
         /// The default engine was just switched to Chromium.
         case defaultEngine
         /// New browser tabs default to Chromium: start it after launch,
         /// before any tab asks.
         case launch
-        /// First-tab signals while new browser tabs default to Chromium
-        /// (`tabSignal`): the pointer on the "+" button, a New Tab key
-        /// (Cmd-T) before its tab opens, the palette opening.
-        case newTabButton
-        case newTabKey
-        case paletteOpen
     }
 
     public struct Policy: Sendable {
@@ -110,7 +98,7 @@ public final class ChromiumWarmup {
     /// tab within `Policy.recentUse`: maps the framework, and while new tabs
     /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
     /// the spare window, at idle moments). Anyone else pays nothing until a
-    /// signal (`chromiumLikely`, `tabSignal`).
+    /// signal (`chromiumLikely`).
     public func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
@@ -136,13 +124,6 @@ public final class ChromiumWarmup {
     private func spareTaken() {
         guard !stopped, engine.isRunning, !waiting else { return }
         warmStarted()
-    }
-
-    /// A first-tab signal (`Reason.newTabButton`, `.newTabKey`,
-    /// `.paletteOpen`): warm up while new tabs open in Chromium.
-    public func tabSignal(_ reason: Reason) {
-        guard defaultIsChromium() else { return }
-        chromiumLikely(reason)
     }
 
     /// A Chromium tab is likely soon: map the framework now and run

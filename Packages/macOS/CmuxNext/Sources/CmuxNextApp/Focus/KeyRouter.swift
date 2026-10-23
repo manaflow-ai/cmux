@@ -282,8 +282,6 @@ final class KeyRouter: BrowserKeyRouting {
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {
         lastInterception = (candidate.id, window, true)
-        // A New Tab key predicts a browser tab: warm Chromium before its tab opens (ChromiumWarmup).
-        if candidate.id.rawValue.hasPrefix("newTab") { services?.chromiumWarmup.tabSignal(.newTabKey) }
         let ran: Bool
         switch candidate.source {
         case .registry(let argument):

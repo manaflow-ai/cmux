@@ -211,6 +211,7 @@ let package = Package(
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextChromiumRuntime",
+                "CmuxNextBrowserTabs",
                 "CmuxNextPhoneAccess",
                 "CmuxNextPhone",
                 "CmuxNextPopups",
@@ -807,6 +808,13 @@ let package = Package(
             name: "CmuxNextChromiumRuntimeTests",
             dependencies: ["CmuxNextChromiumRuntime"],
             swiftSettings: daemonSwiftSettings
+        ),
+        // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
+        // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
+        .target(
+            name: "CmuxNextBrowserTabs",
+            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextChromiumWarmup",
@@ -1506,6 +1514,7 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
+                "CmuxNextBrowserTabs",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",

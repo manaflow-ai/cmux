@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextSettings
@@ -190,7 +191,7 @@ final class BrowserTabService {
     /// silent no-op): its machine is not connected. Nil otherwise; a
     /// connected machine whose cmux-tui lacks daemon browser tabs gets the
     /// session-local fallback where the caller has one
-    /// (`PaneBrowserTabOpener.machineRoute`), else the caller's capability refusal.
+    /// (`BrowserTabRoute`), else the caller's capability refusal.
     func refusal(in pane: PaneModel) -> String? {
         let daemon = daemonForPane(pane)
         guard !daemon.isLocal, daemon.connection == nil else { return nil }

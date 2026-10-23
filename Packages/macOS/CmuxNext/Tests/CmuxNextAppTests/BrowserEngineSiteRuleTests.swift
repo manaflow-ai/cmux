@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextSettings
 import Foundation
 import Testing

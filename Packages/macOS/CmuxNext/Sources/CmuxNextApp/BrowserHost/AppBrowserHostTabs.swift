@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon

@@ -2,7 +2,7 @@
 """New Chromium tab: input to the tab on screen and to its page's first pixels (perf-lead issue 1, PL-cef-tab).
 
 Launches the tagged app itself (no activation, scratch config: Chromium is the default engine), then
-per round, in a fresh terminal workspace, runs `debug.new_tab {action: bench_browser}` for each case:
+per round, in a fresh terminal workspace, runs `debug.new_tab {action: bench_create, command: new_browser}` for each case:
 
   cold_pane    Cmd-Shift-L (New Browser Tab) in a pane with no Chromium window (round 0: the
                process's first Chromium tab)
@@ -162,13 +162,13 @@ def bench_case(case, window, session, rnd):
     if case in ("second_pane", "third_pane", "url_cold"):
         if not split(window):
             return {"case": case, "error": "split failed"}
-    params = {"action": "bench_browser"}
+    params = {"action": "bench_create", "command": "new_browser"}
     if case.startswith("url_"):
-        params.update({"via": "action", "url": "file://" + PAGE})
+        params.update({"run": "openBrowser", "url": "file://" + PAGE})
     elif case == "webkit_new":
-        params.update({"via": "action", "id": "openBrowser.webkit"})
+        params.update({"run": "openBrowser.webkit"})
     elif case == "webkit_url":
-        params.update({"via": "action", "id": "openBrowser.webkit", "url": "file://" + PAGE})
+        params.update({"run": "openBrowser.webkit", "url": "file://" + PAGE})
     result = rpc("debug.new_tab", params, timeout=30) or {}
     result.update({"case": case, "session": session, "round": rnd})
     result["visible_frame"] = frame_of(result, "visible_ms")
@@ -176,7 +176,7 @@ def bench_case(case, window, session, rnd):
     spans = [s for s in result.get("spans") or [] if s.get("name", "").startswith("cef.") or s.get("ms", 0) >= 2]
     print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
           f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) page={result.get('page_ms')} "
-          f"spare={result.get('spare_before')}->{result.get('spare_after')} "
+          f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
           f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
           f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
     settle()

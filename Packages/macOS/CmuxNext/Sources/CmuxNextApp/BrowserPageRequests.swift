@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextNowPlaying
 import CmuxNextSettings

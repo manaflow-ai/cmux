@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextTabs
@@ -16,26 +17,6 @@ import CmuxNextTabs
 @MainActor
 struct PaneBrowserTabOpener {
     let controller: PaneController
-
-    /// Where a new tab of a pane's machine goes (cx-2cob): the machine's
-    /// daemon when it serves browser tabs; a refusal with the machine's name
-    /// when another machine is not connected; else this Mac's session-local
-    /// tab (a Cloud image whose cmux-tui predates daemon browser tabs).
-    enum MachineRoute: Equatable { case daemon, sessionLocal, refuseNotConnected }
-
-    nonisolated static func machineRoute(isLocal: Bool, connected: Bool, servesTabs: Bool) -> MachineRoute {
-        if !isLocal && !connected { return .refuseNotConnected }
-        return servesTabs ? .daemon : .sessionLocal
-    }
-
-    /// Whether a session-local (WebKit) tab may stand in when the daemon
-    /// cannot make browser tabs.
-    /// Never for a Chromium request or a Chromium internal page: those are
-    /// refused rather than shown by the wrong engine.
-    nonisolated static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
-        if BrowserEngineResolver.explicitEngine(requested) == .cef { return false }
-        return !(url.map(ChromiumInternalURL.needsChromium) ?? false)
-    }
 
     /// `inherited` is a reopened or duplicated tab's engine or a popup
     /// opener's (falls back instead of refusing). `adopting` is a popup page
@@ -86,8 +67,8 @@ struct PaneBrowserTabOpener {
         let onMachine = MachineBrowserRecord.matches(url)
         let requested = onMachine ? nil : requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
         let browserTabs = services.cache.browserTabs
-        let route = Self.machineRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
-                                      servesTabs: browserTabs.isAvailable(in: controller.pane))
+        let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
+                                    servesTabs: browserTabs.isAvailable(in: controller.pane))
         // Another machine that is not connected says so (cx-2cob).
         if route == .refuseNotConnected {
             child?.close()
@@ -147,7 +128,7 @@ struct PaneBrowserTabOpener {
             })
             return true
         }
-        guard Self.allowsSessionLocalTab(url: url, requested: requested) else {
+        guard BrowserTabRoute.allowsSessionLocalTab(url: url, requested: requested) else {
             child?.close()
             services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
             return false
