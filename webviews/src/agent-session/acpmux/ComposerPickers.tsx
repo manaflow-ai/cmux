@@ -24,7 +24,7 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
-import { useStartMode } from "./startMode";
+import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
@@ -650,7 +650,14 @@ export function ComposerPickers({
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
   // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
-  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  // The access chip holds its place from the first frame of a chat that has not reported its modes
+  // (Leo 2026-10-23, the New Tab: "why is this thing still not showing on the very beginning ... It
+  // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
+  // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
+  // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  const startMode: KeptStartMode | undefined =
+    startAnswer ?? (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -882,6 +889,9 @@ export function ComposerPickers({
   );
   return chips;
 }
+
+/// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
+const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a
