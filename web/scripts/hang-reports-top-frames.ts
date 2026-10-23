@@ -143,7 +143,10 @@ function printText(reports: readonly StoredReport[], groups: readonly HangGroup[
   console.log(`${reports.length} reports from ${installs} installs, last ${options.days} days`);
   console.log("");
   groups.slice(0, options.limit).forEach((group, index) => {
-    console.log(`#${index + 1}  ${group.count} hangs, ${group.installs} installs, p50 ${group.p50DurationMs} ms, p95 ${group.p95DurationMs} ms`);
+    const durations = group.p50DurationMs === null
+      ? "no MetricKit durations"
+      : `MetricKit p50 ${group.p50DurationMs} ms, p95 ${group.p95DurationMs} ms (n=${group.metrickitHangs})`;
+    console.log(`#${index + 1}  ${group.installs} installs, ${group.count} hangs, ${durations}, watchdog >=2s ${group.watchdogHangs}`);
     console.log(`    kinds: ${counts(group.kinds)}   sources: ${counts(group.sources)}`);
     console.log(`    builds: ${counts(group.appBuilds)}`);
     for (const frame of group.frames) console.log(`      ${frameText(frame, symbols)}`);

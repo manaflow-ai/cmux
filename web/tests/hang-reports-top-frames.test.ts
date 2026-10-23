@@ -44,30 +44,59 @@ describe("hang report top frames", () => {
     expect(signatureFrames(apple)).toEqual(apple.slice(0, 5));
   });
 
-  test("groups hangs from both sources with counts, installs, percentiles, kinds and builds", () => {
+  test("groups hangs from both sources; percentiles use MetricKit durations only", () => {
     const reports = [
       report("install-a", "100", [
-        { source: "metrickit", kind: "hang", durationMs: 2000, frames: [kernel, ours(0x40)] },
+        { source: "metrickit", kind: "hang", durationMs: 2500, frames: [kernel, ours(0x40)] },
+        { source: "metrickit", kind: "hang", durationMs: 9000, frames: [ours(0x40)] },
         { source: "watchdog", kind: "stall", durationMs: 300, frames: [appKit, ours(0x40)] },
       ]),
       report("install-b", "101", [
-        { source: "watchdog", kind: "hang", durationMs: 4000, frames: [ours(0x40)] },
-        { source: "watchdog", kind: "stall", durationMs: 260, frames: [appKit] },
+        // A watchdog hang's duration is a ~2 s lower bound: counted, never a percentile input.
+        { source: "watchdog", kind: "hang", durationMs: 60_000, frames: [ours(0x40)] },
+        { source: "watchdog", kind: "hang", durationMs: 2000, frames: [appKit] },
       ]),
     ];
     const groups = groupHangs(reports);
     expect(groups).toHaveLength(2);
     expect(groups[0]).toMatchObject({
       signature: "cmux NEXT+0x40",
-      count: 3,
+      count: 4,
       installs: 2,
-      p50DurationMs: 2000,
-      p95DurationMs: 4000,
-      kinds: { hang: 2, stall: 1 },
-      sources: { metrickit: 1, watchdog: 2 },
-      appBuilds: { "100": 2, "101": 1 },
+      p50DurationMs: 2500,
+      p95DurationMs: 9000,
+      metrickitHangs: 2,
+      watchdogHangs: 1,
+      kinds: { hang: 3, stall: 1 },
+      sources: { metrickit: 2, watchdog: 2 },
+      appBuilds: { "100": 3, "101": 1 },
     });
-    expect(groups[1]).toMatchObject({ signature: "AppKit+0x10", count: 1, installs: 1 });
+    expect(groups[1]).toMatchObject({
+      signature: "AppKit+0x10",
+      count: 1,
+      installs: 1,
+      p50DurationMs: null,
+      p95DurationMs: null,
+      metrickitHangs: 0,
+      watchdogHangs: 1,
+    });
+  });
+
+  test("ranks groups by distinct installs, then by hang count", () => {
+    const hang = (frames: readonly StoredFrame[]) => ({ source: "metrickit", kind: "hang", durationMs: 2100, frames });
+    const reports = [
+      // One Mac hits signature A ten times.
+      report("solo", "1", Array.from({ length: 10 }, () => hang([ours(0xa)]))),
+      // Three Macs hit signature B once each; two of them also hit C once.
+      report("m1", "1", [hang([ours(0xb)]), hang([ours(0xc)])]),
+      report("m2", "1", [hang([ours(0xb)]), hang([ours(0xc)]), hang([ours(0xc)])]),
+      report("m3", "1", [hang([ours(0xb)])]),
+    ];
+    expect(groupHangs(reports).map((group) => [group.signature, group.installs, group.count])).toEqual([
+      ["cmux NEXT+0xb", 3, 3],
+      ["cmux NEXT+0xc", 2, 3],
+      ["cmux NEXT+0xa", 1, 10],
+    ]);
   });
 
   test("merges stall histograms and interval histograms across reports", () => {

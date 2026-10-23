@@ -9,6 +9,15 @@
  * framework missing from the list shows up as ours; add it to the list).
  * A hang's signature is its first five frames that are ours, innermost first;
  * a hang with no frame of ours uses its first five frames.
+ *
+ * Durations. Only MetricKit hangs carry a measured duration. A watchdog
+ * `hang` is reported when the main thread has been stuck for 2 s, so its
+ * duration is a lower bound near 2000 ms: those are counted as
+ * `watchdogHangs` ("watchdog >=2s") and never enter p50/p95. Watchdog
+ * stalls are counted in `kinds` and `sources` only.
+ *
+ * Ranking. Groups are ranked by distinct installs, then by hang count, so
+ * one Mac that hangs often does not outrank a hang many people hit.
  */
 
 export type StoredFrame = {
@@ -52,8 +61,14 @@ export type HangGroup = {
   readonly frames: readonly StoredFrame[];
   readonly count: number;
   readonly installs: number;
-  readonly p50DurationMs: number;
-  readonly p95DurationMs: number;
+  /** Nearest-rank p50 of MetricKit hang durations, or null when the group has none. */
+  readonly p50DurationMs: number | null;
+  /** Nearest-rank p95 of MetricKit hang durations, or null when the group has none. */
+  readonly p95DurationMs: number | null;
+  /** MetricKit hangs in the group (the hangs that have a measured duration). */
+  readonly metrickitHangs: number;
+  /** Watchdog hangs: stuck for at least 2 s, duration not measured. */
+  readonly watchdogHangs: number;
   readonly kinds: Readonly<Record<string, number>>;
   readonly sources: Readonly<Record<string, number>>;
   readonly appBuilds: Readonly<Record<string, number>>;
@@ -115,7 +130,9 @@ export function percentile(values: readonly number[], fraction: number): number 
 
 type GroupAccumulator = {
   frames: readonly StoredFrame[];
-  durations: number[];
+  count: number;
+  metrickitDurations: number[];
+  watchdogHangs: number;
   installs: Set<string>;
   kinds: Map<string, number>;
   sources: Map<string, number>;
@@ -126,7 +143,7 @@ function bump(map: Map<string, number>, key: string, by = 1): void {
   map.set(key, (map.get(key) ?? 0) + by);
 }
 
-/** Group every hang of every report by signature, most frequent first. */
+/** Group every hang of every report by signature, ranked by distinct installs, then hang count. */
 export function groupHangs(reports: readonly StoredReport[]): HangGroup[] {
   const groups = new Map<string, GroupAccumulator>();
   for (const report of reports) {
@@ -135,10 +152,12 @@ export function groupHangs(reports: readonly StoredReport[]): HangGroup[] {
       const signature = frames.length > 0 ? frames.map(frameLabel).join(" | ") : "(no frames)";
       let group = groups.get(signature);
       if (!group) {
-        group = { frames, durations: [], installs: new Set(), kinds: new Map(), sources: new Map(), appBuilds: new Map() };
+        group = { frames, count: 0, metrickitDurations: [], watchdogHangs: 0, installs: new Set(), kinds: new Map(), sources: new Map(), appBuilds: new Map() };
         groups.set(signature, group);
       }
-      group.durations.push(hang.durationMs);
+      group.count += 1;
+      if (hang.source === "metrickit") group.metrickitDurations.push(hang.durationMs);
+      else if (hang.source === "watchdog" && hang.kind === "hang") group.watchdogHangs += 1;
       group.installs.add(report.installId);
       bump(group.kinds, hang.kind);
       bump(group.sources, hang.source);
@@ -149,15 +168,17 @@ export function groupHangs(reports: readonly StoredReport[]): HangGroup[] {
     .map(([signature, group]) => ({
       signature,
       frames: group.frames,
-      count: group.durations.length,
+      count: group.count,
       installs: group.installs.size,
-      p50DurationMs: percentile(group.durations, 0.5),
-      p95DurationMs: percentile(group.durations, 0.95),
+      p50DurationMs: group.metrickitDurations.length > 0 ? percentile(group.metrickitDurations, 0.5) : null,
+      p95DurationMs: group.metrickitDurations.length > 0 ? percentile(group.metrickitDurations, 0.95) : null,
+      metrickitHangs: group.metrickitDurations.length,
+      watchdogHangs: group.watchdogHangs,
       kinds: Object.fromEntries(group.kinds),
       sources: Object.fromEntries(group.sources),
       appBuilds: Object.fromEntries(group.appBuilds),
     }))
-    .sort((a, b) => b.count - a.count || b.installs - a.installs || a.signature.localeCompare(b.signature));
+    .sort((a, b) => b.installs - a.installs || b.count - a.count || a.signature.localeCompare(b.signature));
 }
 
 /** Sum histogram buckets with the same bounds, ordered by bounds. */
