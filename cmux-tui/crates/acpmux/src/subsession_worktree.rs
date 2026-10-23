@@ -679,6 +679,26 @@ mod tests {
     }
 
     #[test]
+    fn recovery_does_not_nest_a_worktree_in_a_reappeared_destination() {
+        let (_scratch, repo, home) = repo();
+        let root = home.join("reappeared");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("keep"), "user data").unwrap();
+        let at = sh(&repo, &["rev-parse", "HEAD"]);
+        let by = Instant::now() + std::time::Duration::from_secs(10);
+        let result = add_without_config(
+            &repo.join(".git"),
+            &["--detach", root.to_str().unwrap(), &at],
+            &root,
+            &at,
+            by,
+        );
+        assert!(result.is_err(), "destination appeared meanwhile: {result:?}");
+        assert_eq!(std::fs::read_to_string(root.join("keep")).unwrap(), "user data");
+        assert_eq!(std::fs::read_dir(root).unwrap().count(), 1, "no nested recovery tree");
+    }
+
+    #[test]
     fn a_named_worktree_is_made_once_and_then_found() {
         let (_scratch, repo, home) = repo();
         let made = ensure_worktree_under(&repo, "Lane One", Some("next"), &home).unwrap();
