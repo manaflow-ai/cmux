@@ -22,6 +22,9 @@ test("disk, tailnet, quit and start failures each name their cause", () => {
     ["failed to spawn agent: spawn claude-code-acp ENOENT", "spawn-failed"],
     ["claude-code-acp: command not found", "spawn-failed"],
     ["agent exited with code 137 (SIGKILL)", "agent-exited"],
+    // A tool's start failure in the stderr of an agent that ran is not the agent failing to start.
+    ["agent process closed\nstderr: sh: pnpm: command not found", "agent-exited"],
+    ["agent process exited with code 1\nstderr: failed to start the dev server", "agent-exited"],
     // What the agent's stderr names says more than that it quit.
     ["agent process closed\nstderr: API Error: 529 overloaded_error", "rate-limited"],
     ["agent process closed\nstderr: connect ECONNREFUSED 127.0.0.1:443", "unreachable"],
@@ -327,4 +330,17 @@ test("routes the pane could not read offer nothing, not CodeRouter's setup", asy
   expect(await ownRouteOf(accountsOf({ routes: [] }), "s1").find()).toBeUndefined();
   expect(await ownRouteOf(accountsOf({ routes: [cr] }), "s1").find()).toEqual(cr);
   await expect(ownRouteOf(accountsOf({ error: "nope" }), "s1").find()).rejects.toThrow("acpmux.routesUnread");
+});
+
+test("a failed turn with no prompt row to send again offers no Retry", async () => {
+  const { retryRowId: _, ...row } = failed("agent process closed");
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+        <TurnFooter row={row as never} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("agent-exited");
+  expect(button("Retry")).toBeUndefined();
 });
