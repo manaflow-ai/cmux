@@ -8,8 +8,12 @@
 // in one batched GraphQL query and never the same link twice in a minute; then it asks the host
 // for each answer (`pr.inspect`), a local call that never waits on GitHub. While the host says a
 // read is running, the page asks it again every WAIT_MS (a call to the App, as the hover card
-// does), and a later transcript change registers the list again at most once a minute. The
-// header's pull request (the chat folder's, which the App reads live) wins over the cache.
+// does). A later transcript change registers the list again at most once a minute, and so does
+// each minute the list stays open and shown, so a row the chat no longer touches still follows a
+// merge, a push or a new comment: one batched read per minute for the links gone stale, never one
+// per row. That timer stops when the list closes or unmounts, and skips a minute while the page
+// is hidden. The header's pull request (the chat folder's, which the App reads live) wins over
+// the cache.
 import { useEffect, useSyncExternalStore } from "react";
 import { kindTotals } from "../../../fileKinds";
 import { callChipHost } from "../chips/host";
@@ -28,12 +32,17 @@ export const REGISTER_BATCH = 64;
 export const REGISTER_EVERY_MS = 60_000;
 /// How long the page waits before asking the host again while it reads.
 const WAIT_MS = 1_500;
+/// How long a read may take from its start to its answer: two gh reads run at a time and each may
+/// take AgentChatPullRequestReader's 30 s timeout, so an answer that finished this long after a
+/// close was asked for after it.
+export const READ_SLACK_MS = 60_000;
 
 const registered = new Map<string, number>();
 /// The state the page first saw each pull request in, and when (epoch ms). A row compares that with
 /// when the chat closed it: a read that started before the close and answered after it still says
 /// open, but the page saw it open before the close, so the close stands (the header's own rule,
-/// headerState.stateSince). The host's `fetchedAt` is when a read finished, too late for that.
+/// headerState.stateSince). The host's `fetchedAt` is when a read finished, too late on its own,
+/// so it bounds the time only less READ_SLACK_MS (``stateSince``).
 const firstSeen = new Map<string, { state: string; at: number }>();
 const MAX_SEEN = 500;
 
@@ -43,6 +52,15 @@ function seenSince(url: string, state: string, now: number): number {
   if (!seen && firstSeen.size >= MAX_SEEN) firstSeen.delete(firstSeen.keys().next().value!);
   firstSeen.set(url, { state, at: now });
   return now;
+}
+
+/// When the row's state was true, at the latest: when the page first saw it, but never later than
+/// the host's read could have started (`fetchedAt`, seconds, less READ_SLACK_MS). A cached open
+/// answer read before the chat's close, which the page first sees after it (the list was closed
+/// meanwhile), so stays before the close and cannot reopen the row.
+function stateSince(url: string, state: string, fetchedAt: number | undefined, now: number): number {
+  const seen = seenSince(url, state, now);
+  return typeof fetchedAt === "number" ? Math.min(seen, fetchedAt * 1_000 - READ_SLACK_MS) : seen;
 }
 
 /// Registers the links not registered in the last minute, REGISTER_BATCH to a call, then asks the host
@@ -99,7 +117,7 @@ export function changesStatus(
     ...(failing > 0 ? { failing } : {}),
     // The host's count of those that fail at the base branch's tip too (dimmed on the row).
     ...(failing > 0 && (pr.checks.failingOnBase ?? 0) > 0 ? { failingOnBase: pr.checks.failingOnBase } : {}),
-    ...(pr.state ? { since: seenSince(pr.url, pr.state, now) } : {}),
+    ...(pr.state ? { since: stateSince(pr.url, pr.state, answer.fetchedAt, now) } : {}),
   };
 }
 
@@ -131,8 +149,19 @@ function statusesOf(key: string): ChangesStatuses {
   return cache.value;
 }
 
+/// Registers `urls` again every `every` ms while the page is shown, so a row follows its pull request
+/// while the chat is quiet. Stops when the returned function runs (the list closed or unmounted);
+/// a minute while the page is hidden is skipped, not caught up.
+export function keepChangesFresh(urls: readonly string[], every = REGISTER_EVERY_MS): () => void {
+  const timer = setInterval(() => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    refreshChanges(urls);
+  }, every);
+  return () => clearInterval(timer);
+}
+
 /// What the App's cache has for `urls`, refreshed while `open` when the list or `tick` (the
-/// transcript) changes.
+/// transcript) changes, and each minute it stays open.
 export function useChangesStatuses(urls: readonly string[], open: boolean, tick: unknown): ChangesStatuses {
   const key = open ? urls.join("\n") : "";
   const read = () => statusesOf(key);
@@ -140,6 +169,8 @@ export function useChangesStatuses(urls: readonly string[], open: boolean, tick:
   useEffect(() => {
     if (key) refreshChanges(key.split("\n"));
   }, [key, tick]);
+  // Each minute while open: the host re-reads the links gone stale, in batches.
+  useEffect(() => (key ? keepChangesFresh(key.split("\n")) : undefined), [key]);
   // While the host reads, ask it again: a call to the App, which answers from its cache.
   useEffect(() => {
     if (!key || !reading) return;

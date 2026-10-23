@@ -3,13 +3,15 @@
 // checks from the App's one pull request cache (AgentReplyPullRequests), never from GitHub per
 // row: it registers the list with the host up to sixty-four links to a `link.inspect` (one batched GraphQL
 // read on the host), at most once a minute per link, then asks `pr.inspect` for each answer.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore, type LinkedPullRequest } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import {
+  READ_SLACK_MS,
   REGISTER_BATCH,
   REGISTER_EVERY_MS,
   changesStatus,
+  keepChangesFresh,
   refreshChanges,
   resetChangesStatuses,
   withHeader,
@@ -17,6 +19,8 @@ import {
 import { rowState } from "../src/agent-session/acpmux/inspector/ChangesSection";
 
 afterEach(() => {
+  jest.useRealTimers();
+  setSystemTime();
   setChipHost(undefined);
   resetPullRequestStore();
   resetChangesStatuses();
@@ -153,4 +157,53 @@ test("a row's state counts from when the page first saw it, so a read that answe
   const reopened = changesStatus(open, 5_000)!;
   expect(reopened.since).toBe(5_000);
   expect(rowState(closed, reopened)).toBe("open");
+});
+
+test("a cached open answer read before the chat's close, first seen after it, cannot reopen the row", () => {
+  const url = "https://github.com/acme/a/pull/14";
+  const closed = { url, repo: "acme/a", number: 14, state: "closed" as const, closedAt: 2_000_000, opened: true };
+  // The App read it open at 1_990 s; the chat closed it at 2_000 s while the list was closed; the
+  // list opens at 2_010 s and sees that cached answer for the first time.
+  const stale = changesStatus(
+    { pullRequest: linked({ url, number: 14, state: "open" }), fetchedAt: 1_990, reading: false },
+    2_010_000,
+  )!;
+  expect(stale.since).toBe(1_990_000 - READ_SLACK_MS);
+  expect(rowState(closed, stale)).toBe("closed");
+  // A read that finished more than READ_SLACK_MS after the close started after it: a real reopen.
+  const fresh = changesStatus(
+    {
+      pullRequest: linked({ url, number: 14, state: "open" }),
+      fetchedAt: 2_000 + READ_SLACK_MS / 1_000 + 5,
+      reading: false,
+    },
+    2_070_000,
+  )!;
+  expect(fresh.since).toBe(2_005_000);
+  expect(rowState(closed, fresh)).toBe("open");
+});
+
+test("an open list registers again each minute while the chat is quiet, and stops when it closes", async () => {
+  jest.useFakeTimers();
+  setSystemTime(new Date(1_000_000));
+  const registers: string[][] = [];
+  setChipHost(async (method, params) => {
+    if (method === "link.inspect") registers.push(params.urls as string[]);
+    return method === "pr.inspect" ? { pullRequest: null, reading: false } : {};
+  });
+  const urls = ["https://github.com/acme/a/pull/1", "https://github.com/acme/a/pull/2"];
+  refreshChanges(urls);
+  await Promise.resolve();
+  expect(registers).toEqual([urls]);
+  const stop = keepChangesFresh(urls);
+  setSystemTime(new Date(1_000_000 + REGISTER_EVERY_MS));
+  jest.advanceTimersByTime(REGISTER_EVERY_MS);
+  await Promise.resolve();
+  expect(registers).toEqual([urls, urls]);
+  // Closed: no timer is left to register them again.
+  stop();
+  setSystemTime(new Date(1_000_000 + 3 * REGISTER_EVERY_MS));
+  jest.advanceTimersByTime(2 * REGISTER_EVERY_MS);
+  await Promise.resolve();
+  expect(registers).toEqual([urls, urls]);
 });
