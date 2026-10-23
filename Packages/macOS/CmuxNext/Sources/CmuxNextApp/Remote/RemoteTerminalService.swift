@@ -271,6 +271,22 @@ final class RemoteTerminalService {
         for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.kind == .remoteTerminal { viewClosed(tab) }
     }
 
+    /// Workspaces went into a stash (Save and Close): their remote-terminal
+    /// tabs `tabIDs` stop being followed and drop their surfaces, as a close
+    /// does, but their terminals stay kept on their own sessions, because
+    /// Restore reopens each tab on the same terminal from the stash's record.
+    func stashed(_ tabIDs: [String]) {
+        for tabID in tabIDs {
+            forget(tabID: tabID)
+            services.cache.discardTerminal(tabID)
+        }
+    }
+
+    /// The remote-terminal tabs of `workspace`, every screen.
+    static func remoteTabIDs(in workspace: WorkspaceModel) -> [String] {
+        workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .remoteTerminal }.map(\.id)
+    }
+
     /// The tab closed or moved away: stop following it.
     func forget(tabID: String) {
         live[tabID] = nil

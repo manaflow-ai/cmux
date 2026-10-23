@@ -59,6 +59,22 @@ const devServer = activity(
   1.5,
 );
 
+/** A long shell line Claude runs in the background, still running (Leo 2026-10-21: "is that a
+ * command or a subagent?"). */
+const testRun = activity(
+  [
+    tool("cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test", "execute", "completed", {
+      inputSummary: JSON.stringify({
+        command: "cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test",
+        description: "Run red/green tests",
+        run_in_background: true,
+      }),
+      startedAt: minutesAgo(58.5),
+    }),
+  ],
+  58.5,
+);
+
 /** A Bash call in the background that says what it does, behind a `cd` prefix. */
 const described = activity(
   [
@@ -103,6 +119,13 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
     throw new Error("the tray is the agents chip; no pill beside it");
 };
 
+/** A finished turn folds its work, each subagent's line with it (turns.ts `foldSegments`): open the
+ * turn's Worked for, then wait for what the state shows. */
+const openFold = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
+  await ctx.click({ selector: ".cv-worked" });
+};
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -128,6 +151,15 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "one-command": {
+      note: "One background command: its line says Command before it, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        if (ctx.document.querySelector(".acpmux-agent-line__kind")?.textContent !== "Command")
+          throw new Error("a command's line says Command first");
+      },
+      snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The one that ended left its line in the transcript.",
@@ -264,8 +296,9 @@ export default agentPaneEntry({
       ),
     },
     "finished-line": {
-      note: "A finished turn: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
+      note: "A finished turn, its Worked for opened: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 2);
         if (ctx.document.querySelector(".acpmux-running-tray")) throw new Error("nothing runs: no tray");
       },
@@ -285,6 +318,7 @@ export default agentPaneEntry({
     "failed-line": {
       note: "A subagent that failed says so in the danger color. A stopped one says why when the pane knows: the person stopped it (Stop), or a Send now interrupted its turn; one stopped for a reason the pane cannot know (another client's cancel, Claude's own TaskStop) says none rather than guess. One that did not finish offers Restart on hover.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.cv-subagent-done[data-state="failed"]'));
         const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
         if (!texts.some((text) => text.includes("stopped by you")))
@@ -319,6 +353,7 @@ export default agentPaneEntry({
     "restart-on-hover": {
       note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
       play: async (ctx) => {
+        await openFold(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-restart"));
         (ctx.document.querySelector(".cv-subagent-restart") as HTMLButtonElement).focus();
       },

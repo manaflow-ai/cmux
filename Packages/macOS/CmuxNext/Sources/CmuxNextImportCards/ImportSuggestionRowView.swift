@@ -135,7 +135,7 @@ public final class ImportSuggestionRowView: NSView {
         titleLabel.stringValue = first.title
         // A running, paused, finished or failed import says where it is instead of what was found.
         factsLabel.stringValue = first.status ?? first.facts
-        factsLabel.toolTip = first.benefit
+        factsLabel.themedToolTip = first.benefit
         for button in buttons.arrangedSubviews { buttons.removeArrangedSubview(button); button.removeFromSuperview() }
         let shown = (first.primary.map { [$0] } ?? []) + first.secondary.filter { $0.action != .more && $0.action != .restore }
         actions = shown.enumerated().map { index, item in

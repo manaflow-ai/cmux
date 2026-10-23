@@ -270,10 +270,14 @@ require_target_in_tree() {
   TARGET="$target"
   if [[ "$gate_published" == true ]] && ! tree_published "$key" "$legacy"; then
     if [[ -n "$(exe_suffix)" ]]; then
-      # The Windows build is optional (cmux-tui-artifacts.yml windows_optional),
-      # and trees from before it have none: say what publishes it.
+      # The Windows build is optional (cmux-tui-artifacts.yml windows_optional)
+      # and publishes after the tree (publish-tree-windows), and trees from
+      # before it have none: say what publishes it.
       {
-        echo "error: no Windows daemon published for tree $key ($(tree_asset)); republish with a cmux-tui-pin-* push or dispatch:"
+        echo "error: no Windows daemon published for tree $key ($(tree_asset)). A tree is published before its"
+        echo "  Windows daemon: the same cmux-tui artifacts run adds it (publish-tree-windows) once its"
+        echo "  Windows build ends, so retry a newly published tree in a few minutes. Otherwise republish"
+        echo "  with a cmux-tui-pin-* push or dispatch:"
         echo "  git push origin <commit with this tree>:refs/heads/cmux-tui-pin-<short sha>"
         echo "  gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short sha>"
         echo "  or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."

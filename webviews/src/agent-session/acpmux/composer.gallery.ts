@@ -478,8 +478,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").includes("Opus 5.5"));
         await ctx.waitFor(() => text(`.acpmux-composer-foot ${MODEL_DETAIL}`) === "Medium");
         await ctx.waitFor(() => !text(".acpmux-composer-foot").includes("claude-opus-5-5"));
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".acpmux-context")?.getAttribute("title")?.startsWith("Context: 42% used"),
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".acpmux-context-ring")?.getAttribute("aria-label") === "42% of context used",
         );
       },
     },
@@ -888,7 +889,7 @@ export default agentPaneEntry({
       ready: { draft: "Use the new tokenizer instead" },
     },
     queued: {
-      note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
+      note: "Two prompts waiting for the running turn on the composer's top edge, as ChatGPT and Codex draw them: one muted line each, cut with an ellipsis, a hairline between them, no header and no number. Their actions show on hover.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -938,13 +939,17 @@ export default agentPaneEntry({
     },
     // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
     "queued-actions": {
-      note: "Queued prompts as ChatGPT and Codex show them: each row ends in Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only.",
+      note: "Play: the pointer over a queued prompt shows its actions as ChatGPT and Codex do: Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only. Focus in the row shows them too.",
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
+      play: async (ctx) => {
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
+      },
     },
     "queued-actions-menu": {
       note: "Play: ⋯ on a queued prompt opens the composer menus' glass menu: Edit message, Open in side chat (where the chat opens side chats) and Turn off queueing.",
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
       play: async (ctx) => {
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
         await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
       },
@@ -964,7 +969,7 @@ export default agentPaneEntry({
       },
     },
     "queued-paused": {
-      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait, in order, until Resume (never "Sends after this turn"). A prompt sent meanwhile runs now.',
+      note: "A turn failed with prompts queued: the note names the turn's error, and they wait under it, in order, until Resume. A prompt sent meanwhile runs now.",
       snapshot: (() => {
         const failed = steering(true);
         return {
@@ -1024,7 +1029,7 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
@@ -1290,7 +1295,7 @@ export default agentPaneEntry({
       },
     },
     "context-breakdown": {
-      note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
+      note: "Play: rest the pointer on the context ring after a first message on Codex; the glass card shows the share and tokens used and the window as a bar.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-context",
@@ -1302,8 +1307,8 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: "button.acpmux-context-ring" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-part"));
+        await ctx.hover({ selector: "button.acpmux-context-ring" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card"));
       },
     },
     "slash-menu": {
