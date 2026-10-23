@@ -324,7 +324,6 @@ public final class AgentPageProvider: PageProvider {
             deliveryOverflowed = true
             return
         }
-        // Events already buffered by a reset's onDrop callback precede this pending suffix.
         bufferedEvents.append(contentsOf: uniqueEvents)
     }
 

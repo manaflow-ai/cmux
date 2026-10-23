@@ -81,8 +81,7 @@ final class PageScriptPipeline {
     /// The queue head is advanced before an off-actor render awaits. Keep its drop action here so
     /// reset reports it before later queued envelopes, even though it is no longer in `queue[head...]`.
     private var inFlightDrop: Drop?
-    /// The queue head may be a gate waiting for its reply-side release. Reset opens it even though
-    /// `head` has already advanced past the item.
+    /// Reset opens a gate even though `head` has advanced past the item.
     private var inFlightGate: Gate?
     /// Bumped by ``reset()``: a script rendered for an older generation is not evaluated.
     private var generation: UInt64 = 0
