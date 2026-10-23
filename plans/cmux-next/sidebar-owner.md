@@ -167,7 +167,10 @@ the gap, no row left out of place after drop or cancel).
 
 | Range | Change |
 | --- | --- |
-| this push | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
+| [dcd4316ef5c](https://github.com/manaflow-ai/cmux/commit/dcd4316ef5c) | a595 scrollers (8de6f7f4ef9 red, dcd4316ef5c fix): sidebar list, bands, Priority and hover-card scrollbars fade 0.8 s after a scroll and grow 3 to 7 pt within 20 pt of the edge. Only sidebar file: `SidebarView+Reveal.swift` (pointer enter flashes the shared scroller). Reached the branch without a `Sidebar-Look:` trailer (an old hook copy; its CI run was cancelled); reviewed and logged by the owner. |
+| [b16f04f365e..b671d11b764](https://github.com/manaflow-ai/cmux/compare/b16f04f365e...b671d11b764) | Group drag rewrite: capped card, frozen base, the pointer alone picks the slot; no blue drop line |
+| [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
+| [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
 
 ## Every sidebar package commit, Oct 19-23
 
