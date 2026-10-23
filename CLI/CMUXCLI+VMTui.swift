@@ -826,9 +826,7 @@ extension CMUXCLI {
     }
 
     static var surfaceUsage: String {
-        CMUXDiffViewerLocalization.string(
-            "cli.surface.usage",
-            defaultValue: """
+        """
         Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
                cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>]
                                  [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus] [--json]
@@ -864,7 +862,6 @@ extension CMUXCLI {
         --focus / --no-focus:  focus the opened pane, or open it in the background.
                \(openFocusDefaultHelp)
         """
-        )
     }
 
     static var vmOpenUsage: String {
