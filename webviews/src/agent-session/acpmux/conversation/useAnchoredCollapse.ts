@@ -69,7 +69,8 @@ function scrollerOf(node: HTMLElement): HTMLElement | undefined {
     if ((overflow === "auto" || overflow === "scroll") && at.scrollHeight > at.clientHeight) return at;
   }
   const root = node.ownerDocument.scrollingElement;
-  return root instanceof HTMLElement ? root : undefined;
+  // The node's own window's HTMLElement: a test's DOM (or another document) installs no global one.
+  return view && root instanceof view.HTMLElement ? root : undefined;
 }
 
 /// Keeps `header` where it is drawn now with no transcript to hold it: returns what to call once the
