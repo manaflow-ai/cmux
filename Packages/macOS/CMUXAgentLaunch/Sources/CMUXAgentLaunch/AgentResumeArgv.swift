@@ -537,6 +537,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 in: [parts.executable] + parts.tail,
                 launcher: "codex"
             ) == .provider("subrouter") {
+                // Same identity rule as a bound-marker capture: argv[0] has to
+                // be the captured executable, or this is not that launch.
+                guard capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath) else {
+                    return nil
+                }
                 let clean = SubrouterCodexResumeRouting().removingRoutingArguments(from: preserved)
                 return ["sr", "codex", "resume", sessionId]
                     + codexResumeConfigOverrides(preserved: clean) + clean
