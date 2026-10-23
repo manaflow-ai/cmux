@@ -8,6 +8,12 @@ import CmuxNextSidebar
 import CmuxNextSignposts
 import os
 
+/// This Mac's personal terms (``ImageClassifier/personalTerms()``: NSFullUserName is an
+/// OpenDirectory lookup, slow on a directory-bound Mac). A lazy global, computed once at its first
+/// read, which is a name check on the collector's utility task or a scan on the service actor,
+/// never the main thread at launch.
+private nonisolated let personalTermsOfThisMac = ImageClassifier.personalTerms()
+
 /// The app side of opt-in hang reports (plans/cmux-next/hang-reports-DESIGN.md): follows
 /// `diagnostics.hangReports`, turns the MetricKit subscription and the watchdog sink on and off,
 /// asks once on NIGHTLY through the sidebar's notice card, and opens View Hang Report.
@@ -58,16 +64,15 @@ final class HangReportsController {
         guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables) }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
-        let terms = ImageClassifier.personalTerms()
         let resolver = DyldImageResolver()
-        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: terms),
+        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
                                         resolver: resolver)
         let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) })
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let service = HangReportService(
             store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(endpoint: endpoint),
-            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: terms), identity: InstallIdentity(),
+            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: personalTermsOfThisMac), identity: InstallIdentity(),
             collector: collector,
             environment: HangReportService.Environment(
                 app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
