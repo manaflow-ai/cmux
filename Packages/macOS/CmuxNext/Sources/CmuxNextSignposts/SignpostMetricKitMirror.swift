@@ -15,9 +15,8 @@ public import os
 /// SignpostMetricKitMirror.shared.setOn(settings.hangReports)
 /// ```
 public final class SignpostMetricKitMirror: Sendable {
-    // A declaration of process state the log system owns (like `Signposter.action`): one switch
-    // for every Signposter, set by the hang reports controller.
     /// The mirror every ``Signposter`` reads.
+    // singleton-allow: MetricKit's log handles are process-wide, and Signposter's static per-category handles (read at every action, with no injection path) must all see one switch.
     public static let shared = SignpostMetricKitMirror()
 
     private let on = Atomic<Bool>(false)
