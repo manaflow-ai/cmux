@@ -100,9 +100,37 @@ import Testing
         try FileManager.default.createDirectory(at: cache.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(snapshot).write(to: cache.url)
         #expect(cache.load()?.windows[Self.austin]?.count == 4)
-        #expect(await cache.write(HomeCacheState(snapshot), sequence: 1))
+        #expect(await cache.write(HomeCacheState(snapshot), sequence: 1, writer: Self.writer))
         #expect(FileManager.default.fileExists(atPath: Self.windowFile(cache, Self.austin).path))
         #expect(cache.load()?.windows[Self.austin]?.count == 4)
+    }
+
+    /// Two equal states whose dictionaries were built in different orders (another insertion
+    /// history, another capacity) write the index once. Before, the actor compared the encoded
+    /// bytes, and `JSONEncoder` writes a non-`String`-keyed dictionary's entries (drafts, scroll
+    /// anchors) in hash order, so an equal state rewrote `home.json`.
+    @Test func anEqualStateBuiltInAnotherOrderDoesNotRewriteTheIndex() async throws {
+        let ids = (0..<64).map { ConversationID("conv_\($0)") }
+        var first = HomeCacheState()
+        for id in ids {
+            first.drafts[id] = "draft \(id.rawValue)"
+            first.scroll[id] = HomeScrollAnchor(message: MessageID("\(id.rawValue)-m1"), offset: 3)
+        }
+        var second = HomeCacheState()
+        second.drafts.reserveCapacity(4096)
+        second.scroll.reserveCapacity(4096)
+        for id in ids.reversed() {
+            second.drafts[id] = "draft \(id.rawValue)"
+            second.scroll[id] = HomeScrollAnchor(message: MessageID("\(id.rawValue)-m1"), offset: 3)
+        }
+        #expect(first.drafts == second.drafts && first.scroll == second.scroll)
+
+        let cache = Self.cache()
+        #expect(await cache.write(first, sequence: 1, writer: Self.writer))
+        let index = try Self.inode(cache.url)
+        #expect(await cache.write(second, sequence: 2, writer: Self.writer))
+        #expect(try Self.inode(cache.url) == index, "an equal state rewrote the index")
+        #expect(cache.load()?.drafts == first.drafts)
     }
 
     /// A relaunch reads what is on disk before its first write, so that write rewrites nothing
