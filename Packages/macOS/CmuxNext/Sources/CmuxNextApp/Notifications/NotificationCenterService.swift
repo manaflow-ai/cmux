@@ -317,8 +317,15 @@ final class NotificationCenterService {
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
-        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
-        interacted(trigger, tab: tab)
+        guard let services else { return }
+        if let tab = Self.tab(id: tabID, in: services.daemon.store) {
+            interacted(trigger, tab: tab)
+        } else if let (tab, _) = services.locateTab(tabID) {
+            // A remote (Cloud or SSH) tab: an agent's mark rings there too (``attentionMarks(for:shownTab:)``
+            // reads every machine), and its ring is this app's own state. Its notifications and Mark
+            // as Unread stay with their daemon's own paths.
+            dismissAttention(trigger, tab: tab)
+        }
     }
 
     func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
@@ -341,14 +348,18 @@ final class NotificationCenterService {
         acknowledge(tab)
     }
 
+    /// The person went into a tab an agent marked (a click or a key): its ring has done its job,
+    /// the mark stays until the agent clears it or the page changes.
+    func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
+        guard let attention = tab.attention, trigger == .click || trigger == .keystroke else { return }
+        dismissedAttention[tab.id] = attention.atMs &+ 1
+    }
+
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
     /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
     /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
     private func readMark(_ trigger: NotificationTrigger, tab: TabModel) {
-        // The person went into a tab an agent marked: its ring has done its job, the mark stays.
-        if let attention = tab.attention, trigger == .click || trigger == .keystroke {
-            dismissedAttention[tab.id] = attention.atMs &+ 1
-        }
+        dismissAttention(trigger, tab: tab)
         guard tab.markedUnread, trigger == .click || trigger == .keystroke, let services else { return }
         note("\(trigger.rawValue) read mark \(tab.id)")
         if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
