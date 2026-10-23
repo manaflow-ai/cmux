@@ -138,12 +138,9 @@ public final class AgentPageProvider: PageProvider {
     public func transportDidOpen(_ connection: Int) {
         guard transportConnection != connection else { return }
         transportConnection = connection
-        // Keep a bounded, recoverable bridge-gap queue while healthy. Once an overflow was
-        // signalled, the replacement socket is the authoritative resync and stale partial queues
-        // must not replay ahead of its state.
-        if deliveryOverflowed {
-            bufferedEvents.removeAll(keepingCapacity: true)
-        }
+        // Preserve the bounded gap queue across socket reconnects: it also contains commands and
+        // chrome updates that the transport cannot recreate. Pending replay overflow is reset
+        // below, while a full gap queue remains explicit backpressure until the page resubscribes.
         for id in overflowedPendingListeners {
             pendingEvents.removeValue(forKey: id)
             guard let listener = listeners[id] else { continue }
