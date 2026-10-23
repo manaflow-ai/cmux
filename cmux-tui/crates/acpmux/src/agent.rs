@@ -20,7 +20,7 @@ mod command;
 pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment,
+    host_environment, pinned_preview_format, preview_format,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +164,9 @@ pub struct ChildAgent {
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub.
     retired: std::sync::atomic::AtomicBool,
+    /// The question preview format its command was pinned to, for a direct
+    /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
+    pub preview_format: Option<crate::hub::questions::PreviewFormat>,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -226,6 +229,7 @@ impl ChildAgent {
             order: Mutex::new(()),
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         let mut child = cmd.spawn().with_context(|| format!("spawn agent {name}"))?;
@@ -264,6 +268,7 @@ impl ChildAgent {
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
             retired: std::sync::atomic::AtomicBool::new(false),
+            preview_format,
             #[cfg(windows)]
             job,
         });
@@ -999,6 +1004,7 @@ impl ChildAgent {
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
             retired: std::sync::atomic::AtomicBool::new(false),
+            preview_format: None,
             #[cfg(windows)]
             job: None,
         });

@@ -44,7 +44,9 @@ import AppKit
 
     /// The members' lines of the open groups among `rows` (list coordinates).
     static func lines(_ list: SidebarListView, _ rows: [SidebarRow], frame: ((SidebarRow) -> CGRect)? = nil) -> [SidebarGroupLine] {
-        SidebarGroupLine.lines(rows, colors: list.groups) { frame?($0) ?? list.frame(for: $0) }
+        let lines = SidebarGroupLine.lines(rows, colors: list.groups) { frame?($0) ?? list.frame(for: $0) }
+        // `sidebar.showColors` off: no group color on the lifted card either.
+        return list.model.showsColors ? lines : lines.map { var line = $0; line.color = .none; return line }
     }
 
     /// The lifted card's content: one live row view, or for several rows (a

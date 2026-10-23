@@ -18,6 +18,7 @@ needs `--target machine:vm-…`; without it the run is refused.
 | Cloud Machine Status | `cmux cloud machine-status --target machine:vm-…` |
 | Cloud Machine Ports | `cmux cloud machine-ports --target machine:vm-…` |
 | Cloud Machine Tools | `cmux cloud machine-tools --target machine:vm-…` |
+| Set Up GitHub on This Machine | `cmux cloud setup-github --target machine:vm-…` |
 | Snapshot Cloud Machine | `cmux cloud snapshot-machine --target machine:vm-…` |
 | Fork Cloud Machine | `cmux cloud fork-machine --target machine:vm-…` |
 | Restore Cloud Machine… | `cmux cloud restore-machine --target machine:vm-… --snapshot <id>` |

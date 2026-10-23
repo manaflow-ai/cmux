@@ -174,6 +174,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
+        untyped(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
