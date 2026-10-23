@@ -25,10 +25,12 @@ import os
 /// parked workspaces do not hold a page each. A front that stops being warm counts its minute
 /// from then (`countedAt`), not from its hide. Releases go a few at a time
 /// (`HibernationPlanner.Pace`, counting the ones in flight), as browser pages do, so a switch
-/// that parks a workspace's chats starts no burst of snapshots and retires in its frames. A
-/// connected page that does not say in time what it holds stays, out of the budget for
-/// `HibernationPlanner.keptHold(times:)` (as a browser page the probe kept), so it does not hold
-/// up the chats behind it, and is asked again after that.
+/// that parks a workspace's chats starts no burst of snapshots and retires in its frames. A page
+/// is asked what it holds as it hides, so a release does not wait on a page hidden for minutes
+/// (``leftWith``). A connected page that does not say in time what it holds, then or when it
+/// goes, stays (its frame not taken), out of the budget for `HibernationPlanner.keptHold(times:)`
+/// (as a browser page the probe kept), so it does not hold up the chats behind it, and is asked
+/// again after that.
 ///
 /// A page stays when its tab is pinned (unless the setting includes pinned tabs), its chat's
 /// turn runs or waits on the person (acpmux's turn state, `AgentTurnStateStore`), it is a New
@@ -67,8 +69,24 @@ final class AgentPageHibernation {
     var turnsWatched: () -> Bool = { true }
     /// What the page holds that acpmux does not (attachments, shell text, scroll), kept with its
     /// tab when it lets go; nil when a connected page does not answer (tests set it: their page
-    /// never loads).
+    /// never loads). Asked as the page hides (``pageVisibility(_:visible:)``), not when it goes.
     var wakeState: @MainActor (AgentPaneView) async -> AgentPaneWakeState? = { await $0.wakeState(limit: .seconds(3)) }
+    /// The page as last drawn, held under the pane until the rebuilt page paints; nil when it
+    /// does not answer in time (tests set it: their page never loads).
+    var pageFrame: @MainActor (AgentPaneView) async -> PageFrame? = { await AgentPageHibernation.frame($0) }
+    typealias PageFrame = (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)
+    /// Each hidden page's answer to ``wakeState``, asked at its hide (the ask goes out in the next
+    /// main actor turn, as the pane takes the page out of its window). A hidden page's composer
+    /// and transcript place do not change (nobody can type in it, and a chip still encoding
+    /// reaches the host's kept chips on its own, `keptAttachments.ts`), so the answer holds until
+    /// it shows again. A release asked the page only when it went, a minute to half an hour after
+    /// its hide, by when a hidden web content process may answer late or not at all (background
+    /// throttling, process suspension), so connected chats were kept again and again.
+    private var leftWith: [String: LeftWith] = [:]
+    private struct LeftWith {
+        weak var view: AgentPaneView?
+        let answer: Task<AgentPaneWakeState?, Never>
+    }
     var isPinned: (String) -> Bool = { _ in false }
     /// Hidden chat pages kept live (nil: no budget, the timeout alone).
     var warmPages: () -> Int? = { nil }
@@ -79,7 +97,8 @@ final class AgentPageHibernation {
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     private(set) var releasedCount = 0
-    /// Releases in flight (asking the page for its wake state and frame); tests read it.
+    /// Releases in flight, from the wake state ask until the page is gone or kept (the frame hold
+    /// included); tests read it.
     var releasingCount: Int { releasing.count }
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
@@ -154,12 +173,29 @@ final class AgentPageHibernation {
             shown.insert(key)
             hiddenAt[key] = nil
             kept[key] = nil
+            leftWith[key] = nil
             tabs.launchImages.drop(key)
-        } else if tabs.existingView(key) != nil {
+        } else if let view = tabs.existingView(key) {
             shown.remove(key)
             hiddenAt[key] = now()
+            askWhatItHolds(key, view)
             replan()
         }
+    }
+
+    /// Asks tab `key`'s page what it holds now, as it hides (``leftWith``), unless it cannot go
+    /// (hibernation off, pinned, not a releasable chat). A busy turn may end while it is hidden,
+    /// so that keep does not skip the ask.
+    private func askWhatItHolds(_ key: String, _ view: AgentPaneView) {
+        switch keepsPage(key, onScreen: false) {
+        case nil, .agentBusy?, .agentTurnsUnknown?: break
+        default:
+            leftWith[key] = nil
+            return
+        }
+        let read = wakeState
+        // task-owner: one ask per hide; the release awaits its answer, a show or the page's end drops it
+        leftWith[key] = LeftWith(view: view, answer: Task { @MainActor in await read(view) })
     }
 
     /// Tabs became or stopped being a pane's shown tab, warm or parked (`NeighborTabs.fronts`): a
@@ -179,6 +215,7 @@ final class AgentPageHibernation {
         hiddenAt[key] = nil
         countedAt[key] = nil
         kept[key] = nil
+        leftWith[key] = nil
         store()?.launchImages.drop(key)
     }
 
@@ -189,6 +226,7 @@ final class AgentPageHibernation {
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         countedAt = countedAt.filter { hiddenAt[$0.key] != nil }
         kept = kept.filter { hiddenAt[$0.key] != nil }
+        leftWith = leftWith.filter { hiddenAt[$0.key] != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
         guard let planned = plan() else {
             deadline.cancel()
@@ -288,16 +326,31 @@ final class AgentPageHibernation {
     }
 
     /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
-    /// is still the same hidden page. The release counts as in flight until the page is gone or
-    /// stays, the frame's hold included, so the pace bounds all of a release's work.
+    /// is still the same hidden page. What it holds is its answer from its hide (``leftWith``);
+    /// only a page that gave none then (busy as it hid, or hidden while hibernation was off) is
+    /// asked now. The release counts as in flight until the page is gone or stays, the frame's
+    /// hold included, so the pace bounds all of a release's work.
     private func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
-        let readWake = wakeState
+        let answered = leftWith[key].flatMap { $0.view === view ? $0.answer : nil }
+        let (readWake, readFrame) = (wakeState, pageFrame)
         Task { @MainActor [weak self] in
-            let wake = await readWake(view)
-            let frame = await Self.frame(view)
+            var wake = await answered?.value
+            if wake == nil { wake = await readWake(view) }
+            // A connected page that did not say what it holds (a large attachment still encoding)
+            // stays: letting it go would drop its chips. Its frame is not taken, and it is asked
+            // again after its hold.
+            let keep = wake == nil && view.model.hasHandshake
+            var frame: PageFrame?
+            if !keep { frame = await readFrame(view) }
             guard let self else { return }
-            let released = await finishRelease(key, view, in: tabs, wake: wake, frame: frame)
+            var released = false
+            if keep {
+                kept[key] = (now(), (kept[key]?.times ?? 0) + 1)
+                logger.info("agent page \(key, privacy: .public) kept: no wake state in time (asked at its hide: \(answered != nil, privacy: .public))")
+            } else {
+                released = await finishRelease(key, view, in: tabs, wake: wake, frame: frame)
+            }
             releasing.remove(key)
             // It stays: the next plan decides with it out of flight, and arms its deadline.
             if !released { replan() }
@@ -306,14 +359,7 @@ final class AgentPageHibernation {
 
     /// Lets the page go if it is still due; true when it went.
     private func finishRelease(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore, wake: AgentPaneWakeState?,
-                               frame: (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?) async -> Bool {
-        // A connected page that did not say what it holds (a large attachment still encoding)
-        // stays: letting it go would drop its chips. It is asked again after its hold.
-        if wake == nil, view.model.hasHandshake {
-            kept[key] = (now(), (kept[key]?.times ?? 0) + 1)
-            logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
-            return false
-        }
+                               frame: PageFrame?) async -> Bool {
         // The page may have shown, changed or got busy (a turn started) while it was asked
         // for its frame or the frame was encoded: then it stays, and the next plan decides.
         guard isDue(key, view, in: tabs) else { return false }
@@ -332,6 +378,7 @@ final class AgentPageHibernation {
         tabs.stopCustomizationWhenUnused()
         hiddenAt[key] = nil
         kept[key] = nil
+        leftWith[key] = nil
         releasedCount += 1
         logger.info("released agent page \(key, privacy: .public)")
         return true
@@ -345,7 +392,7 @@ final class AgentPageHibernation {
 
     /// The page as last drawn; nil when it does not answer in time (it then shows its loading
     /// state when it comes back).
-    private static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
+    private static func frame(_ view: AgentPaneView) async -> PageFrame? {
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
             await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }

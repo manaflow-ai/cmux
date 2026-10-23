@@ -292,6 +292,26 @@ Fleet test fixes (2026-10-23, after 04c2a95e2f7):
   Test: `HiddenPageHibernationTests.aMenuWithNoDefaultOptionIsNoEditToTheFieldProbe`.
   `bench_hidden_memory.py` prints the reasons of the live bench pages (`live_kept`).
 
+Review fixes (2026-10-23, after 0d76b05e5d2):
+- The keptHold change removed the head-of-line block but not why a connected
+  chat gave no wake state in 3 s: page script failures map to an empty state,
+  so nil is a timeout, and with perPass 2 at least two chats timed out again and
+  again. A release asked the page only when it went, a minute to half an hour
+  after its hide, when a hidden web content process may answer late or not at
+  all (background throttling, process suspension; differs by macOS). The page
+  is now asked as it hides (`AgentPageHibernation.leftWith`); its hidden
+  composer and transcript place do not change (a chip still encoding reaches
+  the host's kept chips by itself), so the release uses that answer and asks
+  the hidden page only when it gave none. The keptHold backoff stays for a page
+  that is really busy. Test: `aChatThatAnsweredAsItHidGoesWithoutAskingItsHiddenPage`.
+  Not yet measured: run the bench on the fleet and count the
+  `kept: no wake state in time (asked at its hide: ...)` lines per chat.
+- A chat that stays (no wake state) no longer takes a page snapshot first.
+- The tests inject the frame (`AgentPageHibernation.pageFrame`), so every
+  release holds one on every macOS, and the rig captures weakly; `settle`
+  records an issue when a release outlives its cap.
+- `differsFromDefault`: an option in a disabled `<optgroup>` is not enabled.
+
 Wake picture: a hibernated page's JPEG took 10 to 30 ms to decode off the
 main thread after its placeholder entered a window, so a woken tab showed an
 empty pane for those frames. Each large picture now also keeps a decoded

@@ -42,13 +42,27 @@ struct AgentPageHibernationTests {
             turns.watching = true
             let tree = DaemonStore()
             hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
-            tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
-            hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
-            hibernation.turnsWatched = { [unowned self] in self.turns.watching }
+            // Weakly: a release still running after its test must not reach a freed rig.
+            tabs.lookup = { [weak self] key in self?.records[key].map { ($0, tree) } }
+            hibernation.turnState = { [weak self] key in
+                guard let self, let record = self.records[key] else { return nil }
+                return self.turns.state(for: record)
+            }
+            hibernation.turnsWatched = { [weak self] in self?.turns.watching ?? false }
             hibernation.followTurns(turns)
-            hibernation.displace = { [unowned self] key in self.displaced.append(key) }
-            hibernation.now = { [unowned self] in self.start + self.elapsed }
-            hibernation.fronts = { [unowned self] in self.fronts }
+            hibernation.displace = { [weak self] key in self?.displaced.append(key) }
+            let start = start
+            hibernation.now = { [weak self] in start + (self?.elapsed ?? .zero) }
+            hibernation.fronts = { [weak self] in self?.fronts ?? [:] }
+            // The page never loads, so a snapshot of it is nil on some macOS and an image on others:
+            // every release holds this frame instead, on every macOS, without the snapshot's 2 s deadline.
+            let frame = Self.onePixel()
+            hibernation.pageFrame = { _ in frame.map { (image: $0, size: NSSize(width: 1, height: 1), appearance: nil) } }
+        }
+
+        private static func onePixel() -> CGImage? {
+            CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
         }
 
         /// A chat of this Mac on `session`, shown in a pane, then hidden as a pane switches away:
@@ -71,10 +85,12 @@ struct AgentPageHibernationTests {
             hibernation.replan()
         }
 
-        /// Waits for a release in flight (it first asks the page for its frame, for up to 2 s).
-        func settle(until done: () -> Bool) async {
+        /// Waits for the releases in flight to end. A release still running at the cap is a
+        /// failure, not a wait that runs out quietly and lets the release outlive its test.
+        func settle(until done: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
             let deadline = ContinuousClock.now + .seconds(5)
             while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+            if !done() { Issue.record("still waiting after 5 s (\(hibernation.releasingCount) releases in flight)", sourceLocation: sourceLocation) }
         }
     }
 
@@ -90,7 +106,7 @@ struct AgentPageHibernationTests {
 
         // Moderate: half an hour hidden. At 20 minutes both pages stay.
         rig.advance(minutes: 20)
-        await rig.settle { false }
+        await rig.settle { rig.hibernation.releasingCount == 0 }
         #expect(rig.tabs.existingView("tab_quiet") === page)
 
         rig.advance(minutes: 11)
@@ -112,7 +128,7 @@ struct AgentPageHibernationTests {
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .off), pressure: .critical)
         let kept = try rig.hiddenChat("tab_off", session: "s-off")
         rig.advance(minutes: 120)
-        await rig.settle { false }
+        await rig.settle { rig.hibernation.releasingCount == 0 }
         #expect(rig.tabs.existingView("tab_off") === kept, "hibernation off released a page")
         #expect(rig.hibernation.keepsPage("tab_off") == .disabled)
 
@@ -159,7 +175,7 @@ struct AgentPageHibernationTests {
         rig.advance(minutes: 61)
         await rig.settle { rig.tabs.existingView("tab_left") == nil }
         #expect(rig.tabs.existingView("tab_left") == nil, "the hidden chat kept its page")
-        #expect(asked.count == 1, "the page was not asked what it held before it let go")
+        #expect(asked.count == 1, "the page was not asked once (as it hid) what it held before it let go")
 
         let rebuilt = try #require(rig.tabs.view(for: "tab_left"))
         #expect(rebuilt !== page)
@@ -202,7 +218,7 @@ struct AgentPageHibernationTests {
 
         // Half a minute: the person may come straight back, every page stays.
         rig.advance(minutes: 0.5)
-        await rig.settle { false }
+        await rig.settle { rig.hibernation.releasingCount == 0 }
         #expect(rig.tabs.existingView("tab_old") === old, "a chat left half a minute ago let its page go")
 
         // A minute and a half, well short of the 30 minute timeout: the chat past the budget goes.
@@ -297,9 +313,9 @@ struct AgentPageHibernationTests {
         #expect(Set(rig.displaced) == Set(keys.prefix(perPass)), "the chats left longest ago did not go first")
         rig.hibernation.replan()
         #expect(rig.hibernation.releasingCount == perPass, "the next pass did not start")
-        // A release counts as in flight until it ends, its frame's hold included: it used to stop
-        // counting before that hold, so the pace undercounted and this test ended while a release
-        // still ran, which then read the freed Rig's clock and fronts.
+        // A release counts as in flight until it ends, its frame's hold included (every release
+        // here holds the rig's frame): it used to stop counting before that hold, so the pace
+        // undercounted and this test ended while a release still ran.
         await rig.settle { rig.hibernation.releasingCount == 0 }
         #expect(rig.hibernation.releasedCount == 2 * perPass, "a release still ran after it stopped counting as in flight")
     }
@@ -309,12 +325,18 @@ struct AgentPageHibernationTests {
     /// stayed first in the budget order, so every pass asked it again and the chats past the
     /// budget behind it never went. A kept chat now steps out of the budget for
     /// `HibernationPlanner.keptHold`, as a browser page the probe kept: the next chat past the
-    /// budget goes, and the kept one is asked again after its hold.
+    /// budget goes in the same pass, and the kept one is asked again after its hold. A kept page's
+    /// frame is not taken.
     @Test func aChatThatDoesNotSayWhatItHoldsDoesNotHoldUpTheOthers() async throws {
         let rig = Rig()
         let asked = AskedPages()
         rig.hibernation.wakeState = { view in
             asked.count[ObjectIdentifier(view), default: 0] += 1
+            return nil
+        }
+        let framed = AskedPages()
+        rig.hibernation.pageFrame = { view in
+            framed.count[ObjectIdentifier(view), default: 0] += 1
             return nil
         }
         rig.hibernation.warmPages = { 1 }
@@ -332,25 +354,61 @@ struct AgentPageHibernationTests {
         }
         let asks = { quiet.map { asked.count[ObjectIdentifier($0), default: 0] } }
 
-        // The first pass asks the two chats left longest ago; both stay.
+        // Each was asked as it hid (no answer). The first pass asks the two chats left longest ago
+        // again; both stay, and the first one kept starts the chat past the budget behind them in
+        // the same pass.
         rig.advance(minutes: 1.5)
         await rig.settle { rig.hibernation.releasingCount == 0 }
-        #expect(asks() == [1, 1], "the first pass did not ask the two chats left longest ago")
+        #expect(asks() == [2, 2], "the first pass did not ask the two chats left longest ago")
         #expect(rig.tabs.existingView("tab_quiet_a") === quiet[0] && rig.tabs.existingView("tab_quiet_b") === quiet[1],
                 "a connected chat that did not say what it holds let its page go")
-
-        // The next pass (`Pace.interval` later) takes the chat past the budget behind them.
-        rig.hibernation.replan()
-        await rig.settle { rig.hibernation.releasingCount == 0 && rig.tabs.existingView("tab_next") == nil }
+        #expect(quiet.allSatisfy { framed.count[ObjectIdentifier($0)] == nil }, "a chat that stays had its frame taken")
         #expect(rig.tabs.existingView("tab_next") == nil, "the kept chats held up the chat past the budget behind them")
-        #expect(asks() == [1, 1], "the kept chats were asked again before their hold ended")
         #expect(rig.tabs.existingView("tab_recent") != nil, "the chat inside the budget let its page go")
+
+        // Another pass before their hold ends asks them nothing.
+        rig.hibernation.replan()
+        #expect(rig.hibernation.releasingCount == 0, "a pass asked the kept chats again before their hold ended")
+        #expect(asks() == [2, 2])
 
         // After the hold they are asked again.
         rig.advance(minutes: HibernationPlanner.keptHold(times: 1) / 60 + 0.1)
-        await rig.settle { rig.hibernation.releasingCount == 0 && asks() == [2, 2] }
-        #expect(asks() == [2, 2], "the kept chats were not asked again after their hold")
+        await rig.settle { rig.hibernation.releasingCount == 0 && asks() == [3, 3] }
+        #expect(asks() == [3, 3], "the kept chats were not asked again after their hold")
         #expect(rig.tabs.existingView("tab_recent") != nil)
+    }
+
+    /// A release asked a chat what it held only when it went, a minute to half an hour after its
+    /// hide, and a connected chat that did not answer then stayed. A hidden page answers late or
+    /// not at all (background throttling, process suspension), so chats past the budget were kept
+    /// again and again. The page is asked as it hides: a chat that answered then goes with what
+    /// it held, and its hidden page is not asked again.
+    @Test func aChatThatAnsweredAsItHidGoesWithoutAskingItsHiddenPage() async throws {
+        let rig = Rig()
+        let left = AgentPaneWakeState(shell: true, shellText: "make bench")
+        let asked = Asked()
+        rig.hibernation.wakeState = { _ in
+            asked.count += 1
+            // Hidden, it no longer answers.
+            return asked.count == 1 ? left : nil
+        }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_hid", session: "s-hid")
+        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]]))
+        try #require(page.model.hasHandshake, "the reconnect handshake did not run")
+
+        rig.advance(minutes: 31)
+        await rig.settle { rig.hibernation.releasingCount == 0 }
+        #expect(rig.tabs.existingView("tab_hid") == nil, "a chat that said what it held as it hid kept its page")
+        #expect(asked.count == 1, "the release asked the hidden page again")
+
+        let rebuilt = try #require(rig.tabs.view(for: "tab_hid"))
+        #expect(rebuilt !== page)
+        let reply = await rebuilt.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+        let wake = try #require(handshake["wake"] as? [String: Any], "the woken page lost what it held as it hid: \(handshake)")
+        #expect(wake["shell"] as? Bool == true)
+        #expect(wake["shellText"] as? String == "make bench")
     }
 
     /// A chat hidden ten minutes in front of the workspace left last (warm, out of the budget)
@@ -386,7 +444,7 @@ struct AgentPageHibernationTests {
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let page = try rig.hiddenChat("tab_unknown", session: "s-unknown")
         rig.advance(minutes: 61)
-        await rig.settle { false }
+        await rig.settle { rig.hibernation.releasingCount == 0 }
         #expect(rig.tabs.existingView("tab_unknown") === page, "a chat whose turn nobody knows let its page go")
         #expect(rig.hibernation.keepsPage("tab_unknown") == .agentTurnsUnknown)
 
