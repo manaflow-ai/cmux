@@ -891,6 +891,7 @@ export function ModelPicker(props: ModelPickerProps) {
       {quick ? (
         // The compact menu's chip is its Base UI menu button (submenus need one); a press while
         // the full picker is open only closes it.
+        <>
         <QuickModelMenu
           open={quickOpen}
           onOpenChange={(next) => {
@@ -955,7 +956,9 @@ export function ModelPicker(props: ModelPickerProps) {
           )}
         </QuickModelMenu>
         {speed && <FastToggle speed={speed} inline />}
+        </>
       ) : (
+        <>
         <PickerButton
           ref={trigger}
           type="button"
@@ -985,6 +988,7 @@ export function ModelPicker(props: ModelPickerProps) {
           <ChevronIcon />
         </PickerButton>
         {speed && <FastToggle speed={speed} inline />}
+        </>
       )}
       {open && (
         <PickerDialog
