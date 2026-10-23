@@ -55,6 +55,9 @@ public actor AgentSessionAttachClient {
     private let mode: Mode
     private let endpoint: EndpointProvider
     private let requestTimeout: Duration
+    /// The tab's host as its record names it (`registry:<id>`): with the session, the key its
+    /// chat's mode facts are filed under (``AgentBypassSessions``); nil files none.
+    private let tabHost: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
     private var connecting: Task<LineTransport, any Error>?
@@ -78,10 +81,11 @@ public actor AgentSessionAttachClient {
         public init(instance: String?) { self.instance = instance }
     }
 
-    /// `surface`: the tab's surface id in the daemon's store.
-    public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
+    /// `surface`: the tab's surface id in the daemon's store; `tabHost`: its record's host.
+    public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach, tabHost: String? = nil,
                 endpoint: @escaping EndpointProvider) {
         self.surface = surface
+        self.tabHost = tabHost
         self.mode = mode
         self.endpoint = endpoint
         self.requestTimeout = requestTimeout
@@ -92,15 +96,15 @@ public actor AgentSessionAttachClient {
     /// `agent-session-adopt-v1`) goes to ``AgentBypassSessions`` instead.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
-        handler.set { event, line in
+        handler.set { [tabHost] event, line in
             guard event == "agent-session-mode" else { return events(event, line) }
-            AgentBypassSessions.note(.push, of: line)
+            AgentBypassSessions.note(.push, of: line, host: tabHost)
         }
         _ = try await liveTransport()
         var params = page(afterSeq, beforeSeq, limit, kinds)
         if servesAdopt { params["mode_events"] = true }
         let data = try await call(mode.command, params)
-        AgentBypassSessions.note(.attachReply, of: data)
+        AgentBypassSessions.note(.attachReply, of: data, host: tabHost)
         return data
     }
 
