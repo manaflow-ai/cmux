@@ -69,7 +69,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 # Codex over `codex app-server` as an ACP agent, in process
 # (src/codex_app_server.rs). Pinned to an exact commit.
-cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b", default-features = false }
+cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "6e476aa8220e18aad1eaeaabd59659b53f7eca31", default-features = false }
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
