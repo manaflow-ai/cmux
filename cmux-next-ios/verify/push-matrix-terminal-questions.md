@@ -71,3 +71,23 @@ Not run and why:
 Follow-up (not fixed here): each terminal AskUserQuestion also leaves the hook's
 generic "Asked a question: AskUserQuestion / Answered in the terminal" rows in the
 Feed next to the rich card (two per question: PreToolUse and PermissionRequest).
+
+## Rerun on the final head (2026-10-23, `e2349efc8527`, rig `mobile-e2e-termq5`)
+
+| Row | Result | Evidence |
+| --- | --- | --- |
+| One AskUserQuestion with two questions | Pass: exactly one push, `q-90ae2c71d0aa2143` (the Mac's key, recomputed from the daemon's row on the phone side to the same value) | `notify-capture.jsonl` |
+| Long look: Branch "release", Checks "lint" and "docs", Submit, Face ID | Pass: Claude Code got `Which branch next?="release", Which checks should run?="lint, docs"` | `push-matrix/evidence/termq/termq5-longlook.jpg`, `termq5-checked.jpg`, `termq5-answered.jpg`, `termq5-push-multi.mp4` |
+| The same old notification answered while a newer question waits on that tab | Pass: nothing typed (the terminal still shows the new question); the phone says "Not sent to Rig Mac: This was already answered." | `termq5-stale-refused.jpg` |
+
+Failures found and fixed in this round:
+
+4. **One question pushed twice, and the answer then missed.** Claude Code 2.1.309 posts
+   PreToolUse and PermissionRequest for one AskUserQuestion in either order, and
+   PermissionRequest carries no `tool_use_id`. A push named by the tool use came out as
+   `q-<tool>` plus `n-3`, or only `n-2` when the order flipped. The push is now named by
+   an FNV-1a hash of the question's prompts and option labels on both the Mac and the
+   phone (shared vector `q-c2e23c8e74d254a9`), deduped per tab for 30 s
+   (`notify_terminal` tests on rbx; `TerminalQuestionFeedTests` on mini-cmux7s).
+5. **Rig only.** A new rig build is a new Mac device: the phone must be pinned to it
+   (`PUSHPHONE_LAUNCH_ARGS`) and its link id seeded for pairing.
