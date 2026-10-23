@@ -39,7 +39,8 @@ type Launch = () => Promise<{ close(): Promise<void> }>;
 
 /**
  * A browser file's own engine probe (its first launch, inside requireBrowserLane's callback). It
- * resolves true when `launch` gives a browser (closed again). When it fails, where the lane is
+ * resolves true when `launch` gives a browser, closed again (a second close() when the first fails;
+ * a browser that still does not close rejects, never skips). When it fails, where the lane is
  * required (browserLaneRequired) it rejects, naming the launch error, so the file fails rather
  * than reporting tests that never ran (#24458 review); elsewhere it reports why, registers the
  * file's skip and resolves false, and the file registers nothing more. A file probes through
@@ -59,17 +60,30 @@ export async function probeEngineOrSkip(
     skip?: (name: string) => void;
   } = {},
 ): Promise<boolean> {
+  const why = (error: unknown) => String(error).split("\n")[0];
+  let browser: Awaited<ReturnType<Launch>>;
   try {
-    await (await launch()).close();
-    return true;
+    browser = await launch();
   } catch (error) {
-    const reason = String(error).split("\n")[0];
     if (browserLaneRequired(env))
-      throw new Error(`${name}: ${engine} did not launch (${reason}), and the browser lane is required here`);
-    report(`${name}: skipping, ${engine} did not launch here (${reason}); run \`bunx playwright install ${engine}\` if it is missing`);
+      throw new Error(`${name}: ${engine} did not launch (${why(error)}), and the browser lane is required here`);
+    report(`${name}: skipping, ${engine} did not launch here (${why(error)}); run \`bunx playwright install ${engine}\` if it is missing`);
     skip(name);
     return false;
   }
+  // The engine launched, so the file runs. A close() that fails is tried once more; one that fails
+  // again fails the file, required or not, rather than skipping it or leaving the browser to the
+  // step's cleanup unnoticed (#24458 review round 3).
+  try {
+    await browser.close();
+  } catch {
+    try {
+      await browser.close();
+    } catch (error) {
+      throw new Error(`${name}: ${engine} launched but did not close (${why(error)})`);
+    }
+  }
+  return true;
 }
 
 /**

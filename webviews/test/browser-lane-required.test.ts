@@ -5,6 +5,7 @@
 // tested here is the one they run: a file that skips with its own describe.skip fails this test.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { browserLaneRequired, probeEngineOrSkip } from "./support/requireBrowserLane";
 
 /// Playwright's launch timeout: a TimeoutError whose message goes on with the launch's call log.
@@ -98,9 +99,49 @@ test("a browser that launches but does not close is closed again, and never make
 /// probeEngineOrSkip, or a skip of its own (a describe, test or it `.skip`), which would report the
 /// file's tests as passing on GitHub Actions with none run.
 function probedSourceProblems(file: string, text: string): string[] {
-  const code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-  const problems = (code.match(/\b(?:describe|test|it)\.skip(?:If)?\b/g) ?? []).map((skip) => `${file}: ${skip}`);
-  if (!/\bprobeEngineOrSkip\(/.test(code)) problems.push(`${file}: no probeEngineOrSkip call`);
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // The helper's local name, from its import (a same-named function of the file's own is not it).
+  let helper: string | undefined;
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!/(?:^|\/)support\/requireBrowserLane(?:\.ts)?$/.test(statement.moduleSpecifier.text)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (statement.importClause?.isTypeOnly || !bindings || !ts.isNamedImports(bindings)) continue;
+    for (const binding of bindings.elements)
+      if (!binding.isTypeOnly && (binding.propertyName ?? binding.name).text === "probeEngineOrSkip") helper = binding.name.text;
+  }
+  const problems: string[] = [];
+  let probes = false;
+  let shadowed = false;
+  const visit = (node: ts.Node) => {
+    if (helper && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === helper) probes = true;
+    // A declaration of the helper's name past the import shadows it.
+    if (
+      helper &&
+      (ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isParameter(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === helper
+    )
+      shadowed = true;
+    // describe.skip, test.skip, it.skip (and skipIf), called or passed on: `describe.skip(...)`,
+    // `describe.skip.each(...)`, `describe["skip"](...)`.
+    const access = ts.isPropertyAccessExpression(node)
+      ? { object: node.expression, name: node.name.text }
+      : ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)
+        ? { object: node.expression, name: node.argumentExpression.text }
+        : undefined;
+    if (
+      access &&
+      ts.isIdentifier(access.object) &&
+      ["describe", "test", "it"].includes(access.object.text) &&
+      (access.name === "skip" || access.name === "skipIf")
+    )
+      problems.push(`${file}: ${access.object.text}.${access.name}`);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (!probes || shadowed) problems.push(`${file}: no probeEngineOrSkip call`);
   return problems;
 }
 
