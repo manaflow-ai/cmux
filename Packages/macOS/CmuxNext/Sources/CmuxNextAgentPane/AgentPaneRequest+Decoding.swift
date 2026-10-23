@@ -190,6 +190,11 @@ extension AgentPaneRequest {
                 let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
                 let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
                 self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))
+            } else if let started = params?["started"] as? String, started.hasPrefix("/"), started.count <= 4096 {
+                // The project of a chat the person picked and started (a page choice like the agent pick).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.started = started
+                self = .rememberNewTab(pick)
             } else if params?["harnessHint"] as? String == "dismissed" {
                 // Integrate a harness dismissed for good (a page choice like the agent pick).
                 var pick = AgentPaneRememberedPick(agent: "")
@@ -278,7 +283,7 @@ extension AgentPaneRequest {
         case "chat.asks.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
         case "chat.offer.open":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":

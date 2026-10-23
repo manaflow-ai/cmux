@@ -100,6 +100,12 @@ bunx drizzle-kit generate --name <change>       # after editing src/schema.ts
 DATABASE_URL="$(jq -r .database_url /private/path/role.json)" bunx drizzle-kit migrate
 ```
 
+Run migrations as the Worker's own role (`cmux-mobile-api`): it owns the tables and the
+`drizzle` schema, and a role with only `--inherited-roles postgres` is refused. drizzle
+applies only migrations whose journal `when` is later than the last one applied, so two
+branches that each add a migration must not both land with the same index: the second to
+land renumbers its migration (file, journal `idx`, snapshot `prevId`) and takes a later `when`.
+
 ## Test and deploy
 
 ```bash

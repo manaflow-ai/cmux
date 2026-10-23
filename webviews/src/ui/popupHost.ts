@@ -67,14 +67,20 @@ export function createPopupHost(
 ): PopupHost {
   const quiet = (call: "show" | "update" | "hide", params: Record<string, unknown> = {}) =>
     post(call, params).catch(() => undefined);
+  // A page with no entry animations (a New Tab: `data-new-tab`, newtab/noEntry.css) asks the host
+  // to show the panel in one frame (`instant`); its close still fades.
+  const request = (model: PopupModel): Record<string, unknown> =>
+    typeof document !== "undefined" && document.documentElement.hasAttribute("data-new-tab")
+      ? { ...model, instant: true }
+      : { ...model };
   let current: object | null = null;
   return {
     show(model, owner) {
       current = owner;
-      return quiet("show", { ...model });
+      return quiet("show", request(model));
     },
     update(model, owner) {
-      if (owner === current) void quiet("update", { ...model });
+      if (owner === current) void quiet("update", request(model));
     },
     hide(owner) {
       if (owner !== current) return;

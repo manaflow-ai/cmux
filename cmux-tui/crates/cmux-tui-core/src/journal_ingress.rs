@@ -364,6 +364,11 @@ impl JournalIngressCompletion {
 pub(crate) struct QueuedJournalEvent {
     event: JournalIngressEvent,
     completion: Option<JournalIngressCompletion>,
+    /// Sent from a create whose commits defer their disk flush
+    /// ([`crate::workspace_registry::registry_connection::DeferredDurability`]):
+    /// a batch of only such events commits without one; the create's own
+    /// fully synced commit makes them durable before it answers.
+    deferred: bool,
 }
 
 impl QueuedJournalEvent {
@@ -376,7 +381,11 @@ impl QueuedJournalEvent {
         if self.completion.is_some() || next.completion.is_some() {
             return Some(next);
         }
-        self.event.merge_output(next.event).map(|event| Self { event, completion: None })
+        self.event.merge_output(next.event).map(|event| Self {
+            event,
+            completion: None,
+            deferred: false,
+        })
     }
 }
 
@@ -660,14 +669,22 @@ impl JournalIngressSender {
                         occurred_at_ms,
                         bytes: bytes.to_vec(),
                     };
-                    if self.enqueue(sender, QueuedJournalEvent { event, completion: None }).is_err()
+                    if self
+                        .enqueue(
+                            sender,
+                            QueuedJournalEvent { event, completion: None, deferred: false },
+                        )
+                        .is_err()
                     {
                         return;
                     }
                 }
             }
             event => {
-                let _ = self.enqueue(sender, QueuedJournalEvent { event, completion: None });
+                let _ = self.enqueue(
+                    sender,
+                    QueuedJournalEvent { event, completion: None, deferred: false },
+                );
             }
         }
     }
@@ -685,7 +702,7 @@ impl JournalIngressSender {
         }
         let space_epoch = self.state.queue_space_epoch();
         self.state.stats.enqueued(JournalLane::Terminal);
-        match sender.try_send(QueuedJournalEvent { event, completion: None }) {
+        match sender.try_send(QueuedJournalEvent { event, completion: None, deferred: false }) {
             Ok(()) => {
                 if let Some(wake) = &self.wake_sender {
                     match wake.try_send(()) {
@@ -742,6 +759,7 @@ impl JournalIngressSender {
                     deadline,
                     commit_fence: commit_fence.clone(),
                 }),
+                deferred: false,
             },
             deadline,
         )
@@ -791,6 +809,7 @@ impl JournalIngressSender {
                     deadline,
                     commit_fence: commit_fence.clone(),
                 }),
+                deferred: false,
             },
             deadline,
         )
@@ -1141,12 +1160,19 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-                match mux.commit_session_journal_events(
+                // A batch of only deferred creates' commits needs no disk
+                // flush of its own (`registry_connection::DeferredDurability`).
+                let deferred = batch.iter().all(|queued| queued.deferred).then(
+                    crate::workspace_registry::registry_connection::DeferredDurability::enter,
+                );
+                let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
-                ) {
+                );
+                drop(deferred);
+                match committed {
                     Ok(commits) => {
                         let terminal_events =
                             events.iter().filter(|e| e.lane() == JournalLane::Terminal).count();
@@ -2833,6 +2859,7 @@ mod tests {
                 deadline,
                 commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
             }),
+            deferred: false,
         };
         receivers.state.stats.enqueued(JournalLane::Terminal);
         sender.terminal_sender.as_ref().unwrap().try_send(queued).unwrap();
@@ -2844,6 +2871,7 @@ mod tests {
             .try_send(QueuedJournalEvent {
                 event: JournalIngressEvent::TerminalBarrier,
                 completion: None,
+                deferred: false,
             })
             .unwrap();
 
@@ -2889,6 +2917,7 @@ mod tests {
                 .try_send(QueuedJournalEvent {
                     event: JournalIngressEvent::TerminalBarrier,
                     completion: None,
+                    deferred: false,
                 })
                 .unwrap();
         }
@@ -2944,6 +2973,7 @@ mod tests {
                         idempotency_key: format!("batch_probe_{index}"),
                     },
                     completion: None,
+                    deferred: false,
                 })
                 .unwrap();
         }
