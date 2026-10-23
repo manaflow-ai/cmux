@@ -4388,6 +4388,12 @@
       "title" : "Animate Panes",
       "type" : "boolean"
     },
+    "ui.reducedBackgrounds" : {
+      "default" : false,
+      "description" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.",
+      "title" : "Plain Backgrounds",
+      "type" : "boolean"
+    },
     "UpdateChannel" : {
       "description" : "Update channel this device follows.",
       "enum" : [

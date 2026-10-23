@@ -404,6 +404,7 @@
               "appearance.background",
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
+              "ui.reducedBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim"
@@ -11145,6 +11146,61 @@
       "title" : {
         "key" : "settings.appearance.paneBackgrounds",
         "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.ui.reducedBackgrounds.help",
+        "text" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.reducedBackgrounds",
+      "keywords" : [
+        "background",
+        "plain",
+        "reduce",
+        "reduced",
+        "painting",
+        "wallpaper",
+        "glass",
+        "transparency",
+        "backdrop",
+        "art",
+        "simple",
+        "performance"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "reducedBackgrounds"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.reducedBackgrounds",
+        "text" : "Plain Backgrounds"
       },
       "validation" : "portable"
     },
