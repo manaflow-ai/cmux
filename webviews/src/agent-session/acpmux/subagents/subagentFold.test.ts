@@ -389,3 +389,33 @@ test("a known root repairs a historical child parent before drawing it", () => {
       .map(({ id, parent }) => [id, parent]),
   ).toEqual([["review", null]]);
 });
+
+test("a stale root parent on a known child's progress does not promote its grandchild", () => {
+  const fold = new SubagentFold();
+  fold.setRoot("root-native");
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "grandchild", parent: "child" }] });
+  const update = {
+    sessionUpdate: "subagent_progress",
+    _meta: { codex: { collaboration: { tool: "wait", senderThreadId: "child" } } },
+  };
+  seq += 1;
+  fold.reduce(
+    {
+      seq,
+      at: seq * 1000,
+      msg: {
+        method: "session/update",
+        params: {
+          update,
+          _meta: { acpmux: { subagents: [{ id: "grandchild", parent: "root-native", action: "Checking" }] } },
+        },
+      },
+    },
+    update,
+  );
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["child", null],
+    ["grandchild", "child"],
+  ]);
+});

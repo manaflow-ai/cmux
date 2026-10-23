@@ -36,7 +36,7 @@ pub fn is_subagents(params: &Value) -> bool {
 #[derive(Debug, Default)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
-    /// Codex's native id for this session, learned from a collab call. Legacy
+    /// Codex's native id for this session, seeded from session metadata. Legacy
     /// activity metadata can echo this id while a child is running; it is the
     /// root, never a subagent of the child that reported it.
     root_thread: Option<String>,
@@ -256,7 +256,7 @@ impl SubagentTree {
     }
 
     /// Record the native root id once, and repair an out-of-order echo that
-    /// arrived before the root's first collab call identified it.
+    /// arrived before session metadata identified the root.
     fn remember_root(&mut self, id: &str) {
         if self.root_thread.as_deref() == Some(id) {
             return;

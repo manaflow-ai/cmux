@@ -157,7 +157,10 @@ export class SubagentFold {
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) {
       if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
-      const rootRepair = typeof change.parent === "string" && this.rootThreads.has(change.parent);
+      const rootRepair =
+        typeof change.parent === "string" &&
+        this.rootThreads.has(change.parent) &&
+        (sender === undefined || this.rootThreads.has(sender));
       const normalized =
         sender === undefined
           ? rootRepair
