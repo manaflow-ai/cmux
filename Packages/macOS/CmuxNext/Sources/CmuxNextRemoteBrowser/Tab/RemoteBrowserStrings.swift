@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 #if DEBUG
@@ -21,11 +22,11 @@ public nonisolated struct RemoteBrowserStrings {
     /// exit before it listened, or a launch error.
     public static func hostFailure(_ error: any Error) -> String {
         switch error {
-        case let LocalRemoteBrowserHost.Failure.timedOut(seconds, log):
+        case let LocalRemoteBrowserHostFailure.timedOut(seconds, log):
             String(format: String(localized: "remoteBrowser.localHost.timedOut",
                                   defaultValue: "The host did not get ready within %1$d seconds and was stopped. Its log is at %2$@.",
                                   bundle: .module), seconds, log.path)
-        case let LocalRemoteBrowserHost.Failure.exitedBeforeListening(log):
+        case let LocalRemoteBrowserHostFailure.exitedBeforeListening(log):
             String(format: String(localized: "remoteBrowser.localHost.exited",
                                   defaultValue: "The host stopped before it was ready. Its log is at %@.", bundle: .module), log.path)
         default:
