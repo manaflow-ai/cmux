@@ -31,9 +31,10 @@ final class TabFaviconStore {
     @ObservationIgnored private var pending: [Key: Task<Void, Never>] = [:]
     @ObservationIgnored private var failed = LRUCache<Key, Bool>(capacity: 256)
     @ObservationIgnored private let loader: any BrowserFaviconLoading
-    /// Each icon's inline image (``dataURL(_:)``), by icon identity. The entry holds its icon, so
-    /// an identifier is never reused while it is cached; as many entries as icons.
-    @ObservationIgnored private var dataURLs = LRUCache<ObjectIdentifier, (image: TabImage, url: String)>(capacity: 256)
+    /// Each icon's inline image (``dataURL(_:)``), by icon identity, least recently used out. The
+    /// entry holds its icon weakly: a full-size icon the `images` cache dropped is not kept alive
+    /// for an identity check, and an identifier reused by a later icon finds the entry dead.
+    @ObservationIgnored private var dataURLs = LRUCache<ObjectIdentifier, InlinedIcon>(capacity: 256)
     @ObservationIgnored private let encode: (CGImage) -> Data?
 
     /// - Parameters:
@@ -52,10 +53,10 @@ final class TabFaviconStore {
     /// while it is cached, so its encoding is too.
     func dataURL(_ image: TabImage?) -> String? {
         guard let image else { return nil }
-        if let known = dataURLs.peek(ObjectIdentifier(image)), known.image === image { return known.url }
+        if let known = dataURLs.value(for: ObjectIdentifier(image)), known.image === image { return known.url }
         guard let png = encode(Self.inlined(image.cgImage)) else { return nil }
         let url = "data:image/png;base64," + png.base64EncodedString()
-        dataURLs.set((image: image, url: url), for: ObjectIdentifier(image))
+        dataURLs.set(InlinedIcon(image: image, url: url), for: ObjectIdentifier(image))
         return url
     }
 
@@ -127,4 +128,10 @@ final class TabFaviconStore {
             }
         }
     }
+}
+
+/// One icon's inline image in ``TabFaviconStore``'s data URL cache; the icon is held weakly.
+private struct InlinedIcon {
+    weak var image: TabImage?
+    let url: String
 }

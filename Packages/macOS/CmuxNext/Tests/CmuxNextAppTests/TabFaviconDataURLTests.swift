@@ -90,6 +90,37 @@ struct TabFaviconDataURLTests {
         #expect(inlined.width == width && inlined.height == height)
     }
 
+    /// The cache holds 256 icons, least recently used out: an icon every page lists (the open
+    /// tabs') is read on every build and stays, however many other icons pass through (a STRESS
+    /// session's tabs plus 40 history icons plus closed items).
+    @Test func anIconInUseStaysEncodedWhileOthersPassThrough() throws {
+        let encodes = Encodes()
+        let store = Self.store(counting: encodes)
+        let used = try Self.icon(gray: 0.3)
+        _ = store.dataURL(used)
+        var others: [TabImage] = []
+        for index in 0..<600 {
+            let other = try Self.icon(gray: CGFloat(index % 100) / 100)
+            others.append(other)
+            _ = store.dataURL(other)
+            _ = store.dataURL(used)
+        }
+        #expect(encodes.count == 1 + others.count, "the icon in use was encoded again \(encodes.count - 1 - others.count) times")
+    }
+
+    /// The cache keeps an icon's inline image, not the icon: a full-size icon the strip's image
+    /// cache dropped is freed.
+    @Test func theCacheDoesNotKeepAnIconAlive() throws {
+        let store = Self.store(counting: Encodes())
+        weak var gone: TabImage?
+        try {
+            let icon = try Self.icon(gray: 0.7, width: 256, height: 256)
+            gone = icon
+            _ = store.dataURL(icon)
+        }()
+        #expect(gone == nil)
+    }
+
     @Test func noIconHasNoInlineImage() {
         let encodes = Encodes()
         #expect(Self.store(counting: encodes).dataURL(nil) == nil)
