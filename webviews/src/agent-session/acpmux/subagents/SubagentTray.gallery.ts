@@ -316,6 +316,38 @@ export default agentPaneEntry({
         summary(9, { status: "completed", durationMs: 180_000 }),
       ]),
     },
+    "unnamed-line": {
+      note: 'Subagents the harness gave no name, task or description: one reads by its kind ("Subagent failed: Explore"), one with no kind reads "Subagent finished" alone. Never an id, short or raw; the ids are the line\'s tooltip. A named one beside them reads by its name.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 3);
+        const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
+        if (texts.some((text) => /toolu_|01H9|\w\/\w/.test(text))) throw new Error("a row never shows an id");
+      },
+      snapshot: chat([
+        user(prompt, 130),
+        group(
+          [
+            agent("", 129, "completed", {
+              ran: 126,
+              id: "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1",
+              task: undefined,
+              unnamed: true,
+            }),
+            agent("", 129, "failed", {
+              ran: 40,
+              id: "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_02QxL1",
+              task: undefined,
+              kind: "Explore",
+              unnamed: true,
+            }),
+            agent("Fix sr2 privacy gateway", 129, "completed", { ran: 6.5 }),
+          ],
+          129,
+        ),
+        assistant("All three are back: the gateway is fixed.", 2),
+        summary(2, { status: "completed", durationMs: 7_680_000 }),
+      ]),
+    },
     "restart-on-hover": {
       note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
       play: async (ctx) => {
