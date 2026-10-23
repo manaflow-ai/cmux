@@ -1,5 +1,8 @@
 @testable import CmuxNextApp
 import CmuxNextAccounts
+import CmuxNextFilesUI
+import CmuxNextLayout
+import CmuxNextTasks
 import Foundation
 import Testing
 
@@ -7,17 +10,25 @@ import Testing
 ///
 /// B1 (ba5e6df99f9) moved BrowserImportOffer.xcstrings to CmuxNextOnboarding while
 /// BrowserImportOfferStrings stayed in the App, so the offer showed English in every locale; it
-/// put Billing.xcstrings in CmuxNextAccounts with no resource rule. Each case reads the Japanese
-/// text of one key from the strings type's own bundle and expects a translation, not English.
+/// put Billing.xcstrings in CmuxNextAccounts with no resource rule. B1 also moved FileExplorer,
+/// Screens and WorkspaceChecklist. Each case reads the Japanese text of one key from the strings
+/// type's own bundle and expects a translation, not English. A table moved away from its strings
+/// type gets a case here in the same change.
 @Suite struct MovedStringTablesTests {
     enum Table: String, CaseIterable, Sendable {
         case browserImportOffer = "BrowserImportOffer"
         case billing = "Billing"
+        case fileExplorer = "FileExplorer"
+        case screens = "Screens"
+        case workspaceChecklist = "WorkspaceChecklist"
 
         var bundle: Bundle {
             switch self {
             case .browserImportOffer: BrowserImportOfferStrings.bundle
             case .billing: BillingStrings.bundle
+            case .fileExplorer: FileExplorerStrings.bundle
+            case .screens: ScreenStrings.bundle
+            case .workspaceChecklist: WorkspaceChecklistStrings.bundle
             }
         }
 
@@ -26,6 +37,9 @@ import Testing
             switch self {
             case .browserImportOffer: ("browserImportOffer.detail", "Nothing leaves this Mac.")
             case .billing: ("billing.error.notSignedIn", "Sign in to cmux in the cmux app first.")
+            case .fileExplorer: ("fileExplorer.noFolder", "No folder")
+            case .screens: ("screens.bar.accessibility", "Screens")
+            case .workspaceChecklist: ("workspaceChecklist.page.addPlaceholder", "Add an item")
             }
         }
     }
