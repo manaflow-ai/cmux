@@ -345,6 +345,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar. |
 | `sidebar.nowPlaying.otherApps` | boolean | `false` |  | Include Other Apps in Now Playing. Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux. |
 | `tabs.newTabNowPlaying` | boolean | `false` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
+| `media.pictureInPicture.enabled` | boolean | `true` |  | Picture in Picture. Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected. |
 | `tabs.newTabWidgets.greeting` | boolean | `false` |  | Ask What to Work On on New Tab. A headline over the composer that asks what to work on, with the project as a picker. |
 | `tabs.newTabWidgets.projects` | boolean | `false` |  | Show Projects on New Tab. A card of this Mac and its recent projects over the composer. |
 | `tabs.newTabWidgets.actions` | boolean | `false` |  | Show Quick Actions on New Tab. Chats that need you, and New Terminal, New Browser Tab and New Chat. |

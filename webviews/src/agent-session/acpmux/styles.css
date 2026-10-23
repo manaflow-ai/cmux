@@ -99,7 +99,8 @@
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
 .acpmux-context{flex:none}
-.acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
+.acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
+.acpmux-context-ring svg{width:12px;height:12px}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}

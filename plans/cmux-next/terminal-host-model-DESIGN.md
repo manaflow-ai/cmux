@@ -86,6 +86,14 @@ processes and ~2,000 threads fewer.
   thread per terminal; no timers.
 - Per terminal: id (u128), master fd, child pid/pgid, a byte ring (1 MiB) with absolute offsets,
   exit status once reaped.
+- The ring is shared memory (wire v4, holder item 1, 2026-10-23): a `memfd` on Linux, an unlinked
+  `shm_open` object on macOS, header `magic "CMHR" | layout | capacity | base | end` then the data
+  (`cmux-holder/src/ring.rs`). The holder `read`s the PTY straight into it and publishes `end` after
+  each read; SPAWNED, LISTED and ADOPT pass the segment as a second descriptor (`FLAG_RING`) and the
+  daemon keeps a custody dup next to the master's. A holder that dies loses at most the one read
+  whose end it had not published (before: up to 256 KiB of unsent ring plus 1 MiB of queued frames,
+  and the next holder numbered the PTY's next byte as if they had arrived: a silent splice). The
+  daemon never maps the segment; it hands it to the next holder, which continues the same ring.
 - Wire: multiplexed holder-protocol frames, `magic "CMHX" | kind u16 | flags u16 | chan u32 |
   len u32 | payload` (chan = terminal slot). Kinds: HELLO/WELCOME (token, version), SPAWN (argv,
   env, cwd, size; reply SPAWNED with pid and the master fd by SCM_RIGHTS: the daemon's custody
@@ -137,6 +145,24 @@ processes and ~2,000 threads fewer.
   and ADOPTs every fd. Output written while no holder reads waits in the kernel's PTY buffer (the
   shell blocks, nothing is lost). Exit statuses of shells whose parent died read
   `exit-unobserved`, as today's rehost.
+- The replay race at a holder crash (holder item 1, built 2026-10-23): the daemon replays from its
+  last fully parsed and confirmed offset, never from the holder's send offset. Its sink keeps each
+  queued byte's holder offset (runs, so a seed, a prologue or a CAN takes none), a chunk the reader
+  took stays pending until the reader confirms it right after `vt_write`, under the terminal lock
+  (`HolderSink::confirm_parsed`), and ACKs carry that confirmed offset. The hand-off reads the
+  screen replay and the pending bytes at one instant under the same lock (no drain wait; before:
+  a 1 s wait for the queue, then a prologue that claimed `received` while the reader could still
+  hold a taken chunk). ADOPT (v4) then carries `base` = confirmed, `resume` = received, the ring
+  segment, and a prologue of the replay (the OSC 9;4 progress before the parser's pending sequence,
+  which goes last) plus the seed the parser has not finished; the new holder sends this daemon the
+  ring from `resume` (the bytes the dead holder read but never sent) and a restarted daemon the
+  prologue and the ring from `base`. A terminal from an older holder (no ring) gets a segment the
+  daemon makes (`ring::create_segment`) and a prologue of the replay plus every unparsed byte at
+  `received`; a v3 holder gets that prologue without a segment. Residual: a control string larger
+  than the parser's pending-sequence budget (a multi-MiB Kitty upload) open at the crash is not
+  replayed (`vt_replay_resumes_stream` false). Test: `holder_terminals.rs`
+  `a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte` (red on the base: the
+  screen stopped after one 512 KiB credit window and the rest of a 10,000-line flood never came).
 
 ## 6. Slices
 
@@ -160,6 +186,10 @@ processes and ~2,000 threads fewer.
    33.6/52.3 -> 14.1/15.1 ms, unsized split 25.7/47.8 -> 13.5/14.9 ms; 0 host processes.
    Still open: reader, wait and frame threads per terminal (the shared frame producer lands
    from the daemon-speed workstream); default on (slice 4).
+   Holder items 1-3 (2026-10-23): wire v4 shared rings and the confirmed-offset hand-off (section
+   5); the standalone frozen `cmux-holder` binary, bundled beside `bin/cmux` and started from its
+   content-addressed copy, adopting older holders by wire version (pty-holder.md 2); first-text
+   timing in holder mode (`debug_spans::output_marks`, new-terminal-100x `host_model=`).
 3. G5 binary attach frames and the in-band resize marker (with PL-ghostty's decode).
 4. Default on; old `__terminal-host` processes keep their client until none is left (pty-holder 2.2).
 

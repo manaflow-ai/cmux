@@ -528,6 +528,7 @@
     "setting.markdown.spacing.paragraph": 1,
     "setting.markdown.tables": "scroll",
     "setting.markdown.theme": "app",
+    "setting.media.pictureInPicture.enabled": true,
     "setting.mobile.allowIPhoneConnections": false,
     "setting.navigation.history.scope": "workspaces",
     "setting.navigation.historyScope": "workspace",

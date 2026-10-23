@@ -82,6 +82,11 @@ impl Surface {
             #[cfg(unix)]
             holder,
         } = launch;
+        // A holder terminal's reader confirms each chunk it parsed under the
+        // terminal lock, so a hand-off to a new holder after a holder crash
+        // reads the screen and what is still unparsed at one instant.
+        #[cfg(unix)]
+        let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
         // runs under the terminal lock; writing to the pty from inside it
@@ -323,6 +328,10 @@ impl Surface {
                                 &buf[..n],
                                 &mut shell_marks,
                             );
+                            #[cfg(unix)]
+                            if let Some(sink) = parsed_sink.as_ref() {
+                                sink.confirm_parsed();
+                            }
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
                                 mux.upgrade()

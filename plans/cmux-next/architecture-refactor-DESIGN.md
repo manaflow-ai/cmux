@@ -148,9 +148,12 @@ Host protocols, below 40k after Handlers/Pages/Control, and wiring only after th
 148 `shared` declarations, three kinds:
 
 1. **Name catalogs and stateless handles** (DaemonCapabilities 503 reads, ContextMenuCatalog,
-   OSSignposter holders): declarations, allowed by CLAUDE.md. DaemonCapabilities becomes static
-   typed constants (`DaemonCapability.batchClose`) so the reads stop looking like a singleton;
-   no injection.
+   OSSignposter holders): declarations, allowed by CLAUDE.md; the Mirror export test is the
+   derived list CLAUDE.md asks for. The 503-read rewrite is not perf work and is not scheduled;
+   if it happens later, use `enum DaemonCapability: String, CaseIterable` (`allCases` replaces
+   the Mirror) and a mechanical rewrite of the reads. Its one piece of state, the locked
+   `echoesPlacementShift` static, is gone (review 2): it is a `DaemonConnectionConfiguration`
+   field the composition root sets.
 2. **Process-wide state** (DesignSettings 170, CEFRuntime 70, ThemeStore 40, GhosttyRuntime 39,
    CmuxToastCenter 38, LinkRouter 36, CmuxDialogCenter 36, NewTerminalTrace, WakeupLedger,
    ExpectedActivity, TunableStore, KeepAwakeService, caches with mutable state): constructed once

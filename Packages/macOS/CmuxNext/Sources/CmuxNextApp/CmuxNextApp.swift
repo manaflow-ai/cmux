@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
 
@@ -12,6 +13,7 @@ public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
         DebugTimings.markLaunch("main_start")
+        announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -44,7 +46,8 @@ public struct CmuxNextApp {
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                                              resolvesShellIntegration: environment.resolvesShellIntegration)
+                                              resolvesShellIntegration: environment.resolvesShellIntegration,
+                                              echoesPlacementShift: SidebarMirror.isLinked)
         DebugTimings.markLaunch("main.prestart")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()

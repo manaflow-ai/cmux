@@ -195,6 +195,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux",
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
         "Contents/Resources/bin/cmux-tui-host",
+        "Contents/Resources/bin/cmux-holder",
         "Contents/Resources/bin/cmux-app-host",
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",

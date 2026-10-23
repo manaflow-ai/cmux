@@ -194,11 +194,8 @@ def cleanup():
 
 def main():
     global app, SOCKET
-    if os.path.exists(SOCKET):
-        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
-        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
-        os.remove(SOCKET)
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
