@@ -24,10 +24,6 @@ public final class SidebarMirror {
         public var code: String
     }
 
-    /// The records of the items intents added and no batch confirmed yet, by id (`addedItems(in:)`): the rows name a
-    /// pending item before the confirmed records hold it (`SidebarDocRecords.adding`).
-    public internal(set) var added: [String: SidebarDocItem] = [:]
-
     #if CMUX_SIDEBAR_MIRROR_FFI
     /// The mirror handle. Used on the main actor only; the deinit frees it once nothing else can.
     // crash-allow: the handle is never shared; only the owning mirror (main actor) and its deinit touch it.
@@ -160,7 +156,6 @@ public final class SidebarMirror {
             throw Refusal(code: "unavailable")
         }
         guard reply.ok else { throw Refusal(code: reply.refusal ?? "unavailable") }
-        added.merge(Self.addedItems(in: reply.ops ?? intent.ops)) { _, new in new }
         return reply.ops
     }
 

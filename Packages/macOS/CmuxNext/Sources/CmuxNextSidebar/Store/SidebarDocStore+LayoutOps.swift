@@ -45,9 +45,9 @@ extension SidebarDocStore {
 /// the earlier ops of one list change it.
 @MainActor
 private struct LayoutOpPlanner {
-    /// The records as drawn: a pending built-in too (it moves and comes off before its echo).
+    /// The records as drawn: a pending Chief too (it moves and comes off before its echo).
     let records: SidebarDocRecords
-    /// The confirmed records: an edit of an item's own fields waits for its echo (`addedItems` keeps no patch).
+    /// The confirmed records: an edit of an item's own fields waits for its echo (a pending Chief's record is only its row).
     let confirmed: SidebarDocRecords
     let shown: SidebarDocProjection?
     let layout: SidebarLayoutDocument

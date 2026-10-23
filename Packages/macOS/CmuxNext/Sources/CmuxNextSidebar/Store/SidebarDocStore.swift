@@ -36,7 +36,7 @@ public final class SidebarDocStore {
     /// `show`, a hop later.
     @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
 
-    @ObservationIgnored let mirror: SidebarMirror?
+    @ObservationIgnored private let mirror: SidebarMirror?
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }

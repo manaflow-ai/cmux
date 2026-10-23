@@ -91,15 +91,17 @@ enum SidebarSectionHandlers {
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
-            // One Chief: one placed already, drawn before its echo too (a second quick drag in, Get in another window), is kept.
+            // One Chief: one placed already, drawn before its echo too (a second quick drag in, Get in another window), is
+            // kept. Its item id is the Chief's own (`chiefItemID`): the daemon refuses a second one in any race.
             if ref == .builtIn(.chief), SidebarDocStore.current?.placesItem(with: ref) == true { return nil }
+            let id: LayoutItemID = ref == .builtIn(.chief) ? SidebarLayoutDocument.chiefItemID : .mint()
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
-                return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
+                return .itemAdd(LayoutItem(id: id, ref: ref), section: section.id, index: Int.max)
             }
             // The account shows as its avatar (no label) by default.
             return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
-                                            showsLabel: builtIn != .account)
+                                            showsLabel: builtIn != .account, newItem: id)
         }
         // Edit mode (SidebarView+EditItems): the window's sidebar wiggles, or stops.
         registry.bind("sidebar.edit") { services.windows.active?.sidebar.container.toggleEditingItems() }

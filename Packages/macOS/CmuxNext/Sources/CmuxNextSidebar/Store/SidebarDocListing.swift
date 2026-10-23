@@ -204,7 +204,7 @@ extension SidebarDocStore {
         guard let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return false }
         return rows.contains { row in
             guard let id = row.item else { return false }
-            return (records.items[id] ?? mirror?.added[id]).map { SidebarDocProjection.ref($0.body, id: id) } == ref
+            return (records.items[id].map { SidebarDocProjection.ref($0.body, id: id) } ?? Self.pendingRef(id)) == ref
         }
     }
 
