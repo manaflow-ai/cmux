@@ -50,6 +50,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: a left mouse-up after AppKit dispatched it.
+    var mouseUpObserver: ((NSEvent) -> Void)?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -111,6 +113,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             super.sendEvent(event)
         }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
+        if event.type == .leftMouseUp { mouseUpObserver?(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }

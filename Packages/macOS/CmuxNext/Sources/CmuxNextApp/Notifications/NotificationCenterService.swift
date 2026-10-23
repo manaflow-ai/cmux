@@ -45,6 +45,9 @@ final class NotificationCenterService {
     /// Tabs read because the person went into their pane (a click, a key, an
     /// open), until the layout takes them for the ring's dismiss flash.
     @ObservationIgnored var entryReads: Set<String> = []
+    /// A press on a pane's tab strip, read on its mouse-up unless it dragged
+    /// (`NotificationCenterService+StripPress`).
+    @ObservationIgnored var stripPress: StripPress?
     /// Agent chat tabs whose turn ended, by the generation of their ring: the pane rings until
     /// the person goes into it (acpmux reads a turn that ends in a shown chat at once, so no
     /// notification marks it). Observed: the attention marks follow it.
@@ -205,8 +208,15 @@ final class NotificationCenterService {
     /// A mouse-down landed in `window` at `location` (window coordinates,
     /// after AppKit dispatched it): reads the pane under the pointer, never
     /// another one, so a ring stays until its own pane is clicked. A click
-    /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing.
+    /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing. A
+    /// press on a pane's tab strip waits for its mouse-up (``noteMouseUp(_:)``):
+    /// it may start dragging the tab or the pane, and the ring goes with it.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
+        stripPress = nil
+        if let window, Self.pressesTabStrip(in: window, at: location) {
+            stripPress = StripPress(window: window, location: location, screenLocation: window.convertPoint(toScreen: location))
+            return
+        }
         guard let tab = clickedTab(in: window, at: location) else { return }
         interacted(.click, tabID: tab)
     }

@@ -553,6 +553,9 @@ final class AppServices {
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
+        (NSApp as? CmuxApplication)?.mouseUpObserver = { [weak self] event in
+            self?.notifications.noteMouseUp(in: event.window, at: event.locationInWindow)
+        }
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
