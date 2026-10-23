@@ -235,7 +235,8 @@
    --acpmux-box-lead from the left, which puts its glyph 16 px in, Claude desktop's (Leo
    2026-10-20, measured). No fill at
    rest; the soft pill shows under the pointer and while its menu is open, never as press feedback
-   (Leo 2026-10-19). A narrower row changes these tokens, never a control.
+   (Leo 2026-10-19). A narrower row changes these tokens, never a control:
+   scripts/cmux-next/check-composer-pills.py fails a composer rule that sizes a pill itself.
    The values are the "even" variant of the gallery's agent-pane.composer-row pills-* variants (a
    label's pill as far from its text at the sides as above and below it, and a one-line box 44 px
    tall, Claude desktop's); "tight" and "roomy" are there to compare. */
