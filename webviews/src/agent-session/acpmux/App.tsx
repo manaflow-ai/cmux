@@ -63,7 +63,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { PageDots } from "./newtab/PageDots";
-import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
+import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -8248,14 +8248,17 @@ function AcpmuxPane() {
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: the composer's two looks, then with the style dots on (on
-            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
-            // (newtab/PageDots.tsx); a pick shows in place at once.
+            // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
+            // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
+            // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
+            // other styles (newtab/PageDots.tsx); a pick shows in place at once.
             <PageDots
               template={shownTemplate(newTab)}
               styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+              actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
+              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -8304,10 +8307,7 @@ function AcpmuxPane() {
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
-                  show: (done) =>
-                    setNewTab(
-                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
-                    ),
+                  show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                 })
               }
               snapshot={newTabSnapshot}
