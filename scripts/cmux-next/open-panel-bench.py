@@ -15,8 +15,8 @@ frame interval from the click until 300 ms after it showed (frames.max_ms) with 
 
 The first open of each session (right after the launch, right after the STRESS build) may still run during launch or
 build work: no app-side signal says that work has ended. It is marked `first_open`, printed on its own OPEN-PANEL-FIRST
-row and kept in `first_opens`, and left out of the session's percentiles; each OPEN-PANEL row says how many opens it
-summarizes (`n`). Later opens can still overlap launch work that lasts longer than one open.
+row and kept in `first_opens` (the whole run but its frame intervals: times, error, made_ahead_before, prompt_nil,
+missed), and left out of the session's percentiles; each OPEN-PANEL row says how many opens it summarizes (`n`). Later opens can still overlap launch work that lasts longer than one open.
 
 Usage: open-panel-bench.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 5]
 Fleet: scripts/measure/split-spring.sh --suite=open-panel [--sessions=...] [--rounds=N]
@@ -76,7 +76,9 @@ def measure(app, session, report, opts):
                        session=session, round=index, first_open=first_open)
             if first_open:
                 first_open = False
-                first = {"session": session, "mode": mode, **{k: run[k] for k in TIMES}, "refresh_ms": run["refresh_ms"]}
+                # The whole run but its frame intervals (they stay in report["runs"]): this row is the only place the
+                # first open shows, so a dead panel's error or a panel not made ahead must show here too.
+                first = {k: v for k, v in run.items() if k != "intervals_ms"}
                 report.setdefault("first_opens", []).append(first)
                 print("OPEN-PANEL-FIRST " + json.dumps(first), flush=True)
             runs.append(run)
