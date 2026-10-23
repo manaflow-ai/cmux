@@ -79,6 +79,14 @@ check() {  # <order> <Contents/Resources>
   for dir in ghostty terminfo cmux-cli-path bin libexec; do
     [[ ! -e "$res/$dir" || -d "$res/$dir" ]] || { echo "FAIL ($1): $dir is a flat file, not a directory" >&2; fail=1; }
   done
+  # The classic app's shell integration (Resources/shell-integration), which no
+  # cmux-next shell sources, is not copied flat either: each of its files is a
+  # membership exception, not only the folder.
+  local classic name
+  while IFS= read -r classic; do
+    name=$(basename "$classic")
+    [[ ! -e "$res/$name" ]] || { echo "FAIL ($1): the classic $classic is copied flat as $name" >&2; fail=1; }
+  done < <(cd "$ROOT/Resources" && find shell-integration -type f ! -name .DS_Store)
 }
 
 # Xcode: the Resources phase, then the script phase.
