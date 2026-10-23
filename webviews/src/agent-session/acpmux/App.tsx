@@ -3991,6 +3991,7 @@ function AcpmuxPane() {
       ),
     [clientSnapshot, switchView, catalog],
   );
+  const queueIds = useMemo(() => snapshot.queue.map((entry) => entry.id), [snapshot.queue]);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
@@ -7587,7 +7588,7 @@ function AcpmuxPane() {
                                                   // Quick Chat's panel stacks its composer below the transcript.
                                                   dock={quick ? undefined : dock}
                                                   queueWithdrawn={snapshot.queueWithdrawn}
-                                                  queueIds={quick ? undefined : snapshot.queue.map((entry) => entry.id)}
+                                                  queueIds={quick ? undefined : queueIds}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows
