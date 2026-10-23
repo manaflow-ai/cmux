@@ -122,7 +122,7 @@ test("an envelope whose other parts a double would change, or nest too deep, sho
   expect(prettyOutput(nested)).toBe(nested);
 });
 
-test("the opened MCP call reads an envelope that holds more than text exactly as the row does", () => {
+test("the opened MCP call reads an envelope that holds more than text as the row does, nested ones included", () => {
   for (const output of [
     JSON.stringify({ content: [], structuredContent: {} }),
     JSON.stringify({
@@ -136,11 +136,25 @@ test("the opened MCP call reads an envelope that holds more than text exactly as
       structuredContent: { raw: '{"id":9007199254740993}' },
     }),
     JSON.stringify({ error: { code: -32000, message: "Failed", data: { body: '{"nested":true}' } } }),
+    // An envelope inside an envelope: Codex output and a JSON-RPC result holding a whole MCP result.
+    JSON.stringify({
+      output: JSON.stringify({ content: [{ type: "text", text: "Saved" }], structuredContent: { ok: true } }),
+      metadata: { exit_code: 0 },
+    }),
+    JSON.stringify({
+      result: '{"content":[{"type":"text","text":"Found"}],"structuredContent":{"id":9007199254740993}}',
+      error: null,
+    }),
   ]) {
     expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
   }
   const raw = { content: [{ type: "text", text: "Saved" }], structuredContent: { raw: '{"id":9007199254740993}' } };
   expect(prettyOutput(JSON.stringify(raw))).toContain(JSON.stringify(raw.structuredContent.raw));
+});
+
+test("the opened MCP call never parses a text into JSON that would round its numbers", () => {
+  const text = '{"id":9007199254740993,"name":"run"}';
+  expect(prettyOutput(JSON.stringify({ content: [{ type: "text", text }] }))).toBe(text);
 });
 
 test("an envelope with nothing to read stays JSON", () => {

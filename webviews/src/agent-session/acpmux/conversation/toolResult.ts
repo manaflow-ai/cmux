@@ -234,7 +234,7 @@ function fromJSON(value: unknown, printed: string, depth: number, clean: (text: 
     const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
     if (peeled.rest.length) {
       // Text, then what the envelope held besides, each as the JSON it is: the payload, not a wrapper.
-      const rest = peeled.rest.map((part) => JSON.stringify(part, null, 2));
+      const rest = peeled.rest.map((part) => JSON.stringify(part, null, 2) ?? "");
       return { text: [text, ...rest].filter((part) => part.trim()).join("\n\n"), lang: text.trim() ? "text" : "json" };
     }
     // The text inside is JSON again: an envelope in an envelope, or a JSON result.

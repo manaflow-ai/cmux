@@ -246,7 +246,8 @@ export function cleanText(text: string): string {
 function deepClean(value: unknown, depth = 0): unknown {
   if (typeof value === "string") {
     // Parsed before it is cleaned: inside JSON text a block's line breaks are still escaped.
-    if (depth < 8 && /^\s*[[{]/.test(value)) {
+    // JSON holding a number a double would change stays the text it is, never parsed and rounded.
+    if (depth < 8 && /^\s*[[{]/.test(value) && !losesNumbers(value)) {
       const parsed = parseJSON(value);
       if (parsed !== undefined) return deepClean(parsed, depth + 1);
     }
@@ -273,12 +274,16 @@ function mcpValue(output: string | undefined): unknown {
   return texts.length === 1 ? texts[0] : texts;
 }
 
-/// Whether the output is an envelope that holds more than text (structured content, an error's data, a block that is
-/// not text).
-function holdsMore(output: string): boolean {
-  if (!oneLine(output)) return false;
+/// Whether the output is an envelope that holds more than text (structured content, an error's
+/// data, a block that is not text), at its top or in an envelope its text holds, as toolResult.ts
+/// reads text that is JSON again.
+function holdsMore(output: string, depth = 0): boolean {
+  if (depth > 6 || !oneLine(output)) return false;
   const parsed = parseJSON(output);
-  return parsed !== undefined && Boolean(peelEnvelope(parsed)?.rest.length);
+  const peeled = parsed === undefined ? undefined : peelEnvelope(parsed);
+  if (!peeled) return false;
+  if (peeled.rest.length) return true;
+  return holdsMore(cleanText(peeled.texts.join("\n\n")).replace(/\n$/, ""), depth + 1);
 }
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.
