@@ -146,7 +146,7 @@ Lists act on that one session. `--all-sessions` runs a list on every local sessi
 
 - Work in the caller workspace by default; pass explicit ids for mutating actions so automation is auditable.
 - Never call a focus verb unless the user explicitly asked.
-- Never tell the user a raw `ws_…`, `tab_…` or `pane_…` id: name the workspace and tab by their titles. When the user must act in a tab, mark it with `cmux attention request`; when they ask to go there, focus it (`cmux tab tab_… focus`, MCP `focus: true`).
+- Never tell the user a raw `ws_…`, `tab_…` or `pane_…` id: name the workspace and tab by their titles. When the user must act in a tab, mark it with `cmux attention request`; when they ask to go there, focus it (`cmux tab tab_… focus`, MCP `tab_focus`).
 - Build layout additively with `pane … split`, `tab create …` and `pane … run`. Add tabs to an existing right pane instead of splitting again, and give a split its command so no empty shell is left.
 - `pane split` and `workspace create` keep focus; pass `--focus` (MCP `focus: true`) only when the user asked to look at the new pane or workspace.
 - If a command rejects a valid id, report it. Do not work around by focusing.

@@ -65,7 +65,7 @@ cmux attention request --tab tab_… --reason "Confirm GitHub access"   # the pe
 cmux attention clear --tab tab_…
 ```
 
-When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`, or `focus: true`) takes them to it.
+When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`) takes them to it.
 
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
