@@ -39,7 +39,8 @@
 //!   types while a main turn runs).
 //! - Stop (SIGTERM to its process group; the host ends its own sessions):
 //!   `chief.profile.delete`, 30 minutes with no message and no turn, and
-//!   daemon shutdown.
+//!   daemon shutdown. After a delete, once the brain and its `end-sessions`
+//!   ended, its folder `<home>/c/<id tail>` (memory, state, token) is removed.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -1062,16 +1063,28 @@ impl Supervisor {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+        // Only a deleted Chief's sessions end here: its folder goes after them, unless a live
+        // Chief shares it (the same id tail).
+        let shared = self.mux.upgrade().is_some_and(|mux| {
+            list_chiefs(&mux).iter().any(|r| brain_home(&self.config.home, &r.id) == mux_home)
+        });
+        let remove = move || {
+            if !shared {
+                remove_brain_home(&mux_home);
+            }
+        };
         match spawned {
             Ok(mut child) => {
                 let _ = std::thread::Builder::new().name("chief-sessions-end".into()).spawn(
                     move || {
                         let _ = child.wait();
+                        remove();
                     },
                 );
             }
             Err(error) => {
                 eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}");
+                remove();
             }
         }
     }
@@ -1143,6 +1156,20 @@ fn lock_held(lock: &Path) -> bool {
     {
         let _ = lock;
         false
+    }
+}
+
+/// Removes a deleted Chief's brain folder: a real folder only (never a link out of the Chief
+/// home), and never while a brain still holds its lock (a stale holder that has not exited yet
+/// keeps it; the folder then stays).
+fn remove_brain_home(dir: &Path) {
+    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
+        || lock_held(&dir.join("state/host.lock"))
+    {
+        return;
+    }
+    if let Err(error) = std::fs::remove_dir_all(dir) {
+        eprintln!("cmux-tui: removing {}: {error}", dir.display());
     }
 }
 

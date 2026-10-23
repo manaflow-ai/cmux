@@ -180,7 +180,8 @@ fn answer_locked(
                     .iter()
                     .map(chief_registry::wire)
                     .collect();
-                Ok(json!({"chiefs": chiefs}))
+                let deleted = store.deleted().map_err(|e| internal(operation, &e))?;
+                Ok(json!({"chiefs": chiefs, "deleted": deleted}))
             }
             Op::ChiefProfileGet => {
                 let chief = chief_field(fields);
