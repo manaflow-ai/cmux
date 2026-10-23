@@ -14,10 +14,20 @@ pub(crate) struct Briefs {
 impl Briefs {
     pub(crate) fn open() -> Self {
         let path = crate::config::home().join("briefs.json");
-        let rows = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let rows = match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(rows) => rows,
+                Err(error) => {
+                    eprintln!("acpmux: brief ledger unreadable; starting empty: {error}");
+                    BTreeMap::new()
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(error) => {
+                eprintln!("acpmux: brief ledger could not be read; starting empty: {error}");
+                BTreeMap::new()
+            }
+        };
         Self { rows: StdMutex::new(rows), path: Some(path) }
     }
 

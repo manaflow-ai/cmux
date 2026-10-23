@@ -279,9 +279,12 @@ async fn dispatch_brief(
     if let Some(cwd) = pick("cwd") {
         new_params["cwd"] = json!(cwd);
     }
-    if conn.origin == Origin::Peer
-        && new_params.pointer("/_meta/acpmux/policy").and_then(Value::as_str) == Some("approve-all")
-    {
+    let requested_approve_all = new_params
+        .pointer("/_meta/acpmux/policy")
+        .and_then(Value::as_str)
+        .and_then(|policy| policy.parse::<PermissionPolicy>().ok())
+        == Some(PermissionPolicy::ApproveAll);
+    if conn.origin == Origin::Peer && requested_approve_all {
         let preset = new_params.pointer("/_meta/acpmux/preset").and_then(Value::as_str);
         let allowed = if let Some(preset) = preset {
             let cfg = hub.config.read().await;
@@ -345,14 +348,8 @@ async fn dispatch_brief(
     let task_conn = conn.clone();
     let task_id = id.clone();
     tokio::spawn(async move {
-        if let Err(error) = Box::pin(dispatch_request(
-            &task_hub,
-            &task_conn,
-            method::SESSION_PROMPT,
-            prompt,
-            Some(session),
-        ))
-        .await
+        if let Err(error) =
+            Box::pin(handle_request(&task_hub, &task_conn, method::SESSION_PROMPT, prompt)).await
         {
             let _ = task_hub.briefs.update(&task_id, |r| {
                 r["status"] = json!("reported");
@@ -447,7 +444,9 @@ async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
     let p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
-    Box::pin(dispatch_request(hub, conn, method::SESSION_PROMPT, p, None)).await?;
+    // Re-enter the normal prompt guard: a Web caller must not turn a brief id
+    // into an unscoped steer of another session.
+    Box::pin(handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
     let row = hub
         .briefs
         .update(id, |r| {

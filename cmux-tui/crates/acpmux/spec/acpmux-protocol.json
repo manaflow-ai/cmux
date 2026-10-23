@@ -608,6 +608,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/dispatch",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/briefs",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/permission_respond",
       "params": {
         "$ref": "#/types/PermissionRespondParams"
