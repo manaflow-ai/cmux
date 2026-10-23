@@ -31,6 +31,8 @@ struct AgentPageHibernationTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
         var elapsed: Duration = .zero
         let start = ContinuousClock.now
+        /// The fronts the panes report (`BrowserHibernation.fronts`).
+        var fronts: [String: HibernationPlanner.Front] = [:]
 
         init() {
             tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
@@ -46,6 +48,7 @@ struct AgentPageHibernationTests {
             hibernation.followTurns(turns)
             hibernation.displace = { [unowned self] key in self.displaced.append(key) }
             hibernation.now = { [unowned self] in self.start + self.elapsed }
+            hibernation.fronts = { [unowned self] in self.fronts }
         }
 
         /// A chat of this Mac on `session`, shown in a pane, then hidden as a pane switches away:
@@ -260,7 +263,65 @@ struct AgentPageHibernationTests {
         browser.paneDidChange(ObjectIdentifier(pane), order: ["tab_was_shown", "tab_next"], selected: "tab_next")
         let next = try #require(rig.hibernation.nextCheck, "no deadline for the hidden chat past the budget")
         #expect(next <= HibernationPlanner.overBudgetMinimumHidden, "the chat kept its page for the timeout after the fronts moved")
-        withExtendedLifetime(pane) {}
+        // BrowserHibernation holds the cache weakly: keep the services alive to the end.
+        withExtendedLifetime((services, pane)) {}
+    }
+
+    /// A switch that parks a whole workspace (STRESS: 12 panes, a chat in front of each) moved
+    /// every chat past the budget at once, and each release (wake state JS, a WKWebView snapshot
+    /// and its encode, the retire) started in the same call, inside the switch's frames. They go
+    /// at the browser pages' pace now: `Pace.perPass` at a time, the next after `Pace.interval`.
+    @Test func chatsPastTheBudgetGoAFewAtATime() async throws {
+        let rig = Rig()
+        // The page never loads: answer at once, so a pass ends well before the next one is due.
+        rig.hibernation.wakeState = { _ in nil }
+        rig.hibernation.warmPages = { 4 }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let keys = (0..<12).map { "tab_parked_\($0)" }
+        for key in keys {
+            rig.fronts[key] = .parked
+            _ = try rig.hiddenChat(key, session: "s-\(key)")
+            rig.elapsed += .seconds(1)
+        }
+        rig.advance(minutes: 1.5)
+        let perPass = HibernationPlanner.Pace.normal.perPass
+        #expect(rig.hibernation.releasingCount == perPass, "8 chats past the budget started \(rig.hibernation.releasingCount) releases at once")
+        #expect(rig.hibernation.nextCheck == HibernationPlanner.Pace.normal.interval, "no next pass for the chats still due")
+        // More events in the same switch (every pane reports) start no more while a pass runs.
+        rig.hibernation.frontsDidChange(Set(keys))
+        rig.hibernation.replan()
+        #expect(rig.hibernation.releasingCount == perPass, "a second event in the switch started more releases")
+        await rig.settle { rig.hibernation.releasedCount == perPass && rig.hibernation.releasingCount == 0 }
+        #expect(rig.hibernation.releasedCount == perPass)
+        #expect(Set(rig.displaced) == Set(keys.prefix(perPass)), "the chats left longest ago did not go first")
+        rig.hibernation.replan()
+        #expect(rig.hibernation.releasingCount == perPass, "the next pass did not start")
+        await rig.settle { rig.hibernation.releasingCount == 0 }
+    }
+
+    /// A chat hidden ten minutes in front of the workspace left last (warm, out of the budget)
+    /// starts to count when the person goes to a third workspace. It was due in that same turn,
+    /// so its release landed in the switch and a quick switch back woke a page that was live a
+    /// second before. The budget's minute runs from when it started to count.
+    @Test func aChatFrontThatStartsToCountWaitsAMinute() async throws {
+        let rig = Rig()
+        rig.hibernation.warmPages = { 0 }
+        rig.fronts["tab_front"] = .warm
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_front", session: "s-front")
+        rig.advance(minutes: 10)
+        #expect(rig.hibernation.releasingCount == 0)
+
+        rig.fronts["tab_front"] = .parked
+        rig.hibernation.frontsDidChange(["tab_front"], becameCounted: ["tab_front"])
+        #expect(rig.hibernation.releasingCount == 0, "a front that just started to count went in the turn of the switch")
+        let next = try #require(rig.hibernation.nextCheck)
+        #expect(abs(next - HibernationPlanner.overBudgetMinimumHidden) < 1e-6, "the minute did not run from when it started to count")
+        #expect(rig.tabs.existingView("tab_front") === page)
+
+        rig.advance(minutes: 1.1)
+        await rig.settle { rig.tabs.existingView("tab_front") == nil }
+        #expect(rig.tabs.existingView("tab_front") == nil, "the counted front kept its page past its minute")
     }
 
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and

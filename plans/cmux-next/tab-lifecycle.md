@@ -241,6 +241,36 @@ session, wake state and last frame, as before. Tests:
 `parkedWorkspacesShownChatsCountInTheBudget`,
 `aChatHiddenByASwitchInItsPaneCountsOnceTheFrontsMove`.
 
+Review fixes (2026-10-23):
+- Pace for chats. A switch that parks a workspace moved all its chat fronts past
+  the budget in one call, and every release (wake-state JS, WKWebView snapshot
+  and encode, retire) started inside the switch's frames. Chats and browser
+  pages now share one pacing rule (`HibernationPlanner.paced`): at most
+  `Pace.perPass` jobs in flight, counting the probes and releases still running,
+  the next pass after `Pace.interval`. The extra events of one switch start no
+  extra jobs. Tests: `chatsPastTheBudgetGoAFewAtATime`,
+  `HiddenPageWarmBudgetTests.probesInFlightTakeTheirShareOfThePass`.
+- "Just left" counts from the right event. A front hidden for minutes in the
+  workspace left last became parked when a third workspace showed, and it was
+  due in that same turn. Now the 60 s grace runs from the later of the hide and
+  the moment the page started to count (`countedAt`, `Candidate.countedFor`), in
+  both planners. Tests: `aFrontThatJustStartedToCountWaitsAMinute`,
+  `aChatFrontThatStartsToCountWaitsAMinute`.
+- "Left last" is per window (`NeighborTabs` takes the pane's `WindowState`), so
+  a switch in one window does not park the workspace another window left last.
+  Test: `NeighborTabsTests.eachWindowKeepsItsOwnWorkspaceLeftLast`.
+- `NeighborTabs` is incremental: it keeps per-group pane counts, shown tabs and
+  each window's group left last, and a pane report returns the fronts it moved.
+  A switch costs O(switched panes), not O(switched panes x all mounted panes).
+  Test: `incrementalFrontsMatchAFullRecompute` (3,000 seeded steps compared to a
+  full recompute).
+- A probe or frame that ends checks that the page is still due by a new plan
+  (budget membership can revert while it runs) before the swap or the release.
+- A page the probe keeps stays out of the budget, and without pressure is not
+  probed again, for a backoff that doubles with each keep in a row (1 to 32 min,
+  `keptHold(times:)`), not a fixed 60 s. Test:
+  `aPageKeptTwiceIsNotProbedAgainAfterAMinute`.
+
 Wake picture: a hibernated page's JPEG took 10 to 30 ms to decode off the
 main thread after its placeholder entered a window, so a woken tab showed an
 empty pane for those frames. Each large picture now also keeps a decoded
