@@ -56,6 +56,11 @@ if "--suite=pane-bench" in sys.argv:
     env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
     sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
                              "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
+# `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
+# light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
+if "--suite=every-action" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
