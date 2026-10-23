@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 /// The name a workspace made from dragged or moved tabs takes (Lawrence,
@@ -74,7 +74,7 @@ public nonisolated struct NewWorkspaceName {
 
     /// `forLastTab` with the tab's name already read (an agent chat's comes from its chat).
     public static func forLastTab(workspaceName: String, workspaceTitle: String?, tabName: String?,
-                                  workspaceNameSource: WorkspaceNameSource = WorkspaceNameSource(), workspaceNameRevision: UInt64 = 0,
+                                  workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0,
                                   allowsLegacyDefaults: Bool = true) -> String? {
         if let title = clean(workspaceTitle) { return title }
         if workspaceNameSource == .user && (workspaceNameRevision > 0 || !allowsLegacyDefaults), let name = clean(workspaceName) { return name }
