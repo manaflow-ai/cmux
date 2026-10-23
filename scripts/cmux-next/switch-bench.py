@@ -24,7 +24,7 @@ Usage (a GUI fleet host, never a laptop):
     python3 scripts/cmux-next/switch-bench.py --app "$NX_APP" --out "$NX_ARTIFACTS" [--sessions light,stress]
 Older builds without `debug.input_commit` or `work_before_commit` leave those columns n/a.
 """
-import argparse, importlib.util, json, os, statistics, sys, tempfile, time
+import argparse, importlib.util, json, os, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -45,6 +45,8 @@ parser.add_argument("--switches", type=int, default=24)
 parser.add_argument("--interval", type=float, default=0.25)
 parser.add_argument("--budget-ms", type=float, default=10.0)
 parser.add_argument("--no-gate", action="store_true")
+parser.add_argument("--sample", default="", help="ROW[,...]: `sample` the app (1 ms) while it runs ROW (OUT/sample-<session>-<row>.txt); "
+                    "the profiler's cost lands in that row's numbers, so use a separate run for timings")
 parser.add_argument("--sample", default="", help="ROW[,...]: also `sample` the app's main thread during those rows (OUT/sample-<session>-<row>.txt)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -93,10 +95,19 @@ class Bench:
         if not isinstance(probe, dict) or "recording" not in probe:
             self.rpc("debug.frames", {"action": "stop"})
             return {"label": label, "error": f"{method} unavailable"}
+        sampler = None
+        if label in opts.sample.split(","):
+            path = os.path.join(opts.out, f"sample-{self.session}-{label}.txt")
+            seconds = int(count * opts.interval) + 2
+            sampler = subprocess.Popen(["/usr/bin/sample", str(self.app.process.pid), str(seconds), "1", "-mayDie", "-file", path],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)  # bench: the sampler attaches
         for index in range(count):
             step(index)
             time.sleep(opts.interval)  # bench pacing: one input per interval, its commit lands meanwhile
         time.sleep(0.5)  # bench: the last commit lands
+        if sampler:
+            sampler.wait(timeout=120)
         reply = self.rpc(method, {"action": "stop"}) or {}
         self.rpc("debug.frames", {"action": "stop"})
         rows = reply.get("switches") or reply.get("inputs") or reply.get("moves") or []
