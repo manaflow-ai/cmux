@@ -35,6 +35,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
+    private var keptTabsObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
@@ -108,6 +109,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
+        observeKeptTabs()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
@@ -122,6 +124,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
+        keptTabsObservation?.cancel()
         sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
@@ -164,9 +167,34 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
-                // A parked terminal (the classic migration's background workspaces) starts on its first show.
-                if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
             }
+        }
+    }
+
+    /// The shown workspace's kept terminals (End Sessions, Keep Layout; the classic migration's
+    /// parked tabs) start when it is shown and when a connection's live tree lands; a workspace no
+    /// window shows starts nothing (`DaemonService.startKeptTabs`, #17587).
+    private func observeKeptTabs() {
+        let machines = services.machines
+        let state = state
+        keptTabsObservation = Task {
+            for await _ in ObservationStream({ Self.readKeptTabInputs(state, machines: machines) }) {
+                // The shown workspace, and with `sidebar.multiView` the ones beside it.
+                for id in [state.workspaceID].compactMap({ $0 }) + (state.viewSet?.ids ?? []) {
+                    if let (workspace, daemon) = machines.workspace(id: id) { daemon.startKeptTabs(in: workspace) }
+                }
+            }
+        }
+    }
+
+    /// Reads what starting the shown workspace's kept tabs depends on: the request, and for each
+    /// machine its connection, the owner it reached, its workspace list and the owner its tree
+    /// came from. O(machines).
+    private static func readKeptTabInputs(_ state: WindowState, machines: MachineRegistry) {
+        _ = (state.workspaceID, state.viewSet)
+        for daemon in machines.daemons {
+            _ = (daemon.connection.map { ObjectIdentifier($0) }, daemon.store.identity?.generation, daemon.store.isLoaded,
+                 daemon.store.generation, daemon.store.workspaces.count)
         }
     }
 

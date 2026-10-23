@@ -121,7 +121,7 @@ struct QuitSessionsTests {
     /// End Sessions, Keep Layout on a daemon with
     /// `end-terminals-keep-layout-v1`: every terminal ends, the next owner
     /// keeps both panes and the split ratio with dead tabs, and
-    /// `relaunchKeptTabs` restarts a shell in each IN PLACE (`restart-tab`: the
+    /// `restartKeptTabs` restarts a shell in each IN PLACE (`restart-tab`: the
     /// same tab and terminal ids, no tab added, moved or closed), in the
     /// directory the store recorded, without changing the layout. A pinned
     /// cmux-tui without the capabilities skips the check.
@@ -166,8 +166,8 @@ struct QuitSessionsTests {
             #expect(keptTabs.count == 2 && keptTabs.allSatisfy(\.dead), "\(keptTabs)")
             #expect(keptTabs.allSatisfy { $0.relaunch?.cwd != nil }, "the store's keep-layout records: \(keptTabs.map(\.relaunch))")
             #expect(Self.shape(kept) == Self.shape(before))
-            let first = try await next.relaunchKeptTabs()
-            #expect(first.relaunched == 2 && first.failures.isEmpty, "\(first.failures)")
+            let refused = await next.restartKeptTabs(keptTabs.map(\.surface))
+            #expect(refused.isEmpty, "\(refused)")
             // `restart-tab` answers when its worker started: attach only once the tree events
             // report both kept tabs running (before that the tab has no surface to attach to).
             let keptIDs = keptTabs.compactMap(\.tabResourceID)
@@ -186,8 +186,9 @@ struct QuitSessionsTests {
             let output = try await Self.run(#"echo "kept:$PWD""#, in: second, endpoint: endpoint,
                                             generation: generation, until: "/other")
             #expect(output.range(of: #"kept:/\S*/other"#, options: .regularExpression) != nil, "\(output)")
-            let again = try await next.relaunchKeptTabs()
-            #expect(again.relaunched == 0 && again.failures.isEmpty, "a second relaunch restarted a running tab: \(again.failures)")
+            // A running tab is not a kept tab any more: the daemon refuses a second start (`tab-not-dead`).
+            let again = await next.restartKeptTabs(keptTabs.map(\.surface))
+            #expect(again.count == 2, "a second start restarted a running tab: \(again)")
             #expect(Self.shape(after) == Self.shape(before), "the relaunch changed the layout")
             let tabs = after.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs)
             #expect(tabs.map(\.count) == [1, 1], "\(tabs)")

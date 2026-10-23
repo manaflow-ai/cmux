@@ -47,12 +47,11 @@ public final class DaemonService {
     /// restarted or was handed off to a newer build after the first connect.
     public var identity: DaemonIdentity? { store.identity }
     @ObservationIgnored private var runTask: Task<Void, Never>?
-    /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
-    @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
-    /// Parked tabs whose `restart-tab` is in flight (`wakeParkedTabs`).
-    @ObservationIgnored var wakingParkedTabs: Set<SurfaceID> = []
-    /// Which kept tabs this launch restarts (`restartsKeptTab`), observed by the tab cells.
-    public internal(set) var keptTabRestarts: KeptTabRestarts = .none
+    /// Kept tabs asked to start on the current connection (`startKeptTabs`): each starts once per connection.
+    @ObservationIgnored var startedKeptTabs: Set<SurfaceID> = []
+    /// Kept tabs the daemon refused to start on the current connection: they draw dead, with
+    /// their Restart button (`restartsKeptTab`, observed by the tab cells).
+    public internal(set) var refusedKeptTabs: Set<SurfaceID> = []
     /// The connection Quit's end choice runs on, kept after
     /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
     @ObservationIgnored var endingConnection: DaemonConnection?
@@ -71,8 +70,6 @@ public final class DaemonService {
     public init(machineID: String = "local") {
         self.machineID = machineID
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
-        // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
-        keptTabRestarts = isLocal ? .expected : .none
     }
 
     /// Records a launch milestone (`daemon_connected`, `launch_snapshot_applied`,
@@ -157,7 +154,9 @@ public final class DaemonService {
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
-        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        showLaunchSnapshot(prestart?.launchSnapshot.take()
+            ?? LaunchSnapshotPrefetch.read(session: launcher.configuration.session,
+                                           stateDirectory: launcher.configuration.stateDirectory, location: launchSnapshotLocation))
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey, retryWake: retryWake)
@@ -329,7 +328,9 @@ public final class DaemonService {
         lastStartupError = nil
         startup = .connected
         pushTerminalDefaultColors()
-        relaunchKeptLayoutIfNeeded(connection)
+        // Kept tabs start when a window shows their workspace (`startKeptTabs`), once per connection.
+        startedKeptTabs = []
+        if !refusedKeptTabs.isEmpty { refusedKeptTabs = [] }
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the
@@ -458,8 +459,6 @@ public final class DaemonService {
         activationObserver = nil
         runTask?.cancel()
         runTask = nil
-        keptLayoutRelaunch?.cancel()
-        keptLayoutRelaunch = nil
         // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil

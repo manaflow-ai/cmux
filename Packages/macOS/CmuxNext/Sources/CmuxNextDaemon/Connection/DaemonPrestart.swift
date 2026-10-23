@@ -25,12 +25,17 @@ public final class DaemonPrestart: Sendable {
     /// handoff check: read from here, because a run begun only once the app
     /// started its services was still going when the connection came back.
     public let bundledCommit: Task<String?, Never>
+    /// The session's launch snapshot, read and decoded off the main thread meanwhile
+    /// (`LaunchSnapshotPrefetch`): the first window draws the last layout from it.
+    public let launchSnapshot: LaunchSnapshotPrefetch
 
     /// Starts the attempt now. `configuration.retryWake` is replaced by `wake`.
     public init(launcher: DaemonLauncher, configuration: DaemonConnection.Configuration,
                 wake: RetryWake = RetryWake(owner: "DaemonService.retry local")) {
         self.launcher = launcher
         self.wake = wake
+        launchSnapshot = LaunchSnapshotPrefetch(session: launcher.configuration.session,
+                                                stateDirectory: launcher.configuration.stateDirectory)
         var configuration = configuration
         configuration.retryWake = wake
         let fixed = configuration

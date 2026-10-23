@@ -11,21 +11,20 @@ import os
 extension DaemonService {
     /// Applies the daemon's launch snapshot as a provisional tree, so the
     /// first frame shows the last layout instead of the connecting state.
-    /// The path comes from the last handshake, else from the daemon's state
-    /// directory (`stateDirectory`, a tagged build's), so cleared defaults do
-    /// not lose the snapshot; a missing, stale or unreadable file shows
-    /// nothing. The file is small (the daemon caps it at 8 MiB) and local,
-    /// and reading it replaces waiting for the daemon, so it is read before
-    /// the first window.
-    func showLaunchSnapshot(session: String, stateDirectory: URL?) {
-        guard let path = launchSnapshotLocation.path(session: session)
-            ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
+    /// `outcome` is the read the prestart began at the top of `main`, off the
+    /// main thread (`LaunchSnapshotPrefetch`), else a read made here. The path
+    /// comes from the last handshake, else from the daemon's state directory
+    /// (`stateDirectory`, a tagged build's), so cleared defaults do not lose
+    /// the snapshot; a missing, stale or unreadable file shows nothing.
+    func showLaunchSnapshot(_ outcome: LaunchSnapshotPrefetch.Outcome) {
         let snapshot: LaunchSnapshot
-        do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
-            logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
+        switch outcome {
+        case .none: return
+        case .skipped(let skip):
+            logger.error("launch snapshot skipped: \(String(describing: skip), privacy: .public)")
             return
+        case .read(let read): snapshot = read
         }
-        Self.launchMark("launch_snapshot_read")
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
         Self.launchMark("launch_snapshot_applied")

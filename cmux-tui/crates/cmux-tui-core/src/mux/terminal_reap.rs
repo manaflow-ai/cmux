@@ -440,6 +440,13 @@ impl Mux {
     /// launch directory) and the terminal's title. Returns the host ids of
     /// those terminals.
     /// `on_show`: parked (`park-tabs`), started when first shown.
+    ///
+    /// A terminal whose shell already ended and whose tab is already kept (a
+    /// kept tab no frontend started since the last keep: frontends start a
+    /// kept tab only when its workspace is shown, #17587) stays kept with its
+    /// record as it is: its directory and title are the last ones its shell
+    /// had, and with no shell there is nothing newer to read. It is returned
+    /// too, so the caller keeps its tab instead of closing it.
     fn record_kept_tabs(
         &self,
         terminals: &[RegistryTerminal],
@@ -447,6 +454,7 @@ impl Mux {
     ) -> anyhow::Result<HashSet<String>> {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
+        let mut kept = HashSet::new();
         {
             let registry = self.workspace_registry.lock().unwrap();
             let state = self.lock_state_pinned(&registry).unwrap();
@@ -462,11 +470,17 @@ impl Mux {
                     continue;
                 }
                 let runtime = state.terminal_catalog.get(&public_id).cloned();
+                if runtime.is_none()
+                    && terminal.lifecycle == TerminalLifecycle::Exited
+                    && registry.any_kept_tab(&tab_ids)?
+                {
+                    kept.insert(terminal.terminal_id.clone());
+                    continue;
+                }
                 placed.push((terminal.terminal_id.clone(), tab_ids, runtime));
             }
         }
         let mut rows = Vec::new();
-        let mut kept = HashSet::new();
         for (terminal_id, tab_ids, runtime) in placed {
             let cwd = runtime.as_ref().and_then(|surface| {
                 surface

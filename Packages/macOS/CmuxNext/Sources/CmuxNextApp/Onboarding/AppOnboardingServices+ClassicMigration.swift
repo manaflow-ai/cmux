@@ -292,7 +292,7 @@ extension AppOnboardingServices {
 
     /// Parks the terminals of a workspace that came over in the background
     /// (`park-tabs`): their shells end and their tabs stay, each starting when
-    /// the workspace is first shown (`DaemonService.wakeParkedTabs`). So a
+    /// the workspace is first shown (`DaemonService.startKeptTabs`). So a
     /// session with more terminals than macOS has PTYs (`kern.tty.ptmx_max`)
     /// comes over whole. A workspace whose classic terminals carry scrollback
     /// keeps running: its shell prints the scrollback at its first prompt.
