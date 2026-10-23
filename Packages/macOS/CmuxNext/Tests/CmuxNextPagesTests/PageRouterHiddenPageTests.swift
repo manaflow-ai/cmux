@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextSettings
+import Foundation
 import Testing
 
 /// #8900 class (perf-lead.md row 16, row 23 (c)): every subscription event reached a hidden page as
@@ -129,6 +131,30 @@ struct PageRouterHiddenPageTests {
         #expect(!PageWebView.nobodySees(view, ignoringOcclusion: true))
         window.contentView?.isHidden = true
         #expect(PageWebView.nobodySees(view, ignoringOcclusion: true))
+    }
+}
+
+/// The page view tells its router: a page out of a window holds its events, a page in a shown
+/// window does not, and a page whose owner paces its own events (the agent pane) never holds.
+@MainActor
+struct PageWebViewHiddenEventsTests {
+    @Test func aPageViewHoldsItsEventsOnlyWhileNobodySeesIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("page-hidden-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let descriptor = PageDescriptor(id: "test.hidden-events", resource: "hidden-events", namespaces: [])
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil,
+                                            lowPowerMode: LowPowerMode(enabled: false)))
+        defer { view.close() }
+        #expect(view.router.isPageHidden, "a page out of a window holds its events")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView?.addSubview(view)
+        view.isHidden = true
+        #expect(view.router.isPageHidden, "a hidden page holds its events")
+        view.holdsEventsWhileHidden = false
+        #expect(!view.router.isPageHidden, "a page that paces its own events never holds them")
     }
 }
 
