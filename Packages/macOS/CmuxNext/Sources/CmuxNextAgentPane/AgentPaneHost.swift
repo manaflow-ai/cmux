@@ -249,11 +249,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     static func refused(_ refusal: AcpmuxServerPeer.Refusal, _ environment: AcpmuxEnvironment,
                         reason: String? = nil, startsDaemons: Bool = true) -> AgentPaneHostError {
         var holder: String?
-        if case .otherExecutable(let path) = refusal { holder = AcpmuxServerPeer.holderName(executablePath: path) }
+        var refusedPath: String?
+        if case .otherExecutable(let path) = refusal {
+            holder = AcpmuxServerPeer.holderName(executablePath: path)
+            refusedPath = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        }
         let found = AcpmuxSocketOwner.read(socketPath: environment.socketPath)
-        // This app's own acpmux on the socket is never replaced by itself.
+        // This app's own acpmux on the socket is never replaced by itself, and a refusal that named
+        // a binary offers to replace only that one: a daemon that took the socket since is not it.
         let owner = found.flatMap { owner in
-            owner.path == environment.executable.resolvingSymlinksInPath().path ? nil : owner
+            owner.path == environment.executable.resolvingSymlinksInPath().path
+                || refusedPath.map({ $0 != owner.path }) == true ? nil : owner
         }
         AcpmuxFailureLog(logPath: environment.logPath).record(.peerRefused, detail: "\(environment.socketPath): \(refusal.description)")
         logger.error("acpmux at \(environment.socketPath, privacy: .public) refused: \(refusal.description, privacy: .public); held by \(found?.path ?? holder ?? "unknown", privacy: .public) team \(found?.team ?? "none", privacy: .public); this app runs \(environment.executable.path, privacy: .public)")
