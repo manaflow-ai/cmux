@@ -78,7 +78,17 @@ const noop = () => {};
 // 9:30 local time, when the page once said "Good morning".
 const MORNING = new Date(2026, 9, 20, 9, 30).getTime();
 
-async function render(template: ScreenTemplate, widgets: readonly PageWidget[] | undefined, startCwd?: string) {
+type RenderOptions = {
+  projects?: { cwd: string; label: string }[];
+  onAsk?: (...args: unknown[]) => void;
+};
+
+async function render(
+  template: ScreenTemplate,
+  widgets: readonly PageWidget[] | undefined,
+  startCwd?: string,
+  options: RenderOptions = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -92,11 +102,11 @@ async function render(template: ScreenTemplate, widgets: readonly PageWidget[] |
         lastAgent="claude"
         cwd="/Users/you/src/atlas"
         {...(startCwd ? { startCwd } : {})}
-        projects={[{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
+        projects={options.projects ?? [{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
         loadChatsPage={async () => ({ ready: true, chats: [] })}
         onOpenChat={noop}
         onCreate={noop}
-        onAsk={noop}
+        onAsk={options.onAsk ?? noop}
         onOpen={noop}
         onSearch={noop}
         onShell={noop}
@@ -163,6 +173,43 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   try {
     expect(parts().headline).toBe("What should we work on?");
     expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a project picked in the headline is the folder the composer starts its chat in", async () => {
+  const asked: unknown[][] = [];
+  const root = await render("minimal", ["greeting"], "/Users/you/src/atlas", {
+    projects: [
+      { cwd: "/Users/you/src/atlas", label: "atlas" },
+      { cwd: "/Users/you/src/manaflow", label: "manaflow" },
+    ],
+    onAsk: (...args) => asked.push(args),
+  });
+  try {
+    const strip = () => host.querySelector(".acpmux-composer-strip")?.textContent ?? "";
+    expect(strip()).toContain("atlas");
+    await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-text .acpmux-project-button")!.click());
+    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow,"]');
+    expect(row).not.toBeNull();
+    await act(async () => {
+      row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    // The question and the composer's strip both name the pick.
+    expect(parts().headline).toBe("What should we work on in manaflow?");
+    expect(strip()).toContain("manaflow");
+    expect(strip()).not.toContain("atlas");
+    // And the prompt is asked there.
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "what changed?");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked.length).toBe(1);
+    expect(asked[0]![2]).toBe("/Users/you/src/manaflow");
   } finally {
     await act(async () => root.unmount());
   }
