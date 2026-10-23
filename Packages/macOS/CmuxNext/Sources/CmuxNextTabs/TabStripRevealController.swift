@@ -16,19 +16,11 @@ final class TabStripRevealController {
     /// outlives the strip it fades.
     let hover: HoverReveal
     private var hold: HoverReveal.Hold?
-    private var observation: Task<Void, Never>?
+    private var observation: OwnedTask?
 
     init(strip: TabStripView) {
         self.strip = strip
         hover = HoverReveal(region: strip, tracksPointer: false)
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-        }
     }
 
     var isRevealed: Bool { hover.isRevealed }
@@ -37,12 +29,12 @@ final class TabStripRevealController {
     func install() {
         guard strip != nil else { return }
         applyPlusButtonMode()
-        // task-owner: this controller (cancelled in deinit); event-driven (Observation).
-        observation = Task { [weak self] in
+        // task-owner: this controller (released with it, which cancels it); event-driven (Observation).
+        observation = OwnedTask(Task { [weak self] in
             for await _ in ObservationStream({ (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value) }) {
                 self?.applyPlusButtonMode()
             }
-        }
+        })
     }
 
     /// `tabs.plusButton`: hover brightens the muted plus; always keeps it fully shown.

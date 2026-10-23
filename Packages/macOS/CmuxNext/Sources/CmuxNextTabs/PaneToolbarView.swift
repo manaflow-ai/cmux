@@ -48,7 +48,7 @@ public final class PaneToolbarView: NSView {
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
-    private var restObservation: Task<Void, Never>?
+    private var restObservation: OwnedTask?
     private weak var cornerHost: NSView?
 
     override public init(frame: NSRect) {
@@ -67,22 +67,16 @@ public final class PaneToolbarView: NSView {
         // "…" slides right into its slot as it fades in, and back as it fades out (Lawrence 2026-10-20).
         reveal.onChange = { [weak self] revealed in self?.slideMore(revealed: revealed) }
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
-        // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
+        // Settings change applies at once. task-owner: this view (released with it, which cancels it); event-driven.
         reveal.restAlpha = TabTunables.restingControlOpacity.value
         _ = reveal.add(moreButton)
-        restObservation = Task { [weak self] in
+        restObservation = OwnedTask(Task { [weak self] in
             for await rest in ObservationStream({ TabTunables.restingControlOpacity.value }) { self?.reveal.restAlpha = rest }
-        }
+        })
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { restObservation?.cancel() }
-    }
 
     override public var isFlipped: Bool { true }
     override public var mouseDownCanMoveWindow: Bool { false }
