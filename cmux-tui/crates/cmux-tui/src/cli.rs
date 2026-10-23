@@ -275,10 +275,10 @@ pub(crate) fn removed_route_requested(args: &[String]) -> bool {
                     command_words.push(word.as_str());
                 }
             }
-            let mut words = command_words.into_iter();
-            matches!(words.next(), Some("route"))
-                || (matches!(words.next(), Some("help"))
-                    && matches!(words.next(), Some("route")))
+            matches!(
+                command_words.as_slice(),
+                ["route", ..] | ["help", "route", ..] | ["acp", "route", ..]
+            )
         })
         .unwrap_or(false)
 }
