@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96. */
+/* cmux-tui mux protocol 12, IR d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96" as const;
+export const SDK_IR_SHA256 = "d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2618,6 +2618,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "expect_agent": {
+        "since": null,
+        "capability": "send-expect-agent-v1"
+      },
       "expect_foreground": {
         "since": null,
         "capability": "send-expect-foreground-v1"
@@ -2625,6 +2629,10 @@ export const COMMAND_METADATA = {
       "paste": {
         "since": 7,
         "capability": null
+      },
+      "submit": {
+        "since": null,
+        "capability": "send-expect-agent-v1"
       },
       "terminal_id": {
         "since": null,
@@ -9841,6 +9849,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SendExpectAgent": {
+    "additional_properties": false,
+    "fields": {
+      "session": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -24247,7 +24270,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
-        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
+        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
       ],
       "fields": {
         "bytes": {
@@ -24262,6 +24286,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Base64"
+          }
+        },
+        "expect_agent": {
+          "capability": "send-expect-agent-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "SendExpectAgent"
           }
         },
         "expect_foreground": {
@@ -24279,6 +24313,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "nullable": false,
           "presence": "optional",
           "since": 7,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "submit": {
+          "capability": "send-expect-agent-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "boolean"

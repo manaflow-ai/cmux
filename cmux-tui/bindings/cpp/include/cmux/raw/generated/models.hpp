@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
+inline constexpr std::string_view kProtocolIrSha256 = "d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -150,6 +150,7 @@ struct RunResult;
 struct SavedTabGroupMember;
 struct SavedTabGroupRecord;
 struct Screen;
+struct SendExpectAgent;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
 struct ServerStatsJournalWriter;
@@ -4729,6 +4730,11 @@ struct SelectWorkspaceRequest {
     friend bool operator==(const SelectWorkspaceRequest&, const SelectWorkspaceRequest&) = default;
 };
 
+struct SendExpectAgent {
+    Field<std::string> session{};
+    friend bool operator==(const SendExpectAgent&, const SendExpectAgent&) = default;
+};
+
 struct SendKeyRequest {
     std::vector<std::string> keys{};
     Id surface{};
@@ -4737,8 +4743,10 @@ struct SendKeyRequest {
 
 struct SendRequest {
     Field<Base64> bytes{};
+    Field<SendExpectAgent> expect_agent{};
     Field<std::string> expect_foreground{};
     std::optional<bool> paste{};
+    std::optional<bool> submit{};
     Field<Id> surface{};
     Field<std::string> terminal_id{};
     Field<std::string> text{};
@@ -6724,6 +6732,12 @@ template <>
 struct Codec<Screen> {
     static Result<Json> encode(const Screen& value);
     static Result<Screen> decode(const Json& value);
+};
+
+template <>
+struct Codec<SendExpectAgent> {
+    static Result<Json> encode(const SendExpectAgent& value);
+    static Result<SendExpectAgent> decode(const Json& value);
 };
 
 template <>
