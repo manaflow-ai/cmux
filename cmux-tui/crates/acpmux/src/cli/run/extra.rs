@@ -343,6 +343,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "web:      {}",
                         v.get("webUrl").and_then(Value::as_str).unwrap_or("-")
                     );
+                    if v.get("loginSession").and_then(Value::as_bool) == Some(false) {
+                        println!(
+                            "keychain: unreadable from sessions: this daemon runs outside the login \
+                             session (started over ssh), so gh, codex, claude and git credential \
+                             helpers cannot read the login keychain. Fix: `acpmux daemon shutdown`, \
+                             then run any acpmux command (it starts the daemon in the login session)"
+                        );
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",

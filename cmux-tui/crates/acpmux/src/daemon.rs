@@ -19,6 +19,8 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+#[cfg(target_os = "macos")]
+pub(crate) mod login_session;
 #[cfg(windows)]
 mod windows;
 
@@ -939,6 +941,21 @@ async fn start_daemon() -> Result<String> {
 #[cfg(unix)]
 async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<String> {
     let path = socket_path();
+    // Outside the login session (an ssh client): the daemon goes to the user's GUI
+    // session so its agents read the login keychain (`daemon/login_session.rs`). A
+    // keyed start is the app's own, in the login session already.
+    #[cfg(target_os = "macos")]
+    if key.is_none() {
+        let this = crate::self_command::SelfCommand::current()?;
+        crate::config::private_state_dir(&home())?;
+        let log = home().join("daemon.log");
+        drop(open_daemon_log(&log)?);
+        match login_session::start_in_login_session(&this, &home(), &log) {
+            Ok(true) => return wait_for_socket(&path).await,
+            Ok(false) => {}
+            Err(e) => tracing::warn!("daemon not started in the login session ({e:#}); starting it here"),
+        }
+    }
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
     // worker thread would keep runtime teardown waiting on a hung daemon.
     let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
@@ -960,6 +977,24 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         )),
     }
 }
+/// A daemon started as a launchd job has no readiness pipe: wait until its socket
+/// answers. Returns an empty readiness line, as for a daemon that exited first.
+#[cfg(target_os = "macos")]
+async fn wait_for_socket(path: &std::path::Path) -> Result<String> {
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    while tokio::time::Instant::now() < deadline {
+        if tokio::net::UnixStream::connect(path).await.is_ok() {
+            return Ok(String::new());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(anyhow!(
+        "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+        path.display(),
+        home().join("daemon.log").display()
+    ))
+}
+
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
 #[cfg(windows)]
 async fn start_daemon() -> Result<String> {
