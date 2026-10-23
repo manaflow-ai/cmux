@@ -52,12 +52,14 @@ public nonisolated struct Signposter: Sendable {
     public func begin(_ name: SignpostName, _ message: String = "") -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
         let id = signposter.makeSignpostID()
-        return SignpostInterval(state: signposter.beginInterval(name.staticName, id: id, "\(message, privacy: .public)"))
+        return SignpostInterval(state: signposter.beginInterval(name.staticName, id: id, "\(message, privacy: .public)"),
+                                metricKitID: SignpostMetricKitMirror.shared.begin(name))
     }
 
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)
+        if let id = interval.metricKitID { SignpostMetricKitMirror.shared.end(name, id: id) }
     }
 
     /// Runs `body` inside an interval named `name`.

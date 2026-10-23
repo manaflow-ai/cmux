@@ -18,7 +18,8 @@ import PackageDescription
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
-//   CmuxNextSignposts -> system frameworks only (always-on os_signpost intervals, the one name catalog, CommitBoundary)
+//   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
+//     the opt-in MetricKit mirror for hang reports)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -111,7 +112,7 @@ import PackageDescription
 //     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
-//   CmuxNextHangReports -> Compat, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
+//   CmuxNextHangReports -> Compat, Signposts, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
 //     MetricKit and watchdog inputs, allow-list redaction, leak scan, rotating install id, outbox,
 //     upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
@@ -217,6 +218,7 @@ let package = Package(
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
                 "CmuxNextHangReports",
+                "CmuxNextSignposts",
                 "CmuxNextErrorJournal",
                 "CmuxNextDiff",
                 "CmuxNextHome",
@@ -1150,6 +1152,8 @@ let package = Package(
         // (plans/cmux-next/architecture-refactor-DESIGN.md section 7).
         .target(
             name: "CmuxNextSignposts",
+            // Compat's Atomic: the MetricKit mirror's on/off flag (Signposter+MetricKit.swift).
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1174,7 +1178,7 @@ let package = Package(
         // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
         .target(
             name: "CmuxNextHangReports",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
