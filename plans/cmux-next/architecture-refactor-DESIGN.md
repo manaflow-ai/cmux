@@ -65,6 +65,12 @@ Hard (32), grouped by cause:
    HomeEngine; WebUpdates -> Updater. Fix: the model files (Sidebar `Model/Store/Logic`, Tabs
    items, Layout topology values, History model) move into their domain package; the view package
    depends on it.
+`arch-layers.py` also lists each core-labeled target that holds runtime state or I/O (a shared
+instance, stored static state, a lock, file or defaults I/O, a notification observation, observable
+state) with the first file:line of each kind: a label is what the target holds, never what it
+imports (72673e48762 labeled DesignTokens core by its imports, and the report dropped an edge that
+had not changed). On 2026-10-23 that list is Actions, Compat, Signposts, TerminalFind and Wakeups:
+each is relabeled or has its state moved out with the slice that touches it.
 
 Soft (12): Control, Diff, KeepAwake, MobileHost, PhoneAccess, RemoteLocalhostService, WebUpdates,
 AgentIntegrations, AgentUpdates, ComputerUse -> Settings; DaemonService, KeepAwake -> Bridge.
@@ -72,8 +78,9 @@ Settings is a repository (cmux.json load, watch, apply) plus a schema: the schem
 types go to core with DesignTokens' values, the file repository stays a service; then these edges
 are core edges.
 
-Upward (3, 2026-10-23; edges from core to a service or domain target, which the first count missed):
-WorkspaceNaming -> Bridge, WorkspaceNaming -> Daemon, AgentCursorVisibility -> AgentCursor. Core
+Upward (4, 2026-10-23; edges from core to a service or domain target, which the first count missed):
+WorkspaceNaming -> Bridge, WorkspaceNaming -> Daemon, WorkspaceNaming -> DesignTokens (labeled domain
+because it holds state, row B2), AgentCursorVisibility -> AgentCursor. Core
 depends on nothing above core, so the types these targets read move down to core (or behind a core
 protocol the higher target conforms to). arch-layers.py lists them, the arch ratchet counts them
 (`layer_upward`) and the pre-push layer gate refuses a new one.
@@ -267,7 +274,7 @@ Ordered by perf impact, then risk, then collisions (unowned areas first).
 | A4 | (WindowKeyFamily landed: one key tracker per window for the inactive wash) `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
 | A5 | Class C: reduceMotion / accessibility / speed / inactive-dim as Appearance observables, hidden views off the path | medium (F3/F8 hidden cost) | medium | none for Design/Pages/AgentPane leaf files | |
 | B1 | CmuxNextApp leaf directories (zero-outside rows of section 4) | - (lines) | low | none | TextBox, Router, Refusals, Process done (SleepyMode stays: its raw font sizes are baselined at the App path) |
-| B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | landed 72673e48762 (117 files, 6.6k lines); WorkspaceNaming off Design |
+| B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | landed 72673e48762 (117 files, 6.6k lines); WorkspaceNaming off Design. DesignTokens is labeled domain (mixes core, service), not core: it holds TunableStore.shared behind a lock with its file writer, RecoveryDraftStore (FileManager), LowPowerMode (a shared instance and a NotificationCenter observation), MuseumArtSearch (URLSession) and BackdropRevision (@Observable). It becomes core when those move out (TunableStore injected per the lead decision, RecoveryDraftStore to the Quit domain, BackdropRevision to Appearance), so WorkspaceNaming -> DesignTokens is still an upward edge |
 | B3 | `CmuxNextAppearance` with injected DesignSettings/ThemeStore (singletons 2 of 148, 210 reads) | low | medium | theme paths: run perf gate theme scenario | BackdropRevision owned by ThemeStore (bc6284f47b6); ThemeStore/ThemeScope injection next |
 | B4 | Host protocols + moves for the AppServices-only rows, then Quit, Cloud, Server, Remote, History, Feed, Bookmarks, Notifications | - | medium | check owners per directory | |
 | B5 | Handlers and page providers by domain | - | medium | Handlers touched by PL-cef-tab (BrowserHandlers, PaneTabBarHandlers, HomeDockOpens, ChatColumnPlacement, TabLifecycle): those last | |
@@ -286,7 +293,14 @@ violations), sha ranges on feat-cmux-next:
 | 2026-10-23 | 1: A2 signposts, B1 4 dirs, A3 24 files | 1549981b654..5846e103ece | 141,393 | 148 | 253 | 130 | 32 / 12 |
 | 2026-10-23 | 2: review-1 fixes, A3 18 files, B1 53 leaf files, A4 WindowKeyFamily | this push | 139,814 | 148 | 228 | 108 | 32 / 12 |
 | 2026-10-23 | 3: DaemonCapabilities static, B2 CmuxNextDesignTokens, Release-test compiler crash fixes, generic-class deinit rule, bench config, signpost port, B3 BackdropRevision | cc7a964ef61..bc6284f47b6 | 140,765 (base grew) | 147 | 231 | 106 | 31 / 12 |
+| 2026-10-23 | 3 recounted: DesignTokens labeled by what it holds (domain, mixes core and service); every edge to a higher layer counts (core -> service/domain as upward) | review fix of 72673e48762 | 141,345 | - | - | - | 31 / 12, 4 upward |
 
 App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
 lines during batch 2; batch 2 moved 2,399 lines out). The hard/soft edges are unchanged so far:
 the moves only used existing edges by design (B2, the DesignTokens split, removes the first four).
+Batch 3's 31 was too low: B2 relabeled an edge instead of removing it (WorkspaceNaming -> Design
+became WorkspaceNaming -> DesignTokens, with DesignTokens called core while it holds state), and the
+report never counted a core target's edges to service or domain targets. Counted honestly the batch
+3 tip has 31 hard edges into ui targets and 4 upward edges (arch_counts' class for core -> service or
+domain): WorkspaceNaming -> Bridge, Daemon, DesignTokens and AgentCursorVisibility -> AgentCursor
+(graph from ci-target-graph.json).

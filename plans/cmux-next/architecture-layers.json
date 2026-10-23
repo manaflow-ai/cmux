@@ -108,7 +108,7 @@
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextTestExitTrace": {"layer": "core"},
     "CmuxNextSignposts": {"layer": "core"},
-    "CmuxNextDesignTokens": {"layer": "core", "plan": "values only; DesignSettings and ThemeStore go to CmuxNextAppearance (B3)"},
+    "CmuxNextDesignTokens": {"layer": "domain", "mixes": ["core", "service"], "plan": "core (values only) once its state moves out: TunableStore and TunableFile to a service target with Tunable.value reading an injected store (lead decision 2026-10-23), RecoveryDraftStore to the Quit domain, LowPowerMode and MuseumArtSearch (URLSession) to a service, BackdropRevision to CmuxNextAppearance with DesignSettings and ThemeStore (B3)"},
 
     "CmuxNextApp": {"layer": "app", "mixes": ["core", "service", "domain", "ui"], "plan": "composition root only (section 4)"}
   },
