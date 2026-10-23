@@ -81,11 +81,20 @@ check() {  # <order> <Contents/Resources>
   done
   # The classic app's shell integration (Resources/shell-integration), which no
   # cmux-next shell sources, is not copied flat either: each of its files is a
-  # membership exception, not only the folder.
+  # membership exception, not only the folder. The tree stays because
+  # feat-cmux-next still merges main, where the classic app changes it; a file
+  # a merge adds needs its own exception, and this check (the "Ghostty resources
+  # bundle" step of cmux-next.yml's checks job, which every feat-cmux-next pull
+  # request that touches Resources/** runs) names it.
   local classic name
   while IFS= read -r classic; do
     name=$(basename "$classic")
-    [[ ! -e "$res/$name" ]] || { echo "FAIL ($1): the classic $classic is copied flat as $name" >&2; fail=1; }
+    [[ ! -e "$res/$name" ]] || {
+      echo "FAIL ($1): the classic Resources/$classic is copied flat as $name: add" \
+        "\"$classic,\" to membershipExceptions of 'Exceptions for \"Resources\" folder in" \
+        "\"cmux-next\" target' in cmux.xcodeproj/project.pbxproj" >&2
+      fail=1
+    }
   done < <(cd "$ROOT/Resources" && find shell-integration -type f ! -name .DS_Store)
 }
 

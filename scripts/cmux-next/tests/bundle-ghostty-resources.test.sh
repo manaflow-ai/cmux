@@ -45,4 +45,4 @@ for theme in "$ROOT"/Resources/cmux-themes/*; do
     || { echo "FAIL: $(basename "$theme") is not bundled in ghostty/themes" >&2; fail=1; }
 done
 [[ $fail -eq 0 ]] || exit 1
-echo "PASS: bundled shell integration equals ghostty-next/src/shell-integration "
+echo "PASS: bundled shell integration equals ghostty-next/src/shell-integration"
