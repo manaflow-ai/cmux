@@ -173,6 +173,43 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-trust", params)
     }
 
+    /// A chat that already runs in the daemon's machine's acpmux, as `agent-session-adopt` bound it
+    /// to the tab: `asking` is false for a mode that does not ask before acting (bypass).
+    public struct Adopted: Sendable, Equatable {
+        public let session: String
+        public let mode: String?
+        public let asking: Bool
+    }
+
+    /// `agent-session-adopt` (`agent-session-adopt-v1`): the daemon binds `session`, a chat of its
+    /// own machine's acpmux (never a peer's mirror or the Home Chief's), to the tab, keeping its
+    /// mode. A daemon that does not serve the verb is refused here (``startUnsupported``).
+    public func adopt(session: String) async throws -> Adopted {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot adopt a chat")
+        }
+        _ = try await liveTransport()
+        guard servesAdopt else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session adopt")
+        }
+        let data = try await call("agent-session-adopt", ["session": session])
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let bound = object["session"] as? String, bound == session else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-adopt answered another session")
+        }
+        // An answer without `asking` never reads as asking.
+        return Adopted(session: bound, mode: object["mode"] as? String, asking: object["asking"] as? Bool ?? false)
+    }
+
+    /// ``adopt(session:)`` on tab `surface` over a connection of its own, closed after the answer.
+    public static func adopt(session: String, surface: UInt64, endpoint: @escaping EndpointProvider) async throws -> Adopted {
+        let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
+        let result: Result<Adopted, any Error>
+        do { result = .success(try await client.adopt(session: session)) } catch { result = .failure(error) }
+        await client.close()
+        return try result.get()
+    }
+
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
     public static let startUnsupported = "agent_session.start_unsupported"
 

@@ -3028,6 +3028,270 @@
         }
       }
     },
+    "agentPane.adopt.bound": {
+      "comment": "Shown when another machine's agent chat cannot open because the new agent tab already shows a chat",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة تبويب الوكيل هذه تعرض محادثة بالفعل. افتح الجلسة مرة أخرى في مساحة عمل جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kartica agenta već prikazuje razgovor. Ponovo otvorite sesiju u novom radnom prostoru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den agentfane viser allerede en chat. Åbn sessionen igen i et nyt arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent-Tab zeigt bereits einen Chat. Öffne die Sitzung erneut in einem neuen Arbeitsbereich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That agent tab already shows a chat. Open the session again in a new workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa pestaña de agente ya muestra un chat. Vuelve a abrir la sesión en un espacio de trabajo nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet d'agent affiche déjà une discussion. Rouvrez la session dans un nouvel espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quella scheda agente mostra già una chat. Riapri la sessione in un nuovo spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのエージェントタブにはすでにチャットが表示されています。新しいワークスペースでセッションを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងភ្នាក់ងារនោះកំពុងបង្ហាញការជជែករួចហើយ។ បើកវគ្គម្ដងទៀតនៅក្នុងកន្លែងធ្វើការថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그 에이전트 탭에는 이미 채팅이 표시되어 있습니다. 새 워크스페이스에서 세션을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den agentfanen viser allerede en chat. Åpne økten på nytt i et nytt arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta agenta już wyświetla czat. Otwórz sesję ponownie w nowym obszarze roboczym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essa aba de agente já mostra um chat. Abra a sessão novamente em um novo espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта вкладка агента уже показывает чат. Откройте сеанс снова в новом рабочем пространстве."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บเอเจนต์นั้นแสดงแชตอยู่แล้ว เปิดเซสชันอีกครั้งในพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan sekmesi zaten bir sohbet gösteriyor. Oturumu yeni bir çalışma alanında yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка агента вже показує чат. Відкрийте сеанс знову в новому робочому просторі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ tác tử đó đã hiển thị một cuộc trò chuyện. Hãy mở lại phiên trong một không gian làm việc mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该代理标签页已在显示一个聊天。请在新工作区中重新打开该会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該代理分頁已在顯示一個聊天。請在新工作區中重新開啟該工作階段。"
+          }
+        }
+      }
+    },
+    "agentPane.adopt.unknownSession": {
+      "comment": "Shown when another machine's agent chat cannot open because that machine's agent service lists no chat of its own by that id; %@ is the machine's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يشغّل %@ محادثة وكيل خاصة به بهذا المعرّف. تحقّق من معرّف الجلسة باستخدام acpmux ls على ذلك الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne pokreće takav vlastiti razgovor agenta. Provjerite ID sesije pomoću acpmux ls na toj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kører ingen sådan agentchat selv. Tjek sessionens id med acpmux ls på den maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ führt keinen solchen eigenen Agent-Chat aus. Prüfe die Sitzungs-ID mit acpmux ls auf diesem Rechner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ runs no such agent chat of its own. Check the session id with acpmux ls on that machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no ejecuta ningún chat de agente propio con ese ID. Comprueba el ID de la sesión con acpmux ls en esa máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n'exécute aucune discussion d'agent avec cet identifiant. Vérifiez l'identifiant de la session avec acpmux ls sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non esegue nessuna chat agente propria con quell'ID. Controlla l'ID della sessione con acpmux ls su quella macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ではそのようなエージェントチャットは実行されていません。そのマシンで acpmux ls を使ってセッション ID を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនដំណើរការការជជែកភ្នាក់ងារបែបនោះរបស់ខ្លួនទេ។ ពិនិត្យលេខសម្គាល់វគ្គដោយប្រើ acpmux ls នៅលើម៉ាស៊ីននោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서는 그런 자체 에이전트 채팅이 실행되고 있지 않습니다. 그 머신에서 acpmux ls로 세션 ID를 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kjører ingen slik egen agentchat. Sjekk økt-ID-en med acpmux ls på den maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie uruchamia takiego własnego czatu agenta. Sprawdź identyfikator sesji poleceniem acpmux ls na tej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não executa nenhum chat de agente próprio com esse ID. Confira o ID da sessão com acpmux ls nessa máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ нет такого собственного чата агента. Проверьте ID сеанса командой acpmux ls на этой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ได้เรียกใช้แชตเอเจนต์ของตัวเองที่มี ID นั้น ตรวจสอบ ID เซสชันด้วย acpmux ls บนเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kendine ait böyle bir ajan sohbeti çalıştırmıyor. Oturum kimliğini o makinede acpmux ls ile kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ немає такого власного чату агента. Перевірте ID сеансу командою acpmux ls на цій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không chạy cuộc trò chuyện tác tử nào như vậy. Hãy kiểm tra ID phiên bằng acpmux ls trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上没有运行这样的自有代理聊天。请在那台机器上用 acpmux ls 检查会话 ID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上沒有執行這樣的自有代理聊天。請在那台機器上用 acpmux ls 檢查工作階段 ID。"
+          }
+        }
+      }
+    },
     "agentPane.attach.prompt": {
       "extractionState": "manual",
       "localizations": {
