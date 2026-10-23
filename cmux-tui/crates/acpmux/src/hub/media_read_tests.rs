@@ -1,7 +1,8 @@
-//! Unit tests of `media_read.rs`: the sniff, the path checks on the opened descriptor, the handle
-//! table, and the race tests (a file or a folder swapped between the checks and the reads).
+//! Unit tests of `media_read.rs`: the sniff, the path checks on the opened descriptor, and the
+//! race tests (the root, a folder or the file swapped between the checks and the reads).
 
 use super::*;
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 fn reason(e: &RpcError) -> String {
@@ -263,34 +264,86 @@ fn a_file_replaced_by_another_inode_gives_the_original_bytes_or_is_refused() {
     never_outside(tail, &mp4(7, 64)[32..]);
 }
 
+/// A root that is itself a link (`/tmp` on macOS, a folder the person linked) is the person's
+/// choice: its target is read.
 #[test]
-fn handles_are_capped_scoped_to_their_chat_and_expire() {
-    let s = Scratch::new("handles");
-    let handles = Handles::default();
-    let now = Instant::now();
-    let open = || s.open("out/clip.mp4", &mut |_| {}).unwrap();
-    let first = handles.insert("chat", open(), now).unwrap();
-    for _ in 1..MAX_HANDLES {
-        handles.insert("chat", open(), now).unwrap();
-    }
-    let e = handles.insert("chat", open(), now).unwrap_err();
-    assert_eq!(reason(&e), "media.handles");
-    assert!(handles.get("chat", &first, now).is_ok());
-    let e = handles.get("other-chat", &first, now).unwrap_err();
-    assert_eq!(reason(&e), "media.handle");
-    let e = handles.get("chat", "not-a-handle", now).unwrap_err();
-    assert_eq!(reason(&e), "media.handle");
-    // Two minutes idle: every handle is gone, and the table takes new ones.
-    let later = now + IDLE;
-    assert_eq!(reason(&handles.get("chat", &first, later).unwrap_err()), "media.handle");
-    let fresh = handles.insert("chat", open(), later).unwrap();
-    handles.close(&fresh);
-    assert_eq!(reason(&handles.get("chat", &fresh, later).unwrap_err()), "media.handle");
-    handles.insert("chat", open(), later).unwrap();
-    handles.close_all();
-    for _ in 0..MAX_HANDLES {
-        handles.insert("chat", open(), later).unwrap();
-    }
+fn a_root_that_is_a_link_reads_its_target() {
+    let s = Scratch::new("root-link");
+    let link = s.at("link");
+    std::os::unix::fs::symlink(s.root(), &link).unwrap();
+    let opened = open_in(std::slice::from_ref(&link), "out/clip.mp4", None, &mut |_| {}).unwrap();
+    assert_eq!(read_all(&opened).unwrap(), mp4(1, 64));
+    let absolute = link.join("out/clip.mp4");
+    let path = absolute.to_str().unwrap();
+    assert!(open_in(std::slice::from_ref(&link), path, None, &mut |_| {}).is_ok());
+}
+
+/// Race: the root is swapped after it is resolved, for a link out of it or for another folder:
+/// the open finds neither the folder it resolved nor follows the link, and refuses.
+#[test]
+fn a_root_swapped_after_its_resolve_is_refused() {
+    let s = Scratch::new("root-swap");
+    let (root, moved) = (s.root(), s.at("root.old"));
+    let put_back = || {
+        let _ = std::fs::remove_file(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::rename(&moved, &root).unwrap();
+    };
+    let e = s
+        .open("out/clip.mp4", &mut |step| {
+            if step == Step::Resolved {
+                std::fs::rename(&root, &moved).unwrap();
+                std::os::unix::fs::symlink(s.at("outside"), &root).unwrap();
+            }
+        })
+        .err()
+        .unwrap();
+    assert_eq!(reason(&e), "media.unreadable", "{}", e.message);
+    put_back();
+    let e = s
+        .open("out/clip.mp4", &mut |step| {
+            if step == Step::Resolved {
+                std::fs::rename(&root, &moved).unwrap();
+                std::fs::create_dir_all(root.join("out")).unwrap();
+                std::fs::write(root.join("out/clip.mp4"), mp4(9, 64)).unwrap();
+            }
+        })
+        .err()
+        .unwrap();
+    assert_eq!(reason(&e), "media.unreadable", "{}", e.message);
+    put_back();
+    // Once the root is open the walk goes on in it: a link put at its path is never followed.
+    let opened = s.open("out/clip.mp4", &mut |step| {
+        if step == Step::Root {
+            std::fs::rename(&root, &moved).unwrap();
+            std::os::unix::fs::symlink(s.at("outside"), &root).unwrap();
+        }
+    });
+    never_outside(opened.and_then(|o| read_all(&o)), &mp4(1, 64));
+}
+
+/// `/dev` is its own mount: a walk from `/` stops at it, so no mount point or firmlink below a
+/// root is crossed.
+#[test]
+fn a_folder_on_another_mount_than_the_root_is_refused() {
+    let e = open_in(&[PathBuf::from("/")], "dev/null", None, &mut |_| {}).err().unwrap();
+    assert_eq!(reason(&e), "media.mount", "{}", e.message);
+}
+
+/// A FIFO opens without blocking and is refused, a socket never opens, and a device is no file.
+#[test]
+fn a_fifo_a_socket_or_a_device_is_refused() {
+    let s = Scratch::new("special");
+    let fifo = std::ffi::CString::new(s.root().join("out/pipe.mp4").into_os_string().into_vec());
+    // SAFETY: the path is a valid NUL-terminated string that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(fifo.unwrap().as_ptr(), 0o600) }, 0);
+    let e = s.open("out/pipe.mp4", &mut |_| {}).err().unwrap();
+    assert_eq!(reason(&e), "media.notFile", "{}", e.message);
+    let _listener = std::os::unix::net::UnixListener::bind(s.root().join("out/sock.mp4")).unwrap();
+    let e = s.open("out/sock.mp4", &mut |_| {}).err().unwrap();
+    assert_eq!(reason(&e), "media.unreadable", "{}", e.message);
+    let e = open_in(&[PathBuf::from("/dev")], "null", None, &mut |_| {}).err().unwrap();
+    assert_eq!(reason(&e), "media.notFile", "{}", e.message);
 }
 
 #[test]
