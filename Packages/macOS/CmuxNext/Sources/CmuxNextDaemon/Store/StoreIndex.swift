@@ -39,9 +39,13 @@ import Foundation
     /// or of the same pane, leaves it as it was, so a refresh changes it only
     /// when a tab came, went or moved to another pane, or a pane came or went
     /// (a pane with no tab too). A pane id folds in when its first record is
-    /// indexed and out when its last one goes (`recordsByPane`), so two
-    /// records of one pane (a move's added delta) never cancel each other.
+    /// indexed and out when its last one goes (`recordsByPane`), and a tab the
+    /// same way per surface (`recordsBySurface`, `tabShares`), so two records
+    /// of one pane or one tab (a move's added delta) never cancel each other.
     private var tabMembership = 0
+    /// The share each listed surface's tab has folded into `tabMembership`: the
+    /// share of its first record, then of the record that survives the others.
+    private var tabShares: [SurfaceID: Int] = [:]
     private var takenMembership = 0
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
@@ -59,8 +63,9 @@ import Foundation
         var keys: Keys
         var parent: ObjectIdentifier?
         var children: Set<ObjectIdentifier> = []
-        /// A tab's share of `tabMembership` (0 for other records; a pane's
-        /// share is per id, folded in by `key` and out by `unkey`).
+        /// A tab record's share of `tabMembership` (0 for other records). Both
+        /// shares are folded per durable identity by `key` and `unkey`: a tab's
+        /// per surface, a pane's per id.
         var membership = 0
     }
 
@@ -167,7 +172,6 @@ import Foundation
 
     private mutating func remove(id: ObjectIdentifier) {
         guard let entry = entries.removeValue(forKey: id) else { return }
-        tabMembership ^= entry.membership
         for child in entry.children { remove(id: child) }
         if let parent = entry.parent { entries[parent]?.children.remove(id) }
         unkey(entry.keys, entry.record)
@@ -180,7 +184,6 @@ import Foundation
         if let tab = record as? TabModel {
             entry.membership = Self.membership(tab, (parent as? PaneModel)?.handle)
         }
-        tabMembership ^= entry.membership
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }
         key(keys, record)
@@ -209,6 +212,11 @@ import Foundation
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             guard let tab = record as? TabModel else { return }
             tabsBySurface[surface] = tab
+            // The surface's first record folds the tab in; a second record of it changes nothing.
+            if recordsBySurface[surface] == nil, let share = entries[ObjectIdentifier(tab)]?.membership {
+                tabShares[surface] = share
+                tabMembership ^= share
+            }
             recordsBySurface[surface, default: []].append(ObjectIdentifier(tab))
             tabsByID[id] = tab
             if let terminal { tabsByTerminal[terminal] = tab }
@@ -259,6 +267,15 @@ import Foundation
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
             recordsBySurface[surface]?.removeAll { $0 == ObjectIdentifier(record) }
             if recordsBySurface[surface]?.isEmpty == true { recordsBySurface[surface] = nil }
+            if recordsBySurface[surface] == nil {
+                // The last record of the surface went: the tab left the tree.
+                if let share = tabShares.removeValue(forKey: surface) { tabMembership ^= share }
+            } else if let survivor = recordsBySurface[surface]?.first.flatMap({ entries[$0]?.membership }),
+                      survivor != tabShares[surface] {
+                // The tab stays, as its surviving record lists it: a real move still moves the digest.
+                tabMembership ^= (tabShares[surface] ?? 0) ^ survivor
+                tabShares[surface] = survivor
+            }
             // A second record of the surface still indexed takes its keys back, after this
             // record's own keys are dropped: the two records share their durable id, so a
             // take-back before the drop would find the id still taken and then lose it.
