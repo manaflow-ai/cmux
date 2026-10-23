@@ -40,7 +40,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The content host's top and bottom pins (the side pins are in
     /// `sidePins`); their constants are the main pane's gutter.
     var mainPaneEdges: [NSLayoutConstraint] = []
-    private var mainPaneObservation: Task<Void, Never>?
+    private(set) var mainPaneObservation: Task<Void, Never>?
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
@@ -48,9 +48,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The sidebar, content and title pins of each side (`applySidebarSide`).
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
-    private var placementObservation: Task<Void, Never>?
+    private(set) var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
-    private var tokenObservation: Task<Void, Never>?
+    private(set) var tokenObservation: Task<Void, Never>?
     private var displayOptionsObserver: MainActorObservation?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through

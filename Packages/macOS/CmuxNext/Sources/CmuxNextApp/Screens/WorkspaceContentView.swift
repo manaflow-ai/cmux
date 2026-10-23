@@ -22,7 +22,7 @@ final class WorkspaceContentView: NSView {
             needsLayout = true
         }
     }
-    private var tokenObservation: Task<Void, Never>?
+    private(set) var tokenObservation: Task<Void, Never>?
     /// Parked in its window (``ParkingContainer``): set with `isHidden` by `WindowRootView`, so it is
     /// redundant while hidden parking is the only parking.
     private(set) var isParkedOffScreen = false
