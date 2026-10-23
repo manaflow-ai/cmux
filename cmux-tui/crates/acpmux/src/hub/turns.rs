@@ -426,12 +426,15 @@ impl Hub {
         }
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
-        let mut result = super::steer_end::agent_prompt(
+        // Start title generation after the first prompt is written to the harness, while its
+        // session-info title can still win before the cheap completion is spent.
+        let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
             json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
+            || self.title_after_prompt(session),
         )
         .await;
         // The account behind this harness is exhausted: move the session
