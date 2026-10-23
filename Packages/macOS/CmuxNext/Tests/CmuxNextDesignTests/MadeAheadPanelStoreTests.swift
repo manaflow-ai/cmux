@@ -94,13 +94,15 @@ struct MadeAheadPanelStoreTests {
         #expect(again.resets == 1 && again.openPanelPrompt == "Open" && again.openPanelMessage == "")
     }
 
-    @Test func aDeadPanelFromAClickIsNotKeptOrHandedOutAgain() {
+    /// A dead panel is never handed out: `AgentPaneFilePicker` awaits `beginSheetModal`'s handler in a continuation,
+    /// and a dead panel's sheet may never call it, so the attach flow would hang (review 2 of pl-fleet-gui).
+    @Test func aDeadPanelFromAClickIsNotKeptOrHandedOut() {
         let factory = Factory([nil, nil])
         let store = Self.store(factory)
-        let first = store.panel()
+        #expect(store.panel() == nil, "a dead panel was handed out to a click")
         #expect(!store.isMade)
-        let second = store.panel()
-        #expect(second !== first, "a dead panel was handed out again")
+        #expect(store.panel() == nil, "a dead panel was handed out to the next click")
+        #expect(factory.made.count == 2, "each click makes its own panel")
         #expect(!store.isMade)
         store.warmWhenIdle()
         #expect(!store.isWarming, "a dead panel on the click still armed a warm-up")
