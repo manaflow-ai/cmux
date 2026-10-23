@@ -7,11 +7,8 @@ import CmuxNextCompat
 ///
 /// A sample opens at a key-down and records the first time each later hop
 /// runs: AppKit dispatch, Ghostty's write callback, the attach socket
-/// submit, the echo's decode on the attach reader, its receipt by the
-/// terminal session (`output_received_ms`: the session's off-main events
-/// loop for live output since G4, the main actor only for a surface's
-/// first content; before G4 this column was `output_main_ms`, a main-actor
-/// hop, so older rows are not comparable), its parse on the output lane, and the first `layer.contents` set after
+/// submit, the echo's decode on the attach reader, its main-thread hop,
+/// its parse on the output lane, and the first `layer.contents` set after
 /// that parse (the frame Core Animation commits). The row is appended when
 /// that frame lands. Drive it with keys paced wider than one round trip;
 /// a key that arrives while a sample is open closes the old one unfinished.
@@ -23,7 +20,7 @@ public final class TypingLatencyProbe: Sendable {
     public static var isEnabled: Bool { shared.output != nil }
 
     public enum Mark: Int, CaseIterable, Sendable {
-        case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents
+        case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputMain, outputParsed, contents
 
         var columnName: String {
             switch self {
@@ -32,7 +29,7 @@ public final class TypingLatencyProbe: Sendable {
             case .ioWrite: "io_write_ms"
             case .socketSubmit: "socket_submit_ms"
             case .outputDecoded: "output_decoded_ms"
-            case .outputReceived: "output_received_ms"
+            case .outputMain: "output_main_ms"
             case .outputParsed: "output_parsed_ms"
             case .contents: "contents_ms"
             }
@@ -45,8 +42,8 @@ public final class TypingLatencyProbe: Sendable {
             case .dispatchStart, .dispatchEnd, .ioWrite: nil
             case .socketSubmit: .ioWrite
             case .outputDecoded: .socketSubmit
-            case .outputReceived: .outputDecoded
-            case .outputParsed: .outputReceived
+            case .outputMain: .outputDecoded
+            case .outputParsed: .outputMain
             case .contents: .outputParsed
             }
         }

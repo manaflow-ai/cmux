@@ -281,39 +281,22 @@ public final class TerminalSession {
     /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
     /// may use (nil while the surface still waits for its first content, or none is live). Only
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
-    ///
-    /// The detached loop never holds the session strongly: only the main-actor
-    /// ``dispatch(_:to:)`` does, so when the owner drops the session while an event is in flight
-    /// (a READY restore waiting for its lane), its last release runs on main. Released here, off
-    /// main, the session's views would deallocate off main and ``TerminalSurfaceView``'s deinit
-    /// would skip `ghostty_surface_free` (a leaked surface with its renderer and IO threads).
-    private static func consume(_ events: AsyncStream<TerminalIOEvent>,
-                                for session: TerminalSession) -> Task<Void, Never> {
-        let box = WeakSessionBox(session)
-        return Task.detached(priority: .high) {
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
+                                            for session: TerminalSession) -> Task<Void, Never> {
+        Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
                 if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputReceived)
+                    TypingLatencyProbe.shared.mark(.outputMain)
                     ExpectedActivity.shared.note(.terminalOutput)
                     await lane.waitForCapacity()
                     lane.processOutput(data)
                     continue
                 }
-                let handled = await TerminalSession.dispatch(event, to: box)
-                guard handled.alive else { return }
-                lane = handled.lane
+                guard let session else { return }
+                lane = await session.handle(event)
             }
         }
-    }
-
-    /// Handles one non-output event on the main actor for ``consume(_:for:)``. The strong
-    /// reference to the session lives only in this main-actor call, so it is released on main.
-    /// `alive` is false once the session is gone (the loop ends).
-    private static func dispatch(_ event: TerminalIOEvent,
-                                 to box: WeakSessionBox) async -> (lane: TerminalOutputLane?, alive: Bool) {
-        guard let session = box.session else { return (nil, false) }
-        return (await session.handle(event), true)
     }
 
     /// Handles one event on the main actor. Returns the lane later output may go to off the main
@@ -354,7 +337,7 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputReceived)
+            TypingLatencyProbe.shared.mark(.outputMain)
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
@@ -469,16 +452,5 @@ public final class TerminalSession {
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
-    }
-}
-
-/// The events loop's only reference to its session (``TerminalSession/consume(_:for:)``): weak, and
-/// main-actor isolated, so the loop can carry it off main without ever owning the session.
-@MainActor
-private final class WeakSessionBox {
-    weak var session: TerminalSession?
-
-    init(_ session: TerminalSession) {
-        self.session = session
     }
 }
