@@ -1,22 +1,46 @@
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 
 struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
         lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+            && lhs.workspaceColorHex == rhs.workspaceColorHex
     }
 
     let notification: TerminalNotification
     let workspaceTitle: String?
+    /// The color the notification's workspace shows in the sidebar, or nil when it has none.
+    var workspaceColorHex: String? = nil
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void
 
     @State private var isHovering: Bool = false
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @Environment(\.colorScheme) private var colorScheme
 
     private static let rowHeight: CGFloat = 56
+
+    private var workspaceColor: Color? {
+        workspaceColorHex
+            .flatMap { WorkspaceTabColorSettings.displayNSColor(hex: $0, colorScheme: colorScheme, forceBright: true) }
+            .map(Color.init(nsColor:))
+    }
+
+    private func edgeBar(_ mark: NotificationRowEdgeMarks.Mark) -> some View {
+        let fill: Color
+        switch mark {
+        case .none: fill = .clear
+        case .workspaceColor: fill = workspaceColor ?? .clear
+        case .unread: fill = cmuxAccent.color
+        }
+        return Rectangle()
+            .fill(fill)
+            .frame(width: 2.5)
+            .padding(.vertical, 6)
+    }
 
     var body: some View {
         // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
@@ -95,11 +119,9 @@ struct NotificationPopoverRow: View, Equatable {
     }
 
     private var rowContent: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccent.color)
-                .frame(width: 2.5)
-                .padding(.vertical, 6)
+        let marks = NotificationRowEdgeMarks(hasWorkspaceColor: workspaceColor != nil, isRead: notification.isRead)
+        return HStack(spacing: 0) {
+            edgeBar(marks.leading)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -145,6 +167,8 @@ struct NotificationPopoverRow: View, Equatable {
             .padding(.vertical, 8)
 
             Spacer(minLength: 0)
+
+            edgeBar(marks.trailing)
         }
         .frame(minHeight: Self.rowHeight)
         .padding(.leading, 4)
