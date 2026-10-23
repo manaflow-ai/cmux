@@ -80,10 +80,59 @@ some undid each other:
 Agent names (aN) come from the Chief's log; "Chief subagent" means a lawrencecchen commit whose agent
 the log does not name.
 
+## Look target, revised Oct 23 (Lawrence: "i liked it the way it was ... the nightly from 1 or 2 days ago")
+
+The sidebar should look like `feat-cmux-next` at 9f0271f3e32 (Oct 21, about noon PDT). Behavior and
+performance work landed since then stays. Only looks change back: the row close (#23783 dog-ear out), the
+title x (c779988d57d's empty icon slot out), and the group indent, rail and row heights where they differ
+from Oct 21. A nested group keeps a step-in so nesting stays readable. Fleet build `sb-oct21-v1` is the
+reference capture.
+
+## Group drag: design for the rewrite (Lawrence 11405 and Oct 23: "a lot of jank ... rethink from first principles")
+
+Why it janks today (`SidebarListView+Drag.swift`, `SidebarListView+GroupReorder.swift`, `SidebarGroupReorder`):
+
+- The hit test reads the displayed (animating) layout: `displayed.gapY`, `gapShift`, and a `shift` patched from
+  the drawn rows. The gap it opens moves the rows it then measures, a feedback loop. The target depends on the
+  current gap, not only on the pointer.
+- A tall group opens a gap as tall as the whole group. One step moves every row below by hundreds of points, and
+  the list under a tall card cannot be seen.
+- Three ways to place the card (`displayY` by morph ratio, by head height, by probe card), two paths (document and
+  legacy), a refused place that keeps the last gap, and an extra drop indicator (c5d9f102340) drawn from a stale
+  layout (the blue line).
+
+The rule for the rewrite:
+
+1. **One frozen base.** At lift, take the list's layout without the dragged block, once. The blocks are
+   the top-level things (groups with their members, loose workspaces, items, section headers), each a range in
+   base y. Nothing during the drag reads a drawn or animating frame for hit testing.
+2. **A capped card.** A lifted group collapses, animated (Motion springs, about 0.2 s), to at most
+   `header + 3 rows`. The rows past the cap fade under a bottom-edge fade. The gap it opens is the card's
+   capped height, not the group's full height. On drop the card lands at the capped height in its slot, then
+   the group grows back to full height and the rows below slide with it.
+3. **The target is a pure function of the pointer.** The slot is the number of blocks whose base midpoint is
+   above the card's centre in base space. A step function of the pointer alone: the same pointer y always gives
+   the same slot, so nothing can oscillate. Unit-tested without AppKit.
+4. **One layout from (base, slot, gap height).** The drawn y of block j = base y + (j >= slot ? gap : 0). One
+   spring moves each row view to it. A slot change sets the row views' targets and nothing else.
+5. **One drop path.** Drop sends the slot to the document (one intent). The card lands on the frame step 4
+   gives, the same function, so the landing does not jump. Cancel = slot back to the origin.
+6. **One drop mark: the gap.** There is no line, no outline and no dot over the rows.
+7. Group drags reorder top-level blocks only (u9772): a group never drops into another group by drag.
+
+Delete what the rule replaces (`SidebarGroupReorder`'s shift and hysteresis, the group branch of
+`updateDocDrag`, `showGroupReorder`'s refused-keeps-gap, `SidebarNestedDropIndicatorView`). Do not keep them
+as a fallback.
+
+Tests: the slot function (monotonic in y, no state, both edges of every block), the capped card height, the
+layout function (rows above the slot unchanged, rows below shifted by the capped gap), and a real-app drag on
+the fleet driven through `updateDrag` with frames recorded at each step (no frame where a row moves by more than
+the gap, no row left out of place after drop or cancel).
+
 ## Open work (Oct 23)
 
-- a585: row close back to the original, rail on the header pill's left edge, row text as far left as originally.
-- a588: stray blue line while dragging rows or groups.
+- Sidebar owner: the Oct 21 look (took over a585's X revert 31ad64e4dc4 and red tests 2b40f979ca2) and the
+  group drag rewrite (took over a588's blue-line fix 41c8c60c5a5 and red test 42a1811bb6b).
 - a587: Home unread badge becomes the blue dot.
 - a576: terminal lag while the sidebar rearranges.
 
