@@ -4,6 +4,12 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepNote {
+    pub r#type: LitNote,
+    pub text: String,
+}
+
 wire_enum! {
     StepOpOp {
         AutomationList = "automation.list",

@@ -5,7 +5,8 @@ processes on an owner-only Unix socket. A WireGuard key supports one live
 session, so every `remote connect --wireguard-hub PATH` sidecar on this machine
 shares this hub instead of handshaking on its own.
 
-  --config PATH   owner-only wg-quick file (PrivateKey, Address, AllowedIPs, Endpoint)
+  --config PATH   owner-only wg-quick file; - reads up to 16384 UTF-8 bytes from stdin
+                  (PrivateKey, Address, AllowedIPs, Endpoint)
   --socket PATH   Unix socket to serve; parent directory is created 0700, socket 0600
   --control PATH  also serve a control socket (newline-delimited JSON): `path.get`,
                   `path.subscribe` (`path.changed` events), `datagram.bind` (an overlay

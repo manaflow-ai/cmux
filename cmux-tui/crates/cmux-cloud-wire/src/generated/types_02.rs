@@ -786,6 +786,8 @@ pub struct ServerNetworkBinding {
     pub mesh: NativeMeshId,
     pub device: NativeDeviceId,
     pub confirmed_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_grant: Option<GrantId>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -897,10 +899,4 @@ pub enum Step {
 pub struct StepSleep {
     pub r#type: LitSleep,
     pub seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepNote {
-    pub r#type: LitNote,
-    pub text: String,
 }

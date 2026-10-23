@@ -142,8 +142,10 @@ export const reduceServerNetworkConfirmed = (state: TeamState, params: unknown, 
   const host = hostOf(state, ctx.rows, v.host)
   if (!state.team || state.team.deleted_at !== undefined || !host?.network || !serverPlacementActive(state, ctx.rows, v.host, v.install)
     || host.owner_user !== v.owner_user || !can(state, ctx.rows, v.owner_user, "team.resources") || host.wg_public_key !== v.wg_public_key || !sameServerNetwork(v.network, host.network)) return reject("auth.forbidden", "the approved server identity changed")
-  if (host.network.state === "confirmed") return { ok: true, state, value: { host: host.id, network: host.network }, changed: false }
-  const network = { ...v.network, state: "confirmed" as const, confirmed_at: ctx.now }
+  // Historical commands may omit the grant; they never erase a recorded reference.
+  const grant = v.grant ?? (host.network.state === "confirmed" ? host.network.install_grant : undefined)
+  if (host.network.state === "confirmed" && host.network.install_grant === grant) return { ok: true, state, value: { host: host.id, network: host.network }, changed: false }
+  const network = { ...v.network, state: "confirmed" as const, confirmed_at: ctx.now, ...(grant ? { install_grant: grant } : {}) }
   const next = { ...host, network }
   return withWrites(audited(state, ctx, "server.network.confirm", { host: host.id, network },
     { kind: "host.upsert", entity: host.id, payload: { ...next, team: state.team.id } }, `server ${host.name} network identity confirmed`,

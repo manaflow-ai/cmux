@@ -38,7 +38,7 @@ export const serverNetworkExternal = async (d: ServerNetworkDeps, p: Principal, 
   if (!Number.isSafeInteger(v.proof.signedAt) || Math.abs(d.now() - v.proof.signedAt) > 120_000) return fail("validation.invalid", "the network proof must be freshly signed", true)
   const network = { state: "reserved" as const, tenant: host.network.tenant, mesh: v.mesh, device: v.device }
   try {
-    const operationKey = `server-network:${await sha256Hex(`${p.user}:${p.install}:${frame.idempotency_key}`)}`
+    const operationKey = `server-network-v2:${await sha256Hex(`${p.user}:${p.install}:${p.grant}:${frame.idempotency_key}`)}`
     const [target, key] = await Promise.all([d.tenant(), d.key(p.user!, p.install!, p.grant!)])
     const point = pointOf(key)
     if (!targetMatches(d, target, network.tenant) || !point) return fail("auth.forbidden", "the server's owner identity could not be verified")
@@ -49,7 +49,7 @@ export const serverNetworkExternal = async (d: ServerNetworkDeps, p: Principal, 
     if (!targetMatches(d, currentTarget, network.tenant) || pointOf(currentKey) !== point || !current?.network
       || current.wg_public_key !== host.wg_public_key || !sameServerNetwork(network, current.network)) return fail("auth.forbidden", "the approved server identity changed")
     // The proof, policy and arbitrary response fields never enter this command.
-    const { frames } = d.submitSystem("server.network.confirmed", { host: host.id, install: p.install, owner_user: p.user, wg_public_key: host.wg_public_key, network }, operationKey)
+    const { frames } = d.submitSystem("server.network.confirmed", { host: host.id, install: p.install, owner_user: p.user, grant: p.grant, wg_public_key: host.wg_public_key, network }, operationKey)
     const rejected = frames.find((f): f is RejectFrame => f.t === "reject")
     if (rejected) return fail(rejected.code, rejected.message)
     const result = frames.find((f): f is ResultFrame => f.t === "result")
