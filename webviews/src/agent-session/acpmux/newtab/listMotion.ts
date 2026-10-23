@@ -1,10 +1,12 @@
 // The New Tab page's lists (Open Tabs, Recently Closed, the chat cards) move with their rows
 // (motion pass, plans/cmux-next/motion.md), as the template switch moves its parts: a row in both
 // the old and the new list slides from where it was drawn to its new place (`--agent-motion-move`),
-// a new row fades in where it lands (`--agent-motion-in`), and a row that left goes at once.
-// Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
-// Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
-// fades and drops the slides (rule 7): its move token is 0.
+// and a row that arrives or leaves does so at once: a new row is drawn where it lands in the frame
+// it arrives, with no fade (Leo 2026-10-22: "we should basically have no entry animations a lot of
+// the time, esp here all over the new tab area"; test/new-tab-no-entry-motion.test.ts).
+// Rows are told apart by their keys, never by position. Only transform animates (Web Animations),
+// and a change mid-motion starts from what is on screen. Reduce Motion drops the slides (rule 7):
+// its move token is 0.
 import { type RefObject, useLayoutEffect, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 import { entranceAllowed } from "../../shared/pageReveal";
@@ -176,7 +178,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     }
     // A hidden page (an earlier New Tab page parked behind a newer one, Leo 2026-10-19; a tab in
     // another workspace) moves nothing either: its rows take their new places at once. WebKit
-    // suspends a hidden page's animations, so a slide or fade started now would play when the page
+    // suspends a hidden page's animations, so a slide started now would play when the page
     // shows again. A change landing before the first frame back was made while the user was away
     // (Leo 2026-10-20), so it takes its places at once too (shared/pageReveal.ts).
     if (isAgentMotionOff() || !entranceAllowed(root.ownerDocument)) {
@@ -205,7 +207,6 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const move = reduced ? 0 : seconds(style.getPropertyValue("--agent-motion-move")) * 1000;
-    const appear = seconds(style.getPropertyValue("--agent-motion-in")) * 1000;
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     // CSS cannot cancel Web Animations API instances. The explicit host policy is still honored
     // here when a list update races the theme's zero-motion transition.
@@ -216,11 +217,8 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       const key = currentKeys[index];
       const was = before.get(key);
       const is = after.get(key);
-      if (!was || !is) {
-        if (appear > 0)
-          trackAnimation(running, element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
-        continue;
-      }
+      // A row that just arrived is already in its place: it moves nothing.
+      if (!was || !is) continue;
       const shift = drawn.get(key) ?? { x: 0, y: 0 };
       const x = was.x + shift.x - is.x;
       const y = was.y + shift.y - is.y;
