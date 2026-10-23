@@ -275,3 +275,36 @@
   color: var(--agent-muted);
   white-space: nowrap;
 }
+
+/* One row per model (Lawrence 2026-10-22: "spacing + needs search", OpenCode's DeepSeek rows): a
+   row's detail (the provider it lands, or a filtered row's harness) sits at the trailing edge, so
+   the details form one column and every name starts at the same place; the check follows it. A
+   bracketed note the name carried ("New") is a quiet word after the name. */
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
+  margin-inline-start: auto;
+  padding-inline-start: 16px;
+}
+.acpmux-quick-item:has(> .acpmux-quick-value) .ui-menu-check,
+.acpmux-quick-item:has(> .acpmux-quick-value) .ui-menu-shortcut {
+  margin-inline-start: 0;
+  padding-inline-start: 8px;
+}
+/* The check and the number key take one width, so the details before them line up. */
+.ui-menu-item.acpmux-quick-item .ui-menu-check:not(:empty),
+.ui-menu-item.acpmux-quick-item .ui-menu-shortcut {
+  min-width: 1em;
+  text-align: end;
+}
+.acpmux-quick-tag {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+/* The expanded version: the model's name heads its providers, which sit indented under it. */
+.acpmux-quick-model-head.ui-menu-item[data-disabled] {
+  opacity: 1;
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-quick-offer {
+  padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
+}
