@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 
 // Incognito windows (user decision 2026-09-30): a whole window whose

@@ -101,16 +101,11 @@ extension ThemeCoordinator {
         controller.themeScope.pinBackdropTint(appearanceScopes.background(for: "\(key)|opacity").flatMap(Double.init))
     }
 
-    // MARK: Pane shortcuts (pane.setBackground, pane.setTint)
+    // MARK: Pane shortcuts (pane.setBackground)
 
     @discardableResult
     func setPaneBackground(_ value: String?, for pane: PaneController) -> Bool {
         setOwnValue(value == "inherit" ? nil : value, .background, of: .pane(pane))
-    }
-
-    @discardableResult
-    func setPaneTint(_ tint: PaneTint?, for pane: PaneController) -> Bool {
-        setOwnValue(tint?.id, .tint, of: .pane(pane))
     }
 
     /// The pane a choice menu or picker shows its check for: the target pane, else the focused one.

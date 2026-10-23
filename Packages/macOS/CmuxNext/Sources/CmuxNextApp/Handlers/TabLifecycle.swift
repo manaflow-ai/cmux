@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings

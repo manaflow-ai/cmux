@@ -20,7 +20,6 @@ import Testing
         let warmup = warmup()
         warmup.start(defaultIsChromium: { true })
         warmup.chromiumLikely(.restoredTab)
-        warmup.tabSignal(.newTabKey)
         #expect(warmup.reason == nil)
     }
 
