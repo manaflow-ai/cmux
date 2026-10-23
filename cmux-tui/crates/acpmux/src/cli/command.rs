@@ -183,6 +183,21 @@ pub enum Command {
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
     },
+    /// Append a report to a human basket without waking any agent session.
+    /// The target must be `reports:<person>`; the sender is the attached local
+    /// ACP session (or `--from` when the daemon can bind that session).
+    Deliver {
+        #[arg(long, value_name = "TARGET")]
+        target: String,
+        /// Report text. Reads stdin when omitted or "-".
+        prompt: Vec<String>,
+        /// Stable id for retries; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        /// Audience metadata (`leo`, `coordinator`, or `silent`).
+        #[arg(long, default_value = "leo")]
+        audience: String,
+    },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
