@@ -43,13 +43,11 @@ final class ChatsFeed {
     func newest(_ limit: Int) -> [AcpmuxChat] { store.newest(limit) }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            reconnect?.cancel()
-            subscription?.cancel()
-            directoryWatch?.cancel()
-        }
+        reconnect?.cancel()
+        subscription?.cancel()
+        directoryWatch?.cancel()
     }
 
     /// Starts one long-lived watch for the first live observer.
