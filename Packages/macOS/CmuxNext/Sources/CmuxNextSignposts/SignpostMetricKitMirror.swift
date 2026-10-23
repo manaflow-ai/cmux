@@ -45,7 +45,7 @@ public final class SignpostMetricKitMirror: Sendable {
 
     /// Mirrors a begin; returns the id the end needs, nil while off.
     func begin(_ name: SignpostName) -> OSSignpostID? {
-        guard isOn, let log = logs.withLock({ $0[name.category] }) else { return nil }
+        guard isOn, let category = name.category, let log = logs.withLock({ $0[category] }) else { return nil }
         let id = OSSignpostID(log: log)
         mxSignpost(.begin, log: log, name: name.staticName, signpostID: id)
         return id
@@ -53,7 +53,7 @@ public final class SignpostMetricKitMirror: Sendable {
 
     /// Mirrors the end of an interval whose begin was mirrored (even if mirroring went off since).
     func end(_ name: SignpostName, id: OSSignpostID) {
-        guard let log = logs.withLock({ $0[name.category] }) else { return }
+        guard let category = name.category, let log = logs.withLock({ $0[category] }) else { return }
         mxSignpost(.end, log: log, name: name.staticName, signpostID: id)
     }
 }
