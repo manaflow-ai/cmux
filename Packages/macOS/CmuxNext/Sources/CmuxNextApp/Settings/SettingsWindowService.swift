@@ -220,7 +220,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// sits where the window is: read through the active window's theme scope (the app scope when
     /// no window is open), which inherits the app theme unless a room overrides it.
     func derivedNumber(at path: [String]) -> Double? {
-        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
+        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? services.themeRoot).shownWindowOpacity : nil
     }
 
     var browserProfiles: [SettingsBrowserProfileRow] {

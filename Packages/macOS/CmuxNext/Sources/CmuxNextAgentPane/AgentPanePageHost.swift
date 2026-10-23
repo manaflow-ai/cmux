@@ -25,7 +25,9 @@ enum AgentPanePageHost {
     /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
-        if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
+        let store = view.themeScope.store
+        AgentPaneTunables.followCodexToolRuns(store: store)
+        if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind, store: store) { events.append(theme) }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
         events.append(.sessionStatus(view.sessionStatus))

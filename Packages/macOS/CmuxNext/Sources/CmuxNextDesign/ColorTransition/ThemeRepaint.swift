@@ -145,7 +145,9 @@ enum ThemeRepaint {
     }
 
     private static func apply(_ pending: [Request], work: [() -> Void], responders: [() -> Void]) {
-        let transition = ColorTransition.current
+        // Every scope of a tree shares its root's store; a batch of store-wide requests (no
+        // scope) is the app tree's.
+        let transition = ColorTransition.current(for: pending.lazy.compactMap { $0.scope?.store }.first ?? ThemeScope.app.store)
         var seen = Set<ObjectIdentifier>()
         var passes: [(views: [NSView], layout: Bool)] = []
         var blendRoots: [NSView] = []
