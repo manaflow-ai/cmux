@@ -1,3 +1,4 @@
+import CmuxNextAgentActivity
 import CmuxHomeCore
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
