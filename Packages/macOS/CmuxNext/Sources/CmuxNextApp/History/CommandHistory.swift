@@ -159,9 +159,12 @@ final class CommandHistory {
     /// New Tab page's command suggestions, built on the key's turn of Cmd-T and Cmd-N. Reads only
     /// the newest `limit` rows of each machine (a mirror keeps up to 1,000, oldest first) and
     /// makes no history entry per row, as ``entries()`` does for the History list.
-    func recentTitles(_ limit: Int) -> [String] {
+    func recentTitles(_ limit: Int) -> [String] { Self.recentTitles(limit, in: mirrors.values) }
+
+    /// ``recentTitles(_:)`` over `mirrors`: commands with no text (nil or empty) are left out.
+    static func recentTitles(_ limit: Int, in mirrors: some Sequence<TerminalCommandMirror>) -> [String] {
         guard limit > 0 else { return [] }
-        let newest = mirrors.values.flatMap { mirror in
+        let newest = mirrors.flatMap { mirror in
             mirror.commands.reversed().lazy.filter { $0.command?.isEmpty == false }.prefix(limit)
         }
         return newest.sorted { $0.startedAt > $1.startedAt }.prefix(limit).compactMap(\.command)
