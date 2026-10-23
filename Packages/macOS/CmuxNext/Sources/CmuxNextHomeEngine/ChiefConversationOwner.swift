@@ -90,7 +90,7 @@ public final class ChiefConversationOwner {
         // build): the owner verifies this app, so it issues the page's gesture confirmations.
         let configuration = DaemonConnection.Configuration(
             clientName: "cmux-next-home",
-            requiredCapabilities: [DaemonCapabilities.shared.localConversations],
+            requiredCapabilities: [DaemonCapabilities.localConversations],
             retryWake: wake,
             terminalEnvironment: nil,
             clientHello: ClientHelloIdentity(installKey: launcher.configuration.installKey))

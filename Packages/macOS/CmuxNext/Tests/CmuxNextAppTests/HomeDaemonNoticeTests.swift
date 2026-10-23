@@ -28,7 +28,7 @@ struct HomeDaemonNoticeTests {
 
     @Test func theNoticeShowsOnceTheOwnerIsRefusedAsTooOld() async {
         let (services, view) = Self.home()
-        services.home.chief.noteFailure(.missingCapabilities([DaemonCapabilities.shared.localConversations]))
+        services.home.chief.noteFailure(.missingCapabilities([DaemonCapabilities.localConversations]))
         let refused = services.home.isRefused
         #expect(refused, "a missing-capabilities refusal was not kept")
         let shownOnRefusal = await Self.wait { Self.showsUnavailable(view) }
@@ -42,7 +42,7 @@ struct HomeDaemonNoticeTests {
 
     @Test func aSuccessfulHandshakeAfterARefusalTakesTheNoticeDown() async {
         let (services, view) = Self.home()
-        services.home.chief.noteFailure(.missingCapabilities([DaemonCapabilities.shared.localConversations]))
+        services.home.chief.noteFailure(.missingCapabilities([DaemonCapabilities.localConversations]))
         let shownOnRefusal = await Self.wait { Self.showsUnavailable(view) }
         #expect(shownOnRefusal, "the too-old notice never showed after a refusal: \(Self.labels(view))")
         // A newer owner answers; it gets ready (restart check, prepare) before it attaches.

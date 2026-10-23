@@ -1652,6 +1652,12 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "diagnostics.hangReports" : {
+      "default" : false,
+      "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
+      "title" : "Send Hang Reports",
+      "type" : "boolean"
+    },
     "diff.colors" : {
       "default" : "theme",
       "description" : "diff.colors",
@@ -4122,9 +4128,15 @@
       "type" : "boolean"
     },
     "tabs.newTabWidgets.greeting" : {
-      "default" : true,
-      "description" : "A short greeting over the composer.",
-      "title" : "Show Greeting on New Tab",
+      "default" : false,
+      "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
+      "title" : "Ask What to Work On on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.machines" : {
+      "default" : false,
+      "description" : "Your machines and whether each is online.",
+      "title" : "Show Machines on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabWidgets.order" : {
@@ -4156,6 +4168,18 @@
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weather" : {
+      "default" : false,
+      "description" : "The current weather and today's high and low, for the city below or your time zone's city.",
+      "title" : "Show Weather on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weatherCity" : {
+      "default" : "",
+      "description" : "A city for the weather widget. Empty uses your time zone's city.",
+      "title" : "Weather City",
+      "type" : "string"
     },
     "tabs.overflow" : {
       "default" : "shrink",

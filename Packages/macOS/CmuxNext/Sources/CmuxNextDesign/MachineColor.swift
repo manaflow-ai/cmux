@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// A machine's identity color: the color the person picked for it
 /// (`appearance.machineColors`, MachineColorOverrides), else one of the theme's

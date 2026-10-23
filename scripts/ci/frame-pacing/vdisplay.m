@@ -1,9 +1,18 @@
 // vdisplay: hold a virtual display at a chosen refresh rate until killed (or HOLD seconds).
-// Usage: VDisplay HZ HOLD_SECONDS. A copy of cmuxterm-hq's build-fleet/mini-ops/vdisplay.m
-// (`fleet vdisplay`); keep the two in step.
-// Prints "ready DISPLAY_ID p50_ms" once CVDisplayLink ticks on it, so callers can check
-// the rate before measuring anything. Uses the private CGVirtualDisplay API (as
-// BetterDisplay and DeskPad do); the display goes away when this process exits.
+// Usage: VDisplay HZ HOLD_SECONDS [main], or VDisplay probe. A copy of cmuxterm-hq's
+// build-fleet/mini-ops/vdisplay.m (`fleet vdisplay`); keep the two in step (this copy adds `main` and
+// `probe`, 2026-10-23).
+// `probe` creates no display: it prints "main DISPLAY_ID p50_ms" for the current main display (its measured
+// CVDisplayLink interval, 0 when it does not tick) and exits. scripts/measure/split-spring.sh runs it after a
+// VDISPLAY-FALLBACK, so the report still says which refresh the real display measured at.
+// `main` makes the virtual display the main display (origin 0,0; every other display moves right of
+// it, keeping its place relative to the others) for this process only (kCGConfigureForAppOnly):
+// the old arrangement comes back when it exits. Without it, a host with any other display keeps
+// that one as main, and apps open there.
+// Prints "ready DISPLAY_ID p50_ms main=MAIN_ID" once CVDisplayLink ticks on it, so callers can
+// check the rate and the main display before measuring anything. Uses the private
+// CGVirtualDisplay API (as BetterDisplay and DeskPad do); the display goes away when this
+// process exits.
 #import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
 #include <mach/mach_time.h>
@@ -35,6 +44,26 @@ static CVReturn tick(CVDisplayLinkRef link, const CVTimeStamp *now, const CVTime
   if (ticks < 1000) stamps[ticks++] = now->hostTime;
   return kCVReturnSuccess;
 }
+/// Moves DISPLAY to the origin (the main display) and every other online display to its right.
+static CGError makeMain(CGDirectDisplayID display) {
+  CGDirectDisplayID ids[32];
+  uint32_t count = 0;
+  CGError error = CGGetOnlineDisplayList(32, ids, &count);
+  if (error != kCGErrorSuccess) return error;
+  CGFloat width = CGDisplayBounds(display).size.width, minX = CGFLOAT_MAX;
+  for (uint32_t i = 0; i < count; i++)
+    if (ids[i] != display) minX = MIN(minX, CGDisplayBounds(ids[i]).origin.x);
+  CGDisplayConfigRef config;
+  if ((error = CGBeginDisplayConfiguration(&config)) != kCGErrorSuccess) return error;
+  CGConfigureDisplayOrigin(config, display, 0, 0);
+  for (uint32_t i = 0; i < count; i++) {
+    if (ids[i] == display) continue;
+    CGRect bounds = CGDisplayBounds(ids[i]);
+    CGConfigureDisplayOrigin(config, ids[i], (int32_t)(bounds.origin.x - minX + width), (int32_t)bounds.origin.y);
+  }
+  return CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
+}
+
 static int compare(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 
 /// Median CVDisplayLink interval on DISPLAY over one second, in ms (0 when it does not tick).
@@ -59,8 +88,14 @@ static double medianInterval(CGDirectDisplayID display) {
 int main(int argc, char **argv) {
   @autoreleasepool {
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (argc > 1 && strcmp(argv[1], "probe") == 0) {
+      CGDirectDisplayID mainID = CGMainDisplayID();
+      printf("main %u %.2f\n", mainID, medianInterval(mainID));
+      return 0;
+    }
     double hz = argc > 1 ? atof(argv[1]) : 120;
     double hold = argc > 2 ? atof(argv[2]) : 1800;
+    BOOL wantMain = argc > 3 && strcmp(argv[3], "main") == 0;
     [NSApplication sharedApplication];
     CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
     descriptor.queue = dispatch_get_main_queue();
@@ -76,6 +111,11 @@ int main(int argc, char **argv) {
     settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:1920 height:1080 refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
     [NSThread sleepForTimeInterval:1.0];
+    if (wantMain && CGMainDisplayID() != display.displayID) {
+      CGError error = makeMain(display.displayID);
+      if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not make display %u main (CGError %d)\n", display.displayID, error);
+      [NSThread sleepForTimeInterval:1.0];
+    }
     printf("ready %u %.2f main=%u\n", display.displayID, medianInterval(display.displayID), CGMainDisplayID());
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
   }

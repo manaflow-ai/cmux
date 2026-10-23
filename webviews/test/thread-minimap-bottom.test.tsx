@@ -236,7 +236,16 @@ for (const how of ["hover", "focus"] as const)
 const LIST_TOP = 140;
 const placeList = (node: HTMLElement) => {
   node.getBoundingClientRect = () =>
-    ({ top: LIST_TOP, bottom: LIST_TOP + node.clientHeight, left: 0, right: 10, width: 10, height: node.clientHeight, x: 0, y: LIST_TOP }) as DOMRect;
+    ({
+      top: LIST_TOP,
+      bottom: LIST_TOP + node.clientHeight,
+      left: 0,
+      right: 10,
+      width: 10,
+      height: node.clientHeight,
+      x: 0,
+      y: LIST_TOP,
+    }) as DOMRect;
 };
 
 /// The chat rendered at its top with the pointer resting on tick 3 (35 px into the list), and the
@@ -247,7 +256,14 @@ async function pointerOnRail(sessionId: string) {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () =>
-    root.render(<VirtualTranscript rows={turnView(turns, new Set())} sessionId={sessionId} onToggleActivity={() => {}} expanded={new Set()} />),
+    root.render(
+      <VirtualTranscript
+        rows={turnView(turns, new Set())}
+        sessionId={sessionId}
+        onToggleActivity={() => {}}
+        expanded={new Set()}
+      />,
+    ),
   );
   const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
   const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
@@ -288,7 +304,9 @@ test("wheeling the chat with the pointer still on the rail magnifies the tick un
       if (rail.list().scrollTop > 0) moved = true;
       const { active, under } = rail.read();
       if (active !== under)
-        wrong.push(`at ${top} px the list is at ${rail.list().scrollTop}: tick ${active} magnified, ${under} under the pointer`);
+        wrong.push(
+          `at ${top} px the list is at ${rail.list().scrollTop}: tick ${active} magnified, ${under} under the pointer`,
+        );
       if (wrong.length > 5) break;
     }
     // The list did move under the pointer, and the magnified tick followed it.
@@ -321,7 +339,8 @@ test("a key that focuses a tick off the list, with the pointer still on the rail
   try {
     expect(rail.read().active).toBe("3");
     const press = async (key: string) => {
-      const target = dom.window.document.activeElement?.closest("[data-tick]") ?? rail.list().querySelector('[data-tick="3"]')!;
+      const target =
+        dom.window.document.activeElement?.closest("[data-tick]") ?? rail.list().querySelector('[data-tick="3"]')!;
       await act(async () => void target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true })));
     };
     const seen: string[] = [];
@@ -329,7 +348,9 @@ test("a key that focuses a tick off the list, with the pointer still on the rail
       await press(key);
       const { active, under } = rail.read();
       seen.push(`${key}: list at ${rail.list().scrollTop}, tick ${active} magnified, ${under} under the pointer`);
-      expect(seen.at(-1)).toBe(`${key}: list at ${rail.list().scrollTop}, tick ${under} magnified, ${under} under the pointer`);
+      expect(seen.at(-1)).toBe(
+        `${key}: list at ${rail.list().scrollTop}, tick ${under} magnified, ${under} under the pointer`,
+      );
     }
     // End did take the list down past its first screen.
     expect(seen[0]).not.toContain("list at 0,");

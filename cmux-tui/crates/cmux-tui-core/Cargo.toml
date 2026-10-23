@@ -17,6 +17,7 @@ cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
+cmux-holder.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
