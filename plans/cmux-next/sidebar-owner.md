@@ -7,6 +7,20 @@ performance.
 
 ## Rule for every sidebar change
 
+Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
+
+- **Gate.** `scripts/cmux-next/prepush-gate.py` "Sidebar look owner", on every push and per commit in CI: a commit
+  that changes `CmuxNextSidebar/Views/` needs a `Sidebar-Look:` trailer. `Sidebar-Look: no visual change` for
+  behavior or performance work; otherwise the user's words, and the same commit must edit this note.
+  `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip it.
+- **Contract tests.** `SidebarLookContractTests` (text at the inset, members flush with ungrouped rows, one indent
+  step per nested level, rows to the inset, the trailing hover x) and `SidebarGroupRailAlignmentTests` (rail on the
+  header bar's left edge), at every density, Minimal Mode and width. They run in the cmux-next tests job.
+- **Gallery.** `AASidebarLookGalleryTests` draws Lawrence's screenshot fixture at every density, dark and light
+  (`CMUX_TEST_REQUIRE_GUI=1`, artifact `sidebar-look-gallery.tar`): before/after crops for every look change.
+- **Perf.** Sidebar budgets rows (`split-spring.sh --suite=budgets` on cmuxs-Mac-mini.local against
+  `perf-budgets-baseline/`). Run it before and after any sidebar change.
+
 1. Read this note first. A change that alters how the sidebar looks must match the target below, or
    change this note in the same commit and name who asked for it (a Lawrence message id).
 2. Do not take back a look another commit chose in the last week without naming that commit here.

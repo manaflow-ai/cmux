@@ -27,6 +27,11 @@ Also on every push, whatever it changes: "Ghostty-default keys" (check-ghostty-r
 exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-reserved-keys.json),
 and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not skip it; only a
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
+Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a commit that changes the
+sidebar's drawing code (CmuxNextSidebar/Views/) carries a `Sidebar-Look: <the user's words, or "no visual
+change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
+233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
+many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 
@@ -110,6 +115,11 @@ SCANNERS = (
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
 RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-keys.json)"
 CONFLICT_CHECK = "Merge conflict markers"
+SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
+SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
+SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
+SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
+SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
 # An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
 CONFLICT_OPEN = re.compile(r"^<{7} ")
 CONFLICT_CLOSE = re.compile(r"^>{7} ")
@@ -492,6 +502,34 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def sidebar_owner(repo: Path, base: str, head: str) -> list[str]:
+    """Each pushed commit that changes the sidebar's drawing code without the owner's record.
+
+    A commit touching `SIDEBAR_VIEWS` needs a `Sidebar-Look:` trailer: the user's words that asked for the
+    look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
+    behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
+    later commit cannot launder an earlier one.
+    """
+    commits = git(repo, "rev-list", "--no-merges", f"{base}..{head}", check=False).decode().split()
+    found: list[str] = []
+    for sha in reversed(commits):
+        files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha, check=False).decode().split("\n")
+        views = sorted(f for f in files if f.startswith(SIDEBAR_VIEWS))
+        if not views:
+            continue
+        message = git(repo, "log", "-1", "--format=%B", sha, check=False).decode(errors="replace")
+        subject = message.splitlines()[0] if message else ""
+        trailer = SIDEBAR_TRAILER.search(message)
+        where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
+        if trailer is None:
+            found.append(f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
+                         f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`.")
+        elif not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files:
+            found.append(f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
+                         f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log.")
+    return found
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
@@ -503,6 +541,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    if only is None or "sidebar" in only:
+        owner = sidebar_owner(repo, base, head)
+        if owner:
+            reserved.append((SIDEBAR_CHECK, owner))
     changed = changed_files(repo, base, head)
     if not changed:
         return reserved
@@ -637,6 +679,9 @@ def main(argv: list[str] | None = None) -> int:
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
+    elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
+              "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
