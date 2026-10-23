@@ -182,6 +182,27 @@ public nonisolated enum HomeEngineStrings {
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .module)
     }
+    /// Why a rename did not take (``HomeChiefRenameFailure``), shown under the name.
+    static func renameFailed(_ failure: HomeChiefRenameFailure) -> String {
+        switch failure {
+        case .noConnection: renameRefused
+        case .signedOut:
+            String(localized: "home.engine.renameSignedOut",
+                   defaultValue: "Sign in to cmux to rename this Chief. It runs in the cloud on your account.", table: "Home", bundle: .module)
+        case .changedElsewhere:
+            String(localized: "home.engine.renameChangedElsewhere",
+                   defaultValue: "This Chief was changed on another device at the same time. Enter the new name again.", table: "Home", bundle: .module)
+        case .invalidName:
+            String(localized: "home.engine.renameInvalidName", defaultValue: "That name can’t be used. Use 1 to 100 characters.",
+                   table: "Home", bundle: .module)
+        case .notFound:
+            String(localized: "home.engine.renameNotFound", defaultValue: "This Chief is no longer on your account, so its name can’t be changed.",
+                   table: "Home", bundle: .module)
+        case .refused(let reason):
+            String(format: String(localized: "home.engine.renameRefusedReason", defaultValue: "The Chief’s name could not be changed (%@).",
+                                  table: "Home", bundle: .module), reason)
+        }
+    }
     static var pictureUnreadable: String {
         String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",
                table: "Home", bundle: .module)

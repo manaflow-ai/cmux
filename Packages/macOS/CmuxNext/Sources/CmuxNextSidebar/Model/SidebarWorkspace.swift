@@ -126,6 +126,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
     /// own workspace replaces the row. Nil for every other row.
     public var stage: String?
+    /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
+    /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
+    public var isUnnamed = false
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []

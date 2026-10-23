@@ -61,15 +61,18 @@ pub(crate) fn encode_local_line(line: &[u8]) -> Result<Option<Bytes>, MuxInputEr
 }
 
 pub(crate) fn decode_packet(packet: &Bytes) -> Result<Option<MuxInput>, MuxInputError> {
-    if packet.len() < MAGIC.len() || packet[..MAGIC.len()] != MAGIC {
+    let Some(rest) = packet.strip_prefix(&MAGIC) else {
         return Ok(None);
-    }
-    if packet.len() < HEADER_BYTES {
+    };
+    let Some((request, rest)) = rest.split_first_chunk::<8>() else {
         return Err(MuxInputError::InvalidPacket);
-    }
+    };
+    let Some((surface, _)) = rest.split_first_chunk::<8>() else {
+        return Err(MuxInputError::InvalidPacket);
+    };
     Ok(Some(MuxInput {
-        request: u64::from_be_bytes(packet[4..12].try_into().unwrap()),
-        surface: u64::from_be_bytes(packet[12..20].try_into().unwrap()),
+        request: u64::from_be_bytes(*request),
+        surface: u64::from_be_bytes(*surface),
         bytes: packet.slice(HEADER_BYTES..),
     }))
 }

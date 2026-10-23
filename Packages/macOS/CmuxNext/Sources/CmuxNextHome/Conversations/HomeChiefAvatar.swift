@@ -3,7 +3,7 @@ public import Foundation
 /// The Chief's avatar as the app resolved it (Settings > the Chief's
 /// profile, else ``chiefDefault``), for the Home list's Chief tile and
 /// row to match the transcript header.
-public nonisolated enum HomeChiefAvatar: Hashable, Sendable {
+public nonisolated enum HomeChiefAvatar: Hashable, Sendable, Codable {
     /// A picture file on this Mac (profile.json's picture).
     case picture(URL)
     /// The profile's text avatar: one or two letters, or an emoji.

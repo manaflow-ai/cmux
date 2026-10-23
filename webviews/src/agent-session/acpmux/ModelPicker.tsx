@@ -239,8 +239,9 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
-  /// The chat's agent CLI has an update (hq#2569 #12): a dot on the chip and a row in the picker,
-  /// never a banner over the chat.
+  /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
+  /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
+  /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
   const update = useUpdateOffer();
   const updateText = update
     ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
@@ -762,9 +763,6 @@ export function ModelPicker(props: ModelPickerProps) {
           data-fit-forms="family"
           data-label={chipFamily}
         />
-      )}
-      {update && (
-        <span aria-hidden="true" className="acpmux-model-update-dot size-1.5 flex-none rounded-full bg-accent" />
       )}
     </>
   );

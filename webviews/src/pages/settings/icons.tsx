@@ -98,6 +98,20 @@ const paths: Record<string, ReactNode> = {
   "icloud.and.arrow.down": (
     <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
   ),
+  // Settings > Import: a tray with an arrow into it.
+  "square.and.arrow.down": (
+    <>
+      <path d="M5.4 5.8H4.3a1 1 0 0 0-1 1v5.9a1 1 0 0 0 1 1h7.4a1 1 0 0 0 1-1V6.8a1 1 0 0 0-1-1h-1.1" />
+      <path d="M8 1.8v7.4M5.8 7.2 8 9.4l2.2-2.2" />
+    </>
+  ),
+  // Settings > Mobile: a phone with its top island.
+  iphone: (
+    <>
+      <rect x="4.2" y="1.6" width="7.6" height="12.8" rx="1.8" />
+      <path d="M7.1 3.6h1.8" />
+    </>
+  ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
   pawprint: (
     <>

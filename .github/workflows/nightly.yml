@@ -3951,7 +3951,7 @@ jobs:
       contents: read
       issues: read # the canary mode's report week (nightly_next_canary_mode.py)
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -4081,6 +4081,29 @@ jobs:
           # A thin x86_64 variant skips when the runner has no Rosetta.
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
+
+      # The nightly visual smoke (docs/ci/nightly-next-canary.md, "Visual
+      # smoke"): the signed app's window in three scenes (Home with the sidebar
+      # and its composer, a new agent chat, an agent chat with one answered
+      # turn), judged by scripts/cmux-next/visual-smoke/visual_check.py. A
+      # blank, black or collapsed window, an empty sidebar, transcript or
+      # composer, or a layout far from a reference in visual-smoke/references/
+      # fails both attempts (gate.sh), so this job fails and publish-nightly
+      # publishes nothing. No variable skips it: a limit or a reference
+      # changes in a reviewed PR to scripts/cmux-next/visual-smoke/, which
+      # nightly-next-canary.yml first runs on the newest feed build.
+      - name: Visual smoke the signed app
+        if: env.TRACK == 'nightly-next'
+        run: ./scripts/cmux-next/visual-smoke/gate.sh "$CHANNEL_APP_PATH" "$RUNNER_TEMP/visual-smoke" "the signed app; nothing is published"
+
+      - name: Upload the visual smoke captures
+        if: always() && env.TRACK == 'nightly-next'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-visual-smoke-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: ${{ runner.temp }}/visual-smoke
+          if-no-files-found: warn
+          retention-days: 30
 
       # The nightly canary (docs/ci/nightly-next-canary.md): a visible window,
       # a New Tab, an agent session that answers a prompt (acpmux's test
@@ -4669,7 +4692,8 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-26
-    timeout-minutes: 30
+    # +10 for the visual smoke's two attempts, as verify-signed-nightly.
+    timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.recover-nightly-next-notarization.outputs.stapled_app_fallback_id }}
@@ -4729,6 +4753,31 @@ jobs:
           path: tested/tested-recovered-arm64.sha256
           if-no-files-found: error
           retention-days: 3
+
+      # The visual smoke of verify-signed-nightly, on the app inside the
+      # recovered DMG: publish-nightly needs this job, so a recovered build
+      # that looks broken is not published either.
+      - name: Visual smoke the recovered app
+        run: |
+          set -euo pipefail
+          mount="$RUNNER_TEMP/recovered-mount"
+          mkdir -p "$mount" "$RUNNER_TEMP/recovered-app"
+          hdiutil attach "recovered/${CHANNEL_DMG_PREFIX}-arm64.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null
+          app="$(find "$mount" -maxdepth 1 -name '*.app' -type d -print -quit)"
+          [ -n "$app" ] || { echo "no app in the recovered DMG" >&2; exit 1; }
+          ditto "$app" "$RUNNER_TEMP/recovered-app/$(basename "$app")"
+          hdiutil detach "$mount" >/dev/null
+          ./scripts/cmux-next/visual-smoke/gate.sh "$RUNNER_TEMP/recovered-app/$(basename "$app")" \
+            "$RUNNER_TEMP/visual-smoke" "the recovered app; nothing is published"
+
+      - name: Upload the visual smoke captures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-visual-smoke-recovered-arm64
+          path: ${{ runner.temp }}/visual-smoke
+          if-no-files-found: warn
+          retention-days: 30
 
   publish-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -5508,17 +5557,32 @@ jobs:
           # unset means no requirement, and then the kill switch
           # NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
-          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
-          # The old feed's installs predate release rings and follow Nightly:
-          # only builds already tagged cmux-next are candidates, never one
-          # still on Dev (scripts/ci/nightly_next_ring.py; a no-op while
-          # NIGHTLY_NEXT_DEV_RING is off).
-          selected="$(python3 scripts/ci/nightly_next_ring.py select --feed next.xml --out next.xml --channel cmux-next)"
-          echo "cmux NEXT feed by ring: $selected"
-          if [ "$(python3 -I -c 'import json, sys; print(len(json.loads(sys.argv[1])["kept"]))' "$selected")" = 0 ]; then
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          # The old feed's installs run the same updater as cmux NEXT's and
+          # follow updates.channel (an install from before rings allows only
+          # cmux-next). Nightly comes first, as before rings: while cmux NEXT
+          # has a Nightly build newer than every Nightly item of the old feed,
+          # that build is the candidate (scripts/ci/nightly_next_ring.py select
+          # on both feeds). Only once the old feed's Nightly is current, and
+          # with NIGHTLY_NEXT_DEV_RING on, is the newest build of any ring the
+          # candidate, so a Mac on Dev gets Dev builds in the cmux NIGHTLY
+          # identity too. publish-nightly-identity-legacy keeps the Nightly
+          # item beside it (nightly_next_ring.py legacy).
+          python3 scripts/ci/nightly_next_ring.py select --feed next-all.xml --out next.xml --channel cmux-next
+          python3 scripts/ci/nightly_next_ring.py select --feed old-all.xml --out old.xml --channel cmux-next
+          newest() { sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$1" | sort -n | tail -1; }
+          next_nightly="$(newest next.xml)" old_nightly="$(newest old.xml)"
+          echo "Nightly: cmux NEXT ${next_nightly:-none}, old feed ${old_nightly:-none}; Dev ring $DEV_RING"
+          if [ -n "$next_nightly" ] && [ "$next_nightly" -gt "${old_nightly:-0}" ]; then
+            echo "### cmux NIGHTLY-identity: Nightly build $next_nightly is the candidate (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$DEV_RING" = on ]; then
+            cp next-all.xml next.xml
+            cp old-all.xml old.xml
+          elif [ -z "$next_nightly" ]; then
             echo "### cmux NIGHTLY-identity: no cmux NEXT build is on Nightly yet; the old feed waits (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
             { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "build="; } >> "$GITHUB_OUTPUT"
             exit 0
@@ -5552,6 +5616,14 @@ jobs:
                  && [ "$bundles" = 0 ]; then
                 echo "::warning::skipping pending artifact $meta_id of run $meta_run: the bundle of run $bundle_run is gone"
                 continue
+              fi
+              # The target compares a pending build with the old feed's Nightly
+              # only, so a Dev build the old feed already lists would look
+              # continuable again; it is stale.
+              pending_build="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["build"])' pending/pending.json || true)"
+              if [ -n "$pending_build" ] && grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml; then
+                echo "pending build $pending_build of run $meta_run is already in the old feed; not continued"
+                break
               fi
               pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
               break
@@ -5724,16 +5796,21 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed meanwhile.
-      - name: Skip a build older than the old feed's
+      - name: Skip a build the old feed already has
         id: order
         run: |
           set -euo pipefail
           [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
-          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
-            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
-          echo "old feed build: ${current:-none}; requested: $NIGHTLY_BUILD"
+          # The same rule as the publish job's: skipped is a build the feed
+          # already lists, or one no newer than its newest Nightly item. A Dev
+          # item above it does not hold back an older Nightly build.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next >/dev/null
+          current="$(sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$RUNNER_TEMP/old-nightly.xml" | sort -n | tail -1)"
+          echo "old feed Nightly build: ${current:-none}; requested: $NIGHTLY_BUILD"
           echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+          if grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml" \
+             || { [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -6183,11 +6260,17 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
-          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
-            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
-          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+          # The old feed may list a Dev build above its Nightly one, and a
+          # Nightly build older than that Dev build is still published. Skipped:
+          # a build the feed already lists, or one no newer than its newest
+          # Nightly item.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next >/dev/null
+          current="$(sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$RUNNER_TEMP/old-nightly.xml" | sort -n | tail -1)"
+          if grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml" \
+             || { [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "### Old feed already at $current; build $NIGHTLY_BUILD not published again" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Old feed already has build $NIGHTLY_BUILD or a newer Nightly ($current); not published again" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -6216,9 +6299,9 @@ jobs:
         env:
           TRACK: nightly-next
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
-          # The old feed's installs predate rings and allow only cmux-next;
-          # legacy-identity-target picks only builds already on Nightly.
+          # Rewritten from the verdicts below (nightly_next_ring.py legacy).
           SPARKLE_CHANNEL: cmux-next
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
           SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
         run: |
           set -euo pipefail
@@ -6249,6 +6332,12 @@ jobs:
                       open(out_path, "w", encoding="utf-8").write(xml)
                   break
           PY
+          # The old feed keeps its newest Nightly item and the Dev items above
+          # it, each tagged from its canary verdict (as cmux NEXT's feed), so a
+          # Mac on Nightly always has a Nightly build while Dev is ahead.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py legacy --new "legacy-out/$LEGACY_APPCAST" --current "$RUNNER_TEMP/old-feed.xml" \
+            --out "legacy-out/$LEGACY_APPCAST" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
           python3 scripts/ci/nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"
           grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "legacy-out/$LEGACY_APPCAST"
           cat "legacy-out/$LEGACY_APPCAST"
@@ -6295,9 +6384,9 @@ jobs:
           }
           copy_notes || echo "::warning::release notes of build $NIGHTLY_BUILD were not copied next to the old feed; the feed is still published"
           upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST" application/xml "no-cache, no-store, must-revalidate"
-          # Keep the three newest cmux NIGHTLY-identity DMGs, never the one the feed names.
+          # Keep the three newest cmux NIGHTLY-identity DMGs, never one the feed names.
           gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
-            | python3 -I -c 'import re, sys; p = re.compile("^" + re.escape(sys.argv[1]) + r"(\d+)\.dmg$"); keep = int(sys.argv[2]); names = sorted((int(m.group(1)), n) for n in sys.stdin.read().split() if (m := p.match(n))); [print(n) for b, n in names[:-3] if b != keep]' "$LEGACY_DMG_PREFIX" "$NIGHTLY_BUILD" \
+            | python3 -I -c 'import re, sys; p = re.compile("^" + re.escape(sys.argv[1]) + r"(\d+)\.dmg$"); keep = {int(b) for b in re.findall(r"<sparkle:version>(\d+)</sparkle:version>", open(sys.argv[2], encoding="utf-8").read())}; names = sorted((int(m.group(1)), n) for n in sys.stdin.read().split() if (m := p.match(n))); [print(n) for b, n in names[:-3] if b not in keep]' "$LEGACY_DMG_PREFIX" "legacy-out/$LEGACY_APPCAST" \
             | while IFS= read -r old; do
                 gh release delete-asset "$CHANNEL_RELEASE_TAG" "$old" --repo "$GITHUB_REPOSITORY" --yes || true
               done
@@ -6724,6 +6813,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # Read only: --pr-media reads the body of each highlight's pull request.
+      pull-requests: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
@@ -6763,6 +6854,8 @@ jobs:
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
           SPAN_SINCE: ${{ steps.span.outputs.since }}
+          # --pr-media: each highlight's picture from its pull request's body (read only).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # The previous published commit. publish-nightly has already moved the
@@ -6776,7 +6869,7 @@ jobs:
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
             --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes
+            --head "$HEAD_SHA" --since "$since" --out notes --pr-media
           # Extend the published index only when its signature verifies.
           previous=""
           # The first cmux NEXT build carries the history over from the old feed.

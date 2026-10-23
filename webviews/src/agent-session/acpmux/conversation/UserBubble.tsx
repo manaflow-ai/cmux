@@ -2,19 +2,19 @@
 // desktop's): the read receipt (one check once acpmux has it, two once the agent read it, "Read by
 // Claude Code" on hover), the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
 // hover), a dot, then Copy, Retry and Fork from here, each naming itself on hover, then cmux's Edit
-// where the chat can fork before the prompt. No Pin here: an answer's row has it. Fork hides where
-// the harness cannot fork there (cx-ncc.60, Claude parity; Leo, GUI push 2026-10-20/21). The row
-// shows on hover or keyboard focus only, its height kept, so nothing moves when it appears. Edit
-// opens the prompt in place; Send forks the chat through the turn before it and sends the edited
-// text there (the App's `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a
-// prompt the chat can fork before (`editableTurns`), so it is never dead. Retry sends the prompt
-// again (MessageActions.tsx PromptRetry). A prompt
-// with versions (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts,
-// cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click Fork does. The
-// images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
-// vanished once sent). A long prompt opens collapsed on its first ten lines with Show more, and a
-// pasted block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+// where the chat can fork before the prompt, then More (its right-click menu). No Pin here: an
+// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
+// nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
+// turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
+// bubble back. Edit shows only on a prompt the chat can fork before (`editableTurns`), so it is
+// never dead. Retry sends the prompt again (MessageActions.tsx PromptRetry). A prompt with versions
+// (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
+// Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
+// prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
+// once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
+// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
+import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -24,10 +24,21 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
-import { ForkButton, MessageCopy, MessageDot, MessageTime, PromptRetry, ReadReceipt, ROW_ICON } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageDot,
+  MessageMore,
+  MessageTime,
+  PromptRetry,
+  ReadReceipt,
+  ROW_ICON,
+} from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
-export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
+/// `pending` is a waiting steer's clock and Send now (PendingSteer.tsx): it sits beside the bubble's
+/// left edge, on the bubble's own row, so it takes no line of its own (Leo, 2026-10-21).
+export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -62,11 +73,16 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="ui-glass cv-user__bubble selectable">
-        <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-        {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-        {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
-      </div>
+      {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
+          bubble under them read as a lost message; Leo 2026-10-21). */}
+      {text.trim() && (
+        <div className="ui-glass cv-user__bubble selectable">
+          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+          {pending}
+        </div>
+      )}
       {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
@@ -117,6 +133,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <Pencil size={ROW_ICON} />
             </button>
           )}
+          <MessageMore rowId={row.id} />
         </div>
       )}
     </>
@@ -206,6 +223,8 @@ const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   return (
     <button
       type="button"
+      /* The image drags out as a file (conversation/dragOut.ts). */
+      draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={label}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}

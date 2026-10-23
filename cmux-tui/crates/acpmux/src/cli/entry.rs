@@ -211,6 +211,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
             Ok(())
         }
+        // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::Capabilities) => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());
+            Ok(())
+        }
         Some(cmd) => {
             let json_out = cli.json;
             match run_client(cmd, json_out, cli.suppress_reads).await {

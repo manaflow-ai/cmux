@@ -105,7 +105,7 @@ nonisolated extension DeepLink {
         switch target {
         case .agent: [machineKey, hostHintKey, nameHintKey, messageKey]
         case .legacyWorkspace, .legacySurface: [machineKey, "stable_workspace_id", "stable_surface_id"]
-        case .workspace, .pane, .tab, .session, .chiefSession, .legacyPane: [machineKey]
+        case .workspace, .pane, .tab, .session, .chiefSession, .group, .legacyPane: [machineKey]
         }
     }
 
@@ -129,6 +129,11 @@ nonisolated extension DeepLink {
             guard segments.count == 3, segments[1] == "session", fragment == nil,
                   isChiefHome(first), isToken(segments[2]) else { return nil }
             return .chiefSession(home: first, session: segments[2])
+        case "group":
+            guard fragment == nil, isGroupID(first) else { return nil }
+            if segments.count == 1 { return .group(first, workspace: nil) }
+            guard segments.count == 3, segments[1] == "workspace", isResourceID(segments[2], prefix: "ws_") else { return nil }
+            return .group(first, workspace: segments[2])
         case "agent":
             guard segments.count == 2, fragment == nil, isHarness(first), isAgentSession(segments[1]) else { return nil }
             return .agent(harness: first, session: segments[1])
@@ -143,6 +148,29 @@ nonisolated extension DeepLink {
             // Includes `auth-callback`, the sign-in callback.
             return nil
         }
+    }
+
+    /// The hosts that serve a cloud group's https hand-off page (`GET /g/<id>[/w/<ws_>]`): the
+    /// cmux Cloud API Worker (production and staging) and cmux.com.
+    public static let groupWebHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux.com", "www.cmux.com"]
+
+    /// The cloud group link an https URL names (`https://cloud-api.cmux.dev/g/grp_…`, optionally
+    /// `/w/ws_…`), so a click on the web form in the app opens it here, not in a browser.
+    ///
+    /// - Parameter url: The URL to read.
+    /// - Returns: The group link, or nil for any other URL (another host, a port, a user, a
+    ///   query, a fragment, or a malformed id).
+    public static func parseGroupWeb(_ url: URL) -> DeepLink? {
+        guard url.scheme?.lowercased() == "https",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.user == nil, components.password == nil, components.port == nil,
+              components.query == nil, components.fragment == nil,
+              let host = components.host?.lowercased(), groupWebHosts.contains(host) else { return nil }
+        let segments = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard segments.count >= 2, segments[0] == "g", isGroupID(segments[1]) else { return nil }
+        if segments.count == 2 { return DeepLink(.group(segments[1], workspace: nil)) }
+        guard segments.count == 4, segments[2] == "w", isResourceID(segments[3], prefix: "ws_") else { return nil }
+        return DeepLink(.group(segments[1], workspace: segments[3]))
     }
 
     /// Nightly's grammar (`CmuxNavigationURLRequest`): `workspace/<uuid>`,

@@ -135,6 +135,8 @@ pub(super) struct Pooled {
     target: Option<oneshot::Sender<mpsc::Sender<Inbound>>>,
     rss: u64,
     parked: bool,
+    /// Whether it was started with OpenCode asked to ask (`opencode_ask.rs`).
+    opencode_asks: bool,
 }
 
 /// What a pooled session is started from, and the key it is served under.
@@ -582,6 +584,19 @@ impl Hub {
     /// The claimed pooled session for `id`, if `session/new` claimed one.
     pub(super) fn pool_take_claimed(&self, id: &str) -> Option<Pooled> {
         lock(&self.pool.claimed).remove(id)
+    }
+
+    /// The claimed pooled session for `id`, when it asks OpenCode to ask as `spawn` does
+    /// (`opencode_ask.rs`). One claimed before the chat's policy changed is ended, and the
+    /// session starts cold.
+    pub(super) fn pool_take_claimed_for(&self, id: &str, spawn: &HarnessProfile) -> Option<Pooled> {
+        let p = self.pool_take_claimed(id)?;
+        if p.opencode_asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return Some(p);
+        }
+        tracing::info!(session = %id, "pooled session not taken: the chat's policy changed since the claim");
+        self.pool_discard(vec![p]);
+        None
     }
 
     /// `ensure_child` takes a claimed pooled session for `session`: move its

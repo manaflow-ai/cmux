@@ -15,11 +15,21 @@
 //!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
 //!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
-//!   `background: true` marks one that outlives its parent's stopped turn.
+//!   `background: true` marks one that outlives its parent's turn (every
+//!   Codex child, which runs in its own thread).
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
+
+/// Whether a `session/update` params object is a subagent's (the hub tags it
+/// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
+/// thinking reach its own view; a reader of the chat's own words (a reply, a
+/// transcript, a handoff) skips them, or a subagent's report would join the
+/// chat's answer.
+pub fn is_subagents(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/subagent").is_some()
+}
 
 /// The subagents seen in one session, each mapped to its parent subagent
 /// (`None` for the session's own).
@@ -121,6 +131,9 @@ impl SubagentTree {
 
     /// Codex without native subagent sessions: `spawnAgent` collaboration
     /// calls list their children and states; activity items name one child.
+    /// Each child runs in its own thread and outlives the turn that spawned it
+    /// (the model may end its turn without a `wait`), so every one is
+    /// `background`: a client never ends it at its turn's end.
     fn codex_legacy(&mut self, update: &Value, owner: Option<&str>) -> Vec<Value> {
         let codex = update.pointer("/_meta/codex");
         if let Some(collab) = codex.and_then(|c| c.get("collaboration"))
@@ -147,6 +160,7 @@ impl SubagentTree {
                         event.insert("task".into(), json!(task));
                     }
                     event.insert("state".into(), json!(codex_state(status)));
+                    event.insert("background".into(), json!(true));
                     if let Some(call) = update.get("toolCallId") {
                         event.insert("toolCallId".into(), call.clone());
                     }
@@ -171,6 +185,7 @@ impl SubagentTree {
             event.insert("name".into(), json!(name));
         }
         event.insert("state".into(), json!(state));
+        event.insert("background".into(), json!(true));
         vec![Value::Object(event)]
     }
 
@@ -193,5 +208,43 @@ fn codex_state(status: Option<&str>) -> &'static str {
         Some("interrupted") => "cancelled",
         Some("errored" | "shutdown" | "notFound") => "failed",
         _ => "running",
+    }
+}
+
+#[cfg(test)]
+mod codex_tests {
+    use super::*;
+
+    fn subagents(tree: &mut SubagentTree, update: Value) -> Vec<Value> {
+        let mut params = json!({"sessionId": "s1", "update": update});
+        tree.annotate(&mut params);
+        params
+            .pointer("/_meta/acpmux/subagents")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
+    /// that spawned it (the model may end its turn without a `wait`), so it is
+    /// background work, and a client never ends it at the turn's end.
+    #[test]
+    fn codex_spawned_agents_are_background() {
+        let mut tree = SubagentTree::default();
+        let spawn = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "c1",
+                   "rawInput": {"prompt": "Audit", "agentsStates": {"t1": {"status": "running"}}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent", "receiverThreadIds": ["t1"]}}}}),
+        );
+        assert_eq!(spawn.len(), 1);
+        assert_eq!(spawn[0]["background"], json!(true));
+        let activity = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c2",
+                   "_meta": {"codex": {"subagent": {"threadId": "t1", "path": "/root/auditor", "activity": "working"}}}}),
+        );
+        assert_eq!(activity[0]["state"], json!("running"));
+        assert_eq!(activity[0]["background"], json!(true));
     }
 }

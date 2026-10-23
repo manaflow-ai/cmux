@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
-import { liftInlineImages } from "./inlineImages";
+import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
+import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -202,7 +203,8 @@ function insertPlain(view: EditorView, text: string) {
  * empty paragraph a blank line), with no markdown escapes or `<br />` placeholders. */
 const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.size, "\n");
 
-/// How long after a focus with no click the browser's own caret placement is overruled.
+/// How long after a focus with no click the browser's own caret placement is overruled. Its caret
+/// at the field's very start is overruled for as long as no key, click or edit came (see `keepCaret`).
 const KEEP_CARET_MS = 100;
 /// The soft band at a long draft's scrolled edges (markdownField.css reads it as
 /// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
@@ -440,7 +442,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
-                const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
+                // The picture itself is on the clipboard (a file, or a data: <img>): the `![…](…)`
+                // a browser or the transcript copies beside it is only markup for it, never text.
+                const carriesImage =
+                  [...data.files].some((file) => file.type.startsWith("image/")) ||
+                  htmlHasDataImage(data.getData("text/html"));
+                const plain = pasteIsOnlyFileNames(data)
+                  ? ""
+                  : carriesImage
+                    ? withoutMarkdownImages(lifted.text)
+                    : lifted.text;
                 if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 insertPlain(editorView, plain);
                 showPastedEnd(editorView.state);
@@ -513,6 +524,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // textarea gets its selection back. So does the field now: a focus that no click placed puts
     // back the selection it had, also over a placement the browser makes just after the focus.
     const keepCaret = $prose(() => {
+      const caretAtStart = ({ doc, selection }: EditorState) =>
+        selection.empty && selection.from === Selection.atStart(doc).from;
       const kept = (state: EditorState) => {
         const saved = refocus.current;
         if (!saved || saved.owner !== owner.current || !state.doc.eq(saved.doc)) return null;
@@ -574,8 +587,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         },
         appendTransaction: (transactions, _previous, state) => {
           const saved = refocus.current;
-          if (!saved || performance.now() > saved.until) return null;
-          if (transactions.some((tr) => tr.docChanged)) {
+          if (!saved) return null;
+          const docChanged = transactions.some((tr) => tr.docChanged);
+          if (performance.now() > saved.until) {
+            // Past the window only WebKit's caret at the start is overruled: it comes after the
+            // focus, as a selectionchange that a busy page (an inbound message drawing) takes well
+            // past 100 ms to deliver (Leo 2026-10-21, after another agent's steer). The person's own
+            // move there comes with a key or a click, which drop the saved selection first.
+            if (docChanged || !caretAtStart(state)) return null;
+          } else if (docChanged) {
             refocus.current = null;
             return null;
           }
@@ -823,6 +843,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
+      // A long draft keeps its thin scrollbar while it overflows (scrollers.ts).
+      {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;

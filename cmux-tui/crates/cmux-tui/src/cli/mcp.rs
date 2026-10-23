@@ -25,6 +25,7 @@ mod keybinding_tools;
 mod messages;
 mod render_tool;
 mod schema;
+mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -552,6 +553,7 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
+        tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -749,6 +751,13 @@ impl<B: Backend> Server<B> {
         }
         if name == agent_events_tool::NAME {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
+        }
+        if name == terminal_talk_tools::LIST {
+            return Ok(terminal_talk_tools::call_list(&self.backend, &arguments));
+        }
+        if name == terminal_talk_tools::SEND {
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {

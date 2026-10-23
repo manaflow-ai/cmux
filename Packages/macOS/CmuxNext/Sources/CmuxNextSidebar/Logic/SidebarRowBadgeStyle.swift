@@ -61,13 +61,17 @@ nonisolated struct WorkspaceRowBadges: Equatable {
         self.items = detailed ? pending : Self.simple(pending).map { [$0] } ?? []
     }
 
-    /// The one state a row shows without detailed icons: Ready (`success`, the blue dot) when any
-    /// item waits for the user, else the work in progress (its progress kept), else nothing.
+    /// The one state a row shows without detailed icons: needs you (`waiting`, one yellow dot
+    /// whatever it waits for) in place of the blue dot, else Ready (`success`, the blue dot) for an
+    /// error or something unread, else the work in progress (its progress kept), else nothing.
+    /// Never both dots (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS JUST A
+    /// YELLOW DOT!?").
     static func simple(_ items: [StatusIndicatorState]) -> StatusIndicatorState? {
+        if items.contains(where: { if case .waiting = $0 { true } else { false } }) { return .waiting }
         let ready = items.contains { state in
             switch state {
-            case .waiting, .error, .success: true
-            case .idle, .busy, .paused, .working: false
+            case .error, .success: true
+            case .idle, .busy, .paused, .working, .waiting: false
             }
         }
         return ready ? .success : items.first { $0.isWorking || $0.isLoading }

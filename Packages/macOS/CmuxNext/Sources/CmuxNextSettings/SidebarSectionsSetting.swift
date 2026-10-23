@@ -16,6 +16,8 @@ public nonisolated enum SidebarSectionsSetting {
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
     public static let densityPath = ["sidebar", "density"]
+    /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
+    public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
@@ -109,6 +111,19 @@ public nonisolated enum SidebarSectionsSetting {
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
                           keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
+    }
+
+    static func styleDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(stylePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.style", "Sidebar Style"),
+                          help: SettingsText.keyed("settings.sidebar.style.help",
+                                                   "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."),
+                          kind: .choice([
+                              SettingChoice(SidebarLayoutStyle.standard.rawValue, SettingsText.keyed("settings.choice.sidebarStandard", "Standard")),
+                              SettingChoice(SidebarLayoutStyle.rail.rawValue, SettingsText.keyed("settings.choice.sidebarRail", "Rail")),
+                          ]),
+                          default: .string(SidebarSectionsPreferences.defaults.style.rawValue),
+                          keywords: ["sidebar", "style", "rail", "thin", "narrow", "minimal", "strip", "hide", "hover", "overlay", "auto hide"])
     }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
@@ -271,6 +286,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: stylePath) {
+            if let text = value.stringValue, let style = SidebarLayoutStyle(rawValue: text) {
+                result.style = style
+            } else {
+                let choices = SidebarLayoutStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.style", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: showChatsPath) {

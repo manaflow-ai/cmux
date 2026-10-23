@@ -149,6 +149,7 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "cmux-next-car-guards.yml#mac": "apple-swift-tests",
+    "cmux-next-cua-helper-identity.yml#helper-identity": "macos-runtime-tests",
     "cmux-next-dev-daily.yml#sign": "apple-signing-release",
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
@@ -159,7 +160,9 @@
     "cmux-next-media.yml#tour": "apple-gui",
     "cmux-next-perf-bench.yml#bench": "apple-gui",
     "cmux-next-pr-autofix.yml#action-exports": "apple-app-build",
+    "cmux-next-shell-integration.yml#zsh-head-watch": "macos-runtime-tests",
     "cmux-next-source-archive.yml#archive": "apple-app-build",
+    "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-terminal.yml#rust-terminal": {
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"

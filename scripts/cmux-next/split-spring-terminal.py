@@ -18,6 +18,9 @@ one grid per terminal of the row (presses + 1) for the whole gesture.
 
 With --suite=pane-perf it runs scripts/cmux-next/pane-perf-terminal.py instead (split, close, New Column, zoom
 and a divider drag in 2, 8 and 30 pane layouts; the controller allowlists this entry, not pane-perf.sh yet).
+With --suite=app-perf it runs scripts/cmux-next/app-perf.py the same way (app gestures at 10 and 50 workspaces).
+With --suite=anim-perf it runs scripts/cmux-next/anim-perf-terminal.py (tab, workspace, sidebar, group, Home
+and palette animations at a 120 Hz frame budget).
 
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
        [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
@@ -26,9 +29,23 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
+# `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
+if "--suite=budgets" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
+# `--suite=app-perf`, the same way: scripts/cmux-next/app-perf.py (Cmd-D, Cmd-Shift-D, the side pane, the sidebar, a new
+# workspace at the top and workspace switches, at 10 and 50 workspaces; app-efficiency 2026-10-21).
+if "--suite=app-perf" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app-perf.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=app-perf"])
+# `--suite=anim-perf`: every other app animation (tabs, workspace switch, sidebars, groups, Home, palette),
+# scripts/cmux-next/anim-perf-terminal.py, budgets in scripts/perf-bench/budgets.json (animations).
+if "--suite=anim-perf" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -77,7 +94,7 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name, args=None, settle=0.0, timeout=60):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=timeout)
+    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
         time.sleep(settle)  # test harness: the layout settles before the next step
     return reply
@@ -124,7 +141,7 @@ def measure(label, verb):
         delay = start + press * opts.interval / 1000 - time.time()
         if delay > 0:
             time.sleep(delay)  # test harness: presses opts.interval ms apart
-        reply = rpc("action.run", {"action": verb, "args": {}, "focus": True, "origin": "user"}, timeout=30)
+        reply = rpc("action.run", {"action": verb, "args": {}, "focus": True, "origin": "script"}, timeout=30)
         if isinstance(reply, dict) and reply.get("error"):
             errors.append(str(reply.get("error")))
     time.sleep(1.5)  # test harness: the split spring lands (rest is under 0.5 s) and the PTY owner answers

@@ -150,8 +150,8 @@ const trustThenPermission: Play = async (ctx) => {
   )
     throw new Error("Permission card is missing its unified request surface");
   const individual = Boolean(ctx.document.querySelector(".acpmux-permission-ask"));
-  const allowOnce = individual ? "Yes" : "Allow once";
-  const allowAlways = individual ? "Yes, and don't ask again this session" : "Allow for this chat";
+  const allowOnce = "Allow once";
+  const allowAlways = individual ? "Always allow" : "Allow for this chat";
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
@@ -173,9 +173,7 @@ const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
-    name: ctx.document.querySelector(".acpmux-permission-ask")
-      ? "Yes, and don't ask again this session"
-      : "Allow for this chat",
+    name: ctx.document.querySelector(".acpmux-permission-ask") ? "Always allow" : "Allow for this chat",
   });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);

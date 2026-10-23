@@ -356,3 +356,57 @@ fn drag_nests_a_group_within_the_depth_and_a_dragged_tree_is_self() {
     let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
     assert!(table["g_leaf"].into, "a workspace drops into a nested group");
 }
+
+/// Reordering a group never nests it by accident (the "Perf" group drawn one gutter in, user
+/// 2026-10-21): the gap after a group's last member row looks the same as the gap after the group, so
+/// a dragged group lands beside a row only at its own level or above. It goes into a group only
+/// through that group's header ("into"), the one drop that shows which group takes it.
+#[test]
+fn a_dragged_group_lands_beside_rows_only_at_its_own_level_or_above() {
+    let mut doc = doc();
+    let sec = machine_section_id(A);
+    apply(
+        &mut doc,
+        &[
+            group("g_panes", "Panes & layout", &sec, None, vec![ws(A, "a1")]),
+            group("g_perf", "Perf", &sec, None, vec![ws(A, "a2")]),
+            group("g_nightly", "Nightly & CI", &sec, None, vec![]),
+            group("g_sub", "sub", &sec, Some("g_panes"), vec![]),
+        ],
+    )
+    .unwrap();
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+
+    // A top-level group over another group's member rows: no gap there (the list falls back to
+    // before or after that whole group); its header still nests on purpose.
+    let table = accept::drag_begin(&doc, &rows, &["g_perf".to_string()]);
+    let member = &table[&ws(A, "a1")];
+    assert!(
+        !member.before && !member.after,
+        "a member row's gap would nest Perf in Panes: {member:?}"
+    );
+    assert!(!table["g_sub"].before && !table["g_sub"].after, "beside a subgroup is one level in");
+    assert!(table["g_panes"].into, "the header still takes the group on purpose");
+    assert!(
+        table["g_panes"].before && table["g_panes"].after,
+        "beside a top-level group stays open"
+    );
+    assert!(table["g_nightly"].before && table["g_nightly"].after);
+
+    // A subgroup reorders among its siblings and moves out to any level above.
+    let table = accept::drag_begin(&doc, &rows, &["g_sub".to_string()]);
+    assert!(table[&ws(A, "a1")].before && table[&ws(A, "a1")].after, "among its parent's members");
+    assert!(table["g_nightly"].before && table["g_nightly"].after, "out to the top level");
+    assert!(
+        !table[&ws(A, "a2")].before && !table[&ws(A, "a2")].after,
+        "not across into another group"
+    );
+
+    // A workspace still lands anywhere a group's members sit.
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    assert!(table[&ws(A, "a1")].before && table[&ws(A, "a1")].after);
+}

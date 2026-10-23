@@ -10,6 +10,9 @@ enum WindowImageLayer {
     case page(CGImage, NSRect, holes: [NSRect] = [])
     /// A window server image of child windows, the size of the window.
     case window(CGImage)
+    /// Opaque black over a rectangle in window coordinates: what an
+    /// automation run may not see (``ScreenshotPrivacyMask``).
+    case mask(NSRect)
 
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
     static func composite(base: CGImage, window: NSWindow, layers: [WindowImageLayer]) -> CGImage? {
@@ -48,6 +51,9 @@ enum WindowImageLayer {
                 context.restoreGState()
             case .window(let image):
                 context.draw(image, in: whole)
+            case .mask(let rect):
+                context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+                context.fill(CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY))
             }
         }
         return context.makeImage()

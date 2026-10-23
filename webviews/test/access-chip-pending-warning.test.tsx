@@ -207,7 +207,7 @@ test("a new chat acpmux starts in full access draws its warning chip on the firs
   await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
   const answer = await acpmux({ modeId: "bypassPermissions", name: "Bypass permissions" });
   await render(reported("earlier", "default"));
-  expect(access()).toEqual({ label: "Ask before edits", warning: false });
+  expect(access()).toEqual({ label: "Manual", warning: false });
 
   // A new chat, before acpmux answers again: its kept answer, warning included.
   await fresh();
@@ -231,7 +231,7 @@ test("the access chip keeps grant details in its menu without a count in the pil
   });
   const chip = host.querySelector<HTMLElement>(".acpmux-mode")!;
   expect(chip.querySelector(".acpmux-access-grant-count")).toBeNull();
-  expect(chip.querySelector(".acpmux-mode-text")?.textContent?.trim()).toBe("Ask before edits");
+  expect(chip.querySelector(".acpmux-mode-text")?.textContent?.trim()).toBe("Manual");
   await act(async () => {
     const trigger = chip.querySelector<HTMLButtonElement>(".acpmux-access-trigger")!;
     const press = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1, clientY: 1 });
@@ -248,7 +248,7 @@ test("a kept answer that is wrong gives way to acpmux's answer", async () => {
   await fresh();
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
   await answer();
-  expect(access()).toEqual({ label: "Ask before edits", warning: false });
+  expect(access()).toEqual({ label: "Manual", warning: false });
 });
 
 test("without an answer from acpmux a new chat names no mode, whatever the last chat showed", async () => {

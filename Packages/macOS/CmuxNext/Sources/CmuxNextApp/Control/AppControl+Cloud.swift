@@ -81,6 +81,9 @@ extension AppControl {
             "api_status": .string(session.machine.status.rawValue),
             "stage": .string(session.stage.name),
             "stage_detail": session.stage.failure.map(JSONValue.string) ?? .null,
+            // Why a paused machine is paused (`idle` or `user`), and its idle auto-pause (0: Off).
+            "pause_reason": session.machine.pauseReason.map { .string($0.rawValue) } ?? .null,
+            "idle_pause_minutes": session.machine.idlePauseMinutes.map { .number(Double($0)) } ?? .null,
             "daemon": .string(state),
             // Capability negotiation per machine (DaemonCompatibility).
             "session_id": compat?.sessionID.map(JSONValue.string) ?? .null,

@@ -65,7 +65,7 @@ jobs:
               exit 1
             fi
           else
-            version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$cargo_toml")"
+            version="$(python3 scripts/cmux-next/browser-host-release.py crate-version "$cargo_toml")"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 

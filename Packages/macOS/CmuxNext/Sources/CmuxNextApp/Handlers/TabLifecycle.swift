@@ -358,6 +358,10 @@ enum TabLifecycle {
             // once: its pane may have no controller yet, and the old pane still has the focus): the
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
             if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
+            // A quick Cmd-W after one that emptied its pane closes nothing in the pane the focus
+            // landed in (TabCloseGuard.swallowsCmdW, Leo 2026-10-21).
+            let now = ProcessInfo.processInfo.systemUptime
+            if invocation.origin == .user, TabCloseGuard.swallowsCmdW(ctx.services, at: now) { return }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }
@@ -366,7 +370,10 @@ enum TabLifecycle {
             if invocation.origin == .user {
                 let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
                 // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
-                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) { return CloseUndoToasts.close(in: pane, selected) }
+                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
+                    if TabCloseGuard.empties(pane, closing: selected) { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+                    return CloseUndoToasts.close(in: pane, selected)
+                }
                 switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
                 case .close: break
                 case .select(let next): return pane.select(next)
@@ -375,8 +382,11 @@ enum TabLifecycle {
                 case .ignore: return
                 }
             }
-            // A link's tab outside the pane it was clicked in gives the focus back there (LinkOpener).
-            let back = ctx.services.linkOpener.returnPane(closing: id, in: pane)
+            let empties = TabCloseGuard.empties(pane, closing: [id])
+            if invocation.origin == .user, empties { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+            // A link's tab outside the pane it was clicked in gives the focus back there, only as
+            // its pane closes with it; while the pane has tabs, the focus stays (LinkOpener).
+            let back = ctx.services.linkOpener.returnPane(closing: id, in: pane, emptiesPane: empties)
             // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
             CloseUndoToasts.close(in: pane, [id])
             if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }

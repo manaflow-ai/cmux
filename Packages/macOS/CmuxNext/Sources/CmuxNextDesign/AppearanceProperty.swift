@@ -9,7 +9,7 @@ public nonisolated enum AppearanceProperty: String, CaseIterable, Sendable {
     case background
     /// A marker color washed over the place: a named color or `#RRGGBB`.
     case tint
-    /// The glass tint over a background image, 0...0.95.
+    /// The glass tint over a background image, 0...1 (1 is opaque and hides it).
     case opacity
     /// The window material: one per window.
     case blur

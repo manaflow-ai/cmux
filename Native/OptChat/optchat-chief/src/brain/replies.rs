@@ -73,6 +73,27 @@ fn reaction_name(kind: &ReactionKind) -> String {
     }
 }
 
+/// How a note names someone's reaction, and the stable tag its key carries:
+/// a tapback as its iMessage glyph and word (`❤️ love`, tag `love`), an emoji
+/// as itself (tag `e` + its hash).
+pub(super) fn reaction_label(kind: &ReactionKind) -> (String, String) {
+    match kind {
+        ReactionKind::Tapback(t) => {
+            let glyph = match t {
+                Tapback::Like => "👍",
+                Tapback::Love => "❤️",
+                Tapback::Laugh => "😂",
+                Tapback::Emphasize => "‼️",
+                Tapback::Question => "❓",
+                Tapback::Dislike => "👎",
+            };
+            let name = tapback_name(*t);
+            (format!("{glyph} {name}"), name.to_owned())
+        }
+        ReactionKind::Emoji(e) => (e.clone(), format!("e{:016x}", fnv(e.as_bytes()))),
+    }
+}
+
 fn tapback_name(t: Tapback) -> &'static str {
     match t {
         Tapback::Like => "like",
@@ -84,7 +105,7 @@ fn tapback_name(t: Tapback) -> &'static str {
     }
 }
 
-/// The Chief's message in a voice (the desk's receipt): an aside that does
+/// The Chief's message in a voice (a desk approval notice): an aside that does
 /// not move the Chief's reply off its message, so threading skips it.
 fn aside(message: &Message) -> bool {
     crate::voice::of(&message.client_msg_id).is_some()

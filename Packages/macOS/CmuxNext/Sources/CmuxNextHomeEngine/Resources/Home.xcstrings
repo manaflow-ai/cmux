@@ -396,6 +396,661 @@
         }
       }
     },
+    "home.engine.renameSignedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux to rename this Chief. It runs in the cloud on your account."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich bei cmux an, um diesen Chief umzubenennen. Er läuft in der Cloud in deinem Konto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux pour renommer ce Chief. Il s’exécute dans le cloud sur votre compte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux لإعادة تسمية Chief هذا. فهو يعمل في السحابة على حسابك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux para cambiar el nombre de este Chief. Se ejecuta en la nube con tu cuenta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請登入 cmux 以重新命名這個 Chief。它在雲端以你的帳號執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请登录 cmux 以重命名此 Chief。它在云端以你的账户运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Chief의 이름을 바꾸려면 cmux에 로그인하세요. 이 Chief는 내 계정으로 클라우드에서 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief の名前を変更するには cmux にサインインしてください。この Chief はあなたのアカウントでクラウド上で動作しています。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavite se u cmux da preimenujete ovog Chiefa. Radi u oblaku na vašem računu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på cmux for at omdøbe denne Chief. Den kører i skyen på din konto."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a cmux per rinominare questo Chief. Funziona nel cloud con il tuo account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមចូលគណនី cmux ដើម្បីប្ដូរឈ្មោះ Chief នេះ។ វាដំណើរការលើពពកក្នុងគណនីរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på cmux for å gi denne Chief et nytt navn. Den kjører i skyen på kontoen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do cmux, aby zmienić nazwę tego Chiefa. Działa w chmurze na Twoim koncie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no cmux para renomear este Chief. Ele roda na nuvem na sua conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите в cmux, чтобы переименовать этого Chief. Он работает в облаке в вашей учётной записи."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้า cmux เพื่อเปลี่ยนชื่อ Chief นี้ Chief นี้ทำงานบนคลาวด์ในบัญชีของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Chief'i yeniden adlandırmak için cmux'a giriş yapın. Hesabınızda bulutta çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть у cmux, щоб перейменувати цього Chief. Він працює в хмарі у вашому обліковому записі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy đăng nhập cmux để đổi tên Chief này. Chief chạy trên đám mây bằng tài khoản của bạn."
+          }
+        }
+      }
+    },
+    "home.engine.renameChangedElsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Chief was changed on another device at the same time. Enter the new name again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chief wurde gleichzeitig auf einem anderen Gerät geändert. Gib den neuen Namen noch einmal ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Chief a été modifié au même moment sur un autre appareil. Saisissez à nouveau le nouveau nom."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تغيير Chief هذا على جهاز آخر في الوقت نفسه. أدخل الاسم الجديد مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Chief se cambió en otro dispositivo al mismo tiempo. Escribe el nombre nuevo otra vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個 Chief 同時在另一部裝置上被變更。請再輸入一次新名稱。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Chief 同时在另一台设备上被更改。请再次输入新名称。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Chief가 동시에 다른 기기에서 변경되었습니다. 새 이름을 다시 입력하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief は同時に別のデバイスで変更されました。新しい名前をもう一度入力してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Chief je istovremeno promijenjen na drugom uređaju. Ponovo unesite novo ime."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Chief blev ændret på en anden enhed samtidig. Skriv det nye navn igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Chief è stato modificato contemporaneamente su un altro dispositivo. Inserisci di nuovo il nuovo nome."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief នេះត្រូវបានប្ដូរនៅលើឧបករណ៍ផ្សេងក្នុងពេលតែមួយ។ សូមបញ្ចូលឈ្មោះថ្មីម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Chief ble endret på en annen enhet samtidig. Skriv inn det nye navnet på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Chief został w tym samym czasie zmieniony na innym urządzeniu. Wpisz nową nazwę ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Chief foi alterado em outro dispositivo ao mesmo tempo. Digite o novo nome de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этого Chief одновременно изменили на другом устройстве. Введите новое имя ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief นี้ถูกเปลี่ยนบนอุปกรณ์อื่นในเวลาเดียวกัน ป้อนชื่อใหม่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Chief aynı anda başka bir cihazda değiştirildi. Yeni adı yeniden girin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цього Chief одночасно змінили на іншому пристрої. Введіть нове ім’я ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief này vừa được thay đổi trên một thiết bị khác cùng lúc. Hãy nhập lại tên mới."
+          }
+        }
+      }
+    },
+    "home.engine.renameInvalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That name can’t be used. Use 1 to 100 characters."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Name kann nicht verwendet werden. Verwende 1 bis 100 Zeichen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce nom ne peut pas être utilisé. Utilisez de 1 à 100 caractères."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن استخدام هذا الاسم. استخدم من 1 إلى 100 حرف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese nombre no se puede usar. Usa de 1 a 100 caracteres."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用這個名稱。請使用 1 到 100 個字元。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用此名称。请使用 1 到 100 个字符。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 이름은 사용할 수 없습니다. 1~100자를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この名前は使用できません。1〜100 文字で入力してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To ime se ne može koristiti. Koristite od 1 do 100 znakova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det navn kan ikke bruges. Brug 1 til 100 tegn."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo nome non può essere usato. Usa da 1 a 100 caratteri."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើឈ្មោះនោះបានទេ។ សូមប្រើពី 1 ដល់ 100 តួអក្សរ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det navnet kan ikke brukes. Bruk 1 til 100 tegn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tej nazwy nie można użyć. Użyj od 1 do 100 znaków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse nome não pode ser usado. Use de 1 a 100 caracteres."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это имя нельзя использовать. Используйте от 1 до 100 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ชื่อนี้ไม่ได้ ใช้ 1 ถึง 100 อักขระ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ad kullanılamaz. 1 ile 100 arasında karakter kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це ім’я не можна використати. Використайте від 1 до 100 символів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không dùng được tên này. Hãy dùng từ 1 đến 100 ký tự."
+          }
+        }
+      }
+    },
+    "home.engine.renameNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Chief is no longer on your account, so its name can’t be changed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chief ist nicht mehr in deinem Konto, daher kann sein Name nicht geändert werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Chief n’est plus sur votre compte : son nom ne peut donc pas être changé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد Chief هذا ضمن حسابك، لذا لا يمكن تغيير اسمه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Chief ya no está en tu cuenta, así que no se puede cambiar su nombre."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個 Chief 已不在你的帳號中，因此無法變更它的名稱。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Chief 已不在你的账户中，因此无法更改它的名称。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Chief가 더 이상 내 계정에 없으므로 이름을 변경할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief はもうあなたのアカウントにないため、名前を変更できません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Chief više nije na vašem računu, pa mu se ime ne može promijeniti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Chief er ikke længere på din konto, så dens navn kan ikke ændres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Chief non è più nel tuo account, quindi non è possibile cambiarne il nome."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief នេះលែងនៅក្នុងគណនីរបស់អ្នកហើយ ដូច្នេះមិនអាចប្ដូរឈ្មោះវាបានទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Chief er ikke lenger på kontoen din, så navnet kan ikke endres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tego Chiefa nie ma już na Twoim koncie, więc nie można zmienić jego nazwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Chief não está mais na sua conta, então o nome dele não pode ser alterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этого Chief больше нет в вашей учётной записи, поэтому его имя изменить нельзя."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief นี้ไม่อยู่ในบัญชีของคุณแล้ว จึงเปลี่ยนชื่อไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Chief artık hesabınızda değil, bu yüzden adı değiştirilemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цього Chief більше немає у вашому обліковому записі, тому його ім’я не можна змінити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief này không còn trong tài khoản của bạn nên không thể đổi tên."
+          }
+        }
+      }
+    },
+    "home.engine.renameRefusedReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief’s name could not be changed (%@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Name des Chiefs konnte nicht geändert werden (%@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer le nom du Chief (%@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تغيير اسم Chief (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar el nombre del Chief (%@)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更 Chief 的名稱（%@）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更改 Chief 的名称（%@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief의 이름을 변경할 수 없습니다(%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の名前を変更できませんでした（%@）。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ime Chiefa nije moguće promijeniti (%@)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefens navn kunne ikke ændres (%@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cambiare il nome del Chief (%@)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្ដូរឈ្មោះ Chief បានទេ (%@)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navnet på Chief kunne ikke endres (%@)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zmienić nazwy Chiefa (%@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível alterar o nome do Chief (%@)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось изменить имя Chief (%@)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนชื่อ Chief ไม่ได้ (%@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief'in adı değiştirilemedi (%@)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося змінити ім’я Chief (%@)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không đổi được tên Chief (%@)."
+          }
+        }
+      }
+    },
     "home.engine.useDefaultPicture": {
       "comment": "Button in Chief Settings that goes back to the bundled picture.",
       "extractionState": "manual",
@@ -5272,6 +5927,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Chief 的記憶摘要已暫停。Chief 仍會回覆。"
+          }
+        }
+      }
+    },
+    "home.chief.noReply": {
+      "comment": "Home system notice in the Chief conversation when the person's last message has had no reply for some minutes (%lld: minutes, at least 2). The Chief host retries on its own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer."
           }
         }
       }

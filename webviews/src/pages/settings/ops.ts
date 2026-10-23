@@ -67,7 +67,17 @@ export type GhosttyDiagnostic = {
 
 /** One space or machine row (`cmux.settings.host.lists`). */
 /** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
-export type HostListRow = { id: string; title: string; subtitle: string | null; icon?: string | null; active: boolean };
+export type HostListRow = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  icon?: string | null;
+  active: boolean;
+  /** A machine's color now (`#RRGGBB`: the person's pick, else the automatic one). */
+  color?: string;
+  /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
+  color_key?: string;
+};
 
 /** One browser profile row. */
 export type BrowserProfile = {
@@ -106,6 +116,8 @@ export type HostLists = {
   iphone?: IPhoneHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
+  /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
+  web_updates?: WebUpdatesState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
   /**
@@ -181,6 +193,25 @@ export type IPhoneHostState = {
 
 /** `ComputerUseSetup.Phase` in the app. */
 export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+
+/** A web update the app keeps: its commit and when that commit landed (unix seconds). */
+export type WebUpdateVersion = { commit: string; committed_at: number };
+
+/**
+ * Updates > Web UI (the app's WebUpdates): `served` is the update the pages serve now (null: the
+ * built-in web UI), `active` the one served from the next safe point, `pending` what that safe point
+ * swaps in, `refusal` why the newest update was not taken.
+ */
+export type WebUpdatesState = {
+  channel: "every-merge" | "nightly" | "off";
+  phase: "idle" | "checking" | "downloading" | "failed";
+  served: WebUpdateVersion | null;
+  active: WebUpdateVersion | null;
+  previous: WebUpdateVersion | null;
+  pending: "update" | "bundled" | null;
+  last_check: number | null;
+  refusal: "app_too_old" | "not_newer" | "untrusted" | "damaged" | "offline" | null;
+};
 
 /** The Computer Use card's state: the grants of the helper that runs (or would run). */
 export type ComputerUseState = {
@@ -490,6 +521,10 @@ export type SettingsOps = {
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
+  "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
+  /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
+  "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */

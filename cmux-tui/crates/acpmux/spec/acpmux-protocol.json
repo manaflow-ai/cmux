@@ -2896,6 +2896,10 @@
             "null"
           ]
         },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
           "type": [
@@ -3315,6 +3319,10 @@
             "string",
             "null"
           ]
+        },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",

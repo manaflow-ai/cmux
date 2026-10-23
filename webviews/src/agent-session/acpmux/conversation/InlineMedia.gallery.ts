@@ -33,11 +33,7 @@ export default agentPaneEntry({
   title: "Screenshots in replies",
   area: "Agent pane",
   height: 560,
-  covers: [
-    "agent-session/acpmux/conversation/inlineMedia.ts",
-    "agent-session/acpmux/conversation/Markdown.tsx",
-    "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage",
-  ],
+  covers: ["agent-session/acpmux/conversation/Markdown.tsx", "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage"],
   variants: {
     "before-after": {
       note: "Two Markdown images on one line: side by side, captioned by their alt text; each opens the viewer.",

@@ -19,6 +19,10 @@ extension WorkspaceRowView {
             let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
             actions.append(NSAccessibilityCustomAction(name: name) { onToggleTabs(); return true })
         }
+        if let treeFold, let onToggleTree {
+            let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
+            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTree(); return true })
+        }
         if let onMore {
             actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
         }
@@ -28,11 +32,12 @@ extension WorkspaceRowView {
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
         var parts = [ws.title]
         if let s = content.now.map(Strings.rowNow) ?? content.detail { parts.append(s) }
-        // The chip's word takes the one-line status's place, as drawn.
+        // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
         if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
+        if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {

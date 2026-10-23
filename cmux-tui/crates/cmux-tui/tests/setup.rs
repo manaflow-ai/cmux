@@ -15,8 +15,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+#[path = "setup/browser_import.rs"]
+mod browser_import;
 #[path = "setup/cloud_machine.rs"]
 mod cloud_machine;
+#[path = "setup/notifications.rs"]
+mod notifications;
+#[path = "setup/tailnet.rs"]
+mod tailnet;
 
 struct World {
     home: PathBuf,
@@ -878,7 +884,9 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("harness"),
             &json!("mcp"),
             &json!("computer_use"),
-            &json!("cloud_machine")
+            &json!("cloud_machine"),
+            &json!("notifications"),
+            &json!("browser_import")
         ],
         "{status}"
     );

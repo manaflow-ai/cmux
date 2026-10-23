@@ -7,6 +7,10 @@
   top: 0;
   z-index: 3;
   height: 0;
+}
+/* The rail's tokens; the card takes them too, as it draws outside the rail (PreviewCard.tsx). */
+.acpmux-minimap,
+.acpmux-minimap__card {
   /* Mixed into the opaque base (styles.css --acpmux-base), as the menus are: the page color can be clear. */
   --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
   --acpmux-minimap-rest: var(--agent-muted);
@@ -17,7 +21,8 @@
   --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
-:root[data-borders="none"] .acpmux-minimap {
+:root[data-borders="none"] .acpmux-minimap,
+:root[data-borders="none"] .acpmux-minimap__card {
   --acpmux-minimap-rim: transparent;
 }
 .acpmux-minimap__rail {
@@ -184,10 +189,24 @@
   width: 9px;
   height: 10px;
 }
+/* Where the card's x and y count from: the rail's origin, as the card draws in the transcript
+   scroller's parent (PreviewCard.tsx). */
+.acpmux-minimap__anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+/* Drawn in the transcript scroller's parent, never inside the scroller: the scroller's edge mask
+   (conversation.css) is a backdrop root, and under it the blur below shows the rows sharp. On the
+   tooltip layer, as the chat's other hover cards, so the composer under it never covers it. */
 .acpmux-minimap__card {
   position: absolute;
   top: 0;
   left: 0;
+  z-index: var(--layer-tooltip);
   width: 320px;
   max-width: calc(100vw - 16px);
   box-sizing: border-box;
@@ -276,10 +295,23 @@
   width: 10px;
   text-indent: 0;
 }
-/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own fill, a
-   step brighter (#2d2d2d over #1e1e1e in the dark reference theme). */
+/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own glass
+   tint (12% of the text, conversation.css) a step brighter, still over transparent so the bubble
+   stays glass while it flashes (Leo 2026-10-20: never opaque, not even for a moment). */
 .acpmux-row .cv-user__bubble {
-  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-base, var(--agent-page-bg)));
+  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+/* Reduce Transparency: the bubble is opaque there (--glass-opaque, 12% of the text over the glass
+   surface, conversation.css), and so is every frame of its flash: the same step brighter over the
+   same surface. The animation sets background-color itself, so glass.css's hold on --glass-tint
+   does not reach it. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-row .cv-user__bubble {
+    --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
+  }
+}
+:root[data-reduce-transparency] .acpmux-row .cv-user__bubble {
+  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
 }
 /* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's
    tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind

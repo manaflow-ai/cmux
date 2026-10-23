@@ -165,6 +165,127 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
   }
 });
 
+// With a tick under the pointer or keyboard focus, the rail used to stop following the band
+// (#24058 review round 4): scrolling the chat from top to bottom while hovering left the lit band
+// past the rail's end or under its edge fade until the pointer left. The band stays in view at every
+// offset, whatever is hovered or focused; the rail holds still only while the band already shows.
+for (const how of ["hover", "focus"] as const)
+  test(`with a tick ${how === "hover" ? "hovered" : "focused"}, the band stays in the rail's clear area while the chat scrolls`, async () => {
+    const document = dom.window.document;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(turns, new Set())}
+            sessionId={`minimap-${how}-scroll`}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const rail = () => host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+      const bottom = scroller.scrollTop;
+      const scrollTo = async (top: number) => {
+        scroller.scrollTop = top;
+        await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      };
+      await scrollTo(0);
+      // A tick near the top of the rail, held while the chat scrolls down to its end.
+      const tick = list().querySelector<HTMLElement>('[data-tick="3"]')!;
+      if (how === "hover")
+        await act(async () => {
+          const Event =
+            (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+          tick.dispatchEvent(new Event("pointerover", { bubbles: true, relatedTarget: document.body }));
+        });
+      else await act(async () => tick.focus());
+      expect(rail().hasAttribute("data-hovering") || document.activeElement === tick).toBe(true);
+      const height = Number.parseFloat(rail().style.height);
+      const outside: string[] = [];
+      for (let top = 0; top <= bottom; top += 120) {
+        await scrollTo(top);
+        const node = list();
+        const fade = Number.parseFloat(node.style.getPropertyValue("--acpmux-minimap-fade")) || FADE;
+        const from = node.hasAttribute("data-fade-top") ? fade : 0;
+        const to = height - (node.hasAttribute("data-fade-bottom") ? fade : 0);
+        for (const lit of node.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
+          const y = Number(lit.dataset.tick) * 10 - node.scrollTop;
+          if (y < from || y + 10 > to)
+            outside.push(`at ${top} px tick ${lit.dataset.tick} at ${y} px, outside ${from} to ${to}`);
+        }
+        if (outside.length > 5) break;
+      }
+      expect(outside).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+// The rail's list moves under a pointer that stays still (the reader wheels the chat with the
+// pointer on the rail): no pointerenter comes, so the magnified tick used to stay the one first
+// hovered while another sat under the pointer (#24058 review round 5). The magnified tick is the
+// one under the pointer at every offset.
+test("wheeling the chat with the pointer still on the rail magnifies the tick under the pointer", async () => {
+  const document = dom.window.document;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId="minimap-hover-wheel"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const bottom = scroller.scrollTop;
+    const scrollTo = async (top: number) => {
+      scroller.scrollTop = top;
+      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    };
+    await scrollTo(0);
+    // jsdom lays nothing out: the list's box is at 0, so the pointer's clientY is its y in the list.
+    const y = 35;
+    const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+    await act(async () => {
+      list()
+        .querySelector<HTMLElement>('[data-tick="3"]')!
+        .dispatchEvent(new Event("pointerover", { bubbles: true, clientY: y, relatedTarget: document.body }));
+    });
+    expect(list().querySelector('[data-tone="active"]')?.getAttribute("data-tick")).toBe("3");
+    let moved = false;
+    const wrong: string[] = [];
+    for (let top = 0; top <= bottom; top += 120) {
+      await scrollTo(top);
+      if (list().scrollTop > 0) moved = true;
+      const under = String(Math.floor((y + list().scrollTop) / 10));
+      const active = list().querySelector('[data-tone="active"]')?.getAttribute("data-tick");
+      if (active !== under)
+        wrong.push(
+          `at ${top} px the list is at ${list().scrollTop}: tick ${active} magnified, ${under} under the pointer`,
+        );
+      if (wrong.length > 5) break;
+    }
+    // The list did move under the pointer, and the magnified tick followed it.
+    expect(moved).toBe(true);
+    expect(wrong).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 /// The transcript mask's fades (conversation.css), in px: each edge's band, and the bottom's while
 /// Jump to latest shows. The 0px rules (find open, Reduce Transparency, Increase Contrast) turn a
 /// fade off and draw nothing, so they don't count.
