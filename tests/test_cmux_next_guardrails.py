@@ -79,6 +79,8 @@ CASES = {
                        "protocol PagesObserver: AnyObject {\n    func pageChanged(_ id: Int)\n}\n"),
     "combine-state": ("import Combine\nfinal class Model: ObservableObject {\n    @Published var x = 0\n}\n",
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
+    "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
+                             "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -398,6 +400,20 @@ class RuleTests(Fixture):
         self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
         self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
         self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
+
+    def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
+        tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
+        self.write(f"{tests}/Wait.swift", "final class Once<T> {\n    var value: T?\n}\n")
+        self.write(f"{KIT}/Free.swift", "nonisolated final class Box<T> {\n    var value: T?\n}\n"
+                   "final class Mailbox<T> { // generic-class-allow: a nonisolated target\n    var value: T?\n}\n")
+        self.commit("generic classes in a test target and Sources")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Wait.swift: final class Once<T> {"])])
+
+    def test_other_rules_do_not_read_test_targets(self):
+        self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Fake.swift",
+                   "final class Fake {\n    static let shared = Fake()\n}\n")
+        self.commit("a test fake singleton")
+        self.assertEqual(self.refused(), [])
 
     def test_skip_reason_lets_the_push_through_and_is_printed(self):
         self.write(f"{KIT}/Added.swift", CASES["singleton"][0])
