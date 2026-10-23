@@ -49,11 +49,15 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else {
-                // Leo 2026-10-21: "MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". A press
-                // selects nothing; the release on this row navigates, a drag moves the row and leaves the shown
-                // workspace where it is (as `sidebar.multiView` did first, #23437).
+            } else if SidebarTunables.multiView.value {
+                // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
+            } else {
+                // A click switches at once, on the press (Lawrence 2026-10-21: a switch on the release read as lag).
+                // Leo 2026-10-21 ("MOUSE DOWN DRAGGING ... SHOULDN'T BE IMMEDIATELY FOCUSING"): if the press becomes
+                // a drag, `beginDrag` puts the shown workspace and the selection back.
+                press.switchedOnPress = (model.activeWorkspaceID, model.selection)
+                model.click(id)
             }
             // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
             if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
