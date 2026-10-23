@@ -107,6 +107,14 @@ public nonisolated struct Signposter: Sendable {
         }
     }
 
+    /// Ends an interval whose synchronous work ran a nested run loop that waited for the person
+    /// (an `NSMenu` pop-up, a modal panel): the end carries `loop=nested`, so readers keep it out
+    /// of latency rows instead of counting the person's dwell time. Like a missed commit, it is not
+    /// mirrored to MetricKit.
+    public func endSpanningNestedLoop(_ name: SignpostName, _ interval: SignpostInterval) {
+        signposter.endInterval(name.staticName, interval.state, "loop=nested")
+    }
+
     /// Runs `body` inside an interval named `name`.
     ///
     /// - Returns: What `body` returns.

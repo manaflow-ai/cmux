@@ -45,8 +45,8 @@ enum DestructiveConfirmation {
                 return
             }
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
+                guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
             }
         }
     }

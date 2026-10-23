@@ -197,4 +197,26 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
         await page.close();
       }
     });
+
+  for (const name of browsers.keys())
+    test(`${name}: floating Session Info leaves the header tools anchored`, async () => {
+      current = browsers.get(name)!;
+      // 1200px leaves a floating card close enough to the transcript column for the handoff shift;
+      // at 1700px the shift is zero and the old stage selector would pass this assertion too.
+      const page = await pane!.open({ width: 1200, height: 600 });
+      try {
+        const toggle = await ready(page);
+        const before = await page.evaluate(
+          () => document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect().right,
+        );
+        await toggle.click({ force: true });
+        await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+        const after = await page.evaluate(
+          () => document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect().right,
+        );
+        expect(Math.abs(after - before)).toBeLessThan(0.5);
+      } finally {
+        await page.close();
+      }
+    });
 });

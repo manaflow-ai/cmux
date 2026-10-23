@@ -48,7 +48,7 @@ final class FilePageService: InternalPageProvider {
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
-    private let comments: (any MarkdownTableWidthStoring)?
+    private let comments: (any MarkdownCommentStoring)?
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
@@ -65,18 +65,19 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared,
+         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
             : nil
         self.comments = kind == .markdown
-            ? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
-                                           name: MarkdownTableWidthRepository.commentsAttributeName,
-                                           maxBytes: MarkdownTableWidthRepository.commentsValueLimit)
+            ? MarkdownCommentRepository(storage: MarkdownTableWidthRepository(
+                fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
+                name: MarkdownTableWidthRepository.commentsAttributeName,
+                maxBytes: MarkdownTableWidthRepository.commentsValueLimit))
             : nil
-        self.documents = documents
+        self.documents = documents ?? services.fileQuitDocuments
         self.kind = kind
         self.clock = clock
         self.images = images
