@@ -28,14 +28,17 @@ extension PageWebView {
         applyRenderRate(lowPowerMode: lowPowerMode.isEnabled)
     }
 
-    /// Sets the WebKit rate for `lowPowerMode`. WebKit reads the rate only when the page's
-    /// visibility changes, so a page on screen is re-shown under a snapshot when its rate changes
-    /// there; a hidden page takes it when it is next shown.
+    /// Sets the WebKit rate for `lowPowerMode`, and re-shows a page on screen under a snapshot
+    /// (`WebKitRenderRate.set`), on the claim that WebKit reads the rate when the page's visibility
+    /// changes. That claim is not proven: on cmux20 (macOS 27, 120 Hz) a shown Settings page whose
+    /// preference went to near60 this way still rendered at 120 fps, while a page made at near60
+    /// rendered at 60. Only the rate a page is made with is known to hold, so the pool drops its
+    /// spare on a change and makes a new one (``PageHostPool/rateGeneration``) rather than rely on
+    /// this; `scripts/cmux-next/bench-page-cadence.py --live` measures both directions.
     ///
     /// The preference is written while Chromium shows the page too: its WebKit view is hidden then
-    /// (no re-show) and shows again on a fallback, at the current rate. A parked spare is not
-    /// re-shown: nobody sees it (its parking view is transparent, not hidden), and a claim moves it
-    /// out of the parking view, a visibility change WebKit reads the rate on.
+    /// (no re-show) and shows again on a fallback. A parked spare is not re-shown: nobody sees it,
+    /// and the pool replaces it.
     private func applyRenderRate(lowPowerMode: Bool) {
         let fullRate = Self.rendersAtFullRate(engineOptions.renderRate, lowPowerMode: lowPowerMode)
         guard let reshow = WebKitRenderRate.set(fullRate: fullRate, on: webView, replacing: renderRateReshow,

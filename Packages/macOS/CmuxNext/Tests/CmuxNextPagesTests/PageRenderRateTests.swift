@@ -93,6 +93,25 @@ struct PageRenderRateTests {
         #expect(!pool.isSpareReady)
     }
 
+    /// A claimed host that comes back untouched returns to the spare slot only when it was made at
+    /// the current rate.
+    @Test(arguments: [false, true])
+    func aReturnedHostIsASpareAgainOnlyAtTheCurrentRate(lowPowerModeChanged: Bool) throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close() }
+        let lowPowerMode = LowPowerMode(enabled: false)
+        let pool = PageHostPool(lowPowerMode: lowPowerMode, activity: { 0 }, isTrackingMenu: { false })
+        defer { pool.dropSpare() }
+        pool.follow(window)
+        let host = PageWebView(recipe: try spareRecipe(pool))
+        pool.claimed[ObjectIdentifier(host)] = PageHostPool.WeakHost(host, generation: pool.rateGeneration)
+        if lowPowerModeChanged { lowPowerMode.override = true }
+        pool.release(host)
+        #expect((pool.spare === host) == !lowPowerModeChanged,
+                "returned host back in the spare slot: \(pool.spare === host), Low Power Mode changed: \(lowPowerModeChanged)")
+    }
+
     /// A page follows Low Power Mode as a browser tab does: near 60 while it is on, full rate again
     /// when it turns off, without being made again.
     @Test func aPageFollowsLowPowerMode() throws {
