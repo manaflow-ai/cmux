@@ -68,23 +68,30 @@ import Foundation
         }
     }
 
-    /// The pane a pending create's command addresses: `handle`, or, for a stand-in pane, the daemon's
-    /// pane that took it over under the same public id (nil until the daemon reports it).
+    /// The daemon pane that shows `handle`: `handle`, or, for a stand-in pane, the daemon's pane that
+    /// took it over under the same public id (nil until the daemon reports it).
     static func daemonHandle(showing handle: PaneID, in store: DaemonStore) -> PaneID? {
-        if let paneID = store.standInTargets[handle] ?? store.intentLog.entries.lazy.compactMap({ entry -> String? in
-            if case .splitPane(_, _, _, let provisional) = entry.kind, provisional.handle == handle { return provisional.paneID }
-            return nil
-        }).first {
+        if let paneID = store.standIns[handle]?.paneID {
             return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
         }
         return store.panesByHandle[handle] != nil ? handle : nil
     }
 
     /// The pane the overlay places beside: `target`, or the pane that shows a stand-in target now
-    /// (the stand-in itself while it is pending, the daemon's pane once it took it over).
+    /// (the stand-in itself while it is pending, the daemon's pane once it took it over). A
+    /// stand-in that shows nothing (its create was closed first, ``CancelledCreation``, or refused)
+    /// hands its dependents to its own anchor, where their sends go too (``DaemonStore/daemonTarget(for:)``):
+    /// closing a pending column keeps the one made from it.
     private static func shownTarget(_ target: PaneID, in store: DaemonStore) -> PaneID? {
-        if store.panesByHandle[target] != nil { return target }
-        return daemonHandle(showing: target, in: store)
+        var target = target
+        var seen: Set<PaneID> = []
+        while seen.insert(target).inserted {
+            if store.panesByHandle[target] != nil { return target }
+            if let daemon = daemonHandle(showing: target, in: store) { return daemon }
+            guard let anchor = store.standIns[target]?.anchor else { return nil }
+            target = anchor
+        }
+        return nil
     }
 
     /// The daemon's pane under the split's public pane id, once its records hold it.
@@ -97,12 +104,8 @@ import Foundation
         let daemon = daemonPane(provisional, in: store)
         guard !daemonPlaces(provisional, in: store) else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
-        // A create pressed on a pending create's stand-in: remember its public id, so the target
-        // stays found once the daemon's pane takes the stand-in over under a new handle.
-        if target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
-           let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
-            store.standInTargets[target] = paneID
-        }
+        // A create pressed on a pending create's stand-in finds it by its public id once the
+        // daemon's pane took it over under a new handle (``DaemonStore/standIns``).
         guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target) else { return nil }

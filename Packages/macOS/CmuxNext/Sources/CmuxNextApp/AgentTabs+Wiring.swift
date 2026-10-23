@@ -275,7 +275,10 @@ extension AgentTabStore {
         }
         tabs.create = { pane, daemon, record, key, transaction, split in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
-            var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
+            // A chat opened in or split from a pending create's stand-in names that create's daemon
+            // pane (it waits for it), never the stand-in's handle, which the daemon does not know.
+            let target = try await daemon.store.daemonTarget(for: pane)
+            var request = NewConversationTabRequest(agentSession: record, pane: target, origin: createOrigin, mutationID: key,
                                                     transaction: transaction)
             request.split = split
             let response = try await connection.request(request)

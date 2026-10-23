@@ -20,9 +20,11 @@ public struct NewColumnCommand: Sendable {
         PaneSplitCommand.optimisticSplitEnabled && daemon.supports(DaemonCapabilities.splitClientKeys)
     }
 
-    /// Sends the column and returns the new surface (the reply path).
+    /// Sends the column and returns the new surface (the reply path). A pane that is a pending
+    /// create's stand-in is named by the daemon's pane for it (``DaemonStore/daemonTarget(for:)``).
     public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
-        let pane = pane, width = width, options = options
+        let pane = try await daemon.store.daemonTarget(for: self.pane)
+        let width = width, options = options
         return try await daemon.perform("new-pane-right") { connection in
             try await connection.newColumn(rightOf: pane, width: width, options: options)
         }
@@ -42,18 +44,15 @@ public struct NewColumnCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, width = width, sent = options
         let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional)
-        // The target at send time: a stand-in (a create pressed on a create in flight) has become the
-        // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
-        // out in order, each once the store holds the one before).
-        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
-        let send = daemon.intendNow("new-pane-right", intent, transaction: transaction) { connection in
-            try await connection.newColumn(rightOf: await target(), width: width, options: sent)
+        // The target at send time: a create pressed on a create in flight waits for that one's
+        // daemon pane, or goes to its anchor when it was closed (``DaemonService/intendCreate``).
+        let send = daemon.intendCreate("new-pane-right", intent, transaction: transaction, target: pane) { connection, target in
+            try await connection.newColumn(rightOf: target, width: width, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
-            await daemon.store.applied(transaction, connection: daemon.connection)
             return created
         }
     }

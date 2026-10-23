@@ -50,7 +50,7 @@ extension WorkspaceContentController {
             let options = SpawnOptions(cwd: panes[below]?.selectedTab?.cwd, workspace: workspace.key)
             let command = NewRowCommand(pane: handle, height: height, options: options)
             guard command.isOptimistic(on: daemon) else {
-                spawnPane("new-row") { try await RowCommands($0).newRow(below: handle, height: height, options: options) }
+                spawnPane("new-row", send: { [daemon] in try await command.send(on: daemon) })
                 return
             }
             let provisional = ProvisionalPane(rowHeight: height)
@@ -80,9 +80,11 @@ extension WorkspaceContentController {
             switch services.splitRoom(for: model, edge: axis == .horizontal ? .right : .bottom) {
             case .split:
                 let sizing = layoutModel.splitSizingChanges(splitting: pane, axis: axis)
-                spawnPane("split", then: { [layoutModel] in layoutModel.applySplitSizing(sizing) }) {
-                    try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key))
-                }
+                // A split of a pending create's stand-in names its daemon pane (PaneSplitCommand.send).
+                let command = PaneSplitCommand(pane: handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key),
+                                               swapTowards: nil)
+                spawnPane("split", then: { [layoutModel] in layoutModel.applySplitSizing(sizing) },
+                          send: { [daemon] in try await command.send(on: daemon) })
             case .newColumn:
                 services.registry.refuse(RefusalStrings.columnTooNarrowToSplit)
             case .refused(let reason):
@@ -102,10 +104,9 @@ extension WorkspaceContentController {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
         let command = NewColumnCommand(pane: handle, width: request.width, options: options)
+        let commit: @MainActor () -> Void = { [layoutModel] in layoutModel.commitNewColumnResize(request) }
         guard command.isOptimistic(on: daemon) else {
-            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) { connection in
-                try await connection.newColumn(rightOf: handle, width: request.width, options: options)
-            }
+            spawnPane("new-pane-right", then: commit, send: { [daemon] in try await command.send(on: daemon) })
             return
         }
         var widths: [DaemonColumnID: Double] = [:]
@@ -120,7 +121,7 @@ extension WorkspaceContentController {
             }
         }
         let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
-        createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+        createInKeysTurn("newColumn", provisional: provisional, then: commit) {
             command.intendNow(on: self.daemon, provisional: provisional)
         }
     }
@@ -128,8 +129,11 @@ extension WorkspaceContentController {
     /// One optimistic pane create (New Column, New Row) in the key's turn: focus expects the
     /// provisional tab, typed keys wait for it (`CreationInputCoordinator`), the intent puts it in
     /// the store, and `applyCurrent` lays it out and mounts it before the key's frame. `then` runs
-    /// once the daemon made it.
+    /// once the daemon made it, `failed` when it did not. A create pressed on another one's
+    /// stand-in names that one's daemon pane at send time (`DaemonService.intendCreate`), so the
+    /// creates of a workspace need no queue: each goes out at once, in the order pressed.
     private func createInKeysTurn(_ label: String, provisional: ProvisionalPane, then: (@MainActor () -> Void)? = nil,
+                                  failed: (@MainActor () -> Void)? = nil,
                                   _ intend: () -> @MainActor () async throws -> SurfaceCreated) {
         let intent = beginFocusIntent()
         focus.expect(.tab(provisional.tabID), generation: intent)
@@ -142,18 +146,16 @@ extension WorkspaceContentController {
         BenchSpans.measure("\(label).layout") { applyCurrent() }
         let logger = daemon.logger
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
-        // After the create before it (a fast second press may target its stand-in).
-        let previous = pendingCreate
-        pendingCreate = Task { [services, state] in
+        Task { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
-            await previous?.value
             do {
                 _ = try await send()
                 BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
                 then?()
             } catch {
+                failed?()
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             withExtendedLifetime((services, state)) {}
@@ -161,17 +163,26 @@ extension WorkspaceContentController {
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;
-    /// `then` runs after it succeeded (a new column's width change).
-    private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil,
+    /// `then` runs after it succeeded (a new column's width change), `failed` when it did not.
+    private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil, failed: (@MainActor () -> Void)? = nil,
                            _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> SurfaceCreated) {
-        guard let connection = daemon.connection else { return }
+        guard let connection = daemon.connection else { failed?(); return }
+        spawnPane(label, then: then, failed: failed, send: { try await body(connection) })
+    }
+
+    /// ``spawnPane(_:then:failed:_:)`` for a command that names its daemon itself (a create's
+    /// reply path, which resolves a stand-in target at send time).
+    private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil, failed: (@MainActor () -> Void)? = nil,
+                           send: @escaping @MainActor () async throws -> SurfaceCreated) {
+        guard daemon.connection != nil else { failed?(); return }
         let intent = beginFocusIntent()
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
         Task { [services, state] in
             do {
-                expectFocus(on: try await body(connection).surface, generation: intent)
+                expectFocus(on: try await send().surface, generation: intent)
                 then?()
             } catch {
+                failed?()
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             withExtendedLifetime((services, state)) {}

@@ -19,6 +19,27 @@ extension DaemonService {
     /// ``intend(_:_:transaction:_:)`` in two steps (Cmd-D): the intent shows now, before any await; the returned work sends `body`.
     public func intendNow<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                                        _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T) -> @MainActor () async -> T? {
+        intendNow(label, intent, transaction: transaction, prepare: {}) { connection, _ in try await body(connection) }
+    }
+
+    /// ``intendNow(_:_:transaction:_:)`` for a create made in or beside `target` (Cmd-D, New Column,
+    /// New Row, a new tab): the returned work names the daemon's pane for `target` at send time
+    /// (``DaemonStore/daemonTarget(for:)``), so a create pressed on a pending create's stand-in waits
+    /// for that stand-in's daemon pane, or goes to its anchor when that create was closed or refused.
+    /// A stand-in's handle is never sent: a target that is gone refuses the create, and its overlay
+    /// leaves exactly. A known target resolves without suspending, so creates go out in the order
+    /// they were pressed.
+    public func intendCreate<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID, target: PaneID,
+                                          _ body: @escaping @Sendable (isolated DaemonConnection, PaneID) async throws -> T)
+        -> @MainActor () async -> T? {
+        let store = store
+        return intendNow(label, intent, transaction: transaction, prepare: { try await store.daemonTarget(for: target) }, body)
+    }
+
+    private func intendNow<P: Sendable, T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+                                                     prepare: @escaping @MainActor () async throws -> P,
+                                                     _ body: @escaping @Sendable (isolated DaemonConnection, P) async throws -> T)
+        -> @MainActor () async -> T? {
         let ticket = openTicket(label)
         guard let connection else {
             return { [self] in
@@ -29,7 +50,8 @@ extension DaemonService {
         }
         store.intend(intent, transaction: transaction)
         return { [self] in do {
-            let value = try await body(connection)
+            let prepared = try await prepare()
+            let value = try await body(connection, prepared)
             // Every event the daemon emitted before the reply. Nil when the
             // connection is gone: no event will come on it, and the next
             // connection's first snapshot holds the result.

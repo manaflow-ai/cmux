@@ -15,9 +15,23 @@ public struct NewRowCommand: Sendable {
         self.options = options
     }
 
-    /// Whether `daemon` takes the optimistic row: it serves client keys on `new-row`.
+    /// Whether `daemon` takes the optimistic row: it serves client keys on `new-row`, and keeps
+    /// them on the wire (`DaemonConnection.served` drops `pane_id` and `tab_id` without
+    /// `split-client-keys-v1`, and `terminal_id` without `terminal-placement-env-v1`; the daemon's
+    /// pane would then never be matched to the stand-in by its public id).
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
         PaneSplitCommand.optimisticSplitEnabled && daemon.supports(DaemonCapabilities.rowClientKeys)
+            && daemon.supports(DaemonCapabilities.splitClientKeys) && daemon.supports(DaemonCapabilities.terminalPlacementEnv)
+    }
+
+    /// Sends the row and returns the new surface (the reply path). A pane that is a pending
+    /// create's stand-in is named by the daemon's pane for it (``DaemonStore/daemonTarget(for:)``).
+    public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
+        let pane = try await daemon.store.daemonTarget(for: self.pane)
+        let height = height, options = options
+        return try await daemon.perform("new-row") { connection in
+            try await RowCommands(connection).newRow(below: pane, height: height, options: options)
+        }
     }
 
     /// The optimistic row in two steps: `provisional` (``ProvisionalPane/init(rowHeight:)``) is in
@@ -32,16 +46,14 @@ public struct NewRowCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, height = height, sent = options
         let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
-        // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
-        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
-        let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
-            try await RowCommands(connection).newRow(below: await target(), height: height, options: sent)
+        // The target at send time (``DaemonService/intendCreate``): never a stand-in's handle.
+        let send = daemon.intendCreate("new-row", intent, transaction: transaction, target: pane) { connection, target in
+            try await RowCommands(connection).newRow(below: target, height: height, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
-            await daemon.store.applied(transaction, connection: daemon.connection)
             return created
         }
     }

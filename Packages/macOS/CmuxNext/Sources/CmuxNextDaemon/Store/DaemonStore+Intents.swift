@@ -21,6 +21,7 @@ extension DaemonStore {
     /// carrying `transaction`, then calls `noteSettled` after the reply or
     /// `rejectIntent` when it failed.
     public func intend(_ intent: Intent, transaction: ClientTransactionID) {
+        noteStandIn(intent, transaction: transaction)
         if overlayLifted {
             // Applied with the rest when the lift ends.
             _ = intentLog.append(intent, transaction: transaction)
@@ -115,6 +116,7 @@ extension DaemonStore {
             intentSettlements.append((intent.transaction, .applied))
         }
         releaseSettledProvisionalPanes()
+        releaseStandIns()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
@@ -129,6 +131,8 @@ extension DaemonStore {
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
         CancelledCreation.requestCloses(in: self)
+        // A create waiting for its stand-in's daemon pane looks again (``daemonTarget(for:)``).
+        resumeStandInWaiters()
         return result
     }
 
@@ -140,29 +144,19 @@ extension DaemonStore {
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
-        releaseStandInTargets()
     }
 
-    /// A stand-in handle stays resolvable while a pending create names it as its target.
-    private func releaseStandInTargets() {
-        guard !standInTargets.isEmpty else { return }
-        let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
-            if case .splitPane(let target, _, _, _) = entry.kind { return target }
-            return nil
-        })
-        standInTargets = standInTargets.filter { targets.contains($0.key) }
+    /// The daemon pane that shows `handle` now: `handle` itself for a daemon pane in the records,
+    /// the daemon's pane that took a pending create's stand-in over (same public id), or nil while
+    /// the stand-in is not confirmed yet. A create's send names ``daemonTarget(for:)`` instead,
+    /// which waits for that pane.
+    public func daemonHandle(showing handle: PaneID) -> PaneID? {
+        ProvisionalSplit.daemonHandle(showing: handle, in: self)
     }
 
     /// The record of a pane the daemon reports: the provisional pane's own model when a pending
     /// split shows it under the same public id, updated in place, so its observers keep their
     /// object and see only the fields that changed (perf I3); else a new model.
-    /// The daemon pane a command about `handle` must name: `handle` itself for a daemon pane, the
-    /// daemon's pane that took a pending create's stand-in over (same public id), or nil while the
-    /// stand-in is not confirmed yet (a create pressed on a create still in flight waits for it).
-    public func daemonHandle(showing handle: PaneID) -> PaneID? {
-        ProvisionalSplit.daemonHandle(showing: handle, in: self)
-    }
-
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
         guard let model = provisionalPanes.removeValue(forKey: PaneModel.identity(snapshot)) else { return PaneModel(snapshot) }
         model.update(snapshot)
