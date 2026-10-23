@@ -17,7 +17,9 @@ blocked its main thread about 40 s on ViewBridge (`HostCallsAuxiliary: Connectio
 socket often never answered, then crashed it (MadeAheadOpenPanel; the crash fixed in c41e7e7296a, and the
 warm-up runs only when this account is the console user, and never again after a dead panel, since the
 review-pl-fleet-gui fixes). Found on the AWS measure workers 2026-10-23, where only aws-m4pro-9 had ec2-user on
-the console.
+the console. The warm-up has no deadline: AppKit makes an NSOpenPanel only on the main thread and cannot ask its view
+service first, so an app of the console user whose panel service hangs still blocks its main thread once, up to
+about 40 s (open; plans/cmux-next/picker.md).
 
 The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser, and the app's
 open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,

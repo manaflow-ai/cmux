@@ -9,8 +9,11 @@ public import AppKit
 /// click first shows its sheet 830 ms after the click in a fresh process and 160 ms after it
 /// later; the panel made ahead shows it after 95 ms, then 45 to 65 ms. One panel is made while
 /// the person is idle and reused. The warm-up still costs that main-thread time once, at a
-/// pause or while cmux is in the background. The logic is ``MadeAheadPanelStore``'s; when the
-/// warm-up may run is ``OpenPanelWarmGate``'s.
+/// pause or while cmux is in the background, and it has no deadline: AppKit makes the panel only
+/// on the main thread and cannot ask its view service first, so with a hung panel service the
+/// warm-up (or a click with no panel made ahead) blocks the main thread once, up to about 40 s,
+/// before the dead panel stops further warm-ups. The logic is ``MadeAheadPanelStore``'s; when
+/// the warm-up may run is ``OpenPanelWarmGate``'s.
 ///
 /// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
 /// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and every web view's
