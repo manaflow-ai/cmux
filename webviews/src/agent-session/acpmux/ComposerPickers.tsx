@@ -824,11 +824,11 @@ export function ComposerPickers({
           </span>
         )
       )}
-      {modes.length === 0 && !hasGrants && awaiting && local && pendingAccessModes.length === 0 && (
+      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
         <PendingMode
-          label={startModeName ?? t(PICKER_LABELS.mode)}
-          modeId={startMode?.borrowed ? undefined : startMode?.modeId}
-          icon={startMode?.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode?.modeId)?.icon}
+          label={startModeName}
+          modeId={startMode.borrowed ? undefined : startMode.modeId}
+          icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
         />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}

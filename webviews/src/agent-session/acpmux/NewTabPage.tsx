@@ -246,7 +246,6 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
 
 type Props = {
   snapshot: AcpmuxSnapshot;
-  footer?: React.ReactNode;
   /// Each kind's shortcut as the host shows it ("⌃⇧⌘T"); a kind without one shows none.
   hotkeys?: Partial<Record<TabKind, string>>;
   /// The kind selected when the page opens.
@@ -313,7 +312,6 @@ export function NewTabPage({
   onBrowseProject,
   inputToken,
   onInputReady,
-  footer,
 }: Props) {
   const t = useT();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
@@ -690,7 +688,6 @@ export function NewTabPage({
             </button>
           </div>
         </form>
-        {footer && <div className="nt-composer-bottom">{footer}</div>}
         {rows.length > 0 && (
           <div
             ref={attachList}

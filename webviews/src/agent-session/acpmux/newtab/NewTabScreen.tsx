@@ -179,8 +179,6 @@ type Props = NewTabScreenActions & {
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
-  /// The look and page-style controls, anchored below this composer in every look.
-  footer?: React.ReactNode;
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
@@ -1225,7 +1223,6 @@ export function NewTabScreen(props: Props) {
             {pickers}
           </div>
         )}
-        {props.footer && <div className="nt-composer-bottom">{props.footer}</div>}
       </div>
     </>
   );

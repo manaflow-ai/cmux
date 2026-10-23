@@ -18,13 +18,24 @@ import Testing
         }
     }
 
-    /// The default adds no overlay, at every opacity and for both glass styles.
-    @Test func inactiveGlassDoesNotAddASecondTint() {
+    /// Over inactive glass the wash replaces the tint Liquid Glass dropped: it follows the
+    /// Opacity, so 0.55 and 0.8 differ, and dark and light themes get the same coverage.
+    @Test func theGlassWashFollowsTheOpacity() {
         for material in Self.glassMaterials {
+            var last: CGFloat = -1
             for opacity in [0.0, 0.3, 0.55, 0.8, 1.0] {
-                #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: opacity, dim: 0) == 0)
+                let wash = WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: opacity, dim: 0)
+                #expect(wash == WindowMaterialView.matchedGlassWash(tintAlpha: opacity))
+                #expect(wash > last || (wash == 1 && last == 1), "the wash grows with the opacity (\(opacity): \(wash))")
+                #expect((0...1).contains(wash))
+                last = wash
             }
+            #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: 0, dim: 0) == 0)
         }
+        // Leo's setup, Opacity 0.55 with Glass: the old wash was 0.85 of the tint over a dark theme;
+        // now the inactive window shows the tint at the Opacity it showed while key.
+        let leo = WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 0)
+        #expect(abs(leo - 0.55) < 0.0001)
     }
 
     /// Materials whose tint does not depend on the key state get no wash unless the person asks
@@ -37,10 +48,11 @@ import Testing
         #expect(WindowMaterialView.inactiveTintAlpha(material: .opaque, isKeyWindow: false, tintAlpha: 1, dim: 0.5) == 0)
     }
 
-    /// An explicit dim keeps its configured strength and stays in 0...1.
+    /// The dim covers that share of what still shows through the matched wash, and stays in 0...1.
     @Test func theDimCoversItsShareOfWhatShowsThrough() {
+        let matched = WindowMaterialView.matchedGlassWash(tintAlpha: 0.55)
         let dimmed = WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 0.25)
-        #expect(abs(dimmed - 0.25) < 0.0001)
+        #expect(abs(dimmed - (matched + 0.25 * (1 - matched))) < 0.0001)
         #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 1) == 1)
         #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 7) == 1)
         #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: -1) == matched)

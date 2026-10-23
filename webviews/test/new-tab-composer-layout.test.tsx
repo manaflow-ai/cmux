@@ -69,7 +69,6 @@ async function mount(
   options: {
     machineName?: string;
     snapshot?: AcpmuxSnapshot;
-    footer?: React.ReactNode;
     onCommands?(harness: string, cwd?: string): void;
   } = {},
 ) {
@@ -87,7 +86,6 @@ async function mount(
         startCwd="/Users/you/src/app"
         projects={[{ cwd: "/Users/you/src/app", label: "app" }]}
         chips={Chips}
-        {...{ footer: options.footer }}
         onCommands={options.onCommands}
         onAsk={noop}
         onOpen={noop}
@@ -100,16 +98,6 @@ async function mount(
     ),
   );
 }
-
-test("look controls belong to the composer before the first message", async () => {
-  await mount({ footer: <div className="nt-page-dots">Claude · Codex</div> });
-  const composer = host.querySelector(".nt-composer")!;
-  expect(composer.querySelector(".nt-page-dots")?.textContent).toBe("Claude · Codex");
-  expect(composer.querySelector(".nt-box .nt-page-dots")).toBeNull();
-  const field = composer.querySelector(".nt-field")!;
-  const controls = composer.querySelector(".nt-page-dots")!;
-  expect(field.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-});
 
 test("Codex slash commands are available before the first message and selecting one keeps its arguments", async () => {
   const snapshot = noChat();

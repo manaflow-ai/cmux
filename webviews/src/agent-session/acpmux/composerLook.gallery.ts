@@ -10,7 +10,6 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
-import { rememberStartMode } from "./startMode";
 
 /// A started Claude Code chat in a project: the transcript over the composer.
 const startedChat = () =>
@@ -129,11 +128,7 @@ export default agentPaneEntry({
       height: 520,
       ready: newTab(),
       snapshot: speedNewTab(),
-      play: async (ctx) => {
-        rememberStartMode("codex", undefined, { modeId: "agent-full-access", name: "Full access" });
-        rememberStartMode("codex", CWD, { modeId: "agent-full-access", name: "Full access" });
-        await look(ctx, "codex");
-      },
+      play: (ctx) => look(ctx, "codex"),
     },
     "claude-chat": {
       note: "The first dot, Claude's look (the default): the composer as it was, the mode, model and effort in the quiet row under the box.",
