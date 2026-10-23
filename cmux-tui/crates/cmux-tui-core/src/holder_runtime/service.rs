@@ -63,6 +63,10 @@ pub(crate) struct HolderService {
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
     superseded: AtomicBool,
+    /// This daemon shuts down and left its terminals to the holder
+    /// (DETACH): it never connects again either, so no new link's
+    /// ownership pass ends a shell it left for the next daemon.
+    leaving: AtomicBool,
 }
 
 impl HolderService {
@@ -85,6 +89,7 @@ impl HolderService {
             listed: Mutex::default(),
             claims: RwLock::new(()),
             superseded: AtomicBool::new(false),
+            leaving: AtomicBool::new(false),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
@@ -139,6 +144,11 @@ impl HolderService {
         if self.superseded.load(Ordering::Acquire) {
             return Err(io::Error::other(
                 "another daemon of this session took the terminal holder",
+            ));
+        }
+        if self.leaving.load(Ordering::Acquire) {
+            return Err(io::Error::other(
+                "this daemon shuts down and left its terminals to the holder",
             ));
         }
         // Spawns and re-attaches in flight on the lost link settle first:
@@ -384,8 +394,9 @@ impl HolderService {
     }
 
     /// The daemon leaves `chan` running on the holder for its shutdown.
-    /// Never connects.
+    /// Never connects, and from now on never will ([`Self::leaving`]).
     pub(super) fn detach(&self, chan: u32) {
+        self.leaving.store(true, Ordering::Release);
         if let Some(link) = self.open_link() {
             let _ = link.detach(chan);
         }
@@ -454,6 +465,11 @@ impl HolderService {
                     // take turns for ever. This daemon is on its way out.
                     eprintln!("cmux-tui: another daemon took the terminal holder");
                     service.superseded.store(true, Ordering::Release);
+                    return;
+                }
+                if service.leaving.load(Ordering::Acquire) {
+                    // Shutting down: the next daemon re-attaches what this
+                    // one left, from this holder or (if it died) not at all.
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
