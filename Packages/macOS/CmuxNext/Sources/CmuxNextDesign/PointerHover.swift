@@ -1,4 +1,6 @@
 public import AppKit
+import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Hover as a function of where the pointer is now and where the view is
 /// now (cx-ww20, cx-3wu5). A tracking area reports only pointer moves: when
@@ -32,7 +34,9 @@ public final class PointerHover: NSObject {
     public let requiresKeyWindow: Bool
 
     private weak var view: NSView?
-    private var area: NSTrackingArea?
+    /// The tracking area this target owns on `view`, by identity: a deinit cannot hold the area
+    /// itself (it is not `Sendable`), and the view keeps it alive until it is removed.
+    private var areaID: ObjectIdentifier?
 
     /// - Parameter requiresKeyWindow: false for window chrome (hover shows in
     ///   a background window, as in the sidebar), true for sheets.
@@ -47,16 +51,20 @@ public final class PointerHover: NSObject {
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeAlways, .inVisibleRect],
                                   owner: self)
         view.addTrackingArea(area)
-        self.area = area
+        areaID = ObjectIdentifier(area)
         Self.index.insert(self)
-        Self.installKeyObserversIfNeeded()
+        Self.index.observeKeyWindowsIfNeeded()
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Reads Sendable state only. The area must leave a view that outlives this target (AppKit does not
+    // retain an area's owner): on main that happens inline, as before; a release on another thread
+    // (it skipped the removal before) hands it to the main thread. A view in deallocation reads nil
+    // here, and its areas go with it.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let area { view?.removeTrackingArea(area) }
+        guard let view, let areaID else { return }
+        MainDelivery().run {
+            if let area = view.trackingAreas.first(where: { ObjectIdentifier($0) == areaID }) { view.removeTrackingArea(area) }
         }
     }
 
@@ -130,7 +138,7 @@ public final class PointerHover: NSObject {
     /// then recomputes every target in the window.
     public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
         debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation)
-        installKeyObserversIfNeeded()
+        index.observeKeyWindowsIfNeeded()
         refresh(in: window)
     }
 
@@ -177,7 +185,6 @@ public final class PointerHover: NSObject {
     private static let index = TargetIndex()
     private static var refreshing = false
     private static var pending: [NSWindow] = []
-    private static var keyObserver: KeyWindowObserver?
 
     /// Recomputes every target in `window` from the pointer and the current frames: O(targets
     /// in that window), not O(targets in the app). Targets that hover anywhere are recomputed
@@ -217,50 +224,6 @@ public final class PointerHover: NSObject {
         index.placeAll()
         refresh(in: window)
     }
-
-    /// Becoming or resigning key changes whether key-window targets hover.
-    private static func installKeyObserversIfNeeded() {
-        guard keyObserver == nil else { return }
-        keyObserver = KeyWindowObserver()
-    }
-}
-
-/// Key-window changes refresh that window's hover (`PointerHover`).
-///
-/// Block observers on `queue: .main`, not selectors: AppKit may post these
-/// off the main thread, and a selector into this main-actor class trapped
-/// there (#18771). `queue: .main` runs the block inline when the post is on
-/// main, so key changes and closes keep their synchronous order.
-@MainActor
-private final class KeyWindowObserver {
-    private var tokens: [any NSObjectProtocol] = []
-
-    init() {
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { PointerHover.keyChanged(window) } // main-proof: observer on queue: .main
-            })
-        }
-        #if DEBUG
-        // A closed window's synthesized pointer must not pass to a new window
-        // that reuses its address.
-        tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
-            guard let window = note.object as? NSWindow else { return }
-            let key = ObjectIdentifier(window)
-            MainActor.assumeIsolated { PointerHover.debugPointers[key] = nil } // main-proof: observer on queue: .main
-        })
-        #endif
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for token in tokens { NotificationCenter.default.removeObserver(token) }
-        }
-    }
 }
 
 /// `PointerHover`'s targets filed by window (cx-8w027.10 item c): a refresh reads one window's
@@ -286,6 +249,30 @@ private final class TargetIndex {
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
     private var nextOrder: UInt64 = 0
+    /// The app's key-window changes, observed once for every target (installed with the first
+    /// target): becoming or resigning key changes whether key-window targets hover.
+    private var keyObservations: [MainActorObservation] = []
+
+    /// Starts observing key-window changes; idempotent.
+    ///
+    /// `queue: .main` observers, not selectors: AppKit may post these off the main thread, and a
+    /// selector into this main-actor code trapped there (#18771). `queue: .main` runs the handler
+    /// inline when the post is on main, so key changes and closes keep their synchronous order.
+    func observeKeyWindowsIfNeeded() {
+        guard keyObservations.isEmpty else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            keyObservations.append(MainActorObservation(name, read: { $0.object as? NSWindow }) { window in
+                PointerHover.keyChanged(window)
+            })
+        }
+        #if DEBUG
+        // A closed window's synthesized pointer must not pass to a new window that reuses its address.
+        keyObservations.append(MainActorObservation(NSWindow.willCloseNotification,
+                                                    read: { ($0.object as? NSWindow).map(ObjectIdentifier.init) }) { key in
+            if let key { PointerHover.debugPointers[key] = nil }
+        })
+        #endif
+    }
 
     func insert(_ target: PointerHover) {
         nextOrder &+= 1

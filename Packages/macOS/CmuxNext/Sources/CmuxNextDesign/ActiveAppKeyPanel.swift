@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The one rule for app panels that take the keyboard (the palette, the tab
 /// group editor, the Page Info bubble).
@@ -19,7 +20,29 @@ open class ActiveAppKeyPanel: NSPanel {
     /// Another window of the app took the keys while this panel was shown
     /// without them.
     public var onKeyElsewhere: (() -> Void)?
-    private var keyElsewhereObserver: (any NSObjectProtocol)?
+    /// The center that posts the app's key-window changes, fixed at init.
+    public let keyWindowNotifications: NotificationCenter
+    /// Watches for another window becoming key while shown without the keys; it stops
+    /// observing when released (this panel's release included), so no deinit cleans it up.
+    private var keyElsewhere: MainActorObservation?
+
+    /// A panel that hears the app's key-window changes from `keyWindowNotifications`.
+    ///
+    /// - Parameter keyWindowNotifications: The center that posts `NSWindow.didBecomeKeyNotification`.
+    ///   Tests pass their own, so a post there reaches only this panel.
+    public init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType,
+                defer flag: Bool, keyWindowNotifications: NotificationCenter) {
+        self.keyWindowNotifications = keyWindowNotifications
+        super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
+    }
+
+    /// A panel that hears the app's key-window changes from `NotificationCenter.default` (every panel
+    /// in the app).
+    override public init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType,
+                         defer flag: Bool) {
+        keyWindowNotifications = .default
+        super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
+    }
 
     override open var canBecomeKey: Bool { isAppActive() }
 
@@ -47,29 +70,17 @@ open class ActiveAppKeyPanel: NSPanel {
     }
 
     private func watchKeyElsewhere() {
-        guard keyElsewhereObserver == nil else { return }
-        keyElsewhereObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
-                                                                      queue: .main) { [weak self] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window, window !== self, !self.isKeyWindow else { return }
-                self.stopWatching()
-                // Owners ignore it once the panel is closed.
-                self.onKeyElsewhere?()
-            }
+        guard keyElsewhere == nil else { return }
+        keyElsewhere = MainActorObservation(NSWindow.didBecomeKeyNotification, center: keyWindowNotifications,
+                                            read: { $0.object as? NSWindow }) { [weak self] window in
+            guard let self, let window, window !== self, !self.isKeyWindow else { return }
+            self.stopWatching()
+            // Owners ignore it once the panel is closed.
+            self.onKeyElsewhere?()
         }
     }
 
     private func stopWatching() {
-        keyElsewhereObserver.map(NotificationCenter.default.removeObserver)
-        keyElsewhereObserver = nil
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            stopWatching()
-        }
+        keyElsewhere = nil
     }
 }
