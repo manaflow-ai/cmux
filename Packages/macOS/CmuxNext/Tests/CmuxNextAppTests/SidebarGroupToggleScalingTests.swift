@@ -241,4 +241,26 @@ import Testing
         #expect(coldMs < max(warmMs * 1.5, calibration.budget(0.075)),
                 "the first fold spent \(coldMs) ms before the list, compared with \(warmMs) ms once warm")
     }
+
+    @Test func firstFoldFindsTheGroupAfterSectionsMoveOrRemoveIt() {
+        let a = GroupID("fold-a"), b = GroupID("fold-b")
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        func section(_ ids: [GroupID]) -> [SidebarSection] {
+            [SidebarSection(kind: .machine(machine), nodes: ids.map {
+                .group(SidebarGroup(id: $0, name: $0.rawValue, workspaces: []))
+            })]
+        }
+        let model = SidebarModel(sections: section([a, b]))
+        #expect(model.group(a)?.id == a)
+        model.sections = section([b, a])
+        #expect(model.group(a)?.id == a)
+        #expect(model.setGroupCollapsed(a, true))
+        #expect(model.group(a)?.isCollapsed == true)
+        #expect(model.group(b)?.isCollapsed == false)
+        model.sections = section([b])
+        #expect(model.group(a) == nil)
+        #expect(!model.setGroupCollapsed(a, true))
+        #expect(model.setGroupCollapsed(b, true))
+        #expect(model.group(b)?.isCollapsed == true)
+    }
 }
