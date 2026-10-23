@@ -61,8 +61,12 @@ public final class WebKitEngine: BrowserEngine {
     public var urlFilter: BrowserURLFilter = .none
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`). The App sets
     /// its one made-ahead panel (`AppServices.openPanel`), which agent composer pages share, so
-    /// a browser tab's file input gets the panel made ahead and its dead-panel guard; an engine
-    /// the App does not set (a test) keeps its own.
+    /// a browser tab's file input gets the panel made ahead when one is, and its dead-panel guard.
+    ///
+    /// Not the final shape: an engine the App does not set keeps a private panel that nothing
+    /// warms and nothing reports, so a lost wiring is silent. It becomes a required `init`
+    /// parameter passed from the composition root through `TabContentCache` (routed to its
+    /// owners; perf-lead.md row 25).
     public var fileInput: any WebFileInputAnswering = MadeAheadOpenPanel()
 
     public init(
