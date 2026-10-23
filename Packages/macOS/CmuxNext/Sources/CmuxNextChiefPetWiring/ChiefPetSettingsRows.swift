@@ -17,7 +17,7 @@ public final class ChiefPetSettingsRows: NSObject {
     let mascot = ChiefPetMascotGrid(items: ChiefPetSettingsRows.mascotItems())
     private let settings: @MainActor @Sendable () -> SettingsController?
     private let picks: ChiefMascotPicks
-    private var watch: Task<Void, Never>?
+    private var watch: OwnedTask?
     /// The character last shown, for `onMascot`.
     private var shownMascot: String?
     private(set) weak var host: NSView?
@@ -75,21 +75,15 @@ public final class ChiefPetSettingsRows: NSObject {
     private func follow() {
         watch?.cancel()
         let chief = chief, settings = settings, picks = picks
-        // task-owner: lives until the rows' Chief changes or the rows go (their Home view; deinit cancels it); event-driven (Observation)
-        watch = Task { [weak self] in
+        // task-owner: lives until the rows' Chief changes or the rows go (their Home view; releasing it cancels it); event-driven (Observation)
+        watch = OwnedTask(Task { [weak self] in
             // Every change is shown (a trigger, never deduplicated): `show` compares with what it showed.
             for await shown in ObservationStream({ ObservationTrigger(Self.shown(settings(), picks: picks, chief: chief)) }) {
                 guard let self, !Task.isCancelled else { return }
                 if let shown = shown.value { show(shown) }
             }
-        }
+        })
         if let shown = Self.shown(settings(), picks: picks, chief: chief) { show(shown) }
-    }
-
-    // As HomeHostView's: not an isolated deinit; the watch ends with the rows (their Home view).
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { watch?.cancel() }
     }
 
     /// The rows' state from the loaded settings and Chief `chief`'s pick. A managed
