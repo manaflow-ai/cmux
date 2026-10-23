@@ -8,6 +8,10 @@ import Testing
 /// to build a set of every tab per tree change. The release rule stays: a followed tab goes once
 /// its live tree listed it and lists it no more; one the tree has not listed yet (a provisional
 /// key, a creation that just answered) is kept through the same change.
+///
+/// This guards the release rule only: it also passes on the old set-of-every-tab code. The guard
+/// of the work d0fa911d2e5 removed (here and in `AgentTabStore.releaseGoneTabs`) is the STRESS
+/// create bench (`instant-new-surfaces-bench.py --sessions light,stress`, key_ms p95).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct GoneTabWatchReleaseTests {
     private final class Released {

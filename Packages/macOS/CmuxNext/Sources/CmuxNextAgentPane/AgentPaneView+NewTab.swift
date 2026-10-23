@@ -36,6 +36,11 @@ extension AgentPaneView {
     /// carried ones (webviews newtab/warmSnapshot.ts `listedOnce`), so they are left out for it:
     /// up to ``AgentPaneNewTab/maximumWarmBytes`` of JSON text, escaped again in the context, on
     /// the key's turn of every Cmd-T and Cmd-N. The model keeps them for the page's handshake.
+    /// `warm` also carries the device chats, which the page seeds only while it has none; leaving
+    /// it out loses nothing there: every page view the host makes is seeded with the device chats
+    /// (`AgentTabStore.makeView`, spares included), is pushed each change while it lives (a spare
+    /// as a standalone view, an adopted one as a tab's), and is pushed them again when ready
+    /// (``AgentPaneDeviceChat/push(_:to:)``), before it can list its own chats.
     private func show(_ page: AgentPaneNewTab) {
         guard model.newTab == page else { return }
         var sent = page
