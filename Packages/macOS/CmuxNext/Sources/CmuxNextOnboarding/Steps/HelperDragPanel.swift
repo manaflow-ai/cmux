@@ -8,7 +8,9 @@ import CmuxNextDesign
 final class HelperDragPanel: NSPanel {
     private let onClose: () -> Void
 
-    init(appURL: URL, onClose: @escaping () -> Void) {
+    /// - Parameter store: The app theme the panel draws in (the step's scope's store): it belongs
+    ///   to no room.
+    init(appURL: URL, store: ThemeStore, onClose: @escaping () -> Void) {
         self.onClose = onClose
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
@@ -37,7 +39,7 @@ final class HelperDragPanel: NSPanel {
         surface.layoutSubtreeIfNeeded()
         stack.frame = NSRect(origin: .zero, size: size)
         contentView = surface
-        ThemeScope.app.store.adopt(self)
+        store.adopt(self)
         setContentSize(size)
         close.target = self
         close.action = #selector(closePressed)

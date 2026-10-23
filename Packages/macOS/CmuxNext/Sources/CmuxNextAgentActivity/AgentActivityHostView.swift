@@ -94,7 +94,7 @@ public final class AgentActivityHostView: NSView {
 
     private static func theme(_ scope: ThemeScope) -> WebTheme {
         WebTheme(scope.tokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: .internalPage)
+                 surface: .internalPage, store: scope.store)
     }
 
     private func scheduleStatePush() {
