@@ -115,6 +115,14 @@ public final class AgentPaneDroppedPaths {
         retainedPaths.removeAll()
     }
 
+    /// A pane can move between chat sessions. Clear pending drops as well as already-retained
+    /// copies so the next chat cannot consume or open the prior chat's recording.
+    func clearForSessionChange() {
+        held.values.forEach { $0.expiry.cancel() }
+        held.removeAll()
+        retainedPaths.removeAll()
+    }
+
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit
     /// and the file system hold in different Unicode forms (é as one scalar or two) is the same
     /// name. WebKit names a folder (or a package such as an `.app`) `<name>.zip` with type

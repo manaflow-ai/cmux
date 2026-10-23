@@ -172,4 +172,19 @@ struct AgentPaneRecordingDropTests {
         #expect(refused["ok"] as? Bool == false)
         #expect(rig.dragged.isEmpty)
     }
+
+    @Test func aPendingRecordingCannotBeConsumedByTheNextChat() async throws {
+        let source = try Self.preview(data: Data("movie".utf8))
+        let saved = try Self.folder("recording-pending-session-scope")
+        defer {
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: saved)
+        }
+        let rig = Rig(saved: saved)
+        rig.model.adoptSession("chat-a")
+        rig.model.droppedPaths.stash([source], kind: .drop)
+        rig.model.adoptSession("chat-b")
+        #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
+        #expect(rig.uploads.isEmpty)
+    }
 }
