@@ -20,7 +20,7 @@ enum DebugPaneFocus {
     /// (`record_saves`, `trail_encodes`): work that can push the move's frame late.
     private(set) static var workBeforeCommit: [String: Int] = [:]
 
-    /// Main-thread work of `kind` runs now: counted while a recorded move waits for its commit.
+    /// Main-thread work of `kind` runs now (``DebugSwitchWork``): counted while a recorded move waits for its commit.
     static func noteMainWork(_ kind: String) {
         guard timer.isRecording, timer.awaitsCommit else { return }
         workBeforeCommit[kind, default: 0] += 1

@@ -50,7 +50,7 @@ extension PaneController {
     /// A user selection (strip click, shortcut, palette, CLI): goes through
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
-    func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+    func select(_ id: StripTabID, source: FocusEvent.Source = .intent) { // perf-hot: 1ms tab-switch (every tab switch)
         // Only a switch this action may show is timed (a refused one never ends its interval).
         if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
@@ -65,7 +65,7 @@ extension PaneController {
     }
 
     /// Selects `id` and shows it; called by the focus applier, never moves focus.
-    func applySelection(_ id: StripTabID) {
+    func applySelection(_ id: StripTabID) { // perf-hot: 1ms tab-switch (every tab switch, applied)
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         DebugTabSwitch.mark(self, "focus")
         BenchSpans.measure("switch.select") {
