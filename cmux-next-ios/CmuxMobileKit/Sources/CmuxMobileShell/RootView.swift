@@ -407,6 +407,10 @@ struct ShellView: View {
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
+        .sheet(item: $shell.connectedDevices) { item in
+            TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
+                .presentationDetents([.medium, .large])
+        }
         .alert("Invite to \(shell.invitingTeam?.name ?? "team")", isPresented: Binding(
             get: { shell.invitingTeam != nil },
             set: { if !$0 { shell.invitingTeam = nil } }
@@ -561,6 +565,7 @@ struct ShellTabs: View {
                     path: $shell.settingsPath,
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
+                    sizing: shell.sizingService,
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {

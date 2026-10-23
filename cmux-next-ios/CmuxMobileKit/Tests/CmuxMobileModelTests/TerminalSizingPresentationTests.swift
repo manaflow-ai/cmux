@@ -76,7 +76,8 @@ import Testing
         #expect(policy.wire["mode"] as? String == "priority")
         #expect(policy.wire["order"] as? [String] == ["mac", "device:ios-1"])
         #expect(HostSizeMode(wire: "bogus") == .smallest)
-        let info = HostSizePolicyInfo.decode(["policy": ["mode": "mac"], "mac_participants": ["c1"]])
+        let reply: [String: Any] = ["policy": ["mode": "mac"], "mac_participants": ["c1"]]
+        let info = HostSizePolicyInfo.decode(reply)
         #expect(info == HostSizePolicyInfo(policy: HostSizePolicy(mode: .mac), macParticipants: ["c1"]))
     }
 

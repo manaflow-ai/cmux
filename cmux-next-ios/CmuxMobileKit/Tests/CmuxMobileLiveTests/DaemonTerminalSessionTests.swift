@@ -60,7 +60,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
                     + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])])]
         case "get-host-size-policy":
-            return [reply(["policy": lock.withLock { hostPolicy }, "mac_participants": object["surface"] == nil ? [] : ["c1"]])]
+            return [reply(["policy": lock.withLock { hostPolicy }, "mac_participants": object["surface"] == nil ? [String]() : ["c1"]])]
         case "set-host-size-policy":
             guard var policy = object["policy"] as? [String: Any] else {
                 return [Self.line(["id": id, "ok": false, "error": "bad request: policy"])]
@@ -118,7 +118,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [
                 Self.line(["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
                            "data": Data(replay.utf8).base64EncodedString()]),
-                reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] : ["lease": "l1"]),
+                reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
             ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
                 + (afterAttach.map { [Self.line(["event": "output", "surface": live, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
                 Self.line(["event": "output", "surface": 8, "data": Data("other".utf8).base64EncodedString()]),
