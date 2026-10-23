@@ -874,6 +874,17 @@ class WebviewsChecksGate(unittest.TestCase):
                                            f"error: Type errors found\n{a}{b}Found 2 errors and 0 warnings in 9 files (2.1s)\n"),
                          [])
 
+    def test_vp_lint_count_that_falls_adds_nothing(self):
+        # #24538's web lint: `vp lint` puts warnings first. The base said 4 errors; the merge fixed 3 of them, and
+        # its `Found 0 warnings and 1 error.` failed the job as "1 finding over the base".
+        errors = [type_error("TS2307", f"Cannot find module './{n}.json'.", f"src/{n}.ts:4:21") for n in "abcd"]
+        self.assertEqual(self.module.added(f"{errors[0]}Found 0 warnings and 1 error.\n",
+                                           "".join(errors) + "Found 0 warnings and 4 errors.\n"), [])
+        self.assertEqual(self.module.added(f"{errors[0]}Found 2 warnings and 1 error.\n",
+                                           f"{errors[0]}Found 1 warning and 1 error.\n"), [])
+        # a line that only starts like the summary is still a finding
+        self.assertEqual(self.module.added("Found 1 warning and the rest\n", ""), ["Found 1 warning and the rest"])
+
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")
         self.findings({"check:fixed-waits": "  x\n"}, "red")
