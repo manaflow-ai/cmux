@@ -286,27 +286,6 @@ public nonisolated struct AgentPaneTunables {
         help: "Each finished run of tool calls is one summary line that opens on a click; the call in flight is the turn's live line.",
         default: true, code: "AgentPaneTunables.codexToolRuns")
 
-    /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
-    /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
-    /// does for ``chatWidth``). The first agent pane's theme push starts it with its scope's store
-    /// (`AgentPaneView.applyThemeInScope`, `AgentPanePageHost`): every scope of a tree shares the
-    /// root's, so the first one is the app's.
-    /// - Parameter store: The theme store whose windows repaint.
-    @MainActor static func followCodexToolRuns(store: ThemeStore) {
-        guard codexToolRunsFollow == nil else { return }
-        // task-owner: lives as long as the app; event-driven (Observation)
-        codexToolRunsFollow = Task { [weak store] in
-            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
-            where on != last {
-                last = on
-                store?.repaintAll()
-            }
-        }
-    }
-
-    @MainActor private static var codexToolRunsFollow: Task<Void, Never>?
-
     /// The page's `<html>` `data-*` attributes from these tunables and the Needs you App Store item.
     @MainActor static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
