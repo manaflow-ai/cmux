@@ -202,11 +202,15 @@ final class CEFHostView: NSView {
     /// `force`: a page window moved by something other than the fork must be
     /// put back over its host even though the host did not move.
     func pagesNeedUpdate(force: Bool) {
-        guard force || readGeometry == nil || readGeometry != CEFHostGeometry(of: self) else {
+        let now = CEFHostGeometry(of: self)
+        guard force || readGeometry != now else {
             Self.trackerStats.geometrySkips += 1
             return
         }
         postGeometryChange()
+        // The fork updates inside the post; a hidden or not yet created page reads nothing
+        // there, so what it was told is recorded here (a still hidden page has nothing new).
+        readGeometry = now
     }
 
     /// Tells the tracker about moves AppKit does not report (layer
