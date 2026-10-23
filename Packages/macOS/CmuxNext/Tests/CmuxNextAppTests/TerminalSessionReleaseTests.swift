@@ -24,24 +24,31 @@ import Testing
         let gate = DispatchSemaphore(value: 0)
         lane.perform { _ in _ = gate.wait(timeout: .now() + .seconds(10)) }
         io.send(.snapshot(Data("not a snapshot".utf8), phase: .ready))
-        let queuedBy = ContinuousClock.now.advanced(by: .seconds(5))
-        while lane.pendingBytes == 0, ContinuousClock.now < queuedBy { await Task.yield() }
+        await lane.queued(atLeast: 1)
         try #require(lane.pendingBytes > 0, "the READY never reached the lane")
 
         // The owner drops the session mid-restore; only the in-flight event keeps it alive.
         session = nil
         gate.signal()
-        let releasedBy = ContinuousClock.now.advanced(by: .seconds(5))
-        while surfaceView != nil, ContinuousClock.now < releasedBy {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        // The session's deinit (on main) cancels its events loop, which ends the IO's stream; the
+        // deinit then releases the views before it returns, so one main-actor hop later they are gone.
+        await io.streamEnded()
+        await MainActor.run {}
         try #require(surfaceView == nil, "the session was never released")
 
         // Freed on main: the lane was closed before ghostty_surface_free, so it runs nothing more.
         // Released off main, the deinit skipped the free and the lane still holds the surface.
-        let ran = DispatchSemaphore(value: 0)
-        lane.perform { _ in ran.signal() }
+        let ran = RanFlag()
+        lane.perform { _ in ran.set() }
         await lane.drained()
-        #expect(ran.wait(timeout: .now()) == .timedOut, "the surface outlived its session (released off main)")
+        #expect(!ran.value, "the surface outlived its session (released off main)")
     }
+}
+
+/// Whether a lane block ran. Written on the lane's queue; read after `drained()` (which orders
+/// after every queued block), so the two never race.
+private nonisolated final class RanFlag: @unchecked Sendable {
+    // Written only by the lane block, read only after the lane drained past it.
+    private(set) var value = false
+    func set() { value = true }
 }
