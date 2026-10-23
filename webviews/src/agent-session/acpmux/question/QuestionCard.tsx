@@ -28,6 +28,7 @@ import {
   hasPreviews,
   itemAnswerText,
   QuestionProblemError,
+  cancelledKey,
   questionSummary,
   reply,
   type AgentQuestion,
@@ -600,6 +601,8 @@ function respondentLine(t: Translate, answer: Answer): string | undefined {
   if (name && device) return t("question.answeredBy", { name, device });
   if (name) return t("question.answeredByName", { name });
   if (device) return t("question.answeredOn", { device });
+  // The person's app answered for another of their devices, which it names by an install id only.
+  if (answer.respondent?.isRemote) return t("question.answeredElsewhere");
   return undefined;
 }
 
@@ -627,9 +630,14 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
   );
 }
 
+/// An ask that ended unanswered: one muted line that says how, when the record says (Skip, or the
+/// turn stopped before an answer), else "Not answered", and the question.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   return (
-    <div className="acpmux-question-cancelled">{t("question.cancelled", { prompt: questionSummary(question) })}</div>
+    <div className="acpmux-question-cancelled" data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}>
+      {t(cancelledKey(question), { prompt: questionSummary(question) })}
+    </div>
   );
 }
+
