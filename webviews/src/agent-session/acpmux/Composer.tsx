@@ -1419,6 +1419,8 @@ export function Composer({
     <form
       ref={form}
       className="acpmux-composer"
+      data-cmux-component="Composer"
+      data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}

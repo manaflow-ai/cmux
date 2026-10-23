@@ -491,6 +491,30 @@
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   };
 
+  // Shipped React 19 bundles do not retain the old Fiber source hint. cmux
+  // webviews can opt in at component boundaries with bounded metadata instead;
+  // arbitrary pages still get the dev-only Fiber hint below when present.
+  const explicitMetadataFor = (element) => {
+    let node = element;
+    let hops = 0;
+    while (node && hops < 8) {
+      const source = node.getAttribute?.("data-cmux-source");
+      const component = node.getAttribute?.("data-cmux-component");
+      if (source || component) {
+        const match = typeof source === "string" && source.match(/^(.*):(\d+)(?::(\d+))?$/);
+        return {
+          component: typeof component === "string" && component.length > 0 ? component : null,
+          sourceLocation: match
+            ? { file: bounded(match[1], 512), line: Number(match[2]), column: match[3] ? Number(match[3]) : null }
+            : null,
+        };
+      }
+      node = node.parentElement;
+      hops += 1;
+    }
+    return null;
+  };
+
   // React component identity from the fiber tree (Cursor-style): nearest
   // named components up the owner chain plus the nearest component's prop
   // KEYS. Prop values are never captured — they can carry user data.
@@ -546,6 +570,9 @@
     const selectors = selectorsFor(element);
     if (!selectors.length) return null;
     const react = reactContextFor(element);
+    const explicit = explicitMetadataFor(element);
+    const components = react?.components || [];
+    if (explicit?.component && !components.includes(explicit.component)) components.unshift(explicit.component);
     return {
       selector: selectors[0],
       selectors,
@@ -555,9 +582,9 @@
       text_content: boundedTextValue(element),
       text_editable: textIsEditable(element),
       computed_styles: computedStylesFor(element),
-      react_components: react?.components || [],
+      react_components: components,
       react_prop_keys: react?.propKeys || [],
-      source_location: react?.sourceLocation || null,
+      source_location: explicit?.sourceLocation || react?.sourceLocation || null,
     };
   };
 
