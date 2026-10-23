@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import Foundation
+import CmuxNextAccounts
 
 /// Reads whether the cmux browser profile a new tab would use is signed in to
 /// Stripe Link (``StripeLinkCookieRule``). Chromium: a private copy of the

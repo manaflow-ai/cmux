@@ -252,7 +252,7 @@ extension WindowManager {
     func userClosed(_ id: String) {
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
-        let keepsGroup = services.daemon.supports(DaemonCapabilities.shared.windowRecords)
+        let keepsGroup = services.daemon.supports(DaemonCapabilities.windowRecords)
         let changes = transition { $0.close(id, keepsGroup: keepsGroup) }
         discard(changes.discarded)
     }

@@ -97,7 +97,6 @@ public final class BrowserHistoryWriter {
         pending = nil
         leaving = nil
         resignObserver = nil
-        resignObserver = nil
     }
 
     private func pageDidChange(_ key: HistoryKey) {

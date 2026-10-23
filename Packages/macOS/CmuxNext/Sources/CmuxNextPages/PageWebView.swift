@@ -82,7 +82,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
-    private var reduceMotionObservers: [any NSObjectProtocol] = []
+    private var reduceMotionObservers: [MainActorObservation] = []
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -295,7 +295,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.navigationDelegate = self
         webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
-        webView.pageAcceptsFirstMouse = { [weak self] in self?.descriptor.acceptsFirstMouse ?? false }
+        webView.pageAcceptsFirstMouse = { [weak self] in
+            guard let self else { return false }
+            return descriptor.acceptsFirstMouse || engineOptions.acceptsFirstMouse
+        }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
@@ -357,8 +360,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             statusLookObservation?.cancel()
-            reduceMotionObservers.forEach { NotificationCenter.default.removeObserver($0) }
-            reduceMotionObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         }
     }
 
@@ -373,16 +374,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         // Reduce Motion is not observable through Observation.
         reduceMotionObservers = [
-            NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+                self?.applyTheme()
             },
-            NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+                self?.applyTheme()
             },
             // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
-            NotificationCenter.default.addObserver(forName: Motion.speedDidChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(Motion.speedDidChange) { [weak self] in
+                self?.applyTheme()
             },
         ]
     }

@@ -30,6 +30,14 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
+import {
+  HELD_EFFORT_ID,
+  HELD_FAST_ID,
+  HELD_FAST_ON,
+  heldOptionPick,
+  isEffortOption,
+  isFastModeOption,
+} from "./heldOptions";
 import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
@@ -151,8 +159,10 @@ type Props = {
   settleTimer?: SettleTimer;
   /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
-  /// and draws it at once, also before it opens (a New Tab's deferred switch).
-  onHarness?(harness: string, model?: string): void;
+  /// and draws it at once, also before it opens (a New Tab's deferred switch). `options`: a typed
+  /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
+  /// to the new session before its first prompt.
+  onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
   /// Forks a started chat into a new chat on another harness (see ModelPickerProps.fork): with it,
   /// a started chat's model menu keeps the whole harness rail, each other harness a Fork to row.
   fork?: { to(harness: string): void; ready: boolean };
@@ -391,10 +401,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption =
-    snapshot.summary?.configOptions?.find(
-      (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
-    ) ?? pendingSpeed(snapshot);
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -493,29 +500,41 @@ export function ComposerPickers({
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
   const remembers = !summary?.host && summary?.hostKind !== "cloud";
+  // Before the chat has a session (a New Tab's deferred chat, a harness still starting) the switch
+  // holds every pick and applies it before the first prompt (harnessSwitch.ts): a combo's effort and
+  // Fast go to it at once, so a prompt sent right after the pick runs on the whole combo. An option
+  // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
+  // the session names once it opens (heldOptions.ts), or drops when it offers none.
+  const presession = holdsModePick && !summary?.sessionId;
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
-      pending.current = pickedEffort
-        ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
-        : undefined;
+      pending.current =
+        pickedEffort && !presession
+          ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+          : undefined;
       onModel(pickedModel);
+      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
     } else if (
-      effort &&
       pickedEffort &&
       pickedEffort !== currentEffort &&
-      efforts.some((choice) => choice.id === pickedEffort)
+      (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort.id, pickedEffort);
+      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
-  // starts that harness and waits for its new session, then lands the same way. A failed switch,
-  // or a session that is not the one the pick started, drops it.
+  // starts that harness with the whole combo held on the switch (applied before the first prompt),
+  // then checks the effort and Fast once its new session opens. A failed switch, or a session that
+  // is not the one the pick started, drops it.
   const crossing = useRef<(ModelCombo & { from?: string }) | undefined>(undefined);
   const fastWanted = useRef<{ sessionId?: string; model: string } | undefined>(undefined);
+  // A combo's "fast" on the Fast option this chat draws, as the switch maps a held one onto a
+  // session (heldOptions.ts): its plain fast tier, never a higher one; none where the option has no
+  // such tier (standard and ultrafast only). Every path a combo's Fast takes sends this or nothing.
+  const comboFast = fastOption ? heldOptionPick(HELD_FAST_ID, HELD_FAST_ON, [fastOption]) : undefined;
   const combo = (picked: ModelCombo) => {
     crossing.current = undefined;
     fastWanted.current = undefined;
@@ -523,15 +542,26 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
-      switchHarness(picked.harness, picked.model);
+      // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
+      // switch) runs its first turn on the whole combo; the effect below only fills in what the new
+      // session still reports otherwise.
+      const held: Record<string, string> = {
+        ...(picked.effort ? { [HELD_EFFORT_ID]: picked.effort } : {}),
+        ...(picked.fast ? { [HELD_FAST_ID]: HELD_FAST_ON } : {}),
+      };
+      switchHarness(picked.harness, picked.model, Object.keys(held).length > 0 ? held : undefined);
       return;
     }
     land(picked.model, picked.effort);
     if (!picked.fast) return;
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
-      if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
-    } else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
+      if (comboFast && fastMode.currentValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
+    } else if (presession)
+      // Held as what it means on the option drawn now (a catalog's priority tier, pendingSpeed.ts),
+      // else as plain on: the switch maps either onto the names the session reports.
+      onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
+    else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
@@ -543,8 +573,10 @@ export function ComposerPickers({
     }
     if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
     crossing.current = undefined;
-    // The switch already sent the model: only its effort remains, now when the agent runs that
-    // model (its default, or it reported the switch first), else once it reports it.
+    // The switch already sent the model, and the effort and Fast it could resolve against the new
+    // session's options: each is sent again only where the session still reports another value
+    // (an older acpmux whose attach named no options), now when the agent runs that model (its
+    // default, or it reported the switch first), else once it reports it.
     pending.current = undefined;
     if (wanted.effort && current === wanted.model) {
       if (effort && wanted.effort !== currentEffort && efforts.some((choice) => choice.id === wanted.effort))
@@ -563,7 +595,7 @@ export function ComposerPickers({
     }
     if (current !== wanted.model || !fastMode) return;
     fastWanted.current = undefined;
-    if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+    if (comboFast && fastValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
@@ -1942,11 +1974,6 @@ export function shortModelName(name: string, short?: string, harnessName?: strin
 export function modelFamily(name: string): string | undefined {
   const first = name.trim().split(/\s+/)[0] ?? "";
   return first !== name.trim() && /\p{L}{3,}/u.test(first) ? first : undefined;
-}
-
-/// The session's reasoning option, whatever the harness calls it.
-function isEffortOption(option: { id: string; category?: string | null }): boolean {
-  return option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort";
 }
 
 /// The plain levels a catalog row can list (`PickerModel.efforts`).

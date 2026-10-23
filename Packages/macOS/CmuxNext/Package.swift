@@ -1130,6 +1130,11 @@ let package = Package(
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCompatTests",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
@@ -1147,6 +1152,11 @@ let package = Package(
         .target(
             name: "CmuxNextSignposts",
             swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextSignpostsTests",
+            dependencies: ["CmuxNextSignposts"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextWakeups",
@@ -1264,7 +1274,6 @@ let package = Package(
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
-                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
@@ -1554,7 +1563,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

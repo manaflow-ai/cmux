@@ -1750,9 +1750,18 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
+          # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+          # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
+          sidebar_from=a1af264c7a7235c5863ade4f3448e2669265d6d0
+          sweep=0
+          git fetch --no-tags --quiet --deepen=2000 origin "$GITHUB_SHA" || true
+          if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
+            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" \
+              | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
+          fi
           if [[ "$EVENT_NAME" != push ]]; then
             python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD
-            exit
+            exit "$sweep"
           fi
           range="HEAD^1..HEAD"
           if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
@@ -1760,6 +1769,7 @@ jobs:
             if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
           fi
           python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$sweep"
 
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       # STYLE_CHECKS are the structural, style, size and drift guards: while

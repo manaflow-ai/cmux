@@ -52,8 +52,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests",
       "targets": [
-        "CmuxNextActions",
-        "CmuxNextSignposts"
+        "CmuxNextActions"
       ],
       "packages": [],
       "reads": [
@@ -669,6 +668,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextCompatTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextComputerUse": {
       "kind": "regular",
@@ -1494,6 +1502,15 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextSignpostsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSignpostsTests",
+      "targets": [
+        "CmuxNextSignposts"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextStash": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextStash",
@@ -1536,7 +1553,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal",
       "targets": [
-        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",
