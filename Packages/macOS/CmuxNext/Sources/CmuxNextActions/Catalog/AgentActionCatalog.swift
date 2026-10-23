@@ -30,6 +30,18 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
+            // How many sub-sessions the chat runs at once (acpmux `_acpmux/subsession/limits`); a dialog,
+            // so no CLI verb: `acpmux session limits` sets it from a shell.
+            ActionDescriptor(
+                id: "agentChat.subagentLimit",
+                title: String(localized: "action.agentChat.subagentLimit", defaultValue: "Chat Subagent Limit…", bundle: .module),
+                keywords: ["subagent", "sub-session", "limit", "parallel", "concurrency", "running", "agent", "chat"],
+                category: .agents, symbol: "slider.horizontal.3", surfaces: [.palette, .contextMenu], targets: [.tab],
+                // The chat's tab and its sidebar row (the chat's own menu is at its 12-row cap).
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [
+                    ActionSurfaceCatalog.p(.tab, .identity, 206, folder: .options, label: ObjectMenuLabels.subagentLimit),
+                ])
+            ),
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
