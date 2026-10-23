@@ -47,6 +47,20 @@ session; --workspace clears that workspace's rows and those of its terminals. `c
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 
+pub(super) const ATTENTION_HELP: &str = "\
+USAGE
+  cmux attention request --tab <tab_…> --reason <text>
+  cmux attention clear --tab <tab_…>
+
+request marks the tab where the person must act (confirm, log in, approve,
+pick): the tab and its workspace show as needing them in every cmux client.
+The reason is one line they read (at most 200 bytes). It never moves focus;
+to take the person there when they ask, run `cmux tab <tab_…> focus`. The mark stays while they look at the tab and clears
+when you clear it, when a browser tab goes to another page, or when the tab
+closes. Name the workspace and tab by their titles when you talk to the person,
+never by a ws_ or tab_ id.
+";
+
 pub(super) const NOTIFY_HELP: &str = "\
 USAGE
   cmux notify [--title <text>] [--subtitle <text>] [--body <text>]

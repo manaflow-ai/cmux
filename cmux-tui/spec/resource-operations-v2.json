@@ -29731,6 +29731,19 @@
             },
             "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
           },
+          "attention": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            },
+            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -29742,7 +29755,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon and attention apply to every tab kind."
         ]
       },
       "result": {
