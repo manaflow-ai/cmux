@@ -150,7 +150,10 @@ nonisolated struct AgentPaneReplyImages {
 /// Rebuilds an SVG file without what could run, load or link anything: `script`, `foreignObject`
 /// and embedded documents, every `on*` attribute, any attribute or `<style>` whose CSS could
 /// reach outside (``reachesOut(_:)``), and any `href` that is not a fragment (`#id`). An `<a>` becomes a plain
-/// `<g>`: its content still draws, but nothing in the image is a link (media-safety R7). No DTD,
+/// `<g>`: its content still draws, but nothing in the image is a link (media-safety R7). Only SVG
+/// elements are kept (an XHTML `<img>` loads its `src` even inside an SVG), written without a prefix
+/// under the root's own `xmlns`; an attribute keeps only the `xlink:` namespace or `xml:space` and
+/// `xml:lang` (never `xml:base`, which would point a fragment reference outside). No DTD,
 /// entity or processing instruction is read. The page draws the result only as an `<img>`, where
 /// WebKit runs no script and loads nothing either; this is the second wall.
 nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
@@ -165,6 +168,11 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
     private var style: String?
     private var sawRoot = false
     private var failed = false
+    /// The namespace each prefix names (`""` for the default), one scope per open element.
+    private var scopes: [[String: String]] = []
+
+    private static let svgNamespace = "http://www.w3.org/2000/svg"
+    private static let xlinkNamespace = "http://www.w3.org/1999/xlink"
 
     static func sanitize(_ data: Data) -> Data? {
         let delegate = AgentPaneSVGSanitizer()
@@ -192,10 +200,27 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
         return !reachesOut(value)
     }
 
-    /// A link element's name as a group with the same prefix (`a` is `g`, `svg:a` is `svg:g`).
-    private static func group(_ elementName: String) -> String {
-        guard let colon = elementName.lastIndex(of: ":") else { return "g" }
-        return elementName[...colon] + "g"
+    /// A qualified name's prefix (`""` for none) and local name.
+    private static func split(_ name: String) -> (prefix: String, local: String) {
+        guard let colon = name.firstIndex(of: ":") else { return ("", name) }
+        return (String(name[..<colon]), String(name[name.index(after: colon)...]))
+    }
+
+    /// The namespace `prefix` names in the open elements. An SVG with no default `xmlns` still reads
+    /// as SVG; an undeclared prefix names none.
+    private func namespace(of prefix: String) -> String? {
+        if let uri = scopes.reversed().lazy.compactMap({ $0[prefix] }).first { return uri }
+        return prefix.isEmpty ? Self.svgNamespace : nil
+    }
+
+    /// The name an attribute is written under, nil when it is dropped: no namespace declaration (the
+    /// root declares SVG and XLink itself), and of the prefixed ones only XLink, `xml:space` and `xml:lang`.
+    private func attributeName(_ name: String) -> String? {
+        let (prefix, local) = Self.split(name)
+        if prefix.isEmpty { return name == "xmlns" ? nil : name }
+        if prefix == "xml" { return ["space", "lang"].contains(local) ? name : nil }
+        if prefix == "xmlns" { return nil }
+        return namespace(of: prefix) == Self.xlinkNamespace ? "xlink:" + local : nil
     }
 
     /// Whether CSS `text` could reach outside the image. Any backslash is refused, not decoded (a
@@ -219,23 +244,32 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?,
                 attributes: [String: String] = [:]) {
-        let local = (elementName.split(separator: ":").last.map(String.init) ?? elementName).lowercased()
-        if !sawRoot {
-            guard local == "svg" else {
+        var scope: [String: String] = [:]
+        for (name, value) in attributes {
+            if name == "xmlns" { scope[""] = value } else if name.hasPrefix("xmlns:") { scope[String(name.dropFirst(6))] = value }
+        }
+        scopes.append(scope)
+        let (prefix, local) = Self.split(elementName)
+        let svg = namespace(of: prefix) == Self.svgNamespace, root = !sawRoot
+        if root {
+            guard local.lowercased() == "svg", svg else {
                 failed = true
                 parser.abortParsing()
                 return
             }
             sawRoot = true
         }
-        if skipping > 0 || style != nil || Self.droppedElements.contains(local) {
+        if skipping > 0 || style != nil || !svg || Self.droppedElements.contains(local.lowercased()) {
             skipping += 1
             return
         }
-        let link = local == "a"
-        output += "<" + (link ? Self.group(elementName) : elementName)
-        for (name, value) in attributes.sorted(by: { $0.key < $1.key }) where Self.keeps(name, value, link: link) {
-            output += " \(name)=\"\(Self.escape(value))\""
+        let link = local.lowercased() == "a"
+        output += "<" + (link ? "g" : local)
+        if root { output += " xmlns=\"\(Self.svgNamespace)\" xmlns:xlink=\"\(Self.xlinkNamespace)\"" }
+        var written: Set<String> = []
+        for (name, value) in attributes.sorted(by: { $0.key < $1.key }) {
+            guard let kept = attributeName(name), Self.keeps(kept, value, link: link), written.insert(kept).inserted else { continue }
+            output += " \(kept)=\"\(Self.escape(value))\""
         }
         output += ">"
         if local == "style" { style = "" }
@@ -243,13 +277,14 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
+        if !scopes.isEmpty { scopes.removeLast() }
         if skipping > 0 {
             skipping -= 1
             return
         }
         endStyle()
-        let local = (elementName.split(separator: ":").last.map(String.init) ?? elementName).lowercased()
-        output += "</\(local == "a" ? Self.group(elementName) : elementName)>"
+        let local = Self.split(elementName).local
+        output += "</\(local.lowercased() == "a" ? "g" : local)>"
     }
 
     private func text(_ text: String) {

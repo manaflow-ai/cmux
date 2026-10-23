@@ -291,6 +291,45 @@ struct AgentPaneMediaNoAutoActionTests {
         #expect(text.contains("<circle") && text.contains("url(#g)"), "\(text)")
     }
 
+    @Test func aForeignElementOrABaseURIIsDroppedToo() throws {
+        let svg = #"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:h="http://www.w3.org/1999/xhtml" xmlns:x="http://www.w3.org/1999/xlink"
+             xml:base="https://a.example/" xml:space="preserve">
+            <h:img src="https://a.example/i.png"/><g xmlns="http://www.w3.org/1999/xhtml"><img src="https://a.example/j.png"/></g>
+            <q:rect xmlns:q="http://www.w3.org/2000/svg" width="2" height="2"/><use x:href="#r" xml:base="https://a.example/u/"/>
+            <rect id="r" width="1" height="1"/></svg>
+            """#
+        let clean = try #require(AgentPaneSVGSanitizer.sanitize(Data(svg.utf8)))
+        let text = String(decoding: clean, as: UTF8.self)
+        for gone in ["a.example", "<img", "<h:", "<q:", "xml:base", "1999/xhtml"] {
+            #expect(!text.contains(gone), "\(gone) in \(text)")
+        }
+        for kept in [#"<rect height="2" width="2""#, #"<rect height="1" id="r""#, ##"xlink:href="#r""##, #"xml:space="preserve""#,
+                     #"xmlns="http://www.w3.org/2000/svg""#] {
+            #expect(text.contains(kept), "\(kept) missing from \(text)")
+        }
+        #expect(AgentPaneSVGSanitizer.sanitize(clean) != nil)
+    }
+
+    @Test func aProjectSVGIsRebuiltOnlyFromARegularFileAndAnSVGZGoesOutAsOnBase() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let real = folder.appendingPathComponent("real.svg"), link = folder.appendingPathComponent("link.svg")
+        let pipe = folder.appendingPathComponent("pipe.svg"), out = folder.appendingPathComponent("out/copy.svg")
+        try Data(Self.hostileSVG.utf8).write(to: real)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(mkfifo(pipe.path, 0o600) == 0)
+        let fromFile = await AgentPaneImageCopies.rebuild(real, to: out)
+        let fromLink = await AgentPaneImageCopies.rebuild(link, to: out)
+        let fromPipe = await AgentPaneImageCopies.rebuild(pipe, to: out)
+        #expect(fromFile && !fromLink && !fromPipe)
+        let packed = folder.appendingPathComponent("drawing.svgz")
+        #expect(AgentPaneImageCopies.handedOut(packed, in: folder) == packed)
+        let copy = AgentPaneImageCopies.handedOut(URL(fileURLWithPath: "/project/a/drawing.svg"), in: folder)
+        #expect(copy.deletingLastPathComponent().lastPathComponent.count == 32)
+    }
+
     /// Whether `path` is a rebuilt copy in the pane's copies folder, with none of the SVG's links.
     private static func isRebuiltCopy(_ path: String, in pane: Pane) -> Bool {
         let folder = pane.model.replyLinks.imageFolder.resolvingSymlinksInPath().path

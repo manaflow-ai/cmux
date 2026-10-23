@@ -154,18 +154,19 @@ extension AgentPaneImageCopies {
     /// The file a path chip hands out (Copy, Save As…, Open With, Reveal in Finder, a drag): the
     /// file itself, or for an SVG its rebuilt copy (``rebuild(_:to:)``), under its own name in a
     /// folder for its path in `folder`. An agent may write the SVG; outside the pane's `<img>` its
-    /// script and links would count (media-safety R7).
+    /// script and links would count (media-safety R7). An `.svgz` goes out as on base: the rebuild
+    /// reads plain XML only. The folder is named by 16 bytes of the path's hash, so no two paths share it.
     static func handedOut(_ file: URL, in folder: URL) -> URL {
-        guard !file.hasDirectoryPath, ["svg", "svgz"].contains(file.pathExtension.lowercased()) else { return file }
-        let hash = SHA256.hash(data: Data(file.path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        guard !file.hasDirectoryPath, file.pathExtension.lowercased() == "svg" else { return file }
+        let hash = SHA256.hash(data: Data(file.path.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
         return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)
     }
 
     /// Writes `file`'s rebuilt SVG to `copy` (``handedOut(_:in:)``), off the main actor; false when
     /// the rebuild cannot read it (it is not handed out).
     @concurrent static func rebuild(_ file: URL, to copy: URL) async -> Bool {
-        guard let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= AgentPaneReplyImages.maximumBytes,
-              let data = try? Data(contentsOf: file), let clean = AgentPaneSVGSanitizer.sanitize(data) else { return false }
+        guard let data = regularFileBytes(file, limit: AgentPaneReplyImages.maximumBytes),
+              let clean = AgentPaneSVGSanitizer.sanitize(data) else { return false }
         do {
             try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
             try clean.write(to: copy, options: .atomic)
@@ -173,6 +174,18 @@ extension AgentPaneImageCopies {
         } catch {
             return false
         }
+    }
+
+    /// `file`'s bytes when, as it is opened, it is a regular file (not a link, which the agent could
+    /// swap in after the path was checked, nor a pipe that would block the read) of at most `limit` bytes.
+    static func regularFileBytes(_ file: URL, limit: Int) -> Data? {
+        let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
+              let data = try? handle.read(upToCount: limit + 1), data.count <= limit else { return nil }
+        return data
     }
 
     /// Makes each of `items` (and its submenu's) first write `file`'s rebuilt copy to `copy`, then
