@@ -64,9 +64,10 @@ if [[ "$static_only" = true ]]; then
   # install-cmux-tui-client.sh and bundle-cmux-tui.sh generate this manifest
   # directly from the exact binary (`__daemon-capabilities --json`). Validate
   # that signed artifact's advertised static set without starting a daemon.
-  # `required` is the unconditional publication contract. The `optional` list
-  # also contains host/runtime-dependent capabilities (for example the active
-  # terminal reaper), so those remain covered by the daemon integration lane.
+  # `required` is the unconditional publication contract. Most `optional`
+  # entries are also static, but this explicit set is installed only when the
+  # daemon has a runtime service/configuration; those remain covered by the
+  # daemon integration lane.
   manifest="$(dirname "$binary")/daemon-capabilities.json"
   [[ -f "$manifest" ]] || {
     echo "check-daemon-capabilities: $manifest is missing; regenerate it from the installed binary" >&2
@@ -82,7 +83,16 @@ served = set(manifest.get("cmuxTui") or [])
 if not served:
     raise SystemExit(f"check-daemon-capabilities: {manifest_path} has no cmuxTui capability list")
 required = json.load(open(required_path, encoding="utf-8"))
-needed = set(required.get("required", []))
+runtime_only = {
+    "agent-inventory-watch-admission-v1", "agent-inventory-watch-v1",
+    "agent-session-attach-v1", "agent-session-children-v1", "agent-session-observe-v1",
+    "agent-session-start-keyed-reason-v1", "agent-session-start-v1", "agent-session-trust-v1",
+    "browser-host-provider-v1", "chief-live-v1", "cloud-attachments-v1", "cloud-chief-live-v1",
+    "cloud-conversation-runs-v1", "cloud-conversation-typing-v1", "cloud-conversations-v1",
+    "cloud-host-replica-v1", "cloud-selfhost-v1", "history-v1", "terminal-reaper-active-v1",
+    "ws-listen-v1", "ws-listen-origins-v1",
+}
+needed = (set(required.get("required", [])) | set(required.get("optional", []))) - runtime_only
 missing = sorted(needed - served)
 if missing:
     raise SystemExit("check-daemon-capabilities: the bundled static capability manifest is missing " + ", ".join(missing))

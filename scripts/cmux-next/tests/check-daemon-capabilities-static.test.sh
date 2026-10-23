@@ -9,8 +9,8 @@ cp /bin/true "$bin"
 chmod +x "$bin"
 manifest="$tmp/daemon-capabilities.json"
 requirements="$tmp/requirements.json"
-printf '%s\n' '{"cmuxTui":["attach-initial-size"]}' > "$manifest"
-printf '%s\n' '{"required":["attach-initial-size"],"optional":["terminal-reaper-active-v1"]}' > "$requirements"
+printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1"]}' > "$manifest"
+printf '%s\n' '{"required":["attach-initial-size"],"optional":["terminal-env-v1","terminal-reaper-active-v1"]}' > "$requirements"
 
 bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
   --binary "$bin" --capabilities "$requirements" >/dev/null
@@ -21,6 +21,15 @@ if bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
   echo "FAIL: static capability check accepted a manifest missing required capabilities" >&2
   exit 1
 fi
+
+printf '%s\n' '{"cmuxTui":["attach-initial-size"]}' > "$manifest"
+if bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
+  --binary "$bin" --capabilities "$requirements" >/dev/null 2>&1; then
+  echo "FAIL: static capability check accepted a manifest missing an unconditional optional capability" >&2
+  exit 1
+fi
+
+printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1"]}' > "$manifest"
 
 rm "$manifest"
 if bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
