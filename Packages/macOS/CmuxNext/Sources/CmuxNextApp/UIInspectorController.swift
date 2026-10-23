@@ -160,6 +160,9 @@ final class UIInspectorController {
         ].joined(separator: "\n")
         selectionGeneration &+= 1
         let generation = selectionGeneration
+        highlight?.dismiss()
+        highlight = nil
+        highlighted = nil
         Task { @MainActor [weak self, weak window, weak view] in
             guard let self, let window, let view, self.selectionGeneration == generation else { return }
             guard let services = self.services else { return }
