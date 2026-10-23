@@ -4,6 +4,47 @@ import Testing
 
 @Suite(.serialized)
 struct CLIExplicitSurfaceRoutingTests {
+    @Test func surfaceNewDisplaySendsCloudMachineAndProjectionOptions() throws {
+        let execution = try runMockCommand(
+            arguments: [
+                "surface", "new-display",
+                "--machine", "vivid-newt",
+                "--workspace", "workspace:2",
+                "--no-open",
+                "--focus",
+            ],
+            socketName: "surface-new-display"
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  request["method"] as? String == "surface.new_display" else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "resource": "vivid-newt/display/display:2",
+                    "machine": "vivid-newt",
+                    "open": false,
+                ]
+            )
+        }
+
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr + execution.result.stdout))
+        let requests = try execution.state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "surface.new_display")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["machine"] as? String == "vivid-newt")
+        #expect(params["workspace_id"] as? String == "workspace:2")
+        #expect(params["open"] as? Bool == false)
+        #expect(params["focus"] as? Bool == true)
+        #expect(execution.result.stdout.contains("OK resource=vivid-newt/display/display:2"))
+    }
+
     @Test func explicitSurfaceCommandsDoNotInheritCallerWorkspace() throws {
         try assertExplicitSurfaceCommand(
             arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--lines", "5"],
