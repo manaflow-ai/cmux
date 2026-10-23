@@ -84,6 +84,11 @@ export class SubagentFold {
   /// What stops the running turn now, when the pane knows (direct.ts `turnStopCause`): a stop
   /// it ends its foreground subagents with is theirs too.
   cause: SubagentStopReason | undefined;
+  /// The chat's own agent session (its harness thread, the summary's `agentSessionId`), when the
+  /// pane knows it. It is never one of its subagents (``isChat``).
+  chat: string | undefined;
+  /// The session the first update that names no subagent came under: the chat's own.
+  private root: string | undefined;
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -101,10 +106,14 @@ export class SubagentFold {
   reduce(event: Event, update: any): boolean {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
+    const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
+    const session = event.msg?.params?.sessionId;
+    if (tag === undefined && typeof session === "string") this.root ??= session;
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) this.apply(change, event, spawn);
-    const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
+    // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
+    const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -218,15 +227,23 @@ export class SubagentFold {
     this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
 
+  /// Whether `id` is the chat's own session. A Codex child reports its parent thread's state
+  /// under its own session, and acpmux used to record that as a spawn: the chat became its
+  /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
+  /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
+  private isChat(id: string): boolean {
+    return id === this.chat || id === this.root;
+  }
+
   private apply(change: any, event: Event, spawn = true): void {
-    if (typeof change?.id !== "string") return;
+    if (typeof change?.id !== "string" || this.isChat(change.id)) return;
     if (typeof change.toolCallId === "string") {
       this.spawnCalls.add(change.toolCallId);
       this.spawnedBy.set(change.toolCallId, change.id);
     }
     let agent = this.agents.get(change.id);
     if (!agent) {
-      const parent = typeof change.parent === "string" ? change.parent : null;
+      const parent = typeof change.parent === "string" && !this.isChat(change.parent) ? change.parent : null;
       const name = text(change.name) ?? text(change.task) ?? change.id;
       agent = {
         id: change.id,
