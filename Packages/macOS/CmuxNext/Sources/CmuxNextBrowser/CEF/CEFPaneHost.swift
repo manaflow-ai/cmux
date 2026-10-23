@@ -190,10 +190,7 @@ final class CEFPaneHost {
         guard !deferredCreations.contains(where: { $0.tab === tab }) else { return }
         deferredCreations.append(WeakCEFTab(tab))
         guard deferredCreations.count == 1 else { return }
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.createDeferred() } // main-proof: an observer of the main run loop
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        AfterFrameCommit().run { [weak self] in self?.createDeferred() }
     }
 
     /// Makes the browsers of the tabs shown before theirs existed (the observer of `createAfterCommit`; tests call it).
@@ -201,7 +198,6 @@ final class CEFPaneHost {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
         for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) { ensureCreated(tab) }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     func ensureCreated(_ tab: CEFTab) {

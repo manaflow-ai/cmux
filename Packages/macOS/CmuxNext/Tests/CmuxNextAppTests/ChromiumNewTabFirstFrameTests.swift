@@ -40,7 +40,7 @@ import Testing
                                        url: "https://example.com/", browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(tab.id) }
         var afterFrame: [@MainActor () -> Void] = []
-        cache.afterFrame = { afterFrame.append($0) }
+        cache.afterFrame = { afterFrame.append($0); return nil }
         var ready: [String] = []
         cache.onBrowserReady = { ready.append($0) }
         #expect(cache.browser(for: tab) == nil, "the key's turn makes no page or chrome")
@@ -65,7 +65,7 @@ import Testing
         let daemonTab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 43), tabResourceID: ResourceID(rawValue: "tab_43"), kind: .browser,
                                              url: BrowserNewTabPage.chromiumURL, browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(daemonTab.id) }
-        cache.afterFrame = { $0() } // the key's frame committed
+        cache.afterFrame = { $0(); return nil } // the key's frame committed
         _ = cache.browser(for: standIn)
         let entry = try #require(cache.browser(for: standIn))
         let page = try #require(entry.tab as? MockBrowserTab)

@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Owns every terminal surface and browser page in the process
@@ -75,6 +76,8 @@ final class TabContentCache {
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
     private(set) var pendingBrowsers: Set<String> = [] // Chromium pages being created (ChromiumWarmup waits)
+    private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
+    var afterFrame: (@escaping @MainActor () -> Void) -> BrowserEntry? = { AfterFrameCommit().run($0); return nil } // tests run it at once
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
     /// until the user reloads one: set after cmux quit unexpectedly twice in
     /// a row (`LaunchRecovery.restartedSafely`).
@@ -221,6 +224,8 @@ final class TabContentCache {
             return nil
         }
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
+        // A stand-in's page and chrome come once its first frame (the tab selected on its themed pane) committed.
+        if ProvisionalTab.isProvisional(surface: tab.surface), framedStandIns.insert(key).inserted, pendingBrowsers.insert(key).inserted { return afterFrame { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } } }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
@@ -421,12 +426,11 @@ final class TabContentCache {
     }
 
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
-    /// `displacing` false: the pane showing `key` keeps its view (a stand-in's moved to its daemon tab).
-    func release(_ key: String, displacing: Bool = true) {
+    func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         onRelease?(key)
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)

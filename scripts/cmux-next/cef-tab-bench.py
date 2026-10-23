@@ -14,7 +14,7 @@ per round, in a fresh terminal workspace, runs `debug.new_tab {action: bench_cre
   webkit_new   New WebKit Tab (openBrowser.webkit) in that pane
   webkit_url   New WebKit Tab with a file:// page
 
-The app reports per run `key_ms` (the input's synchronous main-thread time), `visible_ms` (the
+The app reports per run `key_ms` (the input's synchronous main-thread time), `visible_ms` (the new tab selected on its themed pane; `chrome_ms` once its toolbar and page view are in it) (the
 first display frame at which the pane shows the new tab, selected, with its browser view in the
 pane), `page_ms` (the first frame after the page's first contentful paint or load end), the
 main-thread spans (cef.create_window, cef.tab_add, ...) and the frame intervals with the display's
@@ -177,7 +177,7 @@ def bench_case(case, window, session, rnd):
     result["page_frame"] = frame_of(result, "page_ms")
     spans = [s for s in result.get("spans") or [] if s.get("name", "").startswith("cef.") or s.get("ms", 0) >= 2]
     print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
-          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) page={result.get('page_ms')} "
+          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} page={result.get('page_ms')} "
           f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
           f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
           f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
@@ -337,6 +337,8 @@ def summary(rows):
                 "visible_p95": pct([r.get("visible_ms") for r in sel], .95),
                 "visible_max": pct([r.get("visible_ms") for r in sel], 1),
                 "visible_frame_p95": pct([r.get("visible_frame") for r in sel], .95),
+                "chrome_p50": pct([r.get("chrome_ms") for r in sel], .5),
+                "chrome_p95": pct([r.get("chrome_ms") for r in sel], .95),
                 "page_p50": pct([r.get("page_ms") for r in sel], .5),
                 "page_p95": pct([r.get("page_ms") for r in sel], .95),
                 "create_window_ms_p95": pct([sum(s["ms"] for s in r.get("spans") or [] if s.get("name") == "cef.create_window") or None
@@ -407,10 +409,10 @@ def main():
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
               "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef}}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
-    print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | page p50 | page p95 | create_window p95 | "
-          f"tab_add p95 | refresh |\n|---|---|---|---|---|---|---|---|---|---|")
+    print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | chrome p95 | page p50 | page p95 | create_window p95 | "
+          f"tab_add p95 | refresh |\n|---|---|---|---|---|---|---|---|---|---|---|")
     for name, s in result["summary"].items():
-        print(f"| {name} | {s['n']} | {s['visible_p50']} | {s['visible_p95']} | {s['visible_frame_p95']} | {s['page_p50']} | "
+        print(f"| {name} | {s['n']} | {s['visible_p50']} | {s['visible_p95']} | {s['visible_frame_p95']} | {s['chrome_p95']} | {s['page_p50']} | "
               f"{s['page_p95']} | {s['create_window_ms_p95']} | {s['tab_add_ms_p95']} | {s['refresh_ms']} |")
     over = [k for k, v in result["summary"].items() if v["missed"] or (v["visible_p95"] or 1e9) > opts.budget_ms]
     print("CEF-TAB", f"OVER {opts.budget_ms} ms: " + ", ".join(over) if over else "WITHIN", flush=True)
