@@ -387,17 +387,7 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["contextBreakdown"].is_null(), "the late answer came back: {info}");
-    assert!(info["usageLimits"].is_null(), "the late limits came back: {info}");
     assert!(session.meta().context_breakdown.is_none());
-    // Nor is it logged (and so sent to a pane) after the failover.
-    let events = hub.events(&id, 0, 10_000).unwrap();
-    let failover = events.iter().position(|e| e.kind == "failover").expect("no failover logged");
-    let late: Vec<_> = events[failover..]
-        .iter()
-        .filter_map(|e| e.msg.pointer("/params/update/_meta/acpmux"))
-        .filter(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
-        .collect();
-    assert!(late.is_empty(), "the replaced process spoke for the chat: {late:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

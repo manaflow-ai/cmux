@@ -56,7 +56,7 @@ control request is appended to that file, one per line.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
-process of its own that writes a /context answer and a rate_limit_event 1.5 s later, then creates <path>: a replaced
+process of its own that writes a /context answer 1.5 s later, then creates <path>: a replaced
 Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
 server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
@@ -517,8 +517,6 @@ while True:
                 time.sleep(1.5)
                 send({"type": "control_response", "response": {"subtype": "success", "request_id": "ctx-late",
                       "response": CONTEXT_USAGE}})
-                send({"type": "rate_limit_event", "uuid": "rl-late", "session_id": SESSION, "rate_limit_info": {
-                      "status": "rejected", "rateLimitType": "five_hour", "utilization": 1.0, "resetsAt": 1}})
                 open(late, "w").close()
                 os._exit(0)
             said = "You've hit your usage limit"

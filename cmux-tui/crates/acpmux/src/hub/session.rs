@@ -123,10 +123,6 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
-    /// Which child's tap is the session's own (`Hub::session_tap`): each tap takes the next
-    /// number, and a failover moves on first, so a replaced process's late /context breakdown
-    /// or usage limits are not logged or sent as the chat's.
-    pub(super) tap_generation: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or

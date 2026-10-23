@@ -446,9 +446,6 @@ impl Hub {
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
-                // The dying process's tap stops speaking for the chat before the failover is
-                // logged (`tap_generation`).
-                session.tap_generation.fetch_add(1, Ordering::SeqCst);
                 self.append(
                     session,
                     "mux",
