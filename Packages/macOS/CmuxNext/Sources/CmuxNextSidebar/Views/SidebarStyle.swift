@@ -115,7 +115,7 @@ enum SidebarStyle {
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
     /// THIS INDENT"). Only a nested group's rows step in, one gutter per level below the first.
-    static func groupOffset(depth: Int) -> CGFloat { groupGutter * CGFloat(max(0, depth - 1)) }
+    static func groupOffset(depth: Int) -> CGFloat { SidebarIndent(step: groupGutter).offset(level: depth, width: .greatestFiniteMagnitude) }
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.

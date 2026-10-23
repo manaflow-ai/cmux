@@ -11,9 +11,12 @@ final class SidebarChatHistoryViews {
 
     var all: [SidebarChatHistoryView] { [pinned, earlier] }
 
-    /// Shows `state` at `layout`'s places in `list`; the blocks spring with the rows when `animated`.
+    /// Shows `state` at `layout`'s places in `list`. When `animated`, returns each shown block with its frame for the
+    /// caller to move on the rows' render-server spring in the rows' own transaction (`RowMotion.animate`), an
+    /// unmoved block too (with movement off its earlier spring comes off); without motion the blocks land here.
+    @discardableResult
     func place(_ layout: SidebarLayout, state: SidebarChatHistoryState?, metrics: SidebarLayoutMetrics, in list: SidebarListView,
-               animated: Bool) {
+               animated: Bool) -> [(NSView, NSRect)] {
         // As wide as a row (`SidebarListView.frame(for:)`), following the list's width.
         func frame(_ y: CGFloat, _ height: CGFloat) -> NSRect {
             NSRect(x: list.inset, y: y, width: max(0, list.bounds.width - list.inset * 2), height: height)
@@ -34,16 +37,15 @@ final class SidebarChatHistoryViews {
             }
             view.show(state, metrics: metrics)
             if view.isHidden || !animated {
+                // In one step: a spring an earlier move left on the block comes off with it.
+                SidebarDragSpring.stop([view])
                 Motion.withoutAnimation { view.frame = frame }
                 view.isHidden = false
-            } else if view.frame != frame {
+            } else {
                 moves.append((view, frame))
             }
         }
-        guard !moves.isEmpty else { return }
-        Motion.sidebar.animate(.move, in: list, {
-            for (view, frame) in moves { view.animator().frame = frame }
-        })
+        return moves
     }
 
     /// Moves both blocks with the rows and the scroll offset (the list's viewport anchor step).

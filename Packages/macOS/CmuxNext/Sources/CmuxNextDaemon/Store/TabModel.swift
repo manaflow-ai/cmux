@@ -123,6 +123,15 @@ public final class TabModel: Identifiable {
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
     public private(set) var commandRecheck = 0
     @ObservationIgnored private var commandTimer: DemandTimer?
+    /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil while
+    /// a command runs and for a shell without integration.
+    public internal(set) var promptSinceMs: UInt64?
+    /// This clock's time when `promptSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var promptSeenAt: Date?
+    /// When the terminal last printed (`extra.last_output.at_ms`).
+    public internal(set) var lastOutputMs: UInt64?
+    /// This clock's time when `lastOutputMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var lastOutputSeenAt: Date?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
@@ -283,7 +292,7 @@ public final class TabModel: Identifiable {
 
     /// Lays the daemon's tab record and terminal progress over the record.
     func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
-                    commandSinceMs: UInt64? = nil) {
+                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
@@ -299,6 +308,14 @@ public final class TabModel: Identifiable {
             commandSeenAt = commandSinceMs.map { _ in Date() }
             self.commandSinceMs = commandSinceMs
             commandTimer?.cancel()
+        }
+        if self.promptSinceMs != promptSinceMs {
+            promptSeenAt = promptSinceMs.map { _ in Date() }
+            self.promptSinceMs = promptSinceMs
+        }
+        if self.lastOutputMs != lastOutputMs {
+            lastOutputSeenAt = lastOutputMs.map { _ in Date() }
+            self.lastOutputMs = lastOutputMs
         }
     }
 

@@ -59,6 +59,22 @@ const devServer = activity(
   1.5,
 );
 
+/** A long shell line Claude runs in the background, still running (Leo 2026-10-21: "is that a
+ * command or a subagent?"). */
+const testRun = activity(
+  [
+    tool("cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test", "execute", "completed", {
+      inputSummary: JSON.stringify({
+        command: "cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test",
+        description: "Run red/green tests",
+        run_in_background: true,
+      }),
+      startedAt: minutesAgo(58.5),
+    }),
+  ],
+  58.5,
+);
+
 /** A Bash call in the background that says what it does, behind a `cd` prefix. */
 const described = activity(
   [
@@ -128,6 +144,15 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "one-command": {
+      note: "One background command: its line says Command before it, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        if (ctx.document.querySelector(".acpmux-agent-line__kind")?.textContent !== "Command")
+          throw new Error("a command's line says Command first");
+      },
+      snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The one that ended left its line in the transcript.",

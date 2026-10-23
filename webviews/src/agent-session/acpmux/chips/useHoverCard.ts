@@ -2,12 +2,14 @@
 // once on keyboard focus, and closes after a short grace unless the pointer or the keyboard focus
 // moved into the card, or a menu the card opened (Open in) is still open. Every link's card shares
 // it (LinkHoverCard.tsx): reply links, pull request chips and the pull request bars.
-import { useEffect, useRef, useState, type FocusEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FocusEvent } from "react";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 
 export type HoverCard = ReturnType<typeof useHoverCard>;
 
-export function useHoverCard() {
+/// `dwell`: the pointer rest before it opens (the hover-card dwell; an icon-only control whose
+/// card replaces its tooltip waits the tooltip delay).
+export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   const [open, setOpen] = useState(false);
   const inCard = useRef(false);
   /// The card's Open in menu is open: the card stays until it closes.
@@ -23,7 +25,7 @@ export function useHoverCard() {
   const show = (immediate = false) => {
     clearTimers();
     if (immediate) setOpen(true);
-    else openTimer.current = setTimeout(() => setOpen(true), HOVER_INTENT.cardDwell);
+    else openTimer.current = setTimeout(() => setOpen(true), dwell);
   };
   const hide = () => {
     clearTimers();
@@ -31,6 +33,15 @@ export function useHoverCard() {
       if (!inCard.current && !menuOpen.current) setOpen(false);
     }, HOVER_INTENT.cardGrace);
   };
+  // Stable across renders, so a caller's Escape listener can depend on it.
+  const dismiss = useCallback(() => {
+    if (openTimer.current !== undefined) clearTimeout(openTimer.current);
+    if (closeTimer.current !== undefined) clearTimeout(closeTimer.current);
+    openTimer.current = undefined;
+    closeTimer.current = undefined;
+    inCard.current = false;
+    setOpen(false);
+  }, []);
   useEffect(() => () => clearTimers(), []);
   return {
     open,
@@ -65,6 +76,8 @@ export function useHoverCard() {
         hide();
       },
     },
+    /// Closes the card now (Escape), however it opened; the next hover or focus opens it again.
+    dismiss,
     /// The card's Open in menu opened or closed.
     menuChanged: (next: boolean) => {
       menuOpen.current = next;

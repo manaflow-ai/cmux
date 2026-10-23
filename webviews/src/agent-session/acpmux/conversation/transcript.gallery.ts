@@ -7,7 +7,7 @@ import { SUBAGENTS } from "../subagents/subagentFold";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
@@ -16,6 +16,43 @@ import {
 } from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+/// Pull requests a leo-workspace chat names by bare number, as the App's cache has them
+/// (`pr.inspect`): five of manaflow-ai/cmux, and #843 in both repositories.
+const LANE_NUMBERS = [24175, 23959, 24197, 23880, 23027];
+const LANE_LIST = "gh pr list -R manaflow-ai/cmux --author @me";
+const LANE_OUTPUT = "https://github.com/manaflow-ai/cmux/pull/24100\tagent pane: chips\n";
+const cached = (repo: string, number: number, title: string) => [
+  `https://github.com/${repo}/pull/${number}`,
+  {
+    pullRequest: {
+      url: `https://github.com/${repo}/pull/${number}`,
+      number,
+      title,
+      state: "merged",
+      author: "teamleaderleo",
+    },
+    fetchedAt: GALLERY_NOW / 1000,
+  },
+];
+const LANE_PULL_REQUESTS = Object.fromEntries([
+  ...LANE_NUMBERS.map((number) => cached("manaflow-ai/cmux", number, `Agent pane fix ${number}`)),
+  cached("teamleaderleo/leo-workspace", 843, "rulebook: a bare #N links by evidence"),
+  cached("manaflow-ai/cmux", 843, "Agent pane: older fix with the same number"),
+]);
+/// Hovers the chip whose address ends `/<number>` and waits for `card` in its card.
+const hoverReference = (number: number, card: string) => async (ctx: PlayContext) => {
+  const chip = `a.cv-chip.is-ref[href$="/${number}"]`;
+  await ctx.waitFor(() => ctx.document.querySelector(chip), { capMs: 10_000 });
+  await ctx.hover({ selector: chip });
+  await ctx.waitFor(() => ctx.document.querySelector(card), { capMs: 10_000 });
+};
+/// A chat whose folder is leo-workspace.
+const LEO_WORKSPACE = {
+  ready: { githubRepository: "teamleaderleo/leo-workspace" },
+  native: { "git.githubRepository": { repository: "teamleaderleo/leo-workspace" } },
+  chipHost: { pullRequests: LANE_PULL_REQUESTS },
+};
 
 const selectionRows = [
   user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
@@ -666,6 +703,68 @@ const MCP_READ = mcpTool(
   }),
 );
 
+/// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
+function renderTool(page: string, update?: string) {
+  return tool("mcp__cmux__render", "other", "completed", {
+    inputSummary: JSON.stringify({ html: `<title>Batch report</title><p>${page}</p>`, ...(update && { id: update }) }),
+    output: '{"rendered": true}',
+  });
+}
+
+/// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
+const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
+
+/// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
+/// task's notification, a system reminder alone (no row) and another agent's message.
+const foldNoBlankRows = [
+  user("<task-notification><summary>Background build finished</summary></task-notification>", 9, {
+    incoming: { kind: "notice", text: "Background build finished" },
+  }),
+  assistant("The background build finished cleanly.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 4_000 }),
+  user("<system-reminder>bookkeeping</system-reminder>", 8, { incoming: { kind: "hidden" } }),
+  activity([tool("git status", "execute", "completed", { command: "git status", output: "clean" })], 7.9),
+  assistant("The tree is clean.", 7.8),
+  summary(7.8, { status: "completed", toolCount: 1, durationMs: 6_000 }),
+  user("[coord-deputy] The batch is next.", 7, {
+    incoming: {
+      kind: "message",
+      message: { name: "coord-deputy", text: "The batch is next.", raw: "[coord-deputy] The batch is next." },
+    },
+  }),
+  user("Run the batch and report what it changed", 6, { id: "fold-no-blank-user" }),
+  activity(
+    [
+      thought("Check how the batch script is laid out before running it, then run it once."),
+      tool("ls /tmp/batch", "execute", "completed", { command: "ls /tmp/batch", output: "batch32.sh\nout.log" }),
+      tool("cat /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "cat /tmp/batch/batch32.sh",
+        output: "set -e",
+      }),
+    ],
+    5.8,
+  ),
+  activity(quietThoughts(6), 5.6),
+  activity(
+    [
+      tool("Edit batch32.sh", "edit", "completed", {
+        diffs: [{ path: "/tmp/batch/batch32.sh", oldText: "set -e\n", newText: "set -e\necho one\necho two\n" }],
+      }),
+      tool("bash /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "bash /tmp/batch/batch32.sh",
+        output: Array.from({ length: 40 }, (_, index) => `step ${index + 1}: ok`).join("\n"),
+      }),
+      renderTool("first page"),
+      renderTool("second page", "batch-report"),
+      renderTool("third page", "batch-report"),
+    ],
+    4,
+  ),
+  activity(quietThoughts(4), 3.2),
+  assistant("The batch ran. It changed three files:\n\n- one\n- two\n- three", 3),
+  summary(3, { status: "completed", toolCount: 6, durationMs: 132_000 }),
+];
+
 // A Claude Bash call's permission as claude-agent-acp sends it: its title is the command line (so
 // its first line reads "bash -c '"), its description says what it does, and the script runs long.
 const BASH_SCRIPT = [
@@ -759,6 +858,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
+    "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
     conversation: {
@@ -789,6 +889,33 @@ export default agentPaneEntry({
         ),
         summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
+    },
+    "github-references-other-repo": {
+      note: "A chat whose folder is leo-workspace names cmux pull requests by bare number: each chip links to the repository the transcript and the App's pull request cache say has it, not the folder's. Hover #24175 for its card.",
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Where are the agent pane fixes?", 6),
+        activity(
+          [tool(LANE_LIST, "execute", "completed", { command: LANE_LIST, output: LANE_OUTPUT, exitCode: 0 })],
+          5.8,
+        ),
+        assistant(
+          `Merged ${LANE_NUMBERS.map((number) => `#${number}`).join(", ")}. The rulebook change is still open.`,
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
+      play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
+    },
+    "github-references-same-number": {
+      note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Compare with https://github.com/manaflow-ai/cmux/pull/24175", 4),
+        assistant("#843 has the rule; the app change follows it.", 3.8),
+        summary(3.8, { status: "completed", durationMs: 6_000 }),
+      ]),
+      play: hoverReference(843, ".cv-link-preview.acpmux-pr-card"),
     },
     tasks: {
       note: "Checked, unchecked, nested and wrapping task-list items.",
@@ -1394,7 +1521,7 @@ export default agentPaneEntry({
       ),
     },
     "agent-messages": {
-      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
       snapshot: chat(
         [
           user("Tell the coordinator the fix is pushed, then check the branch.", 2),
@@ -1494,6 +1621,40 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "codex-turn-command-under-messages": {
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      snapshot: chat(
+        [
+          user("Copy the session log into recovery and tell the lanes what changed.", 3),
+          activity(
+            [
+              tool("cp", "execute", "in_progress", {
+                command: "cp /private/tmp/session-export/session.jsonl ~/recovery/",
+                startedAt: minutesAgo(1.2),
+              }),
+            ],
+            1.2,
+          ),
+          assistant(
+            "While the copy runs I'll tell the lanes what changed: the live line now names the command in flight, the Ctrl-B hint sits at its right, and finished commands keep their rows.",
+            1,
+          ),
+          activity([shellTool("acpmux send --no-wait coord-deputy '[lanes] summary sent'")], 0.8),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() =>
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+        );
+        const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
+        if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
+        const live = doc.querySelectorAll(".cv-tool.is-live").length;
+        if (live) throw new Error(`${live} running rows draw over the live line`);
+        await liveLineClear(ctx);
+      },
+    },
     "codex-turn-raw-commands": {
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
@@ -1565,6 +1726,34 @@ export default agentPaneEntry({
         if (lines !== 1) throw new Error(`${lines} live lines, not one`);
         const live = doc.querySelectorAll(".cv-tool.is-live").length;
         if (live) throw new Error(`${live} running rows stack over the live line`);
+      },
+    },
+    "tool-run-scrolled-fade": {
+      note: 'Leo 2026-10-21, "in that top section fade would be good": a long run ("Read files, ran commands") opened past its nine-row cap and scrolled so a row sits half under its summary line. The list\'s top fades out there instead of cutting the row in half against the line. Play: open the turn and the run, scroll the list 3.5 rows.',
+      snapshot: chat([
+        user("Find where the sidebar's drag reorder loses its index.", 3),
+        activity(
+          Array.from({ length: 6 }, (_, index) => [
+            tool(`Read sidebar${index}.ts`, "read", "completed", {
+              locations: [{ path: `webviews/src/sidebar/sidebar${index}.ts` }],
+            }),
+            tool(`Read sidebar${index}.test.ts`, "read", "completed", {
+              locations: [{ path: `webviews/test/sidebar${index}.test.ts` }],
+            }),
+            describedShell(DENSE_COMMANDS[index]!, `Search the sidebar code (${index + 1})`),
+          ]).flat(),
+          2.9,
+        ),
+        assistant("The index is read before the drop moves the row; the fix reads it after.", 2),
+        summary(2, { status: "completed", toolCount: 18, durationMs: 64_000 }),
+      ]),
+      play: async (ctx) => {
+        await openGroupedRun(ctx);
+        const list = () => ctx.find({ selector: ".cv-tool-run" });
+        await ctx.waitFor(() => list().scrollHeight > list().clientHeight + 26);
+        // 3.5 rows of 26px: the fourth row sits half under the summary line.
+        list().scrollTop = 26 * 3.5;
+        await ctx.waitFor(() => list().scrollTop > 0);
       },
     },
     "codex-turn-run-open": {
@@ -1696,6 +1885,32 @@ export default agentPaneEntry({
         ),
         assistant("Lint fails on one unused variable; I can remove it.", 11.5),
         summary(11.5, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped": {
+      note: 'The last turn, stopped by the reader: its footer says "You stopped after 40s" at rest and offers Continue, as Codex does. Continue sends a continue prompt through the composer\'s send; the button goes once that prompt shows (Leo, 2026-10-22: "and we should add a continue button if things were stopped, just like codex").',
+      snapshot: chat([
+        user(prompt, 3),
+        activity(
+          [
+            thought("Find where the fetch helper gives up on a failed request."),
+            tool("Read src/net/client.ts", "read", "completed"),
+          ],
+          2.8,
+        ),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 2.5),
+        summary(2.33, { status: "cancelled", durationMs: 40_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped-then-continued": {
+      note: "A stopped turn that a prompt followed: only the last turn can offer Continue, so the earlier stopped turn offers none, and neither does the completed last turn.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 5.5),
+        summary(5.33, { status: "cancelled", durationMs: 40_000 }),
+        user("Continue", 4),
+        assistant("Retries now back off from 200 ms, doubling up to three tries.", 3),
+        summary(3, { status: "completed", durationMs: 60_000 }),
       ]),
     },
     "turn-error": {
@@ -2429,6 +2644,25 @@ export default agentPaneEntry({
         await clickHoldsLine(ctx, ".cv-command", true);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
         await clickHoldsLine(ctx, ".cv-command", false);
+      },
+    },
+    "fold-no-blank-collapsed": {
+      note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",
+      snapshot: chat(foldNoBlankRows),
+    },
+    "fold-no-blank-open": {
+      note: "The same turn opened: the work in order, with no band where a step of only quiet thoughts sits (it draws nothing). Before, that step kept its estimate, 26px a thought, as a blank band under the first commands. Play: open Worked for.",
+      snapshot: chat(foldNoBlankRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: '[data-row-id="worked-fold-no-blank-user"] .cv-worked' };
+        await ctx.click(worked);
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
       },
     },
   },

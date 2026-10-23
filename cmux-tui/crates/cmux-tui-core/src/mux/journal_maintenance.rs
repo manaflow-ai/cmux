@@ -19,7 +19,7 @@ struct MaintenanceSteps {
 
 impl MaintenanceSteps {
     fn time<T>(&mut self, step: &'static str, run: impl FnOnce() -> T) -> T {
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let value = run();
         self.record(step, started.elapsed());
         value
@@ -46,31 +46,6 @@ impl MaintenanceSteps {
     }
 }
 
-#[cfg(test)]
-mod maintenance_steps_tests {
-    use super::*;
-
-    #[test]
-    fn a_fast_tick_reports_nothing() {
-        let mut steps = MaintenanceSteps::default();
-        steps.record("ledgers", Duration::from_millis(3));
-        steps.record("incremental_vacuum", Duration::from_millis(40));
-        assert_eq!(steps.slow_report(SLOW_MAINTENANCE_TICK), None);
-    }
-
-    #[test]
-    fn a_slow_tick_names_its_slowest_step() {
-        let mut steps = MaintenanceSteps::default();
-        steps.record("ledgers", Duration::from_millis(5));
-        steps.record("checkpoint", Duration::from_millis(900));
-        steps.record("seal", Duration::from_millis(11_000));
-        steps.record("incremental_vacuum", Duration::from_millis(400));
-        assert_eq!(
-            steps.slow_report(SLOW_MAINTENANCE_TICK).as_deref(),
-            Some("slow journal maintenance: 12305 ms (4 steps; slowest seal 11000 ms)")
-        );
-    }
-}
 /// Debug builds only: overrides [`JOURNAL_MAINTENANCE_INTERVAL`] so behavior
 /// tests through the binary see maintenance ticks in seconds. Release builds
 /// ignore it.
@@ -693,5 +668,31 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .corrupt_agent_projection_for_test(terminal_id);
+    }
+}
+
+#[cfg(test)]
+mod maintenance_steps_tests {
+    use super::*;
+
+    #[test]
+    fn a_fast_tick_reports_nothing() {
+        let mut steps = MaintenanceSteps::default();
+        steps.record("ledgers", Duration::from_millis(3));
+        steps.record("incremental_vacuum", Duration::from_millis(40));
+        assert_eq!(steps.slow_report(SLOW_MAINTENANCE_TICK), None);
+    }
+
+    #[test]
+    fn a_slow_tick_names_its_slowest_step() {
+        let mut steps = MaintenanceSteps::default();
+        steps.record("ledgers", Duration::from_millis(5));
+        steps.record("checkpoint", Duration::from_millis(900));
+        steps.record("seal", Duration::from_millis(11_000));
+        steps.record("incremental_vacuum", Duration::from_millis(400));
+        assert_eq!(
+            steps.slow_report(SLOW_MAINTENANCE_TICK).as_deref(),
+            Some("slow journal maintenance: 12305 ms (4 steps; slowest seal 11000 ms)")
+        );
     }
 }
