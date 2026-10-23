@@ -7088,7 +7088,31 @@ function AcpmuxPane() {
           if (asks) await callNative("chat.send", message);
           return;
         }
-        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        // No agent named (acpmux listed none yet): a bare start in the folder, then the prompt into
+        // the chat it started. Not in the same turn: with no switch to queue on, a send while the
+        // start is refused would start another chat outside the folder. A refused start gives the
+        // prompt to the chat composer, in that folder, as a fresh chat's own first send keeps it:
+        // a trust refusal asks the folder's question and Trust sends it, once (cx-nn3e P0b).
+        let started: unknown;
+        try {
+          started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        } catch (error) {
+          if (!asks) return;
+          if (folder) setProjectDraft(folder);
+          // The chat composer mounts as the page leaves, and its field may not be ready yet: the
+          // text goes as its draft, which seeds a field still starting (the same as Keep's text in
+          // `requestFolder`), and the attachments as chips.
+          if (text) setDraft(text);
+          if (attachments.length) {
+            if (composerHandle.current) composerHandle.current.restore("", attachments);
+            else heldBack.current = [...(heldBack.current ?? []), { text: "", attachments }];
+          }
+          if (isTrustRefusal(error)) {
+            holdPrompt.current?.();
+            trustRefused.current?.(error, () => composerHandle.current?.send());
+          }
+          return;
+        }
         if (started && remembers) rememberStartedProject(folder, callNative);
         if (asks) await callNative("chat.send", message);
       })().catch(() => undefined);
