@@ -64,7 +64,7 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
-import type { MarkdownFieldHandle } from "./MarkdownField";
+import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
@@ -406,6 +406,27 @@ export function Composer({
       if (prompt) prompt.current = handle;
     },
     [prompt],
+  );
+  // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
+  // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
+  // below after the current render has computed the live steer/queue behavior.
+  const promptBeforeInput = useRef<NonNullable<MarkdownFieldProps["onBeforeInput"]>>(() => false);
+  const promptChange = useRef<MarkdownFieldProps["onChange"]>(() => {});
+  const promptCaret = useRef<NonNullable<MarkdownFieldProps["onCaret"]>>(() => {});
+  const promptKeyDown = useRef<NonNullable<MarkdownFieldProps["onKeyDown"]>>(() => {});
+  const promptReturnInput = useRef<NonNullable<MarkdownFieldProps["onReturnInput"]>>(() => {});
+  const promptComposition = useRef<NonNullable<MarkdownFieldProps["onCompositionChange"]>>(() => {});
+  const stablePromptCallbacks = useMemo(
+    () => ({
+      onBeforeInput: (...args: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) =>
+        promptBeforeInput.current(...args),
+      onChange: (...args: Parameters<MarkdownFieldProps["onChange"]>) => promptChange.current(...args),
+      onCaret: (at: number) => promptCaret.current(at),
+      onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
+      onReturnInput: () => promptReturnInput.current(),
+      onCompositionChange: (value: boolean) => promptComposition.current(value),
+    }),
+    [],
   );
   const pendingCaret = useRef<number | undefined>(undefined);
   const prompts = usePromptHistory(snapshot.rows);
@@ -1160,6 +1181,20 @@ export function Composer({
     }
   };
 
+  promptBeforeInput.current = (data, state) => {
+    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
+    if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+    enterShell(data.slice(1));
+    return true;
+  };
+  promptChange.current = edit;
+  promptCaret.current = setCaret;
+  promptKeyDown.current = keyDown;
+  promptReturnInput.current = returnInput;
+  promptComposition.current = (value) => {
+    composing.current = value;
+  };
+
   const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
@@ -1505,19 +1540,12 @@ export function Composer({
                   ? `acpmux-mention-${mentionSelected}`
                   : undefined,
           },
-          onBeforeInput: (data, state) => {
-            // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-            if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
-            enterShell(data.slice(1));
-            return true;
-          },
-          onChange: (markdown, at) => edit(markdown, at),
-          onCaret: setCaret,
-          onKeyDown: keyDown,
-          onReturnInput: returnInput,
-          onCompositionChange: (value) => {
-            composing.current = value;
-          },
+          onBeforeInput: stablePromptCallbacks.onBeforeInput,
+          onChange: stablePromptCallbacks.onChange,
+          onCaret: stablePromptCallbacks.onCaret,
+          onKeyDown: stablePromptCallbacks.onKeyDown,
+          onReturnInput: stablePromptCallbacks.onReturnInput,
+          onCompositionChange: stablePromptCallbacks.onCompositionChange,
         }}
         attachments={attachments}
         pending={pending}
