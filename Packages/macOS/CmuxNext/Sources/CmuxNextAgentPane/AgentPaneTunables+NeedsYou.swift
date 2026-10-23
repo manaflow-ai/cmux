@@ -41,11 +41,11 @@ nonisolated extension AgentPaneTunables {
         installed ? debug : .off
     }
 
-    /// While an ask is open, Jump to latest becomes a "Needs your input" pill that goes to the ask
-    /// and cycles through the others (Claude Code desktop's, Leo 2026-10-20). On by default; off
-    /// keeps the plain button. New agent tabs read it.
+    /// While an ask is open, Jump to latest can become a "Needs your input" pill that goes to the
+    /// ask and cycles through the others (Claude Code desktop's, Leo 2026-10-20). Off by default
+    /// until the cross-chat navigation path is reliable; the plain button remains the safe default.
     public static let needsYouPill = Tunable<Bool>.toggle(
         "agentPane.debug.needsYouPill", PageTunables.section, "Needs your input pill",
         help: "While an agent waits on you, the floating Jump to latest button reads Needs your input and goes to the ask. New agent tabs.",
-        default: true, code: "AgentPaneTunables.needsYouPill")
+        default: false, code: "AgentPaneTunables.needsYouPill")
 }

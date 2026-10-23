@@ -47,25 +47,31 @@ export function nextAsk(
 
 export function NeedsYouPill({
   count,
+  elsewhere,
   shown,
   lift,
   onJump,
 }: {
   count: number;
+  elsewhere: number;
   shown: boolean;
   lift: number;
   onJump(focused: boolean): void;
 }) {
   const t = useT();
   const label = count > 1 ? t("needsYou.pillCount", { n: count }) : t("needsYou.pill");
+  // At the latest message, another chat's ask still needs a usable target. The old implementation
+  // reused Jump to latest's `shown` gate, so the pill was inert exactly when cross-chat navigation
+  // was needed.
+  const actionable = shown || elsewhere > 0;
   return (
     <button
       type="button"
       className="ui-glass ui-glass-floats acpmux-jump-latest acpmux-needs-you-pill"
-      data-shown={shown ? "" : undefined}
+      data-shown={actionable ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as CSSProperties) : undefined}
       aria-label={label}
-      inert={!shown}
+      inert={!actionable}
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
       <span className="acpmux-needs-you-dot" aria-hidden="true" />

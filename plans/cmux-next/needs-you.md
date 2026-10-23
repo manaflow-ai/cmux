@@ -17,14 +17,16 @@ its subagents and every other agent chat.
     (`_acpmux/btw`, then `chat.sideChat`), seeded with "What is going on here?". The relay sends
     `_acpmux/btw` only for a chat in the pane's scope, so an ask of another chat opens that chat
     first, as a one-click answer does.
-- **Needs your input pill.** While any ask is open, the floating Jump to latest button becomes a
-  pill: the blue dot, "Needs your input" (or "Needs your input · N"), and a chevron.
+- **Needs your input pill (opt-in quarantine).** The floating Jump to latest pill is disabled by
+  default because its bottom-of-transcript navigation was confusing and could interfere with the
+  current chat. When `agentPane.debug.needsYouPill` is explicitly enabled, it shows the blue dot,
+  "Needs your input" (or "Needs your input · N"), and a chevron.
   - A press goes to this chat's ask first, then cycles through the asks open in other chats.
   - With nothing open, it is the plain button again.
 - **One mark.** The blue dot is the one "needs you" mark: the sidebar's input mark, the Chief
   dock's waiting card, the badge and the pill. Its color is the window sidebar's unread dot,
   `Palette.notificationBlue`.
-- **Debug Settings toggles**, both on by default; new agent tabs read them:
+- **Debug Settings toggles**, with the list on by default and the pill opt-in; new agent tabs read them:
   - `agentPane.debug.needsYou`: pinned, compact or off;
   - `agentPane.debug.needsYouPill`.
 

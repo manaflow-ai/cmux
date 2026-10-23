@@ -383,12 +383,20 @@ test("the pill goes to this chat's ask first, then cycles the asks open elsewher
 });
 
 test("the pill reads Needs your input, and how many when several are open", () => {
-  const one = renderToStaticMarkup(<NeedsYouPill count={1} shown lift={0} onJump={() => undefined} />);
+  const one = renderToStaticMarkup(<NeedsYouPill count={1} elsewhere={0} shown lift={0} onJump={() => undefined} />);
   expect(one).toContain(translate("needsYou.pill"));
   expect(one).toContain("acpmux-needs-you-dot");
   expect(one).toContain("acpmux-jump-latest");
-  const three = renderToStaticMarkup(<NeedsYouPill count={3} shown lift={0} onJump={() => undefined} />);
+  const three = renderToStaticMarkup(<NeedsYouPill count={3} elsewhere={0} shown lift={0} onJump={() => undefined} />);
   expect(three).toContain(translate("needsYou.pillCount", { n: 3 }));
+});
+
+test("the pill remains actionable at the latest message when another chat is waiting", () => {
+  const markup = renderToStaticMarkup(
+    <NeedsYouPill count={1} elsewhere={1} shown={false} lift={0} onJump={() => undefined} />,
+  );
+  expect(markup).toContain('data-shown=""');
+  expect(markup).not.toContain(" inert");
 });
 
 test("the Debug Settings attributes pick the list's mode", () => {
