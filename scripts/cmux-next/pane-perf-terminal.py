@@ -63,7 +63,9 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+# 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
+# ("not enough room to split this pane"), so the 30-pane split row measured nothing.
+open(CONFIG, "w").write(json.dumps({"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}) + "\n")
 WINDOW = (80, 80, 1600, 1000)
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
