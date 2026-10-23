@@ -68,13 +68,15 @@ import Testing
         #expect(await send(["edit": "remove", "widget": "projects"])["ok"] as? Bool == true)
         _ = await send(["edit": "order", "order": ["chats", "projects"]])
         _ = await send(["edit": "add"])
-        #expect(edits == [.remove("projects"), .order(["chats", "projects"]), .add])
+        _ = await send(["edit": "show", "widget": "actions"])
+        #expect(edits == [.remove("projects"), .order(["chats", "projects"]), .add, .show("actions")])
 
         // A bad edit never reaches the App.
         #expect(await send(["edit": "remove", "widget": "../order"])["ok"] as? Bool != true)
         _ = await send(["edit": "order", "order": "chats"])
         _ = await send(["edit": "rename"])
-        #expect(edits.count == 3)
+        _ = await send(["edit": "show", "widget": "../actions"])
+        #expect(edits.count == 4)
     }
 
     @Test func aDragAndAnXAreSavedAsSettingsWould() async throws {
@@ -99,6 +101,37 @@ import Testing
         // Only a widget's switch: never the order, or a key that is not a widget.
         await #expect(throws: SettingNotInSchema.self) { try await settings.removeNewTabWidget("order") }
         await #expect(throws: SettingNotInSchema.self) { try await settings.removeNewTabWidget("weatherCity") }
+    }
+
+    /// The New Tab page's second dot (Claude Minimal with the quick actions, Leo 2026-10-23) turns
+    /// the quick actions on as their Settings switch would; the first and third dots turn them off.
+    @Test func aDotTurnsTheQuickActionsOnAndOff() async throws {
+        let (settings, directory) = try await Self.settings()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(settings.snapshot.newTabWidgets.ids == ["greeting"])
+        try await settings.showNewTabWidget("actions")
+        #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "actions"]) == .bool(true))
+        #expect(settings.snapshot.newTabWidgets.ids == ["greeting", "actions"])
+        try await settings.removeNewTabWidget("actions")
+        #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "actions"]) == nil, "off is the default, so the key leaves the file")
+        // The greeting is on by default: showing it after a ✕ takes the false out.
+        try await settings.removeNewTabWidget("greeting")
+        try await settings.showNewTabWidget("greeting")
+        #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "greeting"]) == nil)
+        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("order") }
+    }
+
+    /// A `show` with a well-formed name that is no widget (it passes the request's name check) is
+    /// refused by the schema, and the settings file stays as it was.
+    @Test func aDotsShowOfAnUnknownWidgetIsRefused() async throws {
+        let (settings, directory) = try await Self.settings()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(AgentPaneNewTabEdit(widgetParams: ["edit": "show", "widget": "weather"]) == .show("weather"))
+        let before = settings.fileRoot
+        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weather") }
+        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weatherCity") }
+        #expect(settings.fileRoot == before)
+        #expect(settings.snapshot.newTabWidgets.ids == ["greeting"])
     }
 
     /// The page's + opens Settings on the widget rows: the anchor exists.

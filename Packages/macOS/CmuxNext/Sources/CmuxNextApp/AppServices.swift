@@ -459,6 +459,15 @@ final class AppServices {
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
         }
+        (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
+            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
+            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
+            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+        }
+        (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
+            guard let self else { return body() }
+            windows.dispatching(eventFrom: event.window, body)
+        }
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
         }

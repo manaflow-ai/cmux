@@ -88,7 +88,8 @@ extension ChatColumnPlacement {
                 return nil
             })
         case .browser(let url, let engine, let profileID)? where !isNewTabAddress(url, services: services):
-            // The daemon makes a browser tab aimed at the lone dock in a new column right of it.
+            // A browser tab aimed at the lone dock opens in a new column right of it (the daemon's
+            // reroute, or PaneBrowserTabOpener's move while the dock takes tabs).
             controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, profile: profileID)
         case .browser?, nil:
             NewTabPage.split(controller, edge: .right)
