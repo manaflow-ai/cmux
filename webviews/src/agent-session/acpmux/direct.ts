@@ -60,6 +60,7 @@ import { errorMessage } from "./transportErrors";
 import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
+import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
@@ -69,6 +70,7 @@ import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
+import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1155,7 +1157,8 @@ export class AcpmuxDirectClient {
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
-  /// before it, so the call and its updates draw no tool row.
+  /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
+  /// draw none either.
   private planCalls = new Set<string>();
   /// Why subagents stopped, as far as this pane knows, kept across the fold's rebuilds (a new
   /// session forgets them).
@@ -3204,10 +3207,14 @@ export class AcpmuxDirectClient {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      // Plumbing (Claude Code's ToolSearch) draws no row and leaves the text segment open.
+      if (isPlumbingCall(update)) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
+      // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
+      if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
       if (!knownRow) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
@@ -3544,6 +3551,8 @@ export class AcpmuxDirectClient {
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
             configOptions: summary.configOptions,
+            tools: chatTools(summary.tools),
+            toolsMutable: summary.toolsMutable === true,
           }
         : undefined,
       connection,
@@ -4178,6 +4187,27 @@ export class AcpmuxDirectClient {
   /// which keeps it off the lists (cx-jlzsf).
   async markSide(sessionId: string, chat: string): Promise<void> {
     await this.request("_acpmux/side", { sessionId, chat });
+  }
+  /// Use tools (cx-thur3): turns the shown chat's tool `id` on or off for this chat. acpmux keeps
+  /// the choice and says when it applies; its reply's tools replace the chat's (its
+  /// session_changed says so too, later).
+  async setTool(id: string, enabled: boolean): Promise<ToolApplied> {
+    // The chat on screen: during a switch's hold the menu clicked is still the chat before's.
+    const sessionId = this.actingSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const generation = this.selectionGeneration;
+    const result = await this.request("_acpmux/set_tools", { sessionId, id, enabled });
+    // `summary` is the selected chat's: after a switch (even back to this chat) the reply is stale.
+    if (
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      this.summary &&
+      Array.isArray(result?.tools)
+    ) {
+      this.summary = { ...this.summary, tools: result.tools, toolsMutable: result.toolsMutable };
+      this.emit("session changed");
+    }
+    return toolApplied(result?.applied);
   }
   /// The shown chat's offer `offerId` (cx-807da), while its card is drawn.
   offer(offerId: string): AcpmuxSessionOffer | undefined {

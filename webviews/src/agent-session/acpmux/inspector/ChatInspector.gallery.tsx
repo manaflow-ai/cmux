@@ -5,8 +5,9 @@
 // (all of them after Show more), its running subagents and chats named one per line with the ended
 // ones folded into one row (and that row open), a busy chat's seventeen running past "Show more", the
 // running lines' wave held mid-sweep, its finished tasks open (a background Bash only the transcript
-// knows among them), a Cloud chat before its first usage report, and the panel over the chat
-// (Overlay). Light and dark come from the gallery's theme switch.
+// knows among them), a Cloud chat before its first usage report, a chat with little to show (the
+// card ends at its content) beside a busy one (the card stops at its ceiling and scrolls), and the
+// panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
 // A subagent's own panel (Leo, 2026-10-21: "subagent should have its own instance of it like it might
 // have different env worktree context bg tasks outputs and diffs etc"): one working in a Claude
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
@@ -29,6 +30,8 @@ import { DEFAULT_SECTIONS } from "./inspectorState";
 type Props = ComponentProps<typeof ChatInspector> & {
   placement?: InspectorPlacement;
   transcript?: boolean;
+  /// Its own head with the close button, as the chat draws it.
+  closable?: boolean;
   /// A subagent's panel: whose it is, said the `header` way.
   scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
   header?: SubagentHeaderVariant;
@@ -83,6 +86,7 @@ function Transcript() {
 function GalleryInspector({
   placement = "overlay",
   transcript = false,
+  closable = false,
   scope,
   header = "title",
   tones,
@@ -95,7 +99,7 @@ function GalleryInspector({
         width={320}
         placement={placement}
         // The head draws only with a close: as in the chat pane.
-        onClose={scope ? () => undefined : undefined}
+        onClose={scope || closable ? () => undefined : undefined}
         title={scope && header === "title" ? <SubagentTitle scope={scope} /> : undefined}
       >
         <ChatInspector
@@ -578,6 +582,20 @@ export default componentEntry<Props>({
         onOpenDocument: () => undefined,
         sections: { ...DEFAULT_SECTIONS, changes: false, subagents: false, tasks: false, servers: false },
       },
+    },
+    "fits-content": {
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the 560px ceiling is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      props: {
+        summary: { ...summary, mcpServers: [] },
+        machineName: "Studio",
+        repository: "manaflow-ai/cmux",
+        onSaveEnvironment: () => undefined,
+        closable: true,
+      },
+    },
+    ceiling: {
+      note: "A busy coordinator over the same 900px pane: its sections run far past the ceiling, so the card stops at 560px (never more than 80% of the room under the header) and its body scrolls.",
+      props: { ...busy, closable: true },
     },
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",

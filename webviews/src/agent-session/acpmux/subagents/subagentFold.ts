@@ -1,5 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
+import { hiddenCall, isPlumbingName } from "../hiddenTools";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -93,6 +94,8 @@ export class SubagentFold {
   /// take its action back.
   private readonly latestCall = new Map<string, string>();
   private readonly calls = new Set<string>();
+  /// Plumbing calls each subagent made (hiddenTools.ts): they and their results set no action.
+  private readonly hiddenCalls = new Set<string>();
   /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
   /// end with a completed turn. Codex's native children have none and outlive their turn.
   private readonly called = new Set<string>();
@@ -108,10 +111,12 @@ export class SubagentFold {
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+      // Plumbing (Claude Code's ToolSearch, hiddenTools.ts) is never what it does, nor its result.
+      const hidden = call !== undefined && hiddenCall(this.hiddenCalls, `${owner.id}\u0000${call}`, update);
       // A nested subagent's Agent call says its agentId and worktree too.
       if (call && this.spawnCalls.has(call)) this.readSpawnCall(call, update);
       // A call met first through its update (a harness that sends no tool_call) is new too.
-      const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
+      const tool = !hidden && (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update");
       if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
         this.calls.add(`${owner.id}\u0000${call}`);
         this.latestCall.set(owner.id, call);
@@ -252,7 +257,9 @@ export class SubagentFold {
       agent.kind = text(change.kind) ?? agent.kind;
       agent.prompt = text(change.prompt) ?? agent.prompt;
     }
-    agent.action = text(change.action) ?? agent.action;
+    // Claude's progress names its last tool when it has no summary: plumbing is never what it does.
+    const action = text(change.action);
+    if (action && !isPlumbingName(action)) agent.action = action;
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
     if (change.background === true) agent.background = true;

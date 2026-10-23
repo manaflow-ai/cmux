@@ -83,6 +83,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `replyId` keys it. No recipient, sender name or credential: acpmux signs it, the daemon
         // sends it to the message's sender (``AgentPaneAgentReply``).
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
+        // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
+        "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

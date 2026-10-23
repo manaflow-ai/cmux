@@ -2404,6 +2404,15 @@ a.cv-sha:focus-visible {
 .cv-tool-output__box > .cv-tool-output[data-preview="cut"] {
   max-height: calc(8 * 18px);
 }
+/* A result whose text is Markdown (toolResult.ts) reads as a reply does, a little smaller, and
+   scrolls past the height a plain output stops at. */
+.cv-tool-output__markdown {
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px 12px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
   position: absolute;
