@@ -47,9 +47,9 @@ struct AcpmuxRecords {
         case "user_message":
             guard let turnID = msg["turnId"]?.stringValue else { return [] }
             // The images the prompt sent (acpmux keeps their bytes; `_acpmux/attachment` reads them).
-            let images = (msg["images"]?.arrayValue ?? []).compactMap { image -> AgentAttachment? in
+            let images = (msg["images"]?.arrayValue ?? []).enumerated().compactMap { index, image -> AgentAttachment? in
                 guard let id = image["id"]?.stringValue, !id.isEmpty else { return nil }
-                return .recordedImage(id: id, name: image["name"]?.stringValue)
+                return .recordedImage(id: id, name: image["name"]?.stringValue, index: index)
             }
             return [.userMessage(text: msg["text"]?.stringValue ?? "", promptId: msg["promptId"]?.stringValue ?? turnID,
                                  turnId: turnID, attachments: images, at: at)]

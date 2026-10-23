@@ -574,11 +574,34 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// A recorded prompt image's bytes from acpmux (`_acpmux/attachment`: only an image this
     /// session's own log names is read).
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? {
-        guard let id = attachment.recordedImageID, let hub,
-              let reply = try? await hub.request("_acpmux/attachment", .object(["sessionId": .string(sessionID), "id": .string(id)])),
-              let base64 = reply["data"]?.stringValue else { return nil }
-        return Data(base64Encoded: base64)
+        guard let id = attachment.recordedImageID else { return nil }
+        if let cached = imageCache[id] { return cached }
+        // One read per image: a thumbnail and its preview asking at once share it.
+        if let reading = imageReads[id] { return await reading.value }
+        let hub = hub, session = sessionID
+        let reading = Task { @MainActor () -> Data? in
+            guard let hub,
+                  let reply = try? await hub.request("_acpmux/attachment", .object(["sessionId": .string(session), "id": .string(id)])),
+                  let base64 = reply["data"]?.stringValue else { return nil }
+            return Data(base64Encoded: base64)
+        }
+        imageReads[id] = reading
+        let data = await reading.value
+        imageReads[id] = nil
+        // A refusal or a dropped link is not cached: the next look tries again.
+        if let data {
+            imageCache[id] = data
+            imageCacheOrder.append(id)
+            while imageCacheOrder.count > Self.imageCacheLimit { imageCache[imageCacheOrder.removeFirst()] = nil }
+        }
+        return data
     }
+
+    /// Recorded prompt images read this launch, by acpmux id (the newest few: bubbles scroll back).
+    private var imageCache: [String: Data] = [:]
+    private var imageCacheOrder: [String] = []
+    private var imageReads: [String: Task<Data?, Never>] = [:]
+    static let imageCacheLimit = 24
 
     public var artifactSource: any ArtifactSource {
         let hub = hub

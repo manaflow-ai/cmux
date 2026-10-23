@@ -132,13 +132,17 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public static let recordedImagePrefix = "acpmux-image:"
 
     /// An image the Mac's record of a prompt names, without its bytes.
-    public static func recordedImage(id: String, name: String?) -> AgentAttachment {
-        AgentAttachment(id: recordedImagePrefix + id, kind: .image, name: name ?? "Photo", data: nil)
+    /// `index`: its place in the prompt (the same image twice keeps two identities).
+    public static func recordedImage(id: String, name: String?, index: Int = 0) -> AgentAttachment {
+        AgentAttachment(id: recordedImagePrefix + id + (index > 0 ? "#\(index)" : ""), kind: .image, name: name ?? "Photo", data: nil)
     }
 
-    /// acpmux's id of a recorded image (nil for one this phone holds).
+    /// acpmux's id of a recorded image (nil for one this phone holds), without the
+    /// `#n` that keeps two copies of one image in a prompt apart.
     public var recordedImageID: String? {
-        id.hasPrefix(Self.recordedImagePrefix) ? String(id.dropFirst(Self.recordedImagePrefix.count)) : nil
+        guard id.hasPrefix(Self.recordedImagePrefix) else { return nil }
+        let rest = id.dropFirst(Self.recordedImagePrefix.count)
+        return String(rest.split(separator: "#", maxSplits: 1).first ?? rest)
     }
 }
 
