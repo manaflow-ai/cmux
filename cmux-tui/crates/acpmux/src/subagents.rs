@@ -150,7 +150,7 @@ impl SubagentTree {
             && collab.get("tool").and_then(Value::as_str) == Some("spawnAgent")
         {
             let sender = collab.get("senderThreadId").and_then(Value::as_str);
-            if let Some(sender) = sender.filter(|sender| owner.is_none())
+            if let Some(sender) = sender.filter(|_| owner.is_none())
                 && !self.parents.contains_key(sender)
             {
                 self.remember_root(sender);
