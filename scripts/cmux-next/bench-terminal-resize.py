@@ -150,11 +150,23 @@ def drag(x0, y0, refresh_s):
     rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
 
 
+def column_divider(dividers, middle):
+    """The divider to drag. Light: the only one. STRESS (`middle`): the column divider between
+    columns 2 and 3 of the 4x3 grid. Column dividers span the whole grid's height; a nested split's
+    divider spans one row, so the tallest ones are the column dividers, and the middle of those (by x)
+    resizes every pane of the first two columns."""
+    if not middle:
+        return dividers[0]
+    tallest = max(h for _, _, h in dividers)
+    columns = sorted(d for d in dividers if d[2] >= 0.9 * tallest)
+    return columns[len(columns) // 2 - 1] if len(columns) >= 2 else columns[0]
+
+
 def measure(name):
     dividers = vertical_dividers()
     if not dividers:
         return {"layout": name, "error": "no vertical divider"}
-    x0, y0, _ = dividers[0]
+    x0, y0, height = column_divider(dividers, middle=(name == "stress"))
     rpc("debug.frames", {"action": "start"})
     time.sleep(1.0)  # bench script: idle frames give the refresh period
     idle = rpc("debug.frames", {"action": "stop"}) or {}
@@ -170,8 +182,14 @@ def measure(name):
         time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
         after = surfaces()
         settled = [s for s in after if not (s["fit"] == s["drawn"] == s["grid"])]
+        # Resized in the drag: a full rebuild for a new grid, or a fitted grid that differs midway (the
+        # drag ends where it began, so start and end grids match).
+        by_id = {b["id"]: b for b in before}
+        resized = sum(1 for a in after if a["id"] in by_id and
+                      int(a["counters"].get("full_resize", 0)) > int(by_id[a["id"]]["counters"].get("full_resize", 0)))
         rounds.append({
             "terminals": len(after),
+            "resized_terminals": resized,
             "frames": {k: frames.get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed",
                                                   "main_p50_ms", "main_p95_ms", "main_max_ms", "main_total_ms",
                                                   "main_over_8_3_ms")},
@@ -179,7 +197,8 @@ def measure(name):
             "counters": counter_delta(before, after),
             "unsettled_after": [{"fit": s["fit"], "drawn": s["drawn"], "grid": s["grid"]} for s in settled],
         })
-    return {"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "rounds": rounds}
+    return {"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "rounds": rounds,
+            "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}}
 
 
 def light():
