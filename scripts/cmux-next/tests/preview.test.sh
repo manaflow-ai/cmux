@@ -7,9 +7,11 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d)
 state="$TMP/state"
 foreign_gallery_pid=""
+foreign_index_pid=""
 cleanup() {
   local state_file pid
   [[ -z "$foreign_gallery_pid" ]] || kill "$foreign_gallery_pid" 2>/dev/null || true
+  [[ -z "$foreign_index_pid" ]] || kill "$foreign_index_pid" 2>/dev/null || true
   while IFS= read -r state_file; do
     pid=$(sed -n 's/^pid[[:space:]]*//p' "$state_file" | head -1 || true)
     [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true
@@ -123,6 +125,47 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 foreign_gallery_port=$(cat "$TMP/foreign-gallery-port")
+
+# A foreign index on the fixed index port must not satisfy a helper that merely
+# echoes INDEX_URL while its own index server failed to bind.
+python3 - "$TMP/foreign-index-port" <<'PY' &
+import http.server
+import pathlib
+import sys
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+pathlib.Path(sys.argv[1]).write_text(str(server.server_port))
+server.serve_forever()
+PY
+foreign_index_pid=$!
+for _ in $(seq 1 50); do
+  [[ -s "$TMP/foreign-index-port" ]] && break
+  sleep 0.1
+done
+foreign_index_port=$(cat "$TMP/foreign-index-port")
+cat > "$TMP/foreign-index-helper.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+echo "INDEX_URL=http://127.0.0.1:$foreign_index_port/"
+while :; do sleep 1; done
+EOF
+chmod +x "$TMP/foreign-index-helper.sh"
+set +e
+foreign_index_json=$(CMUX_PREVIEW_STATE_DIR="$TMP/index-collision-state" \
+  CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/foreign-index-helper.sh" CMUX_PREVIEW_START_TIMEOUT=1 \
+  "$ROOT/scripts/cmux-next/preview.sh" web --json)
+foreign_index_rc=$?
+set -e
+[[ "$foreign_index_rc" -eq 1 ]] || { echo "preview must refuse a foreign index" >&2; exit 1; }
+python3 - "$foreign_index_json" <<'PY'
+import json
+import sys
+
+result = json.loads(sys.argv[1])
+assert result["ok"] is False
+assert "INDEX_URL" in result["error"] or "readiness" in result["error"]
+PY
+
 set +e
 foreign_gallery_json=$(CMUX_PREVIEW_STATE_DIR="$state" CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/fake-web.sh" \
   CMUX_WEB_DEV_GALLERY_PORT="$foreign_gallery_port" "$ROOT/scripts/cmux-next/preview.sh" gallery --json)
