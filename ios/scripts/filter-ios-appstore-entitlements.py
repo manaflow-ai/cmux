@@ -32,6 +32,18 @@ def filter_app_store_entitlements(entitlements: dict) -> tuple[dict, list[str]]:
     return filtered, removed
 
 
+def remove_network_extension_entitlement(entitlements: dict) -> tuple[dict, list[str]]:
+    """Remove all Network Extension permissions from an App Store host app."""
+    filtered = dict(entitlements)
+    values = filtered.pop(NETWORK_EXTENSION_KEY, None)
+    removed = []
+    if isinstance(values, list):
+        removed.extend(f"{NETWORK_EXTENSION_KEY}[{value}]" for value in values)
+    elif values is not None:
+        removed.append(NETWORK_EXTENSION_KEY)
+    return filtered, removed
+
+
 def load_entitlements(path: Path) -> dict:
     with path.open("rb") as handle:
         entitlements = plistlib.load(handle)
@@ -53,6 +65,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="fail when an unsupported iOS main-app entitlement is present",
     )
+    parser.add_argument(
+        "--remove-network-extension",
+        action="store_true",
+        help="remove all Network Extension permissions from the host app",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -61,7 +78,10 @@ def main(argv: list[str]) -> int:
         print(f"error: could not read entitlements: {exc}", file=sys.stderr)
         return 2
 
-    filtered, removed = filter_app_store_entitlements(entitlements)
+    if args.remove_network_extension:
+        filtered, removed = remove_network_extension_entitlement(entitlements)
+    else:
+        filtered, removed = filter_app_store_entitlements(entitlements)
     if args.check:
         if removed:
             print(

@@ -27,6 +27,12 @@ class CloudVPNDistributionTests(unittest.TestCase):
             "CMUX_IOS_UPLOAD_DIR": str(path / "upload"),
             "CMUX_FAKE_INCLUDE_NOTIFICATION_EXTENSION": "1" if lane == "beta" else "0",
         })
+        if lane == "appstore":
+            # The shared fixture defaults to the legacy VPN-enabled App Store
+            # contract. This distribution test opts into the new production
+            # default explicitly, while the legacy coverage below opts back in
+            # where it is checking the extension's signing contract.
+            env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "0"
         env.update(overrides or {})
         result = fixtures._run([
             "bash", str(ROOT / "ios/scripts/upload-testflight.sh"),
@@ -38,7 +44,8 @@ class CloudVPNDistributionTests(unittest.TestCase):
     def test_both_exports_share_host_keychain_and_packet_tunnel(self):
         for lane, host in (("appstore", "com.cmux.app"), ("beta", "dev.cmux.app.beta")):
             with self.subTest(lane=lane):
-                path, result = self.export(lane)
+                overrides = {"IOS_APPSTORE_ENABLE_CLOUD_VPN": "1"} if lane == "appstore" else None
+                path, result = self.export(lane, overrides)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 options = plistlib.loads((path / "ExportOptions.plist").read_bytes())
                 self.assertIn(host + ".CloudVPN", options["provisioningProfiles"])
@@ -51,6 +58,18 @@ class CloudVPNDistributionTests(unittest.TestCase):
                         self.assertEqual(ent["keychain-access-groups"], [fixtures.TEAM_ID + "." + host])
                         self.assertIn("packet-tunnel-provider", ent["com.apple.developer.networking.networkextension"])
                         self.assertNotIn("hotspot-provider", ent["com.apple.developer.networking.networkextension"])
+
+    def test_appstore_export_disables_system_vpn_by_default(self):
+        path, result = self.export("appstore")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        options = plistlib.loads((path / "ExportOptions.plist").read_bytes())
+        self.assertNotIn("com.cmux.app.CloudVPN", options["provisioningProfiles"])
+        ipa = next((path / "upload/export").glob("*-resigned.ipa"))
+        with zipfile.ZipFile(ipa) as archive:
+            members = set(archive.namelist())
+            self.assertNotIn("Payload/cmux.app/PlugIns/CloudVPN.appex/Info.plist", members)
+            ent = plistlib.loads(archive.read("Payload/cmux.app/FakeSignedEntitlements.plist"))
+            self.assertNotIn("com.apple.developer.networking.networkextension", ent)
 
     def test_both_exports_reject_signed_hotspot_provider(self):
         self.assert_rejected("CMUX_FAKE_HOST_HOTSPOT_PROVIDER", "hotspot-provider")
@@ -67,7 +86,13 @@ class CloudVPNDistributionTests(unittest.TestCase):
     def assert_rejected(self, override, diagnostic):
         for lane in ("appstore", "beta"):
             with self.subTest(lane=lane):
-                _, result = self.export(lane, {override: "1"})
+                overrides = {override: "1"}
+                if lane == "appstore":
+                    # These cases exercise the legacy VPN signing contract;
+                    # explicitly enable it now that App Store defaults to the
+                    # VPN-free production artifact.
+                    overrides["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
+                _, result = self.export(lane, overrides)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn(diagnostic, result.stderr.lower())
 

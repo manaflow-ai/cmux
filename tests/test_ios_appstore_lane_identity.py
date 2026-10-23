@@ -494,6 +494,8 @@ if "-exportArchive" in args:
     export_path = Path(after("-exportPath"))
     export_options = Path(after("-exportOptionsPlist"))
     shutil.copyfile(export_options, os.environ["CMUX_FAKE_EXPORT_OPTIONS_COPY"])
+    export_options_data = plistlib.loads(export_options.read_bytes())
+    export_profiles = export_options_data.get("provisioningProfiles", {{}})
     app_info = next((archive / "Products" / "Applications").glob("*.app/Info.plist"))
     archived_info = plistlib.loads(app_info.read_bytes())
     bundle_id = archived_info["CFBundleIdentifier"]
@@ -510,12 +512,14 @@ if "-exportArchive" in args:
         }},
     )
     cloud_vpn = app / "PlugIns" / "CloudVPN.appex"
-    write_plist(
-        cloud_vpn / "Info.plist",
-        {{
-            "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
-        }},
-    )
+    cloud_vpn_enabled = f"{{bundle_id}}.CloudVPN" in export_profiles
+    if cloud_vpn_enabled:
+        write_plist(
+            cloud_vpn / "Info.plist",
+            {{
+                "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
+            }},
+        )
     if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
             app / "Frameworks" / "Iroh.framework" / "Info.plist",
@@ -536,8 +540,9 @@ if "-exportArchive" in args:
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     (extension / "embedded.mobileprovision").write_text("extension profile", encoding="utf-8")
-    (cloud_vpn / "embedded.mobileprovision").write_text("cloud vpn profile", encoding="utf-8")
-    write_plist(cloud_vpn / "FakeSignedEntitlements.plist", entitlements_for_bundle(f"{{bundle_id}}.CloudVPN"))
+    if cloud_vpn_enabled:
+        (cloud_vpn / "embedded.mobileprovision").write_text("cloud vpn profile", encoding="utf-8")
+        write_plist(cloud_vpn / "FakeSignedEntitlements.plist", entitlements_for_bundle(f"{{bundle_id}}.CloudVPN"))
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
     symbols_root = export_path / "Symbols"
     symbols_root.mkdir(parents=True, exist_ok=True)

@@ -15,6 +15,7 @@ PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 CMUX_HOST_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService
 CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).CloudVPN
+CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER = $(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)
 // User-visible versions (CFBundleShortVersionString). Keep beta and production
 // independent: TestFlight can stay on the already-approved beta version while
 // the first production App Store upload starts from its own release version.
