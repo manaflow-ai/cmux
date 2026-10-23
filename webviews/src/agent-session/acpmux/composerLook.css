@@ -60,12 +60,22 @@
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;
 }
-/* On an opaque window the tray's fill is the solid composer surface, which blurs nothing it can show
-   (glass is never opaque, test/accent-glass-invariants.test.ts), so it drops the strip's frost. Over
-   art or a see-through window the surface is glass (composerStates.css) and keeps it. */
-:root:not([data-cmux-see-through]) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+/* On an opaque window the chat's tray is the card's glass, not the solid composer surface: glass
+   is never opaque, and the card and its strip are glass on every window (composerStates.css, Leo
+   2026-10-21 "a bit more glass on the input box"). The wash goes over the card's tint (78% of the
+   surface) and the strip keeps the card's blur (--glass-backdrop). Over art or a see-through window
+   the surface rule above is already glass. Reduce Transparency, by the app's attribute or the
+   system's setting, keeps the solid fill above and no blur (composerStates.css); WebKit matches
+   neither value of prefers-reduced-transparency, so this is scoped to `not reduce`, never to
+   `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
+   this leaves it alone. New Tab's tray (.nt-above) keeps the solid surface on an opaque window,
+   where its box is solid too. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
+    .acpmux-composer[data-composer-look="codex"]
+    > .acpmux-composer-strip {
+    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+  }
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box,
 .nt-composer[data-composer-look="codex"] > .nt-box {
