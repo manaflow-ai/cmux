@@ -13,7 +13,9 @@ import Testing
 /// changes the registry's window order (`WindowRegistry.recency`, through
 /// `WindowController.windowDidBecomeKey` and `WindowManager.didActivate`) and the location
 /// trail (Search Tabs facts): neither moves a workspace, yet each rebuilt every one. A switch
-/// moves only the window facts (which window is key, the focus): O(windows).
+/// moves only the window facts (which window is key, the focus): O(windows), and the location
+/// trail Search Tabs orders by (republished alone, on the trail's own change). It does not move
+/// the closed-tab list of Search Tabs (O(closed history), rebuilt only on a close).
 ///
 /// Rebuilds are counted through the publisher's own seam (`onPublish`, the parts each publish
 /// built), never through a process-wide list: suites run in parallel in one process, and
@@ -59,9 +61,11 @@ import Testing
     /// The parts this test's publisher built, counted per part.
     @MainActor private final class Rebuilds {
         var topology = 0
+        var closedTabs = 0
 
         func note(_ parts: ControlSnapshotPublisher.Parts) {
             if parts.contains(.topology) { topology += 1 }
+            if parts.contains(.tabSearch) { closedTabs += 1 }
         }
     }
 
@@ -126,7 +130,7 @@ import Testing
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
-        let before = rebuilds.topology
+        let before = rebuilds.topology, closedBefore = rebuilds.closedTabs
         #expect(before >= 1, "start publishes the whole snapshot once")
 
         // Key moves A -> B -> A, the way AppKit drives it: the window that resigns, then the one
@@ -157,9 +161,18 @@ import Testing
             #expect(topology.windows.first { $0.id == target.state.id }?.isKey == true, "the key window is not key in the snapshot")
             #expect(topology.windows.filter(\.isKey).count == 1, "not exactly one window is key in the snapshot")
             #expect(topology.focus.windowID == target.state.id, "the focus did not follow the key window")
+
+            // The switch settles somewhere new (here a top page of the window): the trail moves,
+            // and Search Tabs' recency in the snapshot follows it, without the closed list.
+            services.locationTrail.pageDidShow(.home, title: "Home", in: target)
+            await Self.settle(frames)
+            #expect(router.snapshots.current.tabSearch.lastActive == TabSearchFactsBuilder.lastActive(services),
+                    "the trail moved and the snapshot kept the old recency")
         }
         #expect(rebuilds.topology == before,
                 "a window switch rebuilt every workspace's control facts (\(rebuilds.topology - before) topology publishes)")
+        #expect(rebuilds.closedTabs == closedBefore,
+                "a window switch rebuilt the closed-tab list (\(rebuilds.closedTabs - closedBefore) rebuilds)")
     }
 
     @Test func activationNoticesMapNoWorkspaceAgain() async throws {
@@ -189,5 +202,29 @@ import Testing
         }
         #expect(rebuilds.topology == before,
                 "a key or activation notice rebuilt every workspace's control facts (\(rebuilds.topology - before) topology publishes)")
+    }
+
+    /// A hover card, a toast, a sheet or a Chromium popup closing is no window of the window
+    /// manager: the window list and every workspace stay as they are.
+    @Test func aWindowTheManagerDoesNotOwnClosingMapsNoWorkspaceAgain() async throws {
+        let services = try Self.services()
+        let frames = ManualFrames()
+        let rebuilds = Rebuilds()
+        let (_, publisher) = Self.publisher(services, frames: frames, rebuilds: rebuilds)
+        publisher.start()
+        defer { publisher.stop() }
+        await Self.settle(frames)
+        let before = rebuilds.topology
+
+        let center = NotificationCenter.default
+        for _ in 0..<3 {
+            let popup = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
+                                 backing: .buffered, defer: true)
+            popup.isReleasedWhenClosed = false
+            center.post(name: NSWindow.willCloseNotification, object: popup)
+            await Self.settle(frames)
+        }
+        #expect(rebuilds.topology == before,
+                "a window no controller owns closed and every workspace's control facts were rebuilt (\(rebuilds.topology - before) topology publishes)")
     }
 }
