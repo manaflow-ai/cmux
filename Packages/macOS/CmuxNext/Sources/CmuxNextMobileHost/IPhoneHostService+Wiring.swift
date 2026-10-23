@@ -42,9 +42,13 @@ extension IPhoneHostService {
         #if DEBUG
         let override = processEnvironment["CMUX_NEXT_MOBILE_HOST_BIN"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
         let serviceOverride = processEnvironment["CMUX_NEXT_MOBILE_API_URL"].flatMap { $0.isEmpty ? nil : URL(string: $0) }
+        // The name phones list this Mac by (the multimac rig gives two Macs one name: a
+        // name must never make the phone treat them as one).
+        let nameOverride = processEnvironment["CMUX_NEXT_MOBILE_DEVICE_NAME"].flatMap { $0.isEmpty ? nil : $0 }
         #else
         let override: URL? = nil
         let serviceOverride: URL? = nil
+        let nameOverride: String? = nil
         #endif
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
@@ -100,7 +104,7 @@ extension IPhoneHostService {
             },
             agentTabHost: agentTabHost,
             newChatPicks: newChatPicks,
-            computerName: computerName,
+            computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),

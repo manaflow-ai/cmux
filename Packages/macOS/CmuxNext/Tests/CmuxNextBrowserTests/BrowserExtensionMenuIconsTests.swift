@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Foundation
 import Testing
 @testable import CmuxNextBrowser
@@ -113,7 +114,9 @@ import Testing
     }
 
     /// The menu shows the icon: a 16 pt image with the extension's 1x and 2x
-    /// files, Chrome's puzzle piece when they do not load.
+    /// files, Chrome's puzzle piece when they do not load. The puzzle is a
+    /// menu SF Symbol (`NSImage.menuSymbol`), a template at the menu font's
+    /// size like every other right-click icon, not a 16 pt drawing (231a09a0dde).
     @Test @MainActor func theShownRowHasTheIcon() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("icons-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -132,7 +135,9 @@ import Testing
         let image = try #require(items[0].image)
         #expect(image.size == NSSize(width: 16, height: 16))
         #expect(Set(image.representations.map(\.pixelsWide)) == [16, 32])
-        #expect(try #require(items[1].image).size == NSSize(width: 16, height: 16))
+        let puzzle = try #require(items[1].image)
+        #expect(puzzle.isTemplate)
+        #expect(puzzle.size == NSImage.menuSymbol(BrowserContextMenuIcon.defaultExtensionSymbol)?.size)
         #expect(try #require(items[2].image).isTemplate)
         #expect(items[3].image == nil)
     }
