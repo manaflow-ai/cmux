@@ -268,6 +268,15 @@ import Testing
         #expect(evidence(oversize) == .absent)
     }
 
+    @Test func everyPreparedCodexFallbackRefusesPrivateSubrouterRouting() {
+        let routed = ["codex", "resume", sessionID, "-c", "model_providers.subrouter.base_url=\"http://127.0.0.1:49152/v1\""]
+        let plain = ["codex", "resume", sessionID, "--model", "gpt-test"]
+        #expect(AgentRestorePlanner.preparedFallback(kind: "codex", preparedArguments: routed) == nil)
+        #expect(AgentRestorePlanner.preparedFallback(kind: "codex", preparedArguments: plain)?.0 == plain)
+        #expect(AgentRestorePlanner.preparedFallback(kind: "codex", preparedArguments: nil) == nil)
+        #expect(AgentRestorePlanner.preparedFallback(kind: "claude", preparedArguments: routed)?.0 == routed)
+    }
+
     @Test func malformedOrConflictingCodexConfigDoesNotRoute() {
         let routing = SubrouterCodexResumeRouting()
         #expect(
