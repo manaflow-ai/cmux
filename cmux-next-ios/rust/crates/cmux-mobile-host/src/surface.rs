@@ -194,17 +194,13 @@ pub async fn serve(
 /// `ContinuousClock`-free capture stamp both read), in microseconds.
 pub fn surface_clock_us() -> u64 {
     #[cfg(target_os = "macos")]
-    {
-        // SAFETY: a plain clock read with a valid clock id.
-        unsafe { libc::clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) / 1000 }
-    }
+    let clock = libc::CLOCK_UPTIME_RAW;
     #[cfg(not(target_os = "macos"))]
-    {
-        let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        // SAFETY: `now` is a valid timespec to write.
-        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
-        u64::try_from(now.tv_sec).unwrap_or(0) * 1_000_000 + u64::try_from(now.tv_nsec).unwrap_or(0) / 1000
-    }
+    let clock = libc::CLOCK_MONOTONIC;
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `now` is a valid timespec to write, and `clock` a valid clock id.
+    unsafe { libc::clock_gettime(clock, &mut now) };
+    u64::try_from(now.tv_sec).unwrap_or(0) * 1_000_000 + u64::try_from(now.tv_nsec).unwrap_or(0) / 1000
 }
 
 // MARK: the app's frame source (`sf/1`)
