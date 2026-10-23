@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextDaemon
 import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
