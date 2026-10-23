@@ -1223,6 +1223,8 @@
    (.nt-field, newtab/screen.css) with the system scroller and keeps its placement. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field {
   grid-column: 2 / -1;
+  /* The lane sits just inside the box's hairline rim, never on it. */
+  margin-right: calc(2px * var(--cmux-interface-scale, 1));
   padding-right: calc(
     var(--acpmux-actions-width, 64px) + 8px + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
   );

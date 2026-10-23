@@ -79,7 +79,8 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
           .map((button) => button.getAttribute("aria-label") ?? button.className);
         return {
           overflows: field.scrollHeight > field.clientHeight + 1,
-          laneOnBoxEdge: Math.abs(box.right - fieldRect.right) <= 1,
+          // The lane sits 2 px inside the box's hairline rim (composerLocation.css).
+          laneOnBoxEdge: Math.abs(box.right - 2 - fieldRect.right) <= 1,
           gap: Math.round(box.right - fieldRect.right),
           textClearOfActions: text.right <= left + 0.5,
           actions: actions.length,
