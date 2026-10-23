@@ -7,7 +7,7 @@ import Testing
 /// frame of its spring must leave the other 28 panes' rings, dims, window frames and clips alone.
 /// Run with the pane bench (CMUX_PANE_BENCH=1, `nx-remote --needs xcode27`): not a CI gate.
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_BENCH"] == "1"))
+@Suite(.serialized)
 struct PaneMotionWorkTests {
     @Test(arguments: ["split", "splitDown"])
     func aSplitFrameTouchesOnlyThePanesItMoves(_ action: String) async throws {
