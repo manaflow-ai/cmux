@@ -19,6 +19,18 @@ nonisolated enum ContextMenuEssentials {
     /// too: Move to Group lists the groups, then New Group.
     static let choiceTrailers: [ActionID: ActionID] = ["moveWorkspaceToGroup": "workspace.moveToNewGroup"]
 
+    /// Tab actions that remain available from the command palette but do not belong in a
+    /// right-click menu. They are infrequent state, diagnostics, provider, or identifier
+    /// controls; keeping them in the catalog preserves their palette and CLI paths.
+    static let tabMenuTrimmedActions: Set<ActionID> = [
+        "terminal.keep", "terminal.setTheme", "terminal.clearTheme",
+        "palette.toggleTabUnread", "palette.toggleFullWidthTab", "tab.muteOtherAudio",
+        "agentChat.toggleNotificationMute", "tab.showResources", "tab.pictureInPicture",
+        "hibernateTab", "wakeTab", "neverHibernateSite", "cloudMove", "cloudBringBack",
+        "home.messageAbout", "agentChat.copyIdentifier", "palette.copyIdentifiers",
+        "browser.resetPinnedTab", "tab.screenshot", "disconnectRemoteTab",
+    ]
+
     static let menus: [ActionMenuContext: Rows] = [
         // Move ▸ (Up, Down, Top, Bottom of the group, …) stays at the top level (u2418: "I need an
         // option to … move a workspace to the top of a group"; under More it was not found).
@@ -30,17 +42,15 @@ nonisolated enum ContextMenuEssentials {
                                   .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"]),
-        // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that
-        // chrome right click tab situation works"): New Tab to the Right and the group rows; Reload,
-        // Duplicate, Pin, Mute; More; then Close Tab, Close Other Tabs and Close Tabs to the Right.
-        // A page-only row (Reload, Mute) leaves a terminal's menu. The 12-row cap
-        // (everyMenuKeepsAShortTopLevel, Lawrence 2026-10-01) leaves Chrome's Move Tab to New
-        // Window in More > Move, with cmux's Rename, Back to Pinned Page and Restart (the dead
-        // tab's overlay also has Restart).
-        .tab: Rows(top: [.action("newTab.toRight"), .action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab"),
-                         .separator,
-                         .action("reloadTab"), .action("duplicateTab"), .action("palette.toggleTabPin"), .action("toggleTabAudioMute")],
-                   close: ["closeTab", "closeOtherTabsInPane", "closeTabsToRight"]),
+        // Chrome's useful tab rows, in its order (`TabMenuModel::Build`, Leo 2026-10-19:
+        // "make sure that chrome right click tab situation works"): New Tab to the Right,
+        // Reload, Duplicate, Pin, Mute and the three closes. Group, move, diagnostics, themes,
+        // identifiers and stash-like state controls stay searchable in the palette or More.
+        // The 12-row menu therefore becomes eight prominent rows plus one More row.
+        .tab: Rows(top: [.action("newTab.toRight"), .action("reloadTab"), .action("duplicateTab"),
+                         .action("palette.toggleTabPin"), .action("toggleTabAudioMute"),
+                         .action("closeTab"), .action("closeOtherTabsInPane"), .action("closeTabsToRight")],
+                   close: []),
         // Split Left and Split Up sit in Split beside Split Right and Split Down (menu audit S1).
         .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane")],
                     close: ["closePane"]),
@@ -75,8 +85,11 @@ nonisolated enum ContextMenuEssentials {
         let rest = collapsingSeparators(inliningShortFolders(ContextMenuCatalog.removing(shown, from: entries)))
         let more: [ContextMenuEntry] = rest.isEmpty ? [] : [.folder(.more, rest)]
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
+        let moreSection: [ContextMenuEntry] = more.isEmpty ? [] :
+            ((top + groupSection).last == .separator ? [] : [.separator]) + more
+        let closeSection: [ContextMenuEntry] = close.isEmpty ? [] : [.separator] + close.map(ContextMenuEntry.action)
         let tailSection: [ContextMenuEntry] = tail.isEmpty ? [] : [.separator] + tail.map(ContextMenuEntry.action)
-        return top + groupSection + more + [.separator] + close.map(ContextMenuEntry.action) + tailSection
+        return top + groupSection + moreSection + closeSection + tailSection
     }
 
     /// The most rows a folder inside More may have and still show as a section of More, between

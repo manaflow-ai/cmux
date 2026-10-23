@@ -102,29 +102,39 @@ struct ContextMenuEssentialsTests {
         #expect(!allActions(menu).contains("palette.workspaceCustomColor"))
     }
 
-    @Test func theTabAndPaneMenusEndWithMoreAndClose() {
+    @Test func theTabMenuKeepsEightProminentRowsAndMore() {
         let registry = registry()
-        let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
-        #expect(tab.suffix(5) == ["More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
-        #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
-        #expect(allActions(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("renameTab") && tab.contains("palette.toggleTabPin"))
+        let menu = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))
+        let tab = rows(menu)
+        #expect(tab == ["newTab.toRight", "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
+                        "closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "More"])
+        #expect(allActions(menu).count == 47)
+        #expect(allActions(menu).contains("renameTab") && tab.contains("palette.toggleTabPin"))
+        #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy { id in
+            allActions(menu).contains(id)
+        })
+        for id in ContextMenuEssentials.tabMenuTrimmedActions {
+            #expect(!allActions(menu).contains(id), "\(id) stays out of the pointer menu")
+        }
+    }
+
+    @Test func thePaneMenuStillEndsWithMoreAndClose() {
+        let registry = registry()
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
         #expect(pane.suffix(3) == ["More", "—", "closePane"])
         #expect(pane.filter { $0 != "—" }.count <= 7)
         #expect(pane.contains("splitRight") && pane.contains("splitDown"))
     }
 
-    /// The tab menu is Chrome's, in its order (`TabMenuModel::Build`; Leo 2026-10-19): New Tab to
-    /// the Right and the group rows; Reload, Duplicate, Pin, Mute; then Close Tab, Close Other Tabs
-    /// and Close Tabs to the Right at the top level, not in More.
+    /// The compact tab menu follows Chrome's useful order (`TabMenuModel::Build`; Leo 2026-10-19):
+    /// New Tab to the Right, Reload, Duplicate, Pin, Mute and the three close rows, then More.
     @Test func theTabMenuFollowsChromesOrder() {
         let menu = registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))
         let tab = rows(menu)
-        #expect(tab == ["newTab.toRight", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "—",
-                        "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
-                        "More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
-        // The rest moved into More, not gone: Close Tabs to the Left (not in Chrome) and Move Tab to New Window.
-        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "browser.resetPinnedTab"] {
+        #expect(tab == ["newTab.toRight", "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
+                        "closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "More"])
+        // The rest stays in More, not gone: group actions, Close Tabs to the Left and Move Tab to New Window.
+        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
     }
