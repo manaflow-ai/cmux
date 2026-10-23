@@ -64,6 +64,7 @@ extension WorkspaceRowView {
             subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            pinMark.setTint(Palette.textTertiary)
             if let machine { machineMark.setTint(machine.color) }
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -157,12 +158,8 @@ extension WorkspaceRowView {
             slot = max(control, w + pad)
         }
         if slot > 0 { trailing -= slot + Metrics.space2 }
-        // An expanded row's hover pin: at the end of the name's line, clear of the unread badge or
-        // keycap and of the dog-ear's square, over the text behind a fade.
-        let pinMaxX = min(trailing, full.maxX - SidebarStyle.dogEarSide - Metrics.space1, closeButton.frame.minX - Metrics.space1)
-        let pinSlot = NSRect(x: pinMaxX - control, y: cy - control / 2, width: control, height: control)
         trailing = layoutTime(trailing: trailing, cy: cy, height: sh)
-        let overlayStart = layoutPin(showMore: showMore, slot: pinSlot, fades: fades)
+        let overlayStart: CGFloat? = nil
         let ind = SidebarStyle.indicatorSize
         // With nothing else at the row's end, the lone dot or spinner takes the trailing column,
         // centered on the group header chevron's x (SidebarStyle+TrailingColumn).
@@ -204,6 +201,11 @@ extension WorkspaceRowView {
         if !machineMark.isHidden {
             machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = machineMark.frame.maxX + Metrics.space1
+        }
+        // A pinned row's pin leads its title, as the Pinned band's rows did; nothing covers it on hover.
+        if !pinMark.isHidden {
+            pinMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
+            textX = pinMark.frame.maxX + Metrics.space1
         }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive

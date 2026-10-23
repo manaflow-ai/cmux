@@ -1,9 +1,10 @@
 import CmuxNextActions
 import CmuxNextSidebar
 
-/// An expanded row's hover pin (cx-13w3): the row reads the workspace's pin
-/// state and runs Pin/Unpin Workspace on it, the action the palette, the
-/// row menu and the CLI run (`PinCommands`: a layout tile or the daemon flag).
+/// The sidebar model's pin hook (`SidebarModel.workspacePin`): the workspace's
+/// pin state and Pin/Unpin Workspace, the action the palette, the row menu and
+/// the CLI run (`PinCommands`: a layout tile or the daemon flag). Rows no longer
+/// draw a hover pin from it (Lawrence 2026-10-21).
 @MainActor
 enum SidebarWorkspacePins {
     static func wire(_ bridge: SidebarBridge) {

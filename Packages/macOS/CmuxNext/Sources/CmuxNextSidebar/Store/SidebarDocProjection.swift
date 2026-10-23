@@ -8,7 +8,10 @@ import Foundation
 /// each machine's rows become its nodes in the document's order (links,
 /// tabs and apps too). A group in Pinned or a custom section is not a tile:
 /// it lists as header and member rows, drawn by the list like any group
-/// (`bandGroups`, `arrange`). Pure: it only regroups rows the reducer ordered.
+/// (`bandGroups`, `arrange`). A workspace pinned at the top level of Pinned
+/// is not a tile either: it lists as a workspace row in the Pinned area at
+/// the top of the list (`pinnedWorkspaces`; Leo 2026-10-21: "it should just
+/// be on the sidebar"). Pure: it only regroups rows the reducer ordered.
 public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     /// One node of a machine section.
     public enum Node: Hashable, Sendable {
@@ -79,6 +82,36 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var bandGroups: [Group]
     /// The machine sections made remote groups (remote-groups-DESIGN.md slice 4), by document section id.
     public var hostGroups: Set<String> = []
+    /// The workspaces at the top level of Pinned, in document order: rows of the list's Pinned area,
+    /// never tiles (`arrange`).
+    public var pinnedWorkspaces: [PinnedWorkspace] = []
+    /// The item of every workspace that reads as pinned: at the top level of Pinned, or pinned inside its
+    /// group. Its row draws the pin glyph.
+    public var pinnedItems: Set<String> = []
+
+    /// A workspace at the top level of Pinned.
+    public struct PinnedWorkspace: Hashable, Sendable {
+        /// Its document item.
+        public var item: String
+        /// The workspace it places.
+        public var ref: SidebarDocWorkspaceRef
+        /// The section that holds it (`sec_pinned`).
+        public var section: String
+        /// The workspace is not live (closed, or on a machine not connected now): it lists as an item
+        /// row with its stored name, as its dimmed tile did, since no live workspace row stands for it.
+        public var closed: Bool
+        /// Its item row while it is closed (`SidebarListItem.pinned`: it draws the pin glyph).
+        public var listed: SidebarListItem
+        /// Its layout item: what an item action resolves (`pinnedLayoutItem`), though `layout` does not hold it.
+        public var layoutItem: LayoutItem
+    }
+
+    /// The layout item of the workspace at the top level of Pinned with item `id`, open or closed. It lists as a
+    /// row, not in `layout`, so an item action on its row (the menu, the palette, the CLI, MCP) resolves it here:
+    /// Remove from Section unpins it, as on its tile before.
+    public func pinnedLayoutItem(_ id: String) -> LayoutItem? {
+        pinnedWorkspaces.first { $0.item == id }?.layoutItem
+    }
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -93,6 +126,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var sectionIndex: [String: Int] = [:]
         var bandGroups: [Group] = []
         var machineOrder: [String] = []
+        var pinnedWorkspaces: [PinnedWorkspace] = []
 
         for row in rows {
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
@@ -130,6 +164,11 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             } else if row.depth > 0, let parent = row.parent ?? item.parent,
                       let at = bandGroups.lastIndex(where: { $0.id == parent }) {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
+            } else if row.depth == 0, record.kind == .pinned, let ref = item.body.workspace {
+                var listed = Self.listItem(item)
+                listed.pinned = true
+                pinnedWorkspaces.append(PinnedWorkspace(item: id, ref: ref, section: record.id, closed: row.dimmed, listed: listed,
+                                                        layoutItem: Self.layoutItem(item)))
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }
@@ -145,6 +184,12 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.unplaced = unplaced
         self.bandGroups = bandGroups
         hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
+        self.pinnedWorkspaces = pinnedWorkspaces
+        // Read from the rows (the mirror's order, pending changes included), so an Unpin takes the glyph off at once;
+        // a member pinned in its group reads its item's mark (`SidebarDocRecords.isPinned(item:)`).
+        pinnedItems = Set(pinnedWorkspaces.map(\.item)).union(rows.lazy.filter { $0.depth > 0 }.compactMap(\.item).filter { id in
+            records.items[id].map { $0.pinnedInGroup && $0.body.workspace != nil } ?? false
+        })
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],
