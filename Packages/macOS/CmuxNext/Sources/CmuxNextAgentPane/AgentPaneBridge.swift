@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextPages
+import CmuxNextSettings
 import os
 import WebKit
 
