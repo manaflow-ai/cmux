@@ -18,7 +18,14 @@ export function createScrollPacer(
 
   return {
     enqueue(frame: ScrollFrame) {
-      commit(frame);
+      pending = frame;
+      if (handle !== undefined) return;
+      handle = requestFrame(() => {
+        handle = undefined;
+        const next = pending;
+        pending = undefined;
+        if (next) commit(next);
+      });
     },
     cancel() {
       pending = undefined;

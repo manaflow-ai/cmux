@@ -19,12 +19,17 @@ test("scroll updates commit once per frame and keep the latest offset", () => {
   pacer.enqueue({ top: 80, atLatest: true });
   expect(committed).toEqual([]);
   expect(callbacks).toHaveLength(1);
-  callbacks.get(1)?.(0);
+  const run = (handle: number, time: number) => {
+    const callback = callbacks.get(handle);
+    callbacks.delete(handle);
+    callback?.(time);
+  };
+  run(1, 0);
   expect(committed).toEqual([{ top: 80, atLatest: true }]);
 
   pacer.enqueue({ top: 120, atLatest: false });
   pacer.cancel();
-  callbacks.get(2)?.(16);
+  run(2, 16);
   expect(committed).toEqual([{ top: 80, atLatest: true }]);
   expect(callbacks).toHaveLength(0);
 });

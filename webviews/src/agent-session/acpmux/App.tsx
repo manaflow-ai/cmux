@@ -105,6 +105,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
+import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import {
@@ -1863,7 +1864,13 @@ export function VirtualTranscript({
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
-  const [scroll, setScroll] = useState({ top: 0, delta: 0 });
+  const scrollRef = useRef({ top: 0, delta: 0 });
+  const [, setScroll] = useState(scrollRef.current);
+  const setScrollAt = (top: number, delta = top - scrollRef.current.top) => {
+    const next = { top, delta };
+    scrollRef.current = next;
+    setScroll(next);
+  };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
@@ -1892,6 +1899,32 @@ export function VirtualTranscript({
     followingRef.current = next;
     setFollowing(next);
   };
+  const transcriptMounted = useRef(true);
+  const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
+  scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
+    if (!transcriptMounted.current) return;
+    // A rail jump or a layout correction may move the live scroller after an event queued this
+    // frame. That event is stale; its state must not restore the old offset on the next commit.
+    if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) return;
+    acpmuxPerf.timed("flush.scroll", () => {
+      setScroll(scrollRef.current);
+      setFollowing(frame.atLatest);
+    });
+  });
+  const queueScroll = (top: number, atLatest: boolean) => {
+    // Keep the intent ref synchronous so a second scroll event before the next frame sees the
+    // reader's latest state; React work itself is coalesced by scrollPacer.
+    followingRef.current = atLatest;
+    scrollRef.current = { top, delta: top - scrollRef.current.top };
+    scrollPacer.current!.enqueue({ top, atLatest });
+  };
+  useEffect(() => {
+    transcriptMounted.current = true;
+    return () => {
+      transcriptMounted.current = false;
+      scrollPacer.current?.cancel();
+    };
+  }, []);
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
@@ -2482,7 +2515,7 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
-  const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
+  const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scrollRef.current;
   const renderFollowing = sessionSwitched || following;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
@@ -2594,7 +2627,8 @@ export function VirtualTranscript({
       const nextTop = Math.max(0, Math.min(maximum, top));
       const delta = nextTop - node.scrollTop;
       node.scrollTop = nextTop;
-      setScroll((current) => ({ top: nextTop, delta: delta || nextTop - current.top }));
+      scrollPacer.current?.cancel();
+      setScrollAt(nextTop, delta || nextTop - scrollRef.current.top);
     },
     [layout, rows],
   );
@@ -2719,10 +2753,11 @@ export function VirtualTranscript({
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
       seenAnchor.current = undefined;
+      scrollPacer.current?.cancel();
       clearTimeout(settle.current);
       settle.current = undefined;
       jumpTarget.current = undefined;
-      setScroll({ top: 0, delta: 0 });
+      setScrollAt(0, 0);
       follow(true);
     }
     const old = switched ? null : previousLayout.current;
@@ -2736,7 +2771,8 @@ export function VirtualTranscript({
       scrolledTo.current = { ...scrolledTo.current, top: scrolledTo.current.top - appliedLift.current };
       // The rows mounted for this frame read the offset too, before its scroll event comes.
       const moved = node.scrollTop;
-      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+      scrollPacer.current?.cancel();
+      setScrollAt(moved);
     }
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
@@ -2746,7 +2782,8 @@ export function VirtualTranscript({
     if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
       // The rows mounted for this frame read the held offset too, before its scroll event comes.
       const moved = node.scrollTop;
-      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+      scrollPacer.current?.cancel();
+      setScrollAt(moved);
     }
     if (folding && node) {
       // What opened pushed the latest row out of view: the view is the reader's now, not following.
@@ -2846,7 +2883,8 @@ export function VirtualTranscript({
         const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
         node.scrollTop = top;
         followTrace.set(top);
-        setScroll({ top, delta: 0 });
+        scrollPacer.current?.cancel();
+        setScrollAt(top, 0);
         follow(top >= latest - 1);
         didOpenAtLatest.current = true;
         endSeek();
@@ -3187,7 +3225,8 @@ export function VirtualTranscript({
     scrolledTo.current = { top, atLatest: true };
     seenAnchor.current = null;
     followTrace.set(top);
-    setScroll((current) => ({ top, delta: top - current.top }));
+    scrollPacer.current?.cancel();
+    setScrollAt(top);
     // The commit this asks for places the rows with the stack's room and settles at that end.
     follow(true);
     // The kept place is the latest message again: a relaunch opens there.
@@ -3218,9 +3257,7 @@ export function VirtualTranscript({
       scrolledTo.current = { top: next, atLatest: true };
       seenAnchor.current = null;
       followTrace.set(next);
-      acpmuxPerf.timed("flush.scroll", () =>
-        flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))),
-      );
+      queueScroll(next, true);
       // The kept place is the latest message again (a reopened chat opens there, not where the
       // reader was before the jump).
       if (onAnchor) {
@@ -3248,8 +3285,7 @@ export function VirtualTranscript({
       const resting = settled ? latest : next;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
-      follow(true);
-      setScroll((current) => ({ top: resting, delta: resting - current.top }));
+      queueScroll(resting, true);
       return;
     }
     const was = scrolledTo.current;
@@ -3273,12 +3309,7 @@ export function VirtualTranscript({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(next, scrolledTo.current.atLatest, layout, rows);
-    acpmuxPerf.timed("flush.scroll", () =>
-      flushSync(() => {
-        setScroll((current) => ({ top: next, delta: next - current.top }));
-        follow(scrolledTo.current.atLatest);
-      }),
-    );
+    queueScroll(next, scrolledTo.current.atLatest);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
       anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
