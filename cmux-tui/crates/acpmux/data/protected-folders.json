@@ -1,5 +1,5 @@
 {
-  "about": "LAUNCH-NO-TCC-PROMPTS: the folders macOS guards with a privacy prompt the first time an app reads inside them. The one list for every layer: acpmux reads it with include_str!; scripts/cmux-next/gen-protected-folders.py writes the Swift and TypeScript copies (--check fails CI on drift). Listing or opening inside one raises the prompt; a stat of a path does not. kind names the folder for people (settings anchors, explainers).",
+  "about": "LAUNCH-NO-TCC-PROMPTS: the folders macOS guards with a privacy prompt the first time an app reads inside them. The one list for every layer: acpmux reads it with include_str!; scripts/cmux-next/gen-protected-folders.py writes the Swift and TypeScript copies (--check fails CI on drift); scripts/cmux-next/launch-tcc-smoke.py reads it. Listing or opening inside one raises the prompt; a stat of a path does not. kind names the folder for people (settings anchors, explainers).",
   "inHome": [
     { "path": "Desktop", "kind": "desktop" },
     { "path": "Documents", "kind": "documents" },
