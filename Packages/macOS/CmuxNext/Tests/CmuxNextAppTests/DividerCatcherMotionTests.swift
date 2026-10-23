@@ -96,4 +96,23 @@ import Testing
         #expect(!layout.root.isInLayoutMotion)
         #expect(layout.catcherAreas == layout.dividerAreas, "the shown layout's catchers cover its dividers: \(layout.catcherAreas) vs \(layout.dividerAreas)")
     }
+
+    /// Review 1 (finding 3): during a spring the catchers keep their rest places, where the dividers
+    /// no longer are; a click there must reach whatever is under it (a page), not a stale catcher.
+    /// The window's frozen areas are pass-through until the landing.
+    @Test func catchersAtRestPlacesLetTheMouseThroughDuringTheSpring() throws {
+        let layout = Layout()
+        defer { layout.window.close() }
+        let column = LayoutColumn(id: "c", width: 1, root: .split("s", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("a"),
+                                                                    b: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("c"))))
+        layout.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))])
+        layout.root.syncWithModel()
+        layout.root.advanceFrame(1.0 / 120)
+        try #require(layout.root.isInLayoutMotion)
+        let frozen = Set(layout.window.overlayLayer.catcherAreas.map(\.id))
+        #expect(!frozen.isEmpty && layout.window.overlayLayer.catcherPassThrough == frozen, "every frozen area passes the mouse")
+        layout.settle()
+        #expect(layout.window.overlayLayer.catcherPassThrough.isEmpty, "at rest the catchers take the mouse again")
+    }
 }
+

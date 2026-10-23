@@ -55,6 +55,9 @@ final class WindowOverlayLayer {
     /// Host views whose page draws in this window's layer tree (layer hosting): their page
     /// windows draw nothing, so they need no overlay panel above them and no catcher panels.
     private var hostedPageHosts: [ObjectIdentifier: WeakView] = [:]
+    /// Ids of catcher areas held at their rest places by a layout on a spring: their dividers moved
+    /// away, so their panels let the mouse through until the landing (`DividerMouseCatchers.update`).
+    private(set) var catcherPassThrough: Set<String> = []
     /// Each root's divider areas the catchers cover: its areas at its last report at rest.
     private var catcherAreasAtRest: [ObjectIdentifier: [LayoutMouseArea]] = [:]
     static let sidebarResizeAreaID = "sidebar.resize"
