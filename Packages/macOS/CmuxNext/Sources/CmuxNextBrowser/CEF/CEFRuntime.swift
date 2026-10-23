@@ -424,6 +424,7 @@ final class CEFRuntime {
             throw .initialize
         }
         shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
+        shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

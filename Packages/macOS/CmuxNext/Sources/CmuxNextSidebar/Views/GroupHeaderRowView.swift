@@ -315,7 +315,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // radius, padding, type and glyphs scale with the row height
         // (the sidebar density: compact 24, comfortable 32 pt).
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
-        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: b.height)
+        // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
+        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
         let pad = (barHeight * 0.62).rounded()
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
