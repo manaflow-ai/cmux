@@ -1,10 +1,12 @@
 // The classic New Tab page with no agent to name yet (acpmux listed none): Return starts the chat
-// with a bare `chat.new` in the folder picked on the page. When acpmux refuses that start for the
-// folder's trust answer, the prompt must not be lost with it: it goes once Trust is answered, once.
+// with a bare `chat.new` in the folder picked on the page. When acpmux refuses that start, the
+// prompt is never lost with it, nor is anything typed in the chat composer while the start was out:
+// a trust refusal sends it once Trust is answered, once; any other refusal leaves it in the composer
+// to send again, in the same folder.
 //
 // The pane runs on its in-page mock daemon (transport "mock"), whose session/new refuses the
 // picked folder until it is trusted, as acpmux's trust gate does (trust_gate.rs).
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -60,9 +62,16 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(async () => {
+afterEach(async () => {
   await act(async () => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  dom.window.localStorage.clear();
   restoreAnswer?.();
+  restoreAnswer = undefined;
+});
+
+afterAll(async () => {
   // The pane marked the page as the mock daemon's (App.tsx): later files see a plain page again.
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
   dom.window.close();
@@ -72,7 +81,6 @@ afterAll(async () => {
   }
 });
 
-const folder = "/tmp/untrusted-project";
 const settle = async (rounds = 20) => {
   for (let round = 0; round < rounds; round++)
     await act(async () => {
@@ -84,25 +92,36 @@ async function until(check: () => boolean, what: string) {
   expect(check(), what).toBe(true);
 }
 
-test("classic Return with no agent named: a start refused for the folder's trust sends its prompt once Trust is answered, once", async () => {
+type Answer = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+type Refusal = { message: string; data?: Record<string, unknown> };
+
+/// The classic page on the in-page mock daemon, acpmux listing no agent. `refuse` answers each
+/// `session/new` in `folder` (the attempts so far, counting this one): a refusal for the start, or
+/// undefined to start it; it may wait before answering. `trusted`: acpmux reads the folder as
+/// trusted. Records the starts and the prompts sent.
+async function mountClassic(
+  folder: string,
+  refuse: (attempt: number) => Promise<Refusal | undefined>,
+  options: { trusted?: boolean } = {},
+) {
   const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
-  type Answer = (method: string, params: Record<string, unknown>) => Promise<unknown>;
   const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
   const answer = proto.answer;
   restoreAnswer = () => (proto.answer = answer);
-  let trusted = false;
   const prompts: string[] = [];
-  let refusals = 0;
   const started: string[] = [];
-  proto.answer = function (this: unknown, method, params) {
-    if (method === "session/new") started.push(String(params.cwd ?? ""));
-    if (method === "session/new" && params.cwd === folder && !trusted) {
-      refusals++;
-      return Promise.reject(
-        Object.assign(new Error("Trust this folder first"), { data: { reason: "trust.pending", cwd: folder } }),
-      );
+  let attempts = 0;
+  proto.answer = async function (this: unknown, method, params) {
+    if (method === "session/new") {
+      started.push(String(params.cwd ?? ""));
+      if (params.cwd === folder) {
+        const refusal = await refuse(++attempts);
+        if (refusal) throw Object.assign(new Error(refusal.message), refusal.data ? { data: refusal.data } : {});
+      }
     }
-    if (method === "acp.trust.set" && params.cwd === folder) trusted = params.level === "trusted";
+    // A folder the person already trusted: the pane asks no question of its own for it.
+    if (options.trusted && method === "acp.trust.get" && params.cwd === folder)
+      return { cwd: folder, level: "trusted", harnesses: { claude: "trusted", codex: "trusted" } };
     if (method === "session/prompt") prompts.push(String((params.prompt as { text?: string }[])?.[0]?.text ?? ""));
     return answer.call(this, method, params);
   };
@@ -146,8 +165,11 @@ test("classic Return with no agent named: a start refused for the folder's trust
       undefined,
     "the pane connected to the mock daemon",
   );
+  return { prompts, started };
+}
 
-  // The folder picked on the page: the chat starts there.
+/// Picks `folder` on the page, types `text` and presses Return.
+async function askIn(folder: string, text: string) {
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const option = dom.window.document.querySelector<HTMLElement>(
     `.acpmux-project-menu [role="option"][aria-label$="${folder}"]`,
@@ -156,28 +178,105 @@ test("classic Return with no agent named: a start refused for the folder's trust
   await act(async () => option!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, "hello");
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, text);
     field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
   await act(async () =>
     host.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
   );
+}
+
+type FieldElement = HTMLElement & { acpmuxMarkdownField?: { type(markdown: string): unknown; value(): string } };
+/// The chat composer's prompt field, once its editor is up.
+const promptField = () => {
+  const element = host.querySelector<FieldElement>(".acpmux-composer-prompt");
+  return element?.querySelector("[contenteditable]") ? element.acpmuxMarkdownField : undefined;
+};
+const composerText = () => promptField()?.value() ?? "";
+const trustButton = () =>
+  dom.window.document.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary") ?? undefined;
+const trustRefusal = (folder: string): Refusal => ({
+  message: "Trust this folder first",
+  data: { reason: "trust.pending", cwd: folder },
+});
+
+test("classic Return with no agent named: a start refused for the folder's trust sends its prompt once Trust is answered, once", async () => {
+  const folder = "/tmp/untrusted-project";
+  let trusted = false;
+  const { prompts, started } = await mountClassic(folder, async () => (trusted ? undefined : trustRefusal(folder)));
+  const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
+  const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
+  const recorded = proto.answer;
+  proto.answer = function (this: unknown, method, params) {
+    if (method === "acp.trust.set" && params.cwd === folder) trusted = params.level === "trusted";
+    return recorded.call(this, method, params);
+  };
+  await askIn(folder, "hello");
 
   // acpmux refused the start: the folder's question shows, and nothing went yet.
-  await until(() => refusals > 0, "the start was refused");
-  const trust = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary") ?? undefined;
-  await until(() => trust() !== undefined, "the trust question shows");
+  await until(() => trustButton() !== undefined, "the trust question shows");
   expect(prompts).toEqual([]);
   // The prompt waits in the chat composer meanwhile, not lost with the refused start.
-  await until(
-    () => host.querySelector(".acpmux-composer-prompt")?.textContent?.includes("hello") === true,
-    "the composer holds the prompt",
-  );
+  await until(() => composerText() === "hello", "the composer holds the prompt");
 
-  await act(async () => trust()!.click());
+  await act(async () => trustButton()!.click());
   await until(() => prompts.length > 0, "the prompt went after Trust");
   await settle();
   expect(prompts).toEqual(["hello"]);
   // The refused start, then the one after Trust, both in the picked folder: the prompt went there.
+  expect(started).toEqual([folder, folder]);
+});
+
+test("a start refused after a while keeps the prompt ahead of what was typed in the composer meanwhile", async () => {
+  const folder = "/tmp/slow-untrusted-project";
+  let answer!: () => void;
+  const { prompts } = await mountClassic(folder, async (attempt) => {
+    if (attempt > 1) return undefined;
+    await new Promise<void>((done) => (answer = done));
+    return trustRefusal(folder);
+  });
+  await askIn(folder, "hello");
+  // The start is still out: the chat composer shows, and the person goes on typing in it.
+  await until(() => promptField() !== undefined && answer !== undefined, "the chat composer is up");
+  await act(async () => void promptField()!.type("and one more thing"));
+  expect(composerText()).toBe("and one more thing");
+
+  await act(async () => answer());
+  await until(() => trustButton() !== undefined, "the trust question shows");
+  // Nothing is lost: the refused prompt first, then what was typed since, and nothing went yet.
+  await until(() => composerText().includes("hello"), "the composer got the prompt back");
+  expect(composerText()).toBe("hello\n\nand one more thing");
+  expect(prompts).toEqual([]);
+
+  await act(async () => trustButton()!.click());
+  await until(() => prompts.length > 0, "the prompt went after Trust");
+  await settle();
+  expect(prompts).toEqual(["hello\n\nand one more thing"]);
+});
+
+test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
+  const folder = "/tmp/busy-project";
+  const { prompts, started } = await mountClassic(
+    folder,
+    async (attempt) => (attempt === 1 ? { message: "acpmux could not start the agent" } : undefined),
+    { trusted: true },
+  );
+  await askIn(folder, "hello");
+  await until(() => started.length === 1, "the start went");
+  await until(() => composerText() === "hello", "the composer holds the prompt");
+  // No trust question for a refusal that is not about trust.
+  await settle();
+  expect(trustButton()).toBeUndefined();
+  expect(prompts).toEqual([]);
+
+  // Send again from the composer: the chat starts in the folder picked on the page, and the prompt goes once.
+  await act(async () =>
+    host
+      .querySelector("form.acpmux-composer")!
+      .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+  );
+  await until(() => prompts.length > 0, "the prompt went");
+  await settle();
+  expect(prompts).toEqual(["hello"]);
   expect(started).toEqual([folder, folder]);
 });
