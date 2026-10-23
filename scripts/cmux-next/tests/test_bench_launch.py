@@ -7,6 +7,8 @@
    time (a busy main thread, a long restore) belongs to a live app of the tag (another bundle path).
 3. No environment variable passes the GUI-session gate; the one launch without a session is the explicit socket-only
    check, and its report says so.
+4. After a signal exit the crash-report wait wakes on the report folder, also for an account that never crashed (no
+   report folder yet), and says when it could watch no folder instead of returning at once in silence.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
 copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts.
@@ -23,6 +25,8 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -154,6 +158,87 @@ class TagInUseTests(unittest.TestCase):
         link = os.path.join(self.folder, "link.sock")
         os.symlink(target, link)
         self.assertEqual(bl.unique_paths([target, link]), [target])
+
+
+class CrashReportWaitTests(unittest.TestCase):
+    """The crash-report wait after a signal exit (deep review of fleet-gui, fix review): with no folder it could watch
+    it returned at once, so on an account that never crashed (no ~/Library/Logs/DiagnosticReports yet; ReportCrash
+    creates it with the first report) and outside _analyticsusers (the system folder is 0770) the .ips that ReportCrash
+    writes a few seconds after the exit was missing from the LaunchError report."""
+
+    WAIT = 10  # the wait diagnose() gives ReportCrash
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="bench-launch-crash-")
+        self.tag = f"bl-crash-{os.getpid()}"
+        self.app = bl.BenchApp(fake_bundle(self.folder, self.tag), out=os.path.join(self.folder, "out"),
+                               teardown=False)
+        self.app.launched_at = time.time()
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def write_report(self, folder):
+        """What ReportCrash does for the account's first crash: create its report folder, then write the .ips."""
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "cmux DEV-2026-10-23-120000.ips")
+        with open(path, "w") as report:
+            report.write(json.dumps({"app_name": "cmux DEV"}) + "\n" + json.dumps({"procPath": self.app.binary}))
+        return path
+
+    def test_a_report_written_into_a_report_folder_that_did_not_exist_yet_is_found_before_the_deadline(self):
+        home = os.path.join(self.folder, "home")
+        os.makedirs(home)  # an account that has never crashed: no Library/Logs/DiagnosticReports
+        mine = os.path.join(home, "Library/Logs/DiagnosticReports")
+        system = os.path.join(self.folder, "system-reports-unreadable")  # stands in for a 0770 folder it cannot open
+        written = []
+        # ReportCrash writes the .ips a moment after the process ends (seconds on a real host).
+        writer = threading.Timer(0.5, lambda: written.append(self.write_report(mine)))
+        with mock.patch.object(bl, "crash_report_folders", return_value=(mine, system)):
+            writer.start()
+            started = time.monotonic()
+            try:
+                found = self.app.wait_for_crash_report(exit_code=-11, wait=self.WAIT)
+            finally:
+                writer.join()
+            waited = time.monotonic() - started
+        self.assertEqual(found, written, "the report ReportCrash wrote during the wait was not found")
+        self.assertLess(waited, self.WAIT, "the wait ran to its deadline instead of waking on the new report")
+        self.assertEqual(self.app.crash_report_wait["watched"], [mine])
+
+    def test_a_report_created_before_its_body_is_written_is_found_when_the_body_lands(self):
+        mine = os.path.join(self.folder, "reports")
+        os.makedirs(mine)
+        path = os.path.join(mine, "cmux DEV-2026-10-23-120001.ips")
+        body = json.dumps({"app_name": "cmux DEV"}) + "\n" + json.dumps({"procPath": self.app.binary})
+        # The file appears empty first (one folder event), and its body lands later (no folder event, only a write
+        # to the file itself).
+        create = threading.Timer(0.3, lambda: open(path, "w").close())
+        fill = threading.Timer(0.8, lambda: open(path, "a").write(body))
+        with mock.patch.object(bl, "crash_report_folders", return_value=(mine, os.path.join(self.folder, "none"))):
+            create.start()
+            fill.start()
+            started = time.monotonic()
+            try:
+                found = self.app.wait_for_crash_report(exit_code=-6, wait=self.WAIT)
+            finally:
+                create.join()
+                fill.join()
+            waited = time.monotonic() - started
+        self.assertEqual(found, [path])
+        self.assertLess(waited, self.WAIT, "the wait slept to its deadline after the report's body was written")
+
+    def test_a_wait_with_no_folder_it_can_watch_says_so(self):
+        blocker = os.path.join(self.folder, "a-file")
+        open(blocker, "w").close()  # a folder below a regular file can be neither made nor opened
+        mine, system = os.path.join(blocker, "DiagnosticReports"), os.path.join(blocker, "system")
+        with mock.patch.object(bl, "crash_report_folders", return_value=(mine, system)):
+            found = self.app.wait_for_crash_report(exit_code=-11, wait=self.WAIT)
+        self.assertEqual(found, [])
+        wait = self.app.crash_report_wait
+        self.assertEqual(wait["watched"], [], "a folder below a file counted as watched")
+        self.assertEqual(sorted(wait["unwatched"]), sorted([mine, system]),
+                         "the report does not say which folders the wait could not watch")
 
 
 if __name__ == "__main__":
