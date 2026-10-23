@@ -1,8 +1,10 @@
 // Which wheel events are a mouse wheel's notch (wheelGlide.ts): the values each engine dispatches.
 // And where a glide stops: a stand-in scroller and frame clock, so each stop is checked frame by
-// frame (the browser tests cover the motion itself).
+// frame (the browser tests cover the motion itself). And the wheel forwarded from outside the
+// transcript (Jump to latest, a stack gutter, the minimap's card: wheelPassThrough.ts).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { installWheelGlide, isWheelNotch } from "./wheelGlide";
+import { forwardWheel } from "./wheelPassThrough";
 
 const pixels = (deltaY: number, wheelDeltaY?: number) => ({ deltaY, deltaMode: 0, wheelDeltaY });
 
@@ -77,8 +79,15 @@ function standIn() {
       for (const listener of doc.visibility) listener();
     },
   };
+  let top = 400;
   const scroller = {
-    scrollTop: 400,
+    /// Kept inside the content, as a browser keeps it (a reply that shrinks pulls it back).
+    get scrollTop() {
+      return Math.max(0, Math.min(top, scroller.scrollHeight - scroller.clientHeight));
+    },
+    set scrollTop(value: number) {
+      top = Math.max(0, Math.min(value, scroller.scrollHeight - scroller.clientHeight));
+    },
     scrollHeight: 1000,
     clientHeight: 200,
     scrollWidth: 300,
@@ -90,7 +99,14 @@ function standIn() {
       listeners.get(name)!.add(listener);
     },
     removeEventListener: (name: string, listener: (event: unknown) => void) => listeners.get(name)?.delete(listener),
-    dispatchEvent: () => true,
+    /// A wheel event dispatched on it (a forwarded copy) reaches its wheel listeners, over itself.
+    dispatchEvent: (event: Event) => {
+      if (event.type === "wheel") {
+        Object.defineProperty(event, "composedPath", { value: () => [scroller] });
+        for (const listener of listeners.get("wheel") ?? []) listener(event);
+      }
+      return !event.defaultPrevented;
+    },
     listening: (name: string) => listeners.get(name)?.size ?? 0,
     wheel(init: Partial<WheelEvent> & { wheelDeltaY?: number; over?: unknown }) {
       let prevented = false;
@@ -253,6 +269,46 @@ describe("installWheelGlide", () => {
     expect(Math.round(scroller.scrollTop)).toBe(600);
   });
 
+  test("a notch and its reverse before the next frame cancel out: the view stays, and the engine moves nothing", () => {
+    const { scroller } = setup();
+    expect(scroller.wheel(DOWN)).toBe(true);
+    // The reverse comes in the same input batch: taken too, so the engine does not apply it at once.
+    expect(scroller.wheel(UP)).toBe(true);
+    expect(frames.size).toBe(0);
+    run(20);
+    expect(scroller.scrollTop).toBe(400);
+  });
+
+  test("a reverse notch mid-glide heads back to where the glide began", () => {
+    const { scroller } = setup();
+    scroller.wheel(DOWN);
+    run(3);
+    expect(scroller.wheel(UP)).toBe(true);
+    run(30);
+    expect(Math.round(scroller.scrollTop)).toBe(400);
+    expect(frames.size).toBe(0);
+  });
+
+  test("a reply that shrinks mid-glide ends the glide at the new bottom", () => {
+    const { scroller } = setup();
+    // Headed for the bottom (800), and the content shrinks to a bottom of 760.
+    scroller.scrollTop = 750;
+    scroller.wheel(DOWN);
+    run(2);
+    scroller.scrollHeight = 960;
+    run(20);
+    expect(scroller.scrollTop).toBe(760);
+    expect(frames.size).toBe(0);
+    // Short of the bottom, and the content shrinks under the glide's target: it ends at the bottom.
+    const short = setup().scroller;
+    short.wheel(DOWN);
+    run(2);
+    short.scrollHeight = 650;
+    run(20);
+    expect(short.scrollTop).toBe(450);
+    expect(frames.size).toBe(0);
+  });
+
   test("a diagonal notch, as much sideways as down, is the engine's", () => {
     const { scroller } = setup();
     expect(scroller.wheel({ ...DOWN, deltaX: -100.006103515625 })).toBe(false);
@@ -291,5 +347,104 @@ describe("installWheelGlide", () => {
     for (const name of ["pointerdown", "touchstart", "keydown"])
       expect([name, page.added.get(name)]).toEqual([name, 0]);
     expect(doc.visibility.size).toBe(0);
+  });
+});
+
+/// The WheelEvent a page makes (bun has none): the fields forwardWheel copies.
+class StandInWheel extends Event {
+  deltaX = 0;
+  deltaY = 0;
+  deltaMode = 0;
+  ctrlKey = false;
+  metaKey = false;
+  shiftKey = false;
+  altKey = false;
+  wheelDeltaY?: number;
+  constructor(type: string, init: Record<string, unknown> = {}) {
+    super(type, init);
+    Object.assign(this, init);
+  }
+}
+
+describe("forwardWheel", () => {
+  let frames: Map<number, (now: number) => void>;
+  let next = 0;
+  let now = 0;
+  const saved = {
+    raf: globalThis.requestAnimationFrame,
+    caf: globalThis.cancelAnimationFrame,
+    wheel: (globalThis as { WheelEvent?: unknown }).WheelEvent,
+  };
+  beforeEach(() => {
+    frames = new Map();
+    globalThis.requestAnimationFrame = ((callback: (now: number) => void) => {
+      frames.set(++next, callback);
+      return next;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = ((id: number) => frames.delete(id)) as typeof cancelAnimationFrame;
+    (globalThis as { WheelEvent?: unknown }).WheelEvent = StandInWheel;
+  });
+  afterEach(() => {
+    globalThis.requestAnimationFrame = saved.raf;
+    globalThis.cancelAnimationFrame = saved.caf;
+    (globalThis as { WheelEvent?: unknown }).WheelEvent = saved.wheel;
+  });
+  const run = (count: number) => {
+    for (let index = 0; index < count; index += 1) {
+      now += 16;
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(now);
+    }
+  };
+  /// The transcript with its glide, and the wheels it heard (the copies forwarded to it).
+  const setup = () => {
+    const { scroller } = standIn();
+    installWheelGlide(scroller as unknown as HTMLElement);
+    const heard: number[] = [];
+    scroller.addEventListener("wheel", (event) => heard.push((event as WheelEvent).deltaY));
+    return { scroller, heard };
+  };
+  const over = (init: Record<string, unknown>) => new StandInWheel("wheel", { cancelable: true, ...init });
+
+  test("a forwarded notch glides as it does over the transcript", () => {
+    const { scroller } = setup();
+    forwardWheel(scroller as unknown as HTMLElement, over(UP) as unknown as WheelEvent);
+    // Not moved at once: the glide took the copy.
+    expect(scroller.scrollTop).toBe(400);
+    run(30);
+    expect(Math.round(scroller.scrollTop)).toBe(300);
+  });
+
+  test("a forwarded trackpad scroll moves the transcript at once and ends a glide in flight", () => {
+    const { scroller } = setup();
+    forwardWheel(scroller as unknown as HTMLElement, over(UP) as unknown as WheelEvent);
+    run(3);
+    const at = scroller.scrollTop;
+    forwardWheel(scroller as unknown as HTMLElement, over({ deltaY: -40, wheelDeltaY: 120 }) as unknown as WheelEvent);
+    expect(scroller.scrollTop).toBe(at - 40);
+    run(20);
+    expect(scroller.scrollTop).toBe(at - 40);
+    expect(frames.size).toBe(0);
+  });
+
+  test("a forwarded pinch (ctrl) is left alone: the transcript hears nothing and does not move", () => {
+    const { scroller, heard } = setup();
+    forwardWheel(scroller as unknown as HTMLElement, over({ ...UP, ctrlKey: true }) as unknown as WheelEvent);
+    run(20);
+    expect(heard).toEqual([]);
+    expect(scroller.scrollTop).toBe(400);
+  });
+
+  test("a forwarded modified notch is heard, scrolls nothing, and ends a glide in flight", () => {
+    for (const modifier of ["shiftKey", "altKey", "metaKey"]) {
+      const { scroller, heard } = setup();
+      forwardWheel(scroller as unknown as HTMLElement, over(DOWN) as unknown as WheelEvent);
+      run(3);
+      const at = scroller.scrollTop;
+      forwardWheel(scroller as unknown as HTMLElement, over({ ...DOWN, [modifier]: true }) as unknown as WheelEvent);
+      run(20);
+      expect([modifier, heard.length, scroller.scrollTop]).toEqual([modifier, 2, at]);
+    }
   });
 });

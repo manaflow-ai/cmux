@@ -16,6 +16,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { MOTION_MS } from "../src/motion/scale.generated";
 
 await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -80,7 +81,17 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       }
     });
 
-  type Motion = { moved: number; frames: number; maxStep: number; glideMs: number; prevented: boolean[] };
+  type Motion = {
+    moved: number;
+    frames: number;
+    maxStep: number;
+    glideMs: number;
+    /// How far the view ran ahead of the glide's own ease, at its most: share of the distance covered
+    /// by a frame, less the ease at that frame's time from the wheel (two frames' grace). A jump is far
+    /// ahead in its one frame; a glide never is, however few of its frames a loaded host paints.
+    ahead: number;
+    prevented: boolean[];
+  };
 
   /// What `fire` does to the transcript's content, read once per painted frame until it has held for 6: how
   /// far it moved, over how many frames, its biggest move in one frame, how long it took from its
@@ -98,13 +109,21 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
         document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)!.closest(".acpmux-row") as HTMLElement
       ).dataset.rowId!;
       const content = () => -scroller.querySelector(`[data-row-id="${id}"]`)!.getBoundingClientRect().top;
-      const record = { tops: [content()], times: [performance.now()], prevented: [] as boolean[] };
+      const record = {
+        tops: [content()],
+        times: [performance.now()],
+        prevented: [] as boolean[],
+        heardAt: [] as number[],
+      };
       const page = window as unknown as { wheelGlideRecord: typeof record; wheelGlideHeard?: boolean };
       page.wheelGlideRecord = record;
       // Once per page, reading the record of the moment: a bubbling listener on the window runs after
       // the transcript's own.
       if (!page.wheelGlideHeard)
-        addEventListener("wheel", (event) => page.wheelGlideRecord.prevented.push(event.defaultPrevented));
+        addEventListener("wheel", (event) => {
+          page.wheelGlideRecord.prevented.push(event.defaultPrevented);
+          page.wheelGlideRecord.heardAt.push(performance.now());
+        });
       page.wheelGlideHeard = true;
       let held = 0;
       window.cmuxAfterPaint((time) => {
@@ -128,8 +147,11 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
     );
     const record = await page.evaluate(
       () =>
-        (window as unknown as { wheelGlideRecord: { tops: number[]; times: number[]; prevented: boolean[] } })
-          .wheelGlideRecord,
+        (
+          window as unknown as {
+            wheelGlideRecord: { tops: number[]; times: number[]; prevented: boolean[]; heardAt: number[] };
+          }
+        ).wheelGlideRecord,
     );
     const { tops, times } = record;
     const steps = tops.slice(1).map((top, index) => top - tops[index]!);
@@ -141,8 +163,25 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       frames: steps.filter((step) => Math.abs(step) >= 0.5).length,
       maxStep: Math.max(...steps.map(Math.abs)),
       glideMs: first < 0 ? 0 : Math.round(times[arrived]! - times[first]!),
+      ahead: aheadOfEase(tops, times, record.heardAt[0]),
       prevented: record.prevented,
     };
+  }
+
+  /// The most a frame's share of the whole move runs ahead of the glide's ease at that frame's time
+  /// from the wheel, with two frames' grace (the glide starts one frame along, and a frame's time can
+  /// come before the input it paints) and 5% for rounding; -1 when nothing moved.
+  function aheadOfEase(tops: number[], times: number[], wheelAt: number | undefined): number {
+    const total = Math.abs(tops.at(-1)! - tops[0]!);
+    if (wheelAt === undefined || total < 1) return -1;
+    const frame = 1000 / 60;
+    let ahead = -1;
+    for (let index = 1; index < tops.length; index += 1) {
+      const progress = Math.min(1, Math.max(0, (times[index]! - wheelAt + 2 * frame) / MOTION_MS.standard));
+      const share = Math.abs(tops[index]! - tops[0]!) / total;
+      ahead = Math.max(ahead, share - (1 - (1 - progress) ** 3) - 0.05);
+    }
+    return ahead;
   }
 
   /// Dispatches macOS WebKit's wheel notches (`deltaY` each) on the row under the middle of the
@@ -170,16 +209,17 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
     );
 
   /// A glide: the page took the notch, and the view covered the whole distance over two or more
-  /// frames with no frame taking most of it, from its first move to its rest in at least 100 ms (the
-  /// glide runs 180 ms, the motion scale's standard step; the engine's own wheel step lands in one
-  /// frame in Chromium and two or three in WPE). A loaded host paints few of the glide's frames, so
-  /// the count of frames alone does not tell a glide from a jump.
+  /// frames, never ahead of the glide's ease for the time since the wheel, from its first move to its
+  /// rest in at least 100 ms (the glide runs 180 ms, the motion scale's standard step; the engine's
+  /// own wheel step lands in one frame in Chromium and two or three in WPE). A loaded host paints few
+  /// of the glide's frames: the ease at each painted frame's time tells a glide from a jump where a
+  /// count of frames or a step's size does not.
   function expectGlide(result: Motion, distance: number) {
     expect(result.prevented.length).toBeGreaterThan(0);
     expect(result.prevented.every(Boolean)).toBe(true);
     expect(Math.abs(result.moved - distance)).toBeLessThan(2);
     expect(result.frames).toBeGreaterThanOrEqual(2);
-    expect(result.maxStep).toBeLessThanOrEqual(0.8 * Math.abs(distance));
+    expect(result.ahead).toBeLessThanOrEqual(0);
     expect(result.glideMs).toBeGreaterThanOrEqual(100);
   }
 
@@ -201,6 +241,16 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
         const page = await open();
         const result = await motion(page, () => macNotches(page, [-MAC_NOTCH_PX, -MAC_NOTCH_PX, -MAC_NOTCH_PX], 3));
         expectGlide(result, -3 * MAC_NOTCH_PX);
+        await page.close();
+      });
+
+      test("a notch and its reverse in one input batch cancel out: nothing moves", async () => {
+        current = browsers.get(name);
+        const page = await open();
+        const result = await motion(page, () => macNotches(page, [-MAC_NOTCH_PX, MAC_NOTCH_PX]));
+        expect(result.prevented).toEqual([true, true]);
+        expect(Math.abs(result.moved)).toBeLessThan(2);
+        expect(result.maxStep).toBeLessThan(2);
         await page.close();
       });
 
@@ -275,6 +325,27 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
           { shift: false, alt: true, meta: false, legacy: 300 },
           { shift: false, alt: false, meta: true, legacy: 300 },
         ]);
+        await page.close();
+      });
+
+      // The other wheels that reach the transcript from over Jump to latest: a trackpad's moves it at
+      // once by its own pixels, a notch with the glide off by its pixels once, and a pinch not at all.
+      test("over Jump to latest, a trackpad, an unglided notch and a pinch move the transcript once or not at all", async () => {
+        current = browsers.get(name);
+        const page = await open();
+        await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+        const overJump = (init: Record<string, unknown>) =>
+          page.evaluate((init) => {
+            const jump = document.querySelector(".acpmux-jump-latest")!;
+            jump.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init } as WheelEventInit));
+          }, init);
+        const trackpad = await motion(page, () => overJump({ deltaY: -40, wheelDeltaY: 120 }));
+        expect(Math.round(trackpad.moved)).toBe(-40);
+        const pinch = await motion(page, () => overJump({ deltaY: -40, wheelDeltaY: 120, ctrlKey: true }));
+        expect(Math.round(pinch.moved)).toBe(0);
+        await page.evaluate(() => document.documentElement.setAttribute("data-wheel-glide", "off"));
+        const unglided = await motion(page, () => overJump({ deltaY: -MAC_NOTCH_PX, wheelDeltaY: 300 }));
+        expect(Math.abs(unglided.moved + MAC_NOTCH_PX)).toBeLessThan(2);
         await page.close();
       });
 
