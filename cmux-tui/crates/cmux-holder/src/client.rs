@@ -104,13 +104,14 @@ pub fn first_line_within(stdout: &mut ChildStdout, timeout: Duration) -> io::Res
         }
         match stdout.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => line.extend_from_slice(&buf[..n]),
+            Ok(n) => line.extend_from_slice(buf.get(..n).unwrap_or_default()),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
         }
     }
     let end = line.iter().position(|byte| *byte == b'\n').map_or(line.len(), |at| at + 1);
-    Ok(String::from_utf8_lossy(&line[..end]).into_owned())
+    line.truncate(end);
+    Ok(String::from_utf8_lossy(&line).into_owned())
 }
 
 /// A terminal a holder started: its pid and the custody dups.
