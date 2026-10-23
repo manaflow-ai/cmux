@@ -545,7 +545,6 @@ public final class LayoutRootView: NSView {
         // motion ends here, or the root reads as moving when it shows again and the window keeps
         // its divider catcher panels where another workspace's dividers were. After the release,
         // so the window does not re-sync its catchers for a root that is leaving.
-        if !live { setLayoutInMotion(false) }
         observeKeyWindow()
         if live {
             if let host = window as? any OverlayPlaneHosting, planeHost !== host {
