@@ -76,18 +76,31 @@ PERF_HOT = re.compile(r"//\s*perf-hot:\s*(?P<budget>\S+)(?:\s+(?P<path>[\w-]+))?
 DECL = re.compile(r"\b(func|init|deinit|subscript|var)\b")
 
 
+def load_sibling(name: str, filename: str):
+    """The module FILENAME beside this file (the checkout's scripts/cmux-next, or the installed checks snapshot)."""
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
+
+
+def git_env() -> dict[str, str]:
+    """The environment for git: a hook's GIT_INDEX_FILE / GIT_WORK_TREE describe the pushing checkout, not a rev."""
+    return {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+
+
 def git(repo: Path, *args: str, check: bool = True) -> str:
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=env)
+    result = git_batch.run(repo, list(args), env=git_env())
     if check and result.returncode != 0:
         raise SystemExit(f"guardrails: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout.decode("utf-8", "replace")
 
 
 def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", ancestor, descendant],
-                          capture_output=True, env=env).returncode == 0
+    return git_batch.run(repo, ["merge-base", "--is-ancestor", ancestor, descendant], env=git_env()).returncode == 0
 
 
 def code_of(line: str) -> str:
@@ -204,8 +217,6 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
     lines = version.lines
 
     def is_debt(index: int) -> tuple[bool, list[int]]:
-        if index >= len(lines):  # no text for this side (a failed blob read): judge the line alone
-            return True, []
         kept, openers = matcher.keep(version, index) if matcher.keep is not None else (True, [])
         if not kept or (matcher.escape is not None and escaped(lines, index, matcher.escape)):
             return False, openers
@@ -913,30 +924,24 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
 
 
 def blobs(repo: Path, specs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
-    """{(rev, path): text} for SPECS in one `git cat-file --batch` (a path missing at its rev is left out)."""
-    if not specs:
-        return {}
-    request = "".join(f"{rev}:{p}\n" for rev, p in specs).encode()
-    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=request, capture_output=True)
-    out, cursor, found = result.stdout, 0, {}
-    for path in specs:
-        end = out.find(b"\n", cursor)
-        if end < 0:  # git stopped early (a bad REV): report what it gave
-            break
-        header = out[cursor:end].split()
-        cursor = end + 1
-        if len(header) < 3 or header[1] != b"blob":
-            continue
-        size = int(header[2])
-        found[path] = out[cursor:cursor + size].decode("utf-8", "replace")
-        cursor += size + 1
+    """{(rev, path): text} for SPECS in one `git cat-file --batch` (a path missing at its rev is left out).
+
+    Raises git_batch.GitError when the read fails, so the hook's fail-open warning names it instead of the
+    rules judging lines without their file's text.
+    """
+    texts = git_batch.cat_file(repo, [f"{rev}:{path}" for rev, path in specs], env=git_env())
+    found = {}
+    for rev, path in specs:
+        blob = texts[f"{rev}:{path}"]
+        if blob is not None:
+            found[(rev, path)] = blob.decode("utf-8", "replace")
     return found
 
 
 def run_both(repo: Path, *commands: list[str]) -> list[str]:
     """Run git COMMANDS at once (each costs a process start on a busy Mac) and return their outputs."""
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    procs = [subprocess.Popen(["git", "-C", str(repo), *c], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+    procs = [subprocess.Popen(["git", "-C", str(repo), *c], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              stdin=subprocess.DEVNULL, env=git_env())
              for c in commands]
     return [p.communicate()[0].decode("utf-8", "replace") for p in procs]
 
@@ -1082,6 +1087,10 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
                   + [(head, BENCHES), (head, OWNERS)])
     for path in paths:
         change = changes[path]
+        # A side with changed lines has the file: git lists no added line of a path absent at head.
+        for rev, lines in ((head, change.added), (base, change.removed)):
+            if lines and (rev, path) not in texts:
+                raise git_batch.GitError(f"{path} has changed lines but no text at {rev}")
         text = texts.get((head, path), "")
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")

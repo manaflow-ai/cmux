@@ -117,6 +117,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/fast_gate_webviews_checks.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
