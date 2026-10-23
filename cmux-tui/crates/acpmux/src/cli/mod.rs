@@ -27,7 +27,6 @@ pub mod orchestrate;
 pub mod output;
 pub mod pairing;
 pub mod process;
-pub mod route;
 pub mod run;
 pub mod session_folder;
 pub mod session_limits;
