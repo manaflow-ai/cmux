@@ -11,15 +11,21 @@
 //! holder had not published yet are lost (the instructions between the
 //! `read` returning and the store of the new end).
 //!
-//! Layout (little endian, [`HEADER`] bytes, then `capacity` data bytes):
-//! `magic "CMHR" | layout u32 | capacity u64 | base u64 | end u64`. `base`
-//! is the offset of the first byte the ring ever held; the byte at offset
-//! `o` is at data position `o % capacity`; the ring keeps
-//! `max(base, end - capacity) .. end`. A writer stores the data first and
-//! the new `end` after it, so a reader of a dead writer's segment sees only
-//! whole writes. One process at a time writes a ring: the holder that owns
-//! the terminal (the daemon gives a segment to a new holder only after the
-//! old one's link ended).
+//! Layout 2 (little endian, [`HEADER`] bytes, then `capacity` data bytes):
+//! `magic "CMHR" | layout u32 | capacity u64 | base u64 | end u64 |
+//! oldest u64`. `base` is the offset of the first byte the ring ever held;
+//! the byte at offset `o` is at data position `o % capacity`; the ring keeps
+//! `oldest .. end`, where `oldest` is at least `max(base, end - capacity)`.
+//! A write that reuses the room of kept bytes first publishes the new
+//! `oldest` past every byte it will overwrite, then stores the data, then
+//! publishes the new `end`. So a reader of a dead writer's segment, which
+//! trusts only `oldest .. end`, sees only whole writes and no byte a later
+//! write overwrote, wherever the writer died. (Layout 1 had no `oldest`: a
+//! writer killed inside a write over the oldest kept bytes left newer bytes
+//! at old offsets. A layout 1 segment is still adopted, as it was.) One
+//! process at a time writes a ring: the holder that owns the terminal (the
+//! daemon gives a segment to a new holder only after the old one's link
+//! ended).
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -29,14 +35,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const HEADER: usize = 64;
 /// Segment magic.
 const MAGIC: [u8; 4] = *b"CMHR";
-/// Layout version of the header.
-const LAYOUT: u32 = 1;
+/// Layout version of the header this build writes.
+const LAYOUT: u32 = 2;
+/// The layout before the published `oldest` (adopted, never written).
+const LAYOUT_NO_OLDEST: u32 = 1;
 /// The largest ring a segment may describe (a corrupt header must not make
 /// the holder map gigabytes).
 const MAX_CAPACITY: u64 = 64 << 20;
 const OFF_CAPACITY: usize = 8;
 const OFF_BASE: usize = 16;
 const OFF_END: usize = 24;
+const OFF_OLDEST: usize = 32;
 
 /// The last `capacity` bytes a terminal printed. Offsets count from the
 /// terminal's first byte (or from the base an adoption continues from), so a
@@ -47,6 +56,8 @@ pub struct Ring {
     map_len: usize,
     capacity: usize,
     base: u64,
+    /// The offset of the oldest byte kept; mirrors the header's `oldest`.
+    oldest: u64,
     /// The offset after the newest byte; mirrors the header's `end`.
     end: u64,
     /// The shared segment, `None` for a private ring (no shared memory).
@@ -85,7 +96,15 @@ impl Ring {
             )
         };
         assert!(map != libc::MAP_FAILED, "map a terminal ring: {}", io::Error::last_os_error());
-        let mut ring = Self { map: map.cast(), map_len, capacity, base, end: base, segment: None };
+        let mut ring = Self {
+            map: map.cast(),
+            map_len,
+            capacity,
+            base,
+            oldest: base,
+            end: base,
+            segment: None,
+        };
         ring.write_header();
         ring
     }
@@ -106,17 +125,18 @@ impl Ring {
         // Map the header first: the capacity says how much to map.
         let header = map_shared(segment.as_raw_fd(), HEADER)?;
         // SAFETY: the header mapping is HEADER bytes; reads are in bounds.
-        let (magic, layout, capacity, base, end) = unsafe {
+        let (magic, layout, capacity, base, end, published_oldest) = unsafe {
             let bytes = std::slice::from_raw_parts(header, HEADER);
             let magic: [u8; 4] = bytes[..4].try_into().unwrap_or_default();
             let layout = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or_default());
             let capacity = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or_default());
             let base = u64::from_le_bytes(bytes[16..24].try_into().unwrap_or_default());
             let end = (*header.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
+            let oldest = (*header.add(OFF_OLDEST).cast::<AtomicU64>()).load(Ordering::Acquire);
             libc::munmap(header.cast(), HEADER);
-            (magic, layout, capacity, base, end)
+            (magic, layout, capacity, base, end, oldest)
         };
-        if magic != MAGIC || layout != LAYOUT {
+        if magic != MAGIC || (layout != LAYOUT && layout != LAYOUT_NO_OLDEST) {
             return Err(invalid("not a terminal ring segment"));
         }
         if capacity == 0 || capacity > MAX_CAPACITY || HEADER as u64 + capacity > size {
@@ -125,10 +145,20 @@ impl Ring {
         if end < base {
             return Err(invalid("terminal ring ends before its base"));
         }
+        let kept_by_size = base.max(end.saturating_sub(capacity));
+        // A writer that died inside a write published an `oldest` past the
+        // bytes it was overwriting, possibly past the `end` it never got to
+        // publish: nothing is kept then. Layout 1 published no `oldest`.
+        let oldest =
+            if layout == LAYOUT { published_oldest.clamp(kept_by_size, end) } else { kept_by_size };
         let capacity = capacity as usize;
         let map_len = HEADER + capacity;
         let map = map_shared(segment.as_raw_fd(), map_len)?;
-        Ok(Self { map, map_len, capacity, base, end, segment: Some(segment) })
+        let mut ring = Self { map, map_len, capacity, base, oldest, end, segment: Some(segment) };
+        // This build writes layout 2 from here on (a layout 1 segment's
+        // `oldest` word reads 0 until then, which an adopter clamps up).
+        ring.write_header();
+        Ok(ring)
     }
 
     /// The shared segment, to pass to the daemon; `None` for a private ring.
@@ -139,16 +169,21 @@ impl Ring {
     /// Append output; the oldest bytes drop out past the capacity. The
     /// writer is never blocked.
     pub fn push(&mut self, mut data: &[u8]) {
-        // Only the last `capacity` bytes of an oversized push can stay.
+        // Only the last `capacity` bytes of an oversized push can stay: the
+        // stream jumps past the rest. The jump is in `oldest` only (nothing
+        // is kept until the first chunk's `end` is published), so a reader of
+        // a dead writer's segment never sees the skipped offsets as bytes.
         if data.len() > self.capacity {
             let skip = data.len() - self.capacity;
-            self.publish(self.end + skip as u64);
+            let start = self.end + skip as u64;
+            self.publish_oldest(start);
+            self.end = start;
             data = &data[skip..];
         }
         while !data.is_empty() {
-            let room = self.writable();
-            let n = room.len().min(data.len());
-            room[..n].copy_from_slice(&data[..n]);
+            let n = self.writable().len().min(data.len());
+            self.forfeit(n);
+            self.writable()[..n].copy_from_slice(&data[..n]);
             self.publish(self.end + n as u64);
             data = &data[n..];
         }
@@ -160,18 +195,22 @@ impl Ring {
     /// as soon as it returns, so a crash right after loses at most one
     /// unpublished read.
     pub fn read_with(&mut self, max: usize, read: impl FnOnce(&mut [u8]) -> isize) -> isize {
-        let room = self.writable();
-        let len = room.len().min(max.max(1));
-        let n = read(&mut room[..len]);
+        let len = self.writable().len().min(max.max(1));
+        let before = self.oldest;
+        self.forfeit(len);
+        let n = read(&mut self.writable()[..len]);
         if n > 0 {
             self.publish(self.end + n as u64);
         }
+        // A short read overwrote less than the room it was offered: the
+        // bytes past it are still whole and kept again.
+        self.publish_oldest(before.max(self.end.saturating_sub(self.capacity as u64)));
         n
     }
 
     /// Offset of the oldest byte kept.
     pub fn oldest(&self) -> u64 {
-        self.base.max(self.end.saturating_sub(self.capacity as u64))
+        self.oldest
     }
 
     /// Offset after the newest byte.
@@ -225,6 +264,27 @@ impl Ring {
         unsafe { (*self.map.add(OFF_END).cast::<AtomicU64>()).store(end, Ordering::Release) };
     }
 
+    /// Before a write of up to `len` bytes at `end`: drop out of the ring
+    /// every kept byte whose room the write reuses, so a reader of a dead
+    /// holder's segment never trusts a byte the write overwrote.
+    fn forfeit(&mut self, len: usize) {
+        let reused = (self.end + len as u64).saturating_sub(self.capacity as u64);
+        if reused > self.oldest {
+            self.publish_oldest(reused);
+        }
+        // The new `oldest` must be in the segment before the first data
+        // byte is stored over the bytes it dropped.
+        std::sync::atomic::fence(Ordering::SeqCst);
+    }
+
+    /// Store `oldest`: before a write that drops bytes, after one that
+    /// kept more than it was offered.
+    fn publish_oldest(&mut self, oldest: u64) {
+        self.oldest = oldest;
+        // SAFETY: OFF_OLDEST is an 8-byte aligned u64 inside the page-aligned header.
+        unsafe { (*self.map.add(OFF_OLDEST).cast::<AtomicU64>()).store(oldest, Ordering::Release) };
+    }
+
     fn write_header(&mut self) {
         // SAFETY: the header is HEADER bytes at the start of the mapping.
         unsafe {
@@ -235,6 +295,7 @@ impl Ring {
                 .copy_from_slice(&(self.capacity as u64).to_le_bytes());
             header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&self.base.to_le_bytes());
         }
+        self.publish_oldest(self.oldest);
         self.publish(self.end);
     }
 }
@@ -266,6 +327,7 @@ pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
         header[4..8].copy_from_slice(&LAYOUT.to_le_bytes());
         header[OFF_CAPACITY..OFF_CAPACITY + 8].copy_from_slice(&(capacity as u64).to_le_bytes());
         header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&base.to_le_bytes());
+        (*map.add(OFF_OLDEST).cast::<AtomicU64>()).store(base, Ordering::Release);
         (*map.add(OFF_END).cast::<AtomicU64>()).store(base, Ordering::Release);
         libc::munmap(map.cast(), HEADER);
     }
@@ -444,6 +506,41 @@ mod tests {
         let (from, kept) = dead.read(0, 64);
         assert_eq!(dead.end(), 20, "the unpublished read is not part of the ring");
         assert_eq!(kept, stream[from as usize..20].to_vec(), "an overwritten byte is kept");
+    }
+
+    /// An oversized push publishes no offset it skipped as a byte, and an
+    /// adopter of a segment from before it starts where the push jumped to.
+    #[test]
+    fn an_oversized_push_keeps_its_tail_at_the_right_offsets() {
+        let mut ring = Ring::new(0, 8);
+        let segment = ring.segment().expect("a shared ring").try_clone().unwrap();
+        ring.push(b"0123");
+        ring.push(b"abcdefghijkl");
+        assert_eq!((ring.oldest(), ring.end()), (8, 16));
+        assert_eq!(ring.read(0, 64), (8, b"efghijkl".to_vec()));
+        drop(ring);
+        let adopted = Ring::adopt(segment).unwrap();
+        assert_eq!(adopted.read(0, 64), (8, b"efghijkl".to_vec()));
+    }
+
+    /// A layout 1 segment (no published `oldest`) is still adopted, its
+    /// window computed from its end and capacity as before.
+    #[test]
+    fn a_layout_1_segment_is_adopted() {
+        let mut ring = Ring::new(10, 8);
+        let segment = ring.segment().expect("a shared ring").try_clone().unwrap();
+        ring.push(b"0123456789");
+        drop(ring);
+        let header = map_shared(segment.as_raw_fd(), HEADER).unwrap();
+        // SAFETY: the header mapping is HEADER bytes; rewrite it as layout 1.
+        unsafe {
+            std::slice::from_raw_parts_mut(header.add(4), 4)
+                .copy_from_slice(&LAYOUT_NO_OLDEST.to_le_bytes());
+            std::slice::from_raw_parts_mut(header.add(OFF_OLDEST), 8).fill(0);
+            libc::munmap(header.cast(), HEADER);
+        }
+        let adopted = Ring::adopt(segment).unwrap();
+        assert_eq!(adopted.read(0, 64), (12, b"23456789".to_vec()));
     }
 
     #[test]

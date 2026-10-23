@@ -129,16 +129,22 @@ impl HolderTerminal {
     ///
     /// `max_bytes` bounds the prologue (one ADOPT frame).
     pub(super) fn adoption(&self, rings: bool, max_bytes: usize) -> Adoption {
+        // No new output arrives meanwhile (the old link ended), so what is
+        // pending now bounds what is pending at the replay's instant.
+        let estimate = self.sink.pending();
+        // A kept segment that ends before the newest byte received is stale
+        // (a holder that could not continue it started a fresh ring this
+        // daemon never heard of): continuing it would number new output
+        // below what was received, and the sink would drop it. Such a
+        // terminal gets a fresh segment at the newest byte instead.
         let kept = self
             .ring
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
-            .and_then(|segment| segment.try_clone().ok())
-            .filter(|_| rings);
-        // No new output arrives meanwhile (the old link ended), so what is
-        // pending now bounds what is pending at the replay's instant.
-        let estimate = self.sink.pending();
+            .filter(|_| rings)
+            .filter(|segment| continues_at(segment, estimate.received))
+            .and_then(|segment| segment.try_clone().ok());
         let extra = if kept.is_some() { estimate.head.len() } else { estimate.all.len() };
         let mut pending = None;
         let mut replay = self.replay_at(max_bytes.saturating_sub(extra), &mut || {
@@ -183,6 +189,14 @@ impl HolderTerminal {
             }
         }
     }
+}
+
+/// Whether the kept ring `segment` may go to a new holder for a terminal
+/// whose newest received byte ends at `received`: its writer published at
+/// least that far. One that ends before is stale, and a holder continuing it
+/// would number new output below `received`.
+fn continues_at(segment: &OwnedFd, received: u64) -> bool {
+    cmux_holder::ring::segment_end(segment).is_ok_and(|end| end >= received)
 }
 
 /// `prologue`, or a lone CAN when it does not fit one ADOPT frame (only a
@@ -372,6 +386,14 @@ mod tests {
             libc::fcntl(master.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
         }
         (master, std::fs::File::from(slave))
+    }
+
+    #[test]
+    fn a_kept_ring_segment_that_ends_before_the_received_offset_is_not_handed_on() {
+        let segment = cmux_holder::ring::create_segment(100, 4096).unwrap();
+        assert!(continues_at(&segment, 100), "a segment at the received offset continues");
+        assert!(continues_at(&segment, 40), "a segment past the received offset continues");
+        assert!(!continues_at(&segment, 101), "a segment behind the received offset is stale");
     }
 
     #[test]

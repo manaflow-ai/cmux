@@ -766,13 +766,18 @@ impl Holder {
         };
         pty::set_nonblocking(master.as_raw_fd());
         // The dead holder's ring, with every byte it read: the daemon
-        // re-attaches from where it is and gets the bytes nobody sent. A
-        // segment that is not a ring (never from a sane daemon) starts a
-        // fresh ring where the stream continues.
+        // re-attaches from where it is and gets the bytes nobody sent. Any
+        // other segment starts a fresh ring where the stream continues: one
+        // that is not a ring, and one that ends before `resume` (a stale
+        // segment, say the one the daemon kept after an earlier adoption fell
+        // back to a fresh ring it never heard of). Continuing a stale ring
+        // would number new output below what the daemon already parsed, and
+        // the daemon would drop it as received: a silent splice.
         let ring = with_ring
             .then(|| fds.next())
             .flatten()
             .and_then(|segment| Ring::adopt(segment).ok())
+            .filter(|ring| ring.end() >= resume)
             .unwrap_or_else(|| Ring::new(resume, RING_BYTES));
         let mut terminal = Terminal::with_ring(id, master, pid, false, ring);
         terminal.prologue = input.rest().to_vec();
