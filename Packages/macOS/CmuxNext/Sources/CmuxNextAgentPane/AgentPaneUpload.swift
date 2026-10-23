@@ -23,11 +23,11 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    public static let maximumFileBytes = 32 * 1024 * 1024
-    public static let maximumTotalBytes = 64 * 1024 * 1024
-    /// The most bytes one file for a chat on an ssh peer has (acpmux `file_uploads::MAX_BYTES`): it
-    /// crosses the peer link as one WebSocket frame, and an older peer reads at most 16 MiB.
-    public static let maximumPeerFileBytes = 10 * 1024 * 1024
+    /// Local and peer transports stream the bytes in bounded chunks. One GiB is also the native
+    /// daemon's abuse guard; Cloud uploads keep their smaller policy in ``CloudUploads``.
+    public static let maximumFileBytes = 1 * 1024 * 1024 * 1024
+    public static let maximumTotalBytes = 1 * 1024 * 1024 * 1024
+    public static let maximumPeerFileBytes = maximumFileBytes
 
     /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
     /// each with a name a folder holds as one file and base64 bytes, at most
@@ -41,7 +41,8 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
             guard Set(item.keys) == ["name", "data"], let name = item["name"] as? String, isFileName(name),
                   let text = item["data"] as? String, text.utf8.count <= (maximumFileBytes / 3 + 1) * 4,
                   let data = Data(base64Encoded: text), data.count <= maximumFileBytes else { return nil }
-            total += data.count
+            let (sum, overflow) = total.addingReportingOverflow(data.count)
+            total = overflow ? Int.max : sum
             guard total <= maximumTotalBytes else { return nil }
             files.append(AgentPaneUpload(name: name, data: data))
         }
