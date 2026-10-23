@@ -346,6 +346,7 @@ pub(crate) fn dispatch(
                 emulation: None,
                 marked_unread: optional_bool(fields, "marked_unread")?,
                 attention: nullable_reason(fields, "attention")?,
+                attention_page: None,
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
