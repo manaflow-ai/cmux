@@ -26,6 +26,8 @@ import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton }
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { rowFailed, toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -81,7 +83,10 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  const failed = tool.status === "failed";
+  // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
+  const failed = rowFailed(tool);
+  // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
+  const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
   const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
@@ -104,7 +109,13 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
-        {failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>}
+        {failure && (
+          <span className="cv-tool__failed" data-find-skip>
+            {" "}
+            {failureWord(t, failure)}
+          </span>
+        )}
+        <InlineFailureCause failure={failure} />
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
@@ -141,11 +152,18 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
+      <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
         <div ref={fold.ref} className="cv-fold">
           {shell ? (
-            <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
+            <ShellBlock
+              id={detailsId}
+              command={tool.command}
+              output={failure?.output?.replace(/\n$/, "") ?? body}
+              exitCode={failure?.exitCode ?? tool.exitCode}
+              reveal={reveal}
+            />
           ) : files.length > 0 ? (
             <div id={detailsId}>
               {files.map((file) => (
