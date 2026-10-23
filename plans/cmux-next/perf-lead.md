@@ -3,7 +3,9 @@
 Status: living plan (started 2026-10-23). Owner: the Performance Lead (Lawrence msg 11552:
 "fix all cmux performance issues, including chromium performance, fix all dumb things, big
 refactor"). Every row moves only with a measured number from a real build on the fleet (never
-Lawrence's Mac) and a perf test or perf-gate/budget row that is red before and green after.
+Lawrence's Mac) and a perf test or bench that is red before and green after. Lawrence
+(2026-10-23): no new gates or tests in CI; each agent runs its tests and benches itself on the
+fleet and records the numbers here and in the commit message.
 
 Related references (not repeated here): [speed-of-sound-DESIGN.md](speed-of-sound-DESIGN.md)
 (floors and idle/memory rows), [instant-new-surfaces.md](instant-new-surfaces.md),
@@ -14,6 +16,12 @@ Related references (not repeated here): [speed-of-sound-DESIGN.md](speed-of-soun
 `perf-budgets-baseline/apple-m4-pro-macos27.json` (fleet, 2026-10-22).
 
 ## 1. Targets
+
+Lawrence 2026-10-23: **every action < 10 ms p95 to its committed frame**, motion at full refresh
+with 0 drops, measured in a light session and in the STRESS session (60 workspaces; measured
+workspace 4 columns x 3 rows, 6 tabs per pane: terminals, Chromium, WebKit, chat; nested
+splits; 10 Chromium workspaces; 10 busy terminals; builder `scripts/cmux-next/perf-stress-session.py`).
+The table below is superseded where it says more than 10 ms.
 
 | Target | Budget | Proof |
 |---|---|---|
@@ -91,6 +99,26 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
    views leave the graph; AppKit/immediate rows on typing paths; `perf-profile-split.py` buckets
    prove where time goes before a rewrite.
 
+### Design faults (Lawrence 2026-10-23: "are there other fundamentally wrong things")
+
+| # | Fault | Evidence | Real fix | When |
+|---|---|---|---|---|
+| F1 | Chromium pages are separate child windows over panes | issues 1, 2, 4, 13 | page layer in the cmux window's layer tree (PL-cef-layer) | now |
+| F2 | Chromium's browser process runs in cmux, its pump on cmux's main thread (macOS CEF UI thread = main) | pump passes >= 10 ms; a Chromium CHECK ends all of cmux (cef-out-of-process.md) | browser process in a helper app; pixels through the F1 layer hosting across processes (Lawrence: yes) | after F1 |
+| F3 | cmux's own UI pages are React in Chromium renderers | Home starts 3 renderers, 185 MB, ~2 % idle CPU before any browser tab | Lawrence: cmux pages STAY in Chromium ("we want a bunch of stuff in chromium"). Fix is cost, not engine: hidden cmux pages cost 0 CPU and wake 0 times; renderers start on first show | batch 2 |
+| F4 | Motion = live resize of real frames every frame | 41 ms/frame at 30 panes | Lawrence: resizing stays live and fluid for Ghostty and Chromium (no snapshot freeze, no landing-only resize): every frame shows content laid out at that frame's size, same CA transaction; per-frame work only for panes that moved (PL-motion-core, PL-ghostty, PL-motion-cef, PL-cef-layer) | now |
+| F5 | Work follows what exists, not what changed | idle main wakes 27-107/s, 358 KB/s idle disk writes, 368 indicators per Cmd-Tab (fixed), sidebar 17 % CPU ticking at 400 ws | one observer per visible thing; no timers; writes only on new information | batch 2 |
+| F6 | One process per terminal | 392 processes heavy (172 terminal hosts), 8.2 MB per workspace | keep crash isolation another way: a holder keeps PTY fds + byte rings, VT parsing in a small worker pool that restarts from the ring (PL-daemon, terminal-host-model-DESIGN.md) | now |
+| F7 | Creates wait for the daemon's echo; stand-ins added per command | terminals instant, browser tabs not | one intent + stand-in path for every create | PL-cef-tab now |
+| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
+| F10 | Daemon requests are slow | split 107-112 ms p50, new terminal 114/660 ms p50/p95 loaded | profile each op, fix causes; local request < 2 ms (PL-daemon) | now |
+| F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
+| F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Chief default 2026-10-23: Chromium only for browser tabs, WebKit kept only where Chromium cannot do it yet (PL-engine, chromium-only-browser-tabs.md) | now |
+| F13 | Codebase health: god target CmuxNextApp 141,651 lines, 152 singletons, 162 broadcast observers, 290 assumeIsolated, Debug-only perf counters | text search counts | PL-arch (architecture-refactor-DESIGN.md), PL-guardrails (pre-push ratchet, OWNERS.md, perf-hot markers, codebase-health.md) | now |
+| F9 | Lag regressions land unseen: timings only warn, fleet minis have no lit display (frame checks skipped) | perf-gate.py header | Lawrence: no CI gate on push or nightly; a scheduled cron perf run (perf budgets + STRESS) opens one regression issue (PL-perf-cron) | now |
+
+User data: lab benchmarks only (Chief default 2026-10-23); opt-in MetricKit waits for Lawrence.
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
@@ -107,7 +135,10 @@ push), and writes its before/after table into this file's section 5.
   for panes that moved, layer-driven motion, content resize at landing. Files:
   `ScreenContentView+Motion.swift`, `LayoutRootView*.swift`, `PaneHostView.swift`.
 - **PL-switch**: issues 4, 7, 12 (then 8). Workspace/tab/space switch < 16 ms with Chromium
-  pages.
+  pages (Lawrence 2026-10-23: switching is slow when Chromium is involved; top priority).
+- **PL-cef-layer**: implementing (Lawrence: "do the real fix now") hosting the Chromium page's layer in the cmux window's own layer tree
+  (no child page windows), plus the interim fix inside the child-window design. Output:
+  `cef-layer-hosting-DESIGN.md`.
 - **PL-typing**: issue 5 and the terminal key-to-frame baseline; sidebar-caused lag goes to a576
   / a590.
 

@@ -271,19 +271,18 @@ export function useChatInspector({
       setInspectorOpen(true);
     });
   }, [on, label]);
-  // Esc closes it from anywhere but a text field (the composer keeps its own Esc), before a diff in
-  // place takes it (DiffPanel listens on the window, after the document). An open popover, menu or
-  // dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
+  // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
+  // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
+  // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
+  // that stops the turn (escapeStop.ts), which an Esc claimed here never reaches. An open popover,
+  // menu or dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
   useEffect(() => {
     if (!shown) return;
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
       const focus = document.activeElement;
-      if (
-        focus instanceof HTMLElement &&
-        focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")
-      )
-        return;
+      if (!(focus instanceof HTMLElement) || !focus.closest(`aside.acpmux-chat-inspector, ${INSPECTOR_TOGGLE}`)) return;
+      if (focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return;
       if (
         document.querySelector(
           'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup',
@@ -291,7 +290,7 @@ export function useChatInspector({
       )
         return;
       event.preventDefault();
-      setInspectorOpen(false);
+      closeInspector();
     };
     document.addEventListener("keydown", escape);
     return () => document.removeEventListener("keydown", escape);
@@ -354,7 +353,15 @@ export function useChatInspector({
   };
 }
 
-const closeInspector = () => setInspectorOpen(false);
+const INSPECTOR_TOGGLE = "button.acpmux-chat-inspector-toggle";
+
+/// Closes the Inspector from its x or Esc and gives the keyboard to its header toggle, so focus is
+/// not dropped on the page when the panel it was in leaves. Over a diff in place the header, and the
+/// toggle with it, is hidden and cannot take focus: the page gets it, as before.
+const closeInspector = () => {
+  document.querySelector<HTMLElement>(INSPECTOR_TOGGLE)?.focus({ preventScroll: true });
+  setInspectorOpen(false);
+};
 
 /// The Inspector while it is drawn: its presence, its width and folds, whether it floats or pushes,
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
