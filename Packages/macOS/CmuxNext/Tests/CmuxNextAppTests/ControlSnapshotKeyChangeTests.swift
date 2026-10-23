@@ -15,8 +15,9 @@ import Testing
 /// trail (Search Tabs facts): neither moves a workspace, yet each rebuilt every one. A switch
 /// moves only the window facts (which window is key, the focus): O(windows).
 ///
-/// Topology rebuilds are counted by the publisher's own timing list (`debug.timings`
-/// `control_publishes`, one entry per topology publish).
+/// Rebuilds are counted through the publisher's own seam (`onPublish`, the parts each publish
+/// built), never through a process-wide list: suites run in parallel in one process, and
+/// another suite's publisher or window closes must not reach this count.
 @MainActor @Suite(.serialized) struct ControlSnapshotKeyChangeTests {
     init() {
         // `WindowManager.active` and the window controllers read NSApp: create it before AppServices.
@@ -55,8 +56,13 @@ import Testing
         var window: NSWindow?
     }
 
-    private static func topologyPublishes() -> Int {
-        DebugTimings.handle([:])["control_publishes"]?.arrayValue?.count ?? 0
+    /// The parts this test's publisher built, counted per part.
+    @MainActor private final class Rebuilds {
+        var topology = 0
+
+        func note(_ parts: ControlSnapshotPublisher.Parts) {
+            if parts.contains(.topology) { topology += 1 }
+        }
     }
 
     /// Lets the publisher's tracking hops (main-actor tasks) run, then every frame they scheduled.
@@ -67,11 +73,13 @@ import Testing
         }
     }
 
-    private static func publisher(_ services: AppServices, frames: ManualFrames) -> (ControlRouter, ControlSnapshotPublisher) {
+    private static func publisher(_ services: AppServices, frames: ManualFrames,
+                                  rebuilds: Rebuilds) -> (ControlRouter, ControlSnapshotPublisher) {
         let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                        processID: getpid())
         let router = ControlRouter(identity: identity, executor: NoActions())
-        return (router, ControlSnapshotPublisher(router: router, services: services, frames: frames))
+        return (router, ControlSnapshotPublisher(router: router, services: services, frames: frames,
+                                                 onPublish: { [rebuilds] in rebuilds.note($0) }))
     }
 
     /// A connected local daemon with workspaces `k0` and `k1`, one terminal each.
@@ -113,12 +121,12 @@ import Testing
         services.keyWindowSource = { [key] in key.window }
 
         let frames = ManualFrames()
-        let (router, publisher) = Self.publisher(services, frames: frames)
-        _ = DebugTimings.handle(["clear": .bool(true)])
+        let rebuilds = Rebuilds()
+        let (router, publisher) = Self.publisher(services, frames: frames, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
-        let before = Self.topologyPublishes()
+        let before = rebuilds.topology
         #expect(before >= 1, "start publishes the whole snapshot once")
 
         // Key moves A -> B -> A, the way AppKit drives it: the window that resigns, then the one
@@ -150,8 +158,8 @@ import Testing
             #expect(topology.windows.filter(\.isKey).count == 1, "not exactly one window is key in the snapshot")
             #expect(topology.focus.windowID == target.state.id, "the focus did not follow the key window")
         }
-        #expect(Self.topologyPublishes() == before,
-                "a window switch rebuilt every workspace's control facts (\(Self.topologyPublishes() - before) topology publishes)")
+        #expect(rebuilds.topology == before,
+                "a window switch rebuilt every workspace's control facts (\(rebuilds.topology - before) topology publishes)")
     }
 
     @Test func activationNoticesMapNoWorkspaceAgain() async throws {
@@ -159,12 +167,12 @@ import Testing
         let key = KeyWindow()
         services.keyWindowSource = { [key] in key.window }
         let frames = ManualFrames()
-        let (_, publisher) = Self.publisher(services, frames: frames)
-        _ = DebugTimings.handle(["clear": .bool(true)])
+        let rebuilds = Rebuilds()
+        let (_, publisher) = Self.publisher(services, frames: frames, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
-        let before = Self.topologyPublishes()
+        let before = rebuilds.topology
 
         // A Cmd-Tab away and back, and a panel (the palette) taking the keys and giving them back.
         let center = NotificationCenter.default
@@ -179,7 +187,7 @@ import Testing
             center.post(name: NSWindow.didResignKeyNotification, object: panel)
             await Self.settle(frames)
         }
-        #expect(Self.topologyPublishes() == before,
-                "a key or activation notice rebuilt every workspace's control facts (\(Self.topologyPublishes() - before) topology publishes)")
+        #expect(rebuilds.topology == before,
+                "a key or activation notice rebuilt every workspace's control facts (\(rebuilds.topology - before) topology publishes)")
     }
 }
