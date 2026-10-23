@@ -161,12 +161,14 @@ the gap, no row left out of place after drop or cancel).
   group drag rewrite (took over a588's blue-line fix 41c8c60c5a5 and red test 42a1811bb6b).
   Group drag rewrite landed b16f04f365e..58036f2c789 (see the design section's status).
 - a587: Home unread badge becomes the blue dot.
-- a576: terminal lag while the sidebar rearranges.
+- Sidebar owner (from a576): terminal lag while the sidebar rearranges. Remaining main-thread causes at 400 workspaces (a576 profile): SidebarBridge.observe re-projects every list per change (14%), ControlSnapshotPublisher topology rebuild (9%), WindowManager.reconcileMembership via DaemonStore.workspaceListMayHaveChanged (9%), SidebarDocStore.show/projection (10%), full list reloads.
 
 ## Owner landings
 
 | Range | Change |
 | --- | --- |
+| [5846e103ece..d46123a6d79](https://github.com/manaflow-ai/cmux/compare/5846e103ece...d46123a6d79) | a576 churn fix (f533c272408 red, d295dc19007 fix): a reorder rewrites no row; `SidebarRowFeed.fill` writes only new or re-mapped rows (was 31% of main at 400 workspaces). No look change. |
+| [6205b02791b..710e98db4c2](https://github.com/manaflow-ai/cmux/compare/6205b02791b...710e98db4c2) | a576 bench: `scripts/cmux-next/sidebar-churn-typing.py` (`split-spring.sh --suite=sidebar-churn`, cmux8s only, needs a logged-in console); `debug.key` takes the client's send time. At 400 workspaces after the fix: churn p95 70.7 ms, worst hang 258 ms, idle p95 27.8 ms (target 8 ms). Owner continues. |
 | [dcd4316ef5c](https://github.com/manaflow-ai/cmux/commit/dcd4316ef5c) | a595 scrollers (8de6f7f4ef9 red, dcd4316ef5c fix): sidebar list, bands, Priority and hover-card scrollbars fade 0.8 s after a scroll and grow 3 to 7 pt within 20 pt of the edge. Only sidebar file: `SidebarView+Reveal.swift` (pointer enter flashes the shared scroller). Reached the branch without a `Sidebar-Look:` trailer (an old hook copy; its CI run was cancelled); reviewed and logged by the owner. |
 | [b16f04f365e..b671d11b764](https://github.com/manaflow-ai/cmux/compare/b16f04f365e...b671d11b764) | Group drag rewrite: capped card, frozen base, the pointer alone picks the slot; no blue drop line |
 | [3110ef77bed..7542622b53e](https://github.com/manaflow-ai/cmux/compare/3110ef77bed...7542622b53e) Updated card x (a592: a069f81c3d1 red, 7542622b53e fix) | The "Updated to Nightly" card's x is native again (`SidebarUpdatedCardHost`): it shows on hover at the card's top right (8 by 7 pt inset, 18 pt, the page's old spot) and takes the first click, Escape closes the card. The page's own x never showed or clicked while a Chromium page's window had the key (Lawrence 2026-10-23: "i cant X this out anymore even when hovering on it"). No row, rail or indent change. |
