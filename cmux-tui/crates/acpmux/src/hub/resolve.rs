@@ -348,6 +348,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         pull_requests: vec![],
         git_branch: None,
         git_head: None,
+        worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
     }
