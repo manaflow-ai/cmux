@@ -207,7 +207,11 @@ import CmuxNextCompat
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
         let wire = connection.remote?.makeWire()
-        remoteImageLoader = wire.map { wire in { path in try await wire.loadRemoteImage(path) } }
+        if let wire {
+            remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+        } else {
+            remoteImageLoader = nil
+        }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()

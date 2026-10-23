@@ -239,7 +239,7 @@ extension AgentPaneModel {
         }
         if remoteChat {
             guard let path = AgentPaneReplyPaths.imagePath(src), AgentPaneReplyPaths.isImagePath(src),
-                  let remoteImageLoader else { return Self.replyFailure(.imageRefused) }
+                  let remoteImageLoader = replyLinks.remoteImageLoader else { return Self.replyFailure(.imageRefused) }
             do {
                 return Self.replyImage(await AgentPaneReplyImages.remote(try await remoteImageLoader(path)))
             } catch {
