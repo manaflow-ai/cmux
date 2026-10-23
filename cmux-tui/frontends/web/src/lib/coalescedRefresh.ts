@@ -1,15 +1,20 @@
+export type CoalescedRefresh = (() => void) & {
+  cancel: () => void;
+};
+
 export function createCoalescedRefresh(
   operation: () => Promise<void>,
   onError: (error: unknown) => void = () => {},
-): () => void {
+): CoalescedRefresh {
   let dirty = false;
   let running = false;
+  let cancelled = false;
 
   const drain = async () => {
-    if (running) return;
+    if (running || cancelled) return;
     running = true;
     try {
-      while (dirty) {
+      while (dirty && !cancelled) {
         dirty = false;
         try {
           await operation();
@@ -19,12 +24,18 @@ export function createCoalescedRefresh(
       }
     } finally {
       running = false;
-      if (dirty) void drain();
+      if (dirty && !cancelled) void drain();
     }
   };
 
-  return () => {
+  const queue = (() => {
+    if (cancelled) return;
     dirty = true;
     void drain();
+  }) as CoalescedRefresh;
+  queue.cancel = () => {
+    cancelled = true;
+    dirty = false;
   };
+  return queue;
 }
