@@ -7,8 +7,11 @@ import ObjectiveC
 /// Every ``WindowMaterialView`` in a window (the window backdrop and each pane with its own art)
 /// used to observe the six app-wide key and activation notices itself and read the key window on
 /// the next turn: O(material views in the session) work per Cmd-Tab or key change. The window's
-/// tracker observes them once, decides once, and calls only its views, only when the state flips.
-/// It lives as long as its window (an associated object), so no process-wide instance exists.
+/// tracker observes them once, decides once per main-actor turn (a Cmd-Tab posts 3 to 6 notices),
+/// and calls only its views, only when the state flips. It lives as long as its window (an
+/// associated object), so no process-wide instance exists, and it observes only while the window
+/// has a material view: a window kept alive with none (a reused panel, a swapped backdrop) costs
+/// nothing per key change.
 @MainActor
 final class WindowKeyFamily {
     private weak var window: NSWindow?
@@ -19,13 +22,18 @@ final class WindowKeyFamily {
     private(set) var isInactive = false
     /// The window's family has held the keyboard since the tracker started.
     private var familyHeldKey = false
-    /// Bumped by each key change: only the latest deferred check applies.
-    private var keyCheck = 0
+    /// A deferred check is scheduled and has not run: later notices in the same turn need no
+    /// check of their own (the check reads the keyboard when it runs, after all of them).
+    private var checkPending = false
+    /// How many deferred checks it ran (tests read it: one per window per turn of notices).
+    private(set) var checks = 0
     /// How many times it called a view's ``WindowMaterialView/updateInactiveTint()`` (tests read it:
     /// 0 when nothing flipped, its window's views only when this window flipped).
     private(set) var viewUpdates = 0
     /// The views it tracks now.
     var viewCount: Int { views.allObjects.count }
+    /// It observes the key and activation notices (only while it has a view).
+    var isObserving: Bool { !observers.isEmpty }
 
     private static var key: UInt8 = 0
 
@@ -41,6 +49,20 @@ final class WindowKeyFamily {
     private init(window: NSWindow, environment: WindowKeyEnvironment) {
         self.window = window
         self.environment = environment
+    }
+
+    func add(_ view: WindowMaterialView) {
+        views.add(view)
+        if observers.isEmpty { startObserving() }
+    }
+
+    func remove(_ view: WindowMaterialView) {
+        views.remove(view)
+        // The last view left: no one reads the state, so no notice should cost a check.
+        if views.allObjects.isEmpty { observers.removeAll() }
+    }
+
+    private func startObserving() {
         // Any window's key change and the app's activation: the keyboard moving into this
         // window's own Chromium page window resigns this window's key, and leaving from that page
         // window to another app posts nothing on this window.
@@ -51,11 +73,9 @@ final class WindowKeyFamily {
         observers.append(MainActorObservation(WindowMaterialView.inactiveDimDidChange, center: environment.center) { [weak self] in
             self?.forEachView { $0.updateInactiveTint() }
         })
+        // Key changes while it did not observe: read where the keyboard is now.
         keyDidMove()
     }
-
-    func add(_ view: WindowMaterialView) { views.add(view) }
-    func remove(_ view: WindowMaterialView) { views.remove(view) }
 
     private func forEachView(_ body: (WindowMaterialView) -> Void) {
         for view in views.allObjects {
@@ -66,11 +86,14 @@ final class WindowKeyFamily {
 
     /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
     /// window becomes key, so the key window in between (nil) would flash the wash.
-    private func keyDidMove() { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window)
-        keyCheck += 1
-        let check = keyCheck
+    private func keyDidMove() { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
+        guard !checkPending else { return }
+        checkPending = true
         environment.nextTurn { [weak self] in
-            guard let self, check == self.keyCheck, let window = self.window else { return }
+            guard let self else { return }
+            self.checkPending = false
+            guard self.isObserving, let window = self.window else { return }
+            self.checks += 1
             let key = self.environment.keyWindow()
             // Chromium can make a page window key before the fork places it as this window's
             // child (a browser-tab workspace switch): a parentless page window acts for the main
