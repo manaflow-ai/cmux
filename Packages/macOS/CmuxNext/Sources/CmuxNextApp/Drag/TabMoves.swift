@@ -242,9 +242,13 @@ enum TabMoves {
         let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
         guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
               source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
+        // The source workspace's own daemon decides, as in WorkspaceAutoNameWiring: one without the
+        // name-source capability reports no provenance, so its default names stay replaceable.
+        let allowsLegacyDefaults = services.machines.daemon(forWorkspace: source.id)
+            .map { !$0.supports(DaemonCapabilities.workspaceNameSource) } ?? true
         return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName,
                                            workspaceNameSource: source.nameSource, workspaceNameRevision: source.nameRevision,
-                                           allowsLegacyDefaults: !daemon.supports(DaemonCapabilities.workspaceNameSource))
+                                           allowsLegacyDefaults: allowsLegacyDefaults)
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page

@@ -111,7 +111,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     var onCommentsChanged: ((JSONValue) -> Void)?
     /// The newest persisted comment mutation already published to this page. A later callback can
     /// finish parsing before an older one, so stale mutations must not overwrite the page.
-    private var latestCommentsSequence = 0
+    /// Internal, not private: only `publishComments` (FilePageProvider+Comments.swift) reads and writes it.
+    var latestCommentsSequence = 0
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
