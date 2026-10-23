@@ -1,4 +1,5 @@
-title: The unread ring takes your theme's accent, and agent chats stay calm
+title: The unread ring takes your theme's accent color
 category: improved
+action: openSettings | Open Settings
 
-The ring that marks a pane with an unread notification, and its flash when you open the pane, now use your theme's accent color instead of a fixed blue. A finished agent reply no longer rings or flashes its chat pane. Choose each kind of pane's ring (glow, ring or none) and how many times it flashes, and pick its color, in Settings > Notifications > Attention Ring.
+The unread pane ring and its flash now use your theme's accent color, and a finished agent reply no longer rings its chat. Set each pane kind's ring, flash count and color in Settings > Notifications > Attention Ring.
