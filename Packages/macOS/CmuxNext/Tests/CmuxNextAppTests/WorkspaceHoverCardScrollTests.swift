@@ -82,7 +82,11 @@ import Testing
     }
 
     /// The history is longer than the card: the wheel on it scrolls the history, and the card stays.
+    /// The timeline layout scrolls; the default compact card never does (Leo 2026-10-20).
     @Test func aScrollOnALongHistoryScrollsTheHistory() async throws {
+        let layout = DesignSettings.shared.workspaceHoverCard.layout
+        DesignSettings.shared.workspaceHoverCard.layout = .timeline
+        defer { DesignSettings.shared.workspaceHoverCard.layout = layout }
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let now = Date()

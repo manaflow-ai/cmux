@@ -5,7 +5,8 @@ import CmuxNextIcons
 /// The workspace hover card's history (u3320): one line per moment, newest first, a time column
 /// and an icon column, the prompt or what happened beside them. It scrolls past `maxHeight`; the
 /// card window ignores the mouse, so the hover card coordinator hands it the wheel
-/// (`HoverCardPanel.scrollCard`).
+/// (`HoverCardPanel.scrollCard`). The compact card's few lines never scroll: no header, one line
+/// each, as tall as they are (Leo 2026-10-20: "no scroll, crisp").
 ///
 /// The lines are laid out by frame, each text measured once at its wrap width: a card slides
 /// to every row the pointer crosses while it shows, and the history's lines as stack views
@@ -21,6 +22,8 @@ final class WorkspaceHoverCardTimelineView: NSView {
     private let header = ChromeLabel(labelWithString: "")
     private let document = FlippedDocumentView()
     private var heightConstraint: NSLayoutConstraint?
+    private var underHeader: NSLayoutConstraint?
+    private var atTop: NSLayoutConstraint?
     private var rows: [Line] = []
     private var entries: [SidebarTimelineEntry] = []
     /// What the lines were last laid out for: the same entries, width and line limit only
@@ -50,11 +53,14 @@ final class WorkspaceHoverCardTimelineView: NSView {
         addSubview(scrollView)
         let height = scrollView.heightAnchor.constraint(equalToConstant: 0)
         heightConstraint = height
+        let under = scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Metrics.space2)
+        underHeader = under
+        atTop = scrollView.topAnchor.constraint(equalTo: topAnchor)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: topAnchor),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
             header.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Metrics.space2),
+            under,
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -75,9 +81,23 @@ final class WorkspaceHoverCardTimelineView: NSView {
 
     /// Shows `entries` at `width`; the list is at most `maxHeight` tall and scrolls past it.
     /// `textLines` is how many lines a prompt may wrap to. A new set of entries scrolls to the top.
-    func configure(_ entries: [SidebarTimelineEntry], width: CGFloat, maxHeight: CGFloat, textLines: Int, now: Date) {
+    /// Without `scrolls`, the list has no header and no scroller, one line per entry, all shown.
+    func configure(_ entries: [SidebarTimelineEntry], width: CGFloat, maxHeight: CGFloat, textLines: Int, now: Date,
+                   scrolls: Bool = true) {
         let changed = entries != self.entries
         self.entries = entries
+        header.isHidden = !scrolls
+        underHeader?.isActive = scrolls
+        atTop?.isActive = !scrolls
+        scrollView.hasVerticalScroller = scrolls
+        // A list that does not scroll starts at its top, also when the same entries scrolled
+        // before under another layout (the laid-out cache below keeps the clip view as it was).
+        if !scrolls, scrollView.contentView.bounds.origin != .zero {
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        let textLines = scrolls ? textLines : 1
+        let maxHeight = scrolls ? maxHeight : .greatestFiniteMagnitude
         while rows.count < entries.count { addRow() }
         for (index, row) in rows.enumerated() {
             let entry = index < entries.count ? entries[index] : nil

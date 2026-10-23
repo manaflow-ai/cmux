@@ -282,6 +282,8 @@ final class WorkspaceHoverCardView: NSView {
     private let activityLabel = ChromeLabel(labelWithString: "")
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")
+    /// After the age while the workspace has something unread (ChatGPT's session card).
+    private let unreadDot = UnreadDotView()
     private let factsStack = NSStackView()
     /// CPU and memory with the last seconds of CPU as bars (`WorkspaceHoverCardContent.resourceRow`).
     private let resourceRow = HoverCardRowView()
@@ -329,6 +331,8 @@ final class WorkspaceHoverCardView: NSView {
         kindIcon.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.line = titleLabel
         kindIcon.side = Self.iconSize
+        unreadDot.line = ageLabel
+        unreadDot.isHidden = true
         // Digits of one width: a running time that ticks keeps its width ("1m 11s", "1m 18s").
         activityLabel.font = Self.liveFont
         activityLabel.lineBreakMode = .byTruncatingTail
@@ -340,7 +344,7 @@ final class WorkspaceHoverCardView: NSView {
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
-        let titleRow = NSStackView(views: [kindIcon, titleLabel, ageLabel])
+        let titleRow = NSStackView(views: [kindIcon, titleLabel, ageLabel, unreadDot])
         titleRow.orientation = .horizontal
         titleRow.alignment = .firstBaseline
         titleRow.spacing = Metrics.space2
@@ -386,6 +390,8 @@ final class WorkspaceHoverCardView: NSView {
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            unreadDot.widthAnchor.constraint(equalToConstant: UnreadDotView.side),
+            unreadDot.heightAnchor.constraint(equalToConstant: UnreadDotView.side),
             activitySlot.widthAnchor.constraint(equalToConstant: Self.iconSize),
             activitySlot.heightAnchor.constraint(equalToConstant: Self.iconSize),
             activity.widthAnchor.constraint(equalToConstant: Self.iconSize),
@@ -447,6 +453,9 @@ final class WorkspaceHoverCardView: NSView {
         kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
         ageLabel.stringValue = content.age ?? ""
         ageLabel.isHidden = content.age == nil
+        unreadDot.isHidden = !content.unread
+        // The compact card keeps a long name to two lines; the others show it whole.
+        titleLabel.maximumNumberOfLines = content.options.layout == .compact ? 2 : 6
         activity.configure(content.activity, style: content.activityStyle)
         let word = Strings.activity(content.activity)
         activityWord = word
@@ -454,7 +463,8 @@ final class WorkspaceHoverCardView: NSView {
         activityRow.isHidden = word == nil
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
-        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
+        let age = (ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4)
+            + (unreadDot.isHidden ? 0 : UnreadDotView.side + Metrics.space2)
         titleLabel.preferredMaxLayoutWidth = width - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
         while factViews.count < content.facts.count { addFactRow() }
         let wrap = width - 2 * Self.padding - Self.iconSize - Metrics.space2
@@ -478,8 +488,10 @@ final class WorkspaceHoverCardView: NSView {
         let log = content.options.layout == .log
         timeline.isHidden = content.timeline.isEmpty
         if !content.timeline.isEmpty {
+            // The compact card's last moments never scroll (Leo 2026-10-20: "no scroll, crisp").
             timeline.configure(content.timeline, width: width - 2 * Self.padding,
-                               maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
+                               maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now,
+                               scrolls: content.options.layout != .compact)
         }
         applyColors()
     }
@@ -608,5 +620,60 @@ extension WorkspaceHoverCardView {
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
+        performWithTheme {
+            // The notification blue, as on the sidebar's own unread dots: the default theme's
+            // accent is a grey, and a grey dot read as missing (2026-10-21).
+            // glass-opaque-allow: a 6 pt unread dot on the title row, not a body or surface over the glass.
+            unreadDot.layer?.backgroundColor = Palette.notificationBlue.cgColor
+            // The last message in its own styles (bold, italic, code), never its raw marks.
+            for (index, row) in factViews.enumerated() where index < (content?.facts.count ?? 0) && !row.isHidden {
+                guard let markdown = content?.facts[index].markdown else { continue }
+                row.textLabel.attributedStringValue = Self.styled(markdown, color: Palette.textPrimary)
+            }
+        }
+    }
+
+    /// `markdown`'s inline styles in the card's fonts: bold in the emphasized body, italic,
+    /// code in the monospaced body, all in `color`.
+    static func styled(_ markdown: String, color: NSColor) -> NSAttributedString {
+        let rendered = WorkspaceHoverCardContent.renderedMarkdown(markdown)
+        let body = Typography.body
+        let out = NSMutableAttributedString()
+        for run in rendered.runs {
+            let intent = run.inlinePresentationIntent ?? []
+            let strong = intent.contains(.stronglyEmphasized)
+            // Bold code stays monospaced, in the emphasized body's weight.
+            var font = intent.contains(.code)
+                ? Typography.system(.monospaced, size: body.pointSize, weight: strong ? .medium : .regular)
+                : strong ? Typography.bodyEmphasized : body
+            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            out.append(NSAttributedString(string: String(rendered[run.range].characters), attributes: [.font: font, .foregroundColor: color]))
+        }
+        return out
+    }
+}
+
+/// The unread dot on the title row, centered on `line`'s capitals like the card's icons
+/// (`HoverCardIconView`, `NSFont.iconBaselineOffsetFromTop`).
+private final class UnreadDotView: NSView {
+    static var side: CGFloat { 6 }
+    weak var line: ChromeLabel?
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = Self.side / 2
+        setContentHuggingPriority(.required, for: .horizontal)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// With no line to follow, the dot sits on the baseline like an image. No `super` call: NSView's
+    /// getter is not in the probed selector table (scripts/cmux-next/check-objc-selectors.py).
+    override var firstBaselineOffsetFromTop: CGFloat {
+        guard let font = line?.font else { return Self.side }
+        return font.iconBaselineOffsetFromTop(iconHeight: Self.side)
     }
 }
