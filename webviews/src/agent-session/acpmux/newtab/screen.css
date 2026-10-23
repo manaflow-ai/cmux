@@ -845,9 +845,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-headline-text {
   margin: 0;
   max-width: 560px;
-  /* A new chat's hero question (.acpmux-empty-title, styles.css): the same size and line. */
-  font-size: 20px;
-  line-height: 28px;
+  /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
+     heading step is that 20px. */
+  font-size: var(--text-heading);
+  line-height: calc(28px * var(--cmux-interface-scale, 1));
   font-weight: 400;
   color: var(--agent-text);
   overflow-wrap: anywhere;

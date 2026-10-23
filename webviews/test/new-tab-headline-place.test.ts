@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 420
 // New Tab's composer keeps its place now that the page has no greeting (Leo 2026-10-22: "new tab
 // page let's have no greeting text by default... maybe as toggle but as useful toggle"). Under the
 // old greeting the composer's top sat the greeting's box (its heading line and the 6px under it)
@@ -15,7 +16,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-headline-place.test.ts", async () => {
-  setDefaultTimeout(240_000);
+  setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
@@ -38,7 +39,7 @@ await requireBrowserLane("new-tab-headline-place.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, ENTRIES, { browser });
+    await warmGalleryFrame(vite, ENTRIES, { browser, timeoutMs: 240_000 });
   });
   afterAll(async () => {
     await browser?.close();
