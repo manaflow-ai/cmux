@@ -23,8 +23,14 @@ tab fetches its icon through BrowserFaviconLoader, which refuses loopback hosts,
 pages and history are there but without icons. Check `debug.cef` first (perf-lead-brief measurement
 validity): a build without the Chromium artifact silently opens WebKit tabs.
 
-Create-on-the-key guard (red before the fix, green after):
-  instant-new-surfaces-bench.py --tag T --app APP --phases idle --browser-tabs 60 \
+`--sessions light,stress` runs every phase in the light session first, then builds the standard STRESS
+session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the measured one 4 x 3 panes plus nested
+splits, 6 tabs per pane, 10 busy terminals, 10 workspaces with Chromium pages) in the same app and runs
+every phase again in its measured workspace (phase names end in `@stress`), so light and STRESS numbers come
+from one build side by side. It prints the STRESS-SESSION line the builder reports.
+
+Create-on-the-key guard (red before the fix, green after), light and STRESS:
+  instant-new-surfaces-bench.py --tag T --app APP --phases idle --browser-tabs 60 --sessions light,stress \
     --commands new_workspace,new_tab,new_terminal,split_right,split_down,new_chat \
     --budget-frames 1 --budget-key-p95-ms 4
 
@@ -32,7 +38,8 @@ Create-on-the-key guard (red before the fix, green after):
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
-       [--workspaces 10,100] [--browser-tabs 60] [--budget-key-p95-ms 4] [--out DIR] [--json FILE]
+       [--workspaces 10,100] [--browser-tabs 60] [--sessions light,stress] [--budget-key-p95-ms 4]
+       [--out DIR] [--json FILE]
 """
 import argparse, glob, http.server, json, os, re, signal, socket, struct, subprocess, sys, tempfile, threading, time, zlib
 
@@ -49,6 +56,7 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--budget-key-p95-ms", type=float, default=0, help="fail when a command's p95 key main-thread ms is above this (0: off)")
 parser.add_argument("--browser-tabs", type=int, default=0, help="open this many browser tabs with favicons (and history) before the bench")
 parser.add_argument("--browser-engine", choices=["chromium", "webkit"], default="chromium")
+parser.add_argument("--sessions", default="light", help="light, stress, or light,stress (STRESS built after the light runs)")
 parser.add_argument("--icon-px", type=int, default=180, help="pixel size of each --browser-tabs page's favicon (sites serve 16 to 256)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -290,6 +298,18 @@ def seed_browser_tabs(count):
     return server
 
 
+def build_stress():
+    """The standard STRESS session in this app (perf-stress-session.py), its measured workspace shown."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    shape = module.Stress(rpc).build()
+    print("STRESS-SESSION", json.dumps(shape), flush=True)
+    return shape
+
+
 app = None
 
 
@@ -336,21 +356,25 @@ def main():
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     server = seed_browser_tabs(opts.browser_tabs) if opts.browser_tabs else None
-    rows = []
+    rows, stress = [], None
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
-    for count in counts:
-        suffix = ""
-        if count is not None:
-            ensure_terminal()
-            suffix = f"@{grow_workspaces(count)}ws"
-        for phase in opts.phases.split(","):
-            if phase == "load":
-                start_load()
-            try:
-                rows += bench(phase + suffix, window)
-            finally:
-                stop_load()
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
+    for session in [s for s in opts.sessions.split(",") if s]:
+        if session == "stress":
+            stress = build_stress()
+        for count in counts:
+            suffix = "@stress" if session == "stress" else ""
+            if count is not None:
+                ensure_terminal()
+                suffix += f"@{grow_workspaces(count)}ws"
+            for phase in opts.phases.split(","):
+                if phase == "load":
+                    start_load()
+                try:
+                    rows += bench(phase + suffix, window)
+                finally:
+                    stop_load()
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress,
+              "summary": summary(rows), "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
