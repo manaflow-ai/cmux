@@ -179,6 +179,7 @@ export function useChatInspector({
   covered = false,
   onUncover,
   beside,
+  wide = false,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -190,6 +191,9 @@ export function useChatInspector({
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
+  /// What the chat shows under its header is wider than the transcript's column (App.tsx: a handoff
+  /// review's form): the panel pushes it aside, never floats over it, and its toggle stays in reach.
+  wide?: boolean;
   /// This Mac's name from the handshake, for a local chat.
   machineName?: string;
   /// The chat folder's GitHub repository (`git.githubRepository`), `owner/name`.
@@ -318,6 +322,7 @@ export function useChatInspector({
         repository={repository}
         shell={shell}
         beside={beside}
+        wide={wide}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
         onClose={closeInspector}
@@ -353,6 +358,7 @@ function InspectorPresence({
   repository,
   shell,
   beside,
+  wide,
   openedOutputAt,
   onSuppress,
   onClose,
@@ -379,6 +385,8 @@ function InspectorPresence({
   shell?: HTMLElement | null;
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
+  /// The chat shows something wider than the transcript's column: the panel pushes.
+  wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
   /// That diff's split left no room for the chat beside the Inspector: the Inspector steps aside.
@@ -412,7 +420,7 @@ function InspectorPresence({
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
-  const push = pushes(display.inspector, paneWidth, width, column);
+  const push = pushes(wide ? "push" : display.inspector, paneWidth, width, column);
   const tabRowHeight = useTabRow().height;
   const rows = snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);

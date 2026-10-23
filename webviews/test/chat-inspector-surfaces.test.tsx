@@ -86,7 +86,7 @@ let cover: ((covered: boolean) => void) | undefined;
 
 /// The chat pane as App.tsx wires it: `covered` while a view (a diff in place) has the pane, and
 /// `onUncover` closing that view.
-function Pane({ initiallyCovered }: { initiallyCovered: boolean }) {
+function Pane({ initiallyCovered, wide = false }: { initiallyCovered: boolean; wide?: boolean }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const [covered, setCovered] = useState(initiallyCovered);
   cover = setCovered;
@@ -99,6 +99,7 @@ function Pane({ initiallyCovered }: { initiallyCovered: boolean }) {
       uncovered += 1;
       setCovered(false);
     },
+    wide,
   });
   reveal = inspector.reveal;
   return (
@@ -297,3 +298,21 @@ test("the side panel's covering follows the pane's width as it crosses the query
   root = undefined;
   expect(listeners.size).toBe(0);
 });
+
+for (const wide of [false, true])
+  test(`in a wide pane it ${wide ? "pushes a handoff review's wider form aside" : "floats beside the transcript"}`, async () => {
+    const container = installDom();
+    // A 1600px pane: the transcript's gutter has room for the floating panel.
+    Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("acpmux-shell") ? 1600 : 0;
+      },
+    });
+    await act(async () => setInspectorOpen(true));
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<Pane initiallyCovered={false} wide={wide} />);
+    });
+    expect(panel(container)?.getAttribute("data-placement")).toBe(wide ? "push" : "overlay");
+  });
