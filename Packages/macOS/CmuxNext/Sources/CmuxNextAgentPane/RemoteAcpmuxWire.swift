@@ -138,6 +138,22 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                                                          "queued": object["queued"] ?? false])
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
+        case "image.load":
+            guard let src = params["src"] as? String, let path = Self.remoteImagePath(src) else {
+                return refuse(id, method)
+            }
+            // The bytes are read by the daemon attached to the chat's host. The local app never
+            // resolves this path, so a same-named file on this Mac cannot leak into the reply.
+            run(id) { client in
+                let data = try await client.media(path: path)
+                guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let encoded = object["data"] as? String,
+                      let bytes = Data(base64Encoded: encoded),
+                      case .success(let source) = await AgentPaneReplyImages.remote(bytes) else {
+                    throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote image could not be decoded")
+                }
+                return Self.json(AgentPaneReply.success(["src": source]))
+            }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -335,6 +351,16 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     private func refuse(_ id: String?, _ method: String) {
         fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
+    }
+
+    /// The remote media reader takes a path, not a URL decoration. Keep the extension check at
+    /// this boundary because the page's `image.load` request is untrusted.
+    private static func remoteImagePath(_ text: String) -> String? {
+        guard AgentPaneReplyPaths.isImagePath(text) else { return nil }
+        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+            return url.path(percentEncoded: false)
+        }
+        return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
     }
 
     private func refuseReadOnly(_ id: String?, _ method: String) {
