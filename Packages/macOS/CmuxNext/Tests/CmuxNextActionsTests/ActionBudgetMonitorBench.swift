@@ -100,7 +100,7 @@ struct ActionBudgetMonitorBench {
 
         installDiagCrashHandler()
         let thread = pthread_self()
-        print("DIAG main thread: \(Thread.isMainThread) stack top \(pthread_get_stackaddr_np(thread)) size \(pthread_get_stacksize_np(thread))")
+        print("DIAG main thread: \(pthread_main_np()) stack top \(pthread_get_stackaddr_np(thread)) size \(pthread_get_stacksize_np(thread))")
         // Diagnostic: a no-op hook first, then the semaphore hook, each with progress markers.
         let noop = MainTaskBoard()
         noop.setTaskStartHook {}
