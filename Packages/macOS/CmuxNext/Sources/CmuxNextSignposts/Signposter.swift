@@ -106,6 +106,24 @@ public nonisolated struct Signposter: Sendable {
         return SignpostInterval(state: state, metricKitID: mirror.begin(name))
     }
 
+    /// Begins an interval named `name` for one key-down (``SignpostName/keyToFrame``), with what has the keyboard
+    /// and the key's age formatted by the log system only when something reads them
+    /// (`target=<target> age_ms=<age, 2 decimals>`): it runs on every key-down, so no `String` is built per key.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - keyTarget: What has the keyboard (``KeyFrameSignpost/Target``'s raw value: `view`, `terminal`).
+    ///   - ageMilliseconds: The key event's age when its dispatch began, or -1 without a timestamp.
+    /// - Returns: The state to pass to ``end(_:_:_:)``.
+    public func begin(_ name: SignpostName, keyTarget: String, ageMilliseconds: Double) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            name.staticName, id: id,
+            "target=\(keyTarget, privacy: .public) age_ms=\(ageMilliseconds, format: .fixed(precision: 2), privacy: .public)")
+        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
     /// Begins an interval named `name` for one scheduled main-thread task (``SignpostName/stallMainTask``),
     /// with its class and owner formatted by the log system only when something reads them
     /// (`class=<class> owner=<owner>`): the scheduler opens one per task, so no `String` is built per call.
