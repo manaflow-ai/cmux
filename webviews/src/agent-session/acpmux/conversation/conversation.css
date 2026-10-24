@@ -1732,10 +1732,12 @@ pre.cv-math-source {
      soft stripe slides across them and its lit copy of the words slides back by as much, so the lit
      words hold still under the moving stripe. Transform only: the compositor runs both loops and
      the page paints nothing per frame (a text-clipped gradient's background-position repainted the
-     row every frame). Marks with their own color (edit counts, a failed count) keep it in both. */
+     row every frame). Marks with their own color (edit counts, a failed count) keep it in both.
+     Only words that carry the band (ToolText's span, with its `cv-tool__shine`) rest dim: a running
+     row that draws its words another way keeps its own color, never an idle-looking dim line. */
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
-    .cv-tool__text {
+    .cv-tool__text:has(> .cv-tool__shine) {
     position: relative;
     color: var(--cv-text-dim);
   }
