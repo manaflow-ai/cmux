@@ -9,6 +9,7 @@
 use super::{EventFilter, Hub, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 fn dir() -> PathBuf {
@@ -152,13 +153,85 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
+/// metadata. The web transcript uses this field to interleave text and attachments after a reload;
+/// `images` is the result of `keep`, so an image is included only when its bytes have a durable id.
+/// No block's base64 payload is copied into the event log.
+pub(super) fn inline_parts(blocks: &[Value], images: &[Value]) -> Vec<Value> {
+    let kept_images: HashSet<&str> =
+        images.iter().filter_map(|image| image.get("id").and_then(Value::as_str)).collect();
+    blocks
+        .iter()
+        .filter_map(|block| {
+            let kind = block.get("type").and_then(Value::as_str)?;
+            match kind {
+                "text" if !crate::prompt_context::is_context(block) => {
+                    let text = block.get("text").and_then(Value::as_str)?;
+                    let mut part = json!({"kind": "text", "text": text});
+                    if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
+                        part["pasted"] = Value::Bool(true);
+                    }
+                    Some(part)
+                }
+                "image" => {
+                    let (_, named) = decode(block)?;
+                    let id = named.get("id").and_then(Value::as_str)?;
+                    kept_images.contains(id).then(|| {
+                        let mut part = named;
+                        part["kind"] = Value::String("image".into());
+                        part
+                    })
+                }
+                "document" | "audio" => {
+                    let fallback = if kind == "document" { "document" } else { "audio" };
+                    let name = block.get("name").and_then(Value::as_str).unwrap_or(fallback);
+                    let mut part = json!({"kind": kind, "name": name});
+                    if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
+                        part["mimeType"] = Value::String(mime_type.into());
+                    }
+                    if let Some(size) = block_size(block) {
+                        part["size"] = json!(size);
+                    }
+                    if let Some(page_count) = block.get("pageCount").and_then(Value::as_u64) {
+                        part["pageCount"] = json!(page_count);
+                    }
+                    Some(part)
+                }
+                "resource_link" => {
+                    let uri = block.get("uri").and_then(Value::as_str)?;
+                    let name = block.get("name").and_then(Value::as_str).unwrap_or(uri);
+                    let mut part = json!({"kind": "file", "name": name, "uri": uri});
+                    if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
+                        part["mimeType"] = Value::String(mime_type.into());
+                    }
+                    Some(part)
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// The decoded byte count of a document/audio block, without retaining its payload in the event.
+fn block_size(block: &Value) -> Option<u64> {
+    use base64::Engine;
+    let data = block.get("data").and_then(Value::as_str)?;
+    u64::try_from(base64::engine::general_purpose::STANDARD.decode(data).ok()?.len()).ok()
+}
+
 impl Hub {
-    /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`
-    /// and the ranges of its text that were pasted (`session.rs`, `mark_pasted`).
+    /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`,
+    /// preserving their ordered content metadata, and recording pasted text ranges (`session.rs`,
+    /// `mark_pasted`).
     pub(super) fn append_prompt(&self, session: &Session, mut msg: Value, blocks: &[Value]) {
         let images = keep(blocks);
         if !images.is_empty() {
             msg["images"] = Value::Array(images);
+        }
+        let ordered =
+            inline_parts(blocks, msg.get("images").and_then(Value::as_array).unwrap_or(&[]));
+        if !ordered.is_empty() {
+            msg["inlineParts"] = Value::Array(ordered);
         }
         super::session::mark_pasted(&mut msg, blocks);
         self.append(session, "mux", "user_message", msg);
@@ -219,7 +292,8 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::sniffed_type;
+    use super::{decode, inline_parts, sniffed_type};
+    use serde_json::json;
 
     #[test]
     fn a_kept_files_type_comes_from_its_magic_number() {
@@ -296,5 +370,33 @@ mod tests {
         let mut huge = large.clone();
         huge[8..16].copy_from_slice(&u64::MAX.to_be_bytes());
         assert_eq!(sniffed_type(&huge), None);
+    }
+
+    #[test]
+    fn inline_parts_keep_acp_order_without_attachment_bytes() {
+        let image = json!({
+            "type": "image",
+            "mimeType": "image/png",
+            "name": "one.png",
+            "data": "AQID"
+        });
+        let kept = vec![decode(&image).unwrap().1];
+        let blocks = vec![
+            json!({"type": "text", "text": "before", "_meta": {"cmux": {"pasted": true}}}),
+            image,
+            json!({"type": "text", "text": "after"}),
+            json!({"type": "document", "mimeType": "application/pdf", "name": "brief.pdf", "data": "JVBERi0="}),
+            json!({"type": "resource_link", "uri": "attachment://notes.txt", "name": "notes.txt"}),
+        ];
+
+        let parts = inline_parts(&blocks, &kept);
+        assert_eq!(
+            parts.iter().map(|part| part["kind"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["text", "image", "text", "document", "file"]
+        );
+        assert_eq!(parts[0]["pasted"], true);
+        assert_eq!(parts[1]["id"], kept[0]["id"]);
+        assert_eq!(parts[3]["size"], 5);
+        assert!(parts.iter().all(|part| part.get("data").is_none()));
     }
 }
