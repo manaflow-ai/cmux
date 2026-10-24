@@ -83,6 +83,11 @@ final class AgentPaneDictation {
         self.makeSession = makeSession
     }
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The resign and
+    // sleep observers (each a MainActorObservation) are removed on the releasing thread.
+    nonisolated deinit {}
+
     /// The old host: each update is a script the page runs.
     convenience init(
         evaluate: @escaping (String) -> Void,
