@@ -1629,6 +1629,24 @@ RULES = (
          "into a Task on the cooperative pool",
          "// qos-allow: <why it inherits its caller's priority on purpose>",
          matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
+    Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
+         "`item(atRow:`, `selectedRow(inColumn:`)",
+         "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
+         "AppKit raises NSRangeException for such an index and the app ends (#24776, NSBrowser itemAtRow:inColumn:)",
+         "CmuxNextCompat's checked accessors: `table.clickedRowIfValid` / `selectedRowIfValid`, "
+         "`browser.clickedItemIfValid` / `selectedItemIfValid` / `item(ifValidRow:inColumn:)`; still check the row "
+         "against the model array you index",
+         "// index-allow: <why the index is valid here>",
+         line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
+                   "index-allow:")),
+    Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
+         "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
+         "range into the old text and Cmd-Z raises NSRangeException (#24912)",
+         "give the view a `replaceText(_:)` that sets the text and clears the undo history (TextBoxTextView, "
+         "ShareCmuxMessageTextView), write text from code only through it, then mark the line "
+         "`// undo-safe: <the view's replaceText>`",
+         "// undo-safe: <the view's replaceText>",
+         line_rule(r"\ballowsUndo\s*=\s*true\b", "undo-safe:")),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
          f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
          f"and of its feature files warns)",
