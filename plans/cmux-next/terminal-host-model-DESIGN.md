@@ -94,6 +94,13 @@ processes and ~2,000 threads fewer.
   whose end it had not published (before: up to 256 KiB of unsent ring plus 1 MiB of queued frames,
   and the next holder numbered the PTY's next byte as if they had arrived: a silent splice). The
   daemon never maps the segment; it hands it to the next holder, which continues the same ring.
+  Wire v5 (review 2 of holder items 1-3): ring layout 2 (a published `oldest`) passes only between
+  peers of v5 or later, so a v4 holder never gets a segment it cannot read; a v5 holder answers
+  every ADOPT with ADOPTED (`oldest u64, end u64`, plus the segment it really writes: the one
+  handed over, or a fresh one when that was bad or stale), and the daemon keeps exactly that
+  segment as custody. ATTACH carries the offset the daemon parsed, so the credit after an adoption
+  or a resume counts from there and the ring never runs more than the credit window plus
+  `UNSENT_HIGH_WATER` (768 KiB) past what the daemon parsed.
 - Wire: multiplexed holder-protocol frames, `magic "CMHX" | kind u16 | flags u16 | chan u32 |
   len u32 | payload` (chan = terminal slot). Kinds: HELLO/WELCOME (token, version), SPAWN (argv,
   env, cwd, size; reply SPAWNED with pid and the master fd by SCM_RIGHTS: the daemon's custody

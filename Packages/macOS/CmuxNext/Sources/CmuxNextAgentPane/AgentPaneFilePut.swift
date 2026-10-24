@@ -37,7 +37,7 @@ extension AcpmuxStatusClient {
     static let filePutChunkMethod = "_acpmux/file_put_chunk"
     static let filePutFinishMethod = "_acpmux/file_put_finish"
     static let filePutCancelMethod = "_acpmux/file_put_cancel"
-    static let legacyFilePutBytes = 10 * 1024 * 1024
+    nonisolated static let legacyFilePutBytes = 10 * 1024 * 1024
     static let filePutChunkBytes = 512 * 1024
 
     /// `_acpmux/file_put {sessionId, fileName, data}` on this Mac's acpmux, which saves the file on the

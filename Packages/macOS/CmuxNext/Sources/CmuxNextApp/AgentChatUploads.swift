@@ -17,7 +17,7 @@ import Foundation
 @MainActor
 struct AgentChatUploads {
     private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String; var expires: Date }
-    private struct Batch { var session: String; var remaining: [(String, Int)]; var expires: Date }
+    private struct Batch { var session: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
@@ -52,14 +52,14 @@ struct AgentChatUploads {
 
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
-        let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) } ?? "new"
+        let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil } ?? "new"
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
             switch request {
             case .begin(let name, let size, let batchToken, let manifest):
                 if let batchToken {
-                    guard let batch = batches[batchToken], batch.session == session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                    guard let batch = batches[batchToken], batch.session == session, batch.remaining.first?.name == name, batch.remaining.first?.size == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                     let remaining = Array(batch.remaining.dropFirst())
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
                     else { batches[batchToken] = Batch(session: session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
