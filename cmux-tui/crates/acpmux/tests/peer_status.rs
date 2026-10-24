@@ -143,6 +143,39 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     assert_eq!(names, ["b"], "{one}");
     let unknown = ca.call("_acpmux/peer_status", json!({"name": "nope"})).await;
     assert!(unknown.is_err_and(|e| e.contains("acpmux host ls")), "an unknown peer names host ls");
+
+    // A Web caller learns that b answered and on which build, not b's numbers.
+    let mut web = client_as(a.clone(), Some(acpmux::server::Origin::Web)).await;
+    let reply = web.call("_acpmux/peer_status", json!({})).await.unwrap();
+    let peer = row(&reply, "b");
+    assert_eq!(peer["reachable"], true, "{reply}");
+    assert!(peer["latencyMs"].is_u64(), "{reply}");
+    assert_eq!(peer["build"], acpmux::hub::BUILD, "{reply}");
+    for key in ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs"] {
+        assert!(peer.get(key).is_none(), "{key} reached the web: {reply}");
+    }
+    // Its own machine's row is `_acpmux/host_health`'s, without the host name.
+    let me = &reply["hosts"][0];
+    assert_eq!(me["self"], true, "{reply}");
+    assert!(me["ram"].is_object() && me.get("host").is_none(), "{reply}");
+    // One peer by name: the same row.
+    let one = web.call("_acpmux/peer_status", json!({"name": "b"})).await.unwrap();
+    let peer = row(&one, "b");
+    assert_eq!(peer["reachable"], true, "{one}");
+    assert!(peer.get("ram").is_none() && peer.get("load").is_none(), "{one}");
+    // The local app's WebSocket is off the unix socket too: no peer's numbers.
+    // It runs on this machine, so its own row may name it.
+    let mut app = client_as(a.clone(), Some(acpmux::server::Origin::LocalApp)).await;
+    let reply = app.call("_acpmux/peer_status", json!({})).await.unwrap();
+    let peer = row(&reply, "b");
+    assert!(peer["latencyMs"].is_u64(), "{reply}");
+    assert!(peer.get("ram").is_none() && peer.get("disk").is_none(), "{reply}");
+    // A peer's connection gets this machine's row only, unnamed.
+    let mut via = client_as(a.clone(), Some(acpmux::server::Origin::Peer)).await;
+    let reply = via.call("_acpmux/peer_status", json!({})).await.unwrap();
+    let hosts = reply["hosts"].as_array().unwrap();
+    assert_eq!(hosts.len(), 1, "{reply}");
+    assert!(hosts[0]["self"] == true && hosts[0].get("host").is_none(), "{reply}");
 }
 
 #[tokio::test]
