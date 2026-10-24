@@ -40,6 +40,10 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// Every ``setVisible(_:)`` and ``setFrozen(_:)`` in one order: `shown`, `hidden`, `frozen`,
     /// `thawed` (a thaw must come before the show).
     public private(set) var lifecycle: [String] = []
+    /// Whether Chromium draws the page now, as Chromium decides it: a show draws and a hide stops,
+    /// a freeze hides the page too (`Page.setWebLifecycleState` `frozen` hides the WebContents
+    /// first), and a thaw does not show it again; only a later show does. True for a new page.
+    public private(set) var isDrawing = true
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -85,15 +89,17 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.
     public func setFocused(_ focused: Bool) {}
-    /// Records the value in ``visibility`` and ``lifecycle``.
+    /// Records the value in ``visibility``, ``lifecycle`` and ``isDrawing``.
     public func setVisible(_ visible: Bool) {
         visibility.append(visible)
         lifecycle.append(visible ? "shown" : "hidden")
+        isDrawing = visible
     }
-    /// Records the value in ``freezes`` and ``lifecycle``.
+    /// Records the value in ``freezes`` and ``lifecycle``; a freeze stops ``isDrawing``.
     public func setFrozen(_ frozen: Bool) {
         freezes.append(frozen)
         lifecycle.append(frozen ? "frozen" : "thawed")
+        if frozen { isDrawing = false }
     }
 
     /// Sets ``closed`` and runs ``onClose``.
