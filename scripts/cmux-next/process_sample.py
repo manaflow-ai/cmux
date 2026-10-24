@@ -10,6 +10,7 @@ bench and the batch2-verify crash runs record the same fields and their samples 
   report_cap()     whether this host's crash reporter refuses reports (osanalyticshelper's 25-log limit), so a
                    death with no .ips is not read as "no crash".
   exit_signal(rc)  the signal name of a Popen return code below 0.
+  regular_files(pid)  the regular files a process holds open, counted by folder.
 """
 import glob, os, re, signal, subprocess, time
 
@@ -89,6 +90,24 @@ def resources(pid):
         pass
     out["session"] = session_state()
     return out
+
+
+def regular_files(pid, top=40):
+    """The regular files `pid` holds open, counted by folder (most first), and the total: what the app holds
+    before any Chromium tab (perf-lead queue item g)."""
+    try:
+        lines = _run(["/usr/sbin/lsof", "-n", "-P", "-a", "-p", str(pid), "-d", "0-1000000", "-F", "tn"], 30).stdout.splitlines()
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": repr(error)[:200]}
+    folders, kind, total = {}, None, 0
+    for line in lines:
+        if line.startswith("t"):
+            kind = line[1:]
+        elif line.startswith("n") and kind == "REG":
+            total += 1
+            folder = os.path.dirname(line[1:]) or line[1:]
+            folders[folder] = folders.get(folder, 0) + 1
+    return {"total": total, "by_folder": dict(sorted(folders.items(), key=lambda kv: -kv[1])[:top])}
 
 
 def report_dirs():

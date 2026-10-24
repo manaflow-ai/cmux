@@ -29,7 +29,7 @@ import argparse, glob, json, os, re, shutil, subprocess, sys, tempfile, threadin
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
-from process_sample import exit_signal, report_cap, report_dirs, resources  # noqa: E402
+from process_sample import exit_signal, regular_files, report_cap, report_dirs, resources  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", help="(accepted; the app's tag comes from its bundle name)")
@@ -151,6 +151,8 @@ def main():
     bench.launch()
     launched = time.time()
     pid = bench.process.pid
+    files_before_tabs = regular_files(pid)
+    print("REGULAR-FILES-BEFORE-TABS " + json.dumps(files_before_tabs), flush=True)
     rows, failure, opened, death = [], None, 0, None
     per_workspace = max(1, opts.tabs // max(1, opts.workspaces))
     with Sampler(pid, opts.sample_s) as sampler:
@@ -187,7 +189,7 @@ def main():
             shutil.copy(path, opts.out)
             crashes.append(os.path.basename(path))
     result = {"host": os.uname().nodename, "tabs": opts.tabs, "rows": rows, "failure": failure, "death": death,
-              "crash_reports": crashes, "crash_report_wait": getattr(bench, "crash_report_wait", None),
+              "crash_reports": crashes, "regular_files_before_tabs": files_before_tabs, "crash_report_wait": getattr(bench, "crash_report_wait", None),
               "report_cap_before": cap, "reports_set_aside": moved, "report_cap_after": report_cap("1h") if death else None,
               "samples": sampler.rows, "last_samples": sampler.rows[-3:], "log": bench.log_path,
               "system_log": system_log(started, time.time()) if death else None, "limits": opts.limits,
