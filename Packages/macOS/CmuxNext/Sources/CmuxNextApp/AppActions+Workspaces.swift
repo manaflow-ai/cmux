@@ -51,7 +51,7 @@ extension AppActions {
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG
-        services.pages.register(DebugHomeNativeFixture())
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
@@ -124,7 +124,7 @@ extension AppActions {
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
         if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
            let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
-            spawn.inheritedCwd = NewTerminalStart.folder(of: focused.selectedTab, services: services)
+            spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
 
         let windows = services.windows

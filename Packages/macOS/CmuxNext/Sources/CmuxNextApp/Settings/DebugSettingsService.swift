@@ -13,6 +13,7 @@ import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextHistory
 import CmuxNextHome
+import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextOnboarding
 import CmuxNextPages
@@ -32,12 +33,12 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
         ChiefViewsPage.tunables +
-        DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
             + TitlebarHistoryTunables.all + HibernationTunables.all
-            + HangFileTunables.all
+            + HangFileTunables.all + HostPressureTunables.all
     }
 }
 
@@ -81,6 +82,15 @@ final class DebugSettingsService: InternalPageProvider {
         store.activate(file: url)
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
+        // The store loads the file off the main actor, after the first icons draw: the family is read here.
+        IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).
+    nonisolated static func launchIconFamily(_ url: URL?) -> IconFamily {
+        // concurrency-allow: one small Debug Settings file, read once at launch before the first icon draws
+        guard let url, let data = try? Data(contentsOf: url) else { return .pack }
+        return (TunableFile.decode(data)[IconFamily.tunable.key] as? String).flatMap(IconFamily.init(rawValue:)) ?? .pack
     }
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`

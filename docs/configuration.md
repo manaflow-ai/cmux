@@ -89,6 +89,21 @@ Customize split-workspace pane boundaries controlled by cmux.
 
 Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to use the default. These settings apply to cmux's multi-surface pane layout. When `paneBorderColor` is unset, the divider uses Ghostty's `split-divider-color` if one is configured.
 
+## `ui.reducedBackgrounds`
+
+Draws windows in the plain theme color.
+
+```json
+{
+  "ui": { "reducedBackgrounds": true }
+}
+```
+
+- `false` (default): windows draw the background you chose (`appearance.background`, a workspace's or a pane's own picture) and the window material (`appearance.backgroundOpacity`, `appearance.backgroundBlur`).
+- `true`: no painting, shuffled painting, desktop or system wallpaper, and no glass, frost or see-through window: every window is opaque in its theme's background color, as with macOS Reduce Transparency. This also overrides Ghostty's own `background-opacity` and `background-blur` while on.
+
+It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -168,6 +183,21 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
+
+## `tabs.commandDigits`
+
+What Cmd-1 to Cmd-9 select.
+
+```json
+{
+  "tabs": { "commandDigits": "tabs" }
+}
+```
+
+- `"workspaces"` (default): Cmd-1…9 go to sidebar items (`sidebar.numbering` decides which count) and Ctrl-1…9 go to the focused pane's tabs.
+- `"tabs"`: the two trade keys. Cmd-1…9 go to the focused pane's tabs (Cmd-9 is the last tab) and Ctrl-1…9 go to sidebar items.
+
+A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
 
 ## Tab bar (removed: `tabs.tabBar`)
 
@@ -903,6 +933,21 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 
 acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
 reads the other keys at each call, so a change applies to the next session or call.
+
+## `media.pictureInPicture.enabled`
+
+Whether cmux offers Picture in Picture for a web page's video.
+
+```json
+{
+  "media": { "pictureInPicture": { "enabled": false } }
+}
+```
+
+- `true` (default): the tab's menu and the Now Playing card's menu offer Picture in Picture for a page playing a video, as do the command palette, `cmux media picture-in-picture` and MCP, the card's button and the toolbar media hub's button.
+- `false`: none of those offer it, and `cmux media picture-in-picture` answers that it is turned off. A video already floating stays until its window closes.
+
+A site's own video controls (a player's Picture in Picture button, the page's `requestPictureInPicture`) are the page's, not cmux's, and are not affected. Change it in **Settings > Browser > Media** or with `cmux settings set media.pictureInPicture.enabled false`.
 
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 

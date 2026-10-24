@@ -104,6 +104,10 @@ nonisolated enum AcpmuxPaneMethods {
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
         "_acpmux/forum/rules",
+        // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
+        // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
+        // resumes it (now, after the running turn, or at its next start).
+        "_acpmux/set_tools",
     ]
 
     /// Notifications (no `id`).
@@ -201,7 +205,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
-        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set",
+        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -279,6 +283,8 @@ nonisolated enum AcpmuxPaneMethods {
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
+        // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
+        // already had from the person's own config; it adds none.
     ]
 
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs

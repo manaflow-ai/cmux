@@ -31,9 +31,19 @@ import CmuxNextVSCodeServer
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
+import CmuxNextFocusUI
+import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
+    /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
+    let themeStore = ThemeScope.app.store
+    /// The recovery-draft backstop of unsaved documents (R96).
+    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    /// The open files' quit documents, shared by the markdown and editor pages.
+    private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
@@ -45,7 +55,8 @@ final class AppServices {
     let crashReporting: AppCrashReporting
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
-    let daemon = DaemonService()
+    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    let daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -65,7 +76,11 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
+    private(set) lazy var feed: FeedService = FeedService(
+        auth: cloud.auth,
+        showcase: environment.showcase,
+        acpmuxEnvironment: QuitAgents.environment(self)
+    )  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
@@ -81,9 +96,12 @@ final class AppServices {
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
-    let registry = ActionRegistry.standard()
+    /// Every action; timed by the always-on `action.*` signposts, in Debug and Release.
+    let registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming())
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
+    /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
+    let openPanel = MadeAheadOpenPanel()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
@@ -114,6 +132,8 @@ final class AppServices {
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
+    /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
+    var workContext = WorkContextTrail()
     /// The merged history read side and the per-profile visit logs.
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
@@ -151,6 +171,12 @@ final class AppServices {
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
+    /// Mac Screen: paired Macs' screens and Share This Mac.
+    private(set) lazy var macScreenPages = AppServices.makeMacScreenPages(self)
+    /// Mac Screen page tabs (`InternalPageID.macScreen`).
+    private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
+    /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
+    private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
@@ -218,6 +244,8 @@ final class AppServices {
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
+    /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`).
+    let newTabWeather = NewTabWeather()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     let newTabTypeAhead = NewTabTypeAhead()
@@ -249,6 +277,7 @@ final class AppServices {
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
+    private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
@@ -349,8 +378,6 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
-        // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
-        DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -452,12 +479,23 @@ final class AppServices {
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
+        registry.dispatchingInputEvent = { (NSApp as? CmuxApplication)?.dispatchingEvent }
+        registry.isDispatchingKeyDown = { (NSApp as? CmuxApplication)?.dispatchingEvent?.type == .keyDown }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
+        }
+        (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
+            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
+            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
+            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+        }
+        (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
+            guard let self else { return body() }
+            windows.dispatching(eventFrom: event.window, body)
         }
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)

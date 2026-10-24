@@ -23,10 +23,11 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
-  type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number }
+  type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number; proxy?: Cmux.BrowserProfileProxy }
   type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
   type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
   type BrowserProfileOpenResult = { tab_id: string /* tab_… */; browser_id: string /* browser_… */; pane_id: string /* pane_… */; profile_id: string }
+  type BrowserProfileProxy = { scheme: "http" | "https" | "socks5"; host: string; port: number; bypass?: Array<string> }
   type BrowserSnapshot = { id: string /* browser_… */; tab_id: string /* tab_… */; url: string; title: string; loading: boolean; source: Cmux.BrowserSource; status: Cmux.BrowserStatus; error: string | null; frames_stalled: boolean; size: Cmux.Size; extra?: Record<string, Cmux.JsonValue> }
   type BrowserSource = "external" | "launched"
   type BrowserStatus = "starting" | "live" | "failed"
@@ -1348,7 +1349,7 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string; session?: string }, Cmux.SessionSnapshot>
     journal: {
       /** `session.journal.append` (mutation, scope `session:write`) */
-      append: CmuxOp<{ machine?: string; session?: string; event: Cmux.JournalIngressEvent; live_prompt?: string; live_reply?: string }, Cmux.MutationResult<Cmux.JournalAppendResult>>
+      append: CmuxOp<{ machine?: string; session?: string; event: Cmux.JournalIngressEvent; live_prompt?: string; live_reply?: string; live_question?: string }, Cmux.MutationResult<Cmux.JournalAppendResult>>
       checkpoint: {
         /** `session.journal.checkpoint.create` (mutation, scope `session:write`) */
         create: CmuxOp<{ machine?: string; session?: string }, Cmux.MutationResult<Cmux.JournalCheckpointCreateResult>>
@@ -1513,7 +1514,7 @@ interface CmuxGlobal {
     /** `tab.unpin` (mutation, scope `workspace:write`) */
     unpin: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     /** `tab.update` (mutation, scope `workspace:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; zoom?: number | null; back?: Array<string>; forward?: Array<string>; owner?: string; icon?: string | null; marked_unread?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
+    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; zoom?: number | null; back?: Array<string>; forward?: Array<string>; owner?: string; icon?: string | null; marked_unread?: boolean; attention?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
   }
   tab_group: {
     /** `tab_group.add_tabs` (mutation, scope `tab_group:write`) */

@@ -1,16 +1,20 @@
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Debug Settings' Needs you list and pill: both on by default, so the defaults set no attribute;
-/// the other choices set `data-needs-you` / `data-needs-you-pill` for the page (needsYou/NeedsYou.tsx).
+/// Debug Settings' Needs you list and pill: the list is pinned by default and sets no attribute; the
+/// pill is off by default (Leo 2026-10-23), so a new page gets `data-needs-you-pill="off"`. The
+/// other choices set `data-needs-you` / `data-needs-you-pill` for the page (needsYou/NeedsYou.tsx).
 /// The list shows only while its App Store item is installed (``AgentPaneTunables/needsYouStyle(installed:debug:)``).
 struct AgentPaneNeedsYouTunablesTests {
-    @Test func defaultsAreOnAndSetNoAttribute() {
+    @Test func defaultsArePinnedListAndPillOff() {
         #expect(AgentPaneTunables.needsYou.descriptor.key == "agentPane.debug.needsYou")
         #expect(AgentPaneTunables.needsYou.defaultValue == .pinned)
         #expect(AgentPaneTunables.needsYouPill.descriptor.key == "agentPane.debug.needsYouPill")
-        #expect(AgentPaneTunables.needsYouPill.defaultValue == true)
+        #expect(AgentPaneTunables.needsYouPill.defaultValue == false)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default,
+                                             needsYouPill: AgentPaneTunables.needsYouPill.defaultValue)
+            == ["needs-you-pill": "off"])
     }
 
     @Test(arguments: [AgentPaneNeedsYouStyle.compact, .off])

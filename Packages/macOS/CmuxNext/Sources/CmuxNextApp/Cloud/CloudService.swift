@@ -52,6 +52,13 @@ final class CloudService {
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false
+    /// Whom the loaded list is for (``listAccount`` when it landed).
+    @ObservationIgnored private var loadedAccount: [String?]?
+    /// Whether the store holds a list the server answered for the user and
+    /// team signed in now. A team switch keeps the user signed in, so the
+    /// previous team's list stays in the store until the next refresh lands:
+    /// it is not this team's answer.
+    var hasLoadedCurrentMachines: Bool { hasLoadedMachines && loadedAccount == listAccount }
     /// The Cloud app server's ops on the local daemon (contract 2.1).
     var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
@@ -119,7 +126,7 @@ final class CloudService {
             session: { [auth] in
                 guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
                 let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(CloudService.team(ofToken:)))
+                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() }
         ))
@@ -302,25 +309,43 @@ final class CloudService {
 
     // MARK: Machine list
 
+    /// Bumped by each ``refresh()``, by ``dropAllMachines()`` and by a create
+    /// or delete here: a list that comes back after a newer refresh started,
+    /// after the account's machines were dropped (sign-out, another account),
+    /// or after this app added or removed a machine, is stale.
+    @ObservationIgnored private var listGeneration = 0
+
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
-    /// gone machines disconnect, records update in place.
+    /// gone machines disconnect, records update in place. A stale list (see
+    /// `listGeneration`), or one fetched for another user or team than the
+    /// one signed in when it lands, changes nothing: it can neither bring back
+    /// a signed-out account's machines, nor undo a create or delete it did not
+    /// see, nor mark the store loaded with an older answer than the latest.
     func refresh() async {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
+        listGeneration += 1
+        let generation = listGeneration
+        let account = listAccount
         do {
             let list: [CloudMachine]
+            let limits: CloudMachineLimits?
             if configuration.linkSource == .appServer {
                 list = try await appServerMachines()
-                machines.cloudLimits = nil
+                limits = nil
             } else {
                 let listed = try await api.listMachinesAndLimits()
                 list = listed.machines
-                machines.cloudLimits = listed.limits
+                limits = listed.limits
             }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            machines.cloudLimits = limits
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
+            loadedAccount = account
         } catch {
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = String(describing: error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
@@ -331,6 +356,10 @@ final class CloudService {
         if let last = lastRefresh, last.duration(to: .now) < age { return }
         await refresh()
     }
+
+    /// Whom a machine list is for: the signed-in user and the team the API
+    /// client sends (``CloudAuth/teamID``).
+    private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
 
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
@@ -386,6 +415,8 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        // A list in flight belongs to the machines dropped here.
+        listGeneration += 1
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
@@ -410,11 +441,15 @@ final class CloudService {
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
+        // A list in flight was asked before this machine existed.
+        listGeneration += 1
         return session
     }
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)
+        // A list in flight was asked while this machine still existed.
+        listGeneration += 1
         creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
@@ -445,7 +480,12 @@ final class CloudService {
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
+    /// Runs when a sign-out starts, while the account's tokens still work
+    /// (the device hub signs this Mac out of its sessions at once).
+    var willSignOut: [@MainActor () -> Void] = []
+
     func signOut() async {
+        for hook in willSignOut { hook() }
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).

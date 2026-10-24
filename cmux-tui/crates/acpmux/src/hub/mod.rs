@@ -21,6 +21,7 @@ mod complete;
 pub mod composers;
 mod cursor_ext;
 mod digest;
+pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
@@ -34,7 +35,10 @@ mod idle;
 mod launch_roots;
 mod launchers;
 mod live_models;
+pub mod media_handles;
+pub mod media_read;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
@@ -55,8 +59,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
-pub use queue::QueuedPrompt;
-pub use queue::supersede::key as supersede_key;
+pub use queue::{QueuedPrompt, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -107,7 +110,7 @@ mod permissions;
 pub mod person;
 mod processes;
 mod pull_requests;
-mod questions;
+pub(crate) mod questions;
 mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
@@ -427,6 +430,8 @@ pub struct Hub {
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
     pub pairing: Arc<crate::pairing::Pairing>,
+    /// Brief identities shared by dispatch, report and MCP clients.
+    pub(crate) briefs: dispatch::Briefs,
 }
 
 impl Hub {
@@ -515,6 +520,7 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
+            briefs: dispatch::Briefs::open(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -891,6 +897,11 @@ impl Hub {
                 false
             }
         };
+        // A closed session's log is not held open: its last records (`status`,
+        // then the agent's `stopped`) each close it again (`store.rs` Writers).
+        if session.status() == SessionStatus::Closed {
+            self.store.close_log(&session.id);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;

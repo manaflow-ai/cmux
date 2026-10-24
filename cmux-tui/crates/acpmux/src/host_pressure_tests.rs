@@ -141,7 +141,8 @@ fn the_override_file_must_be_a_small_regular_file() {
     assert_eq!(read_override(&dir.join("missing.json")), None);
     #[cfg(unix)]
     {
-        // A FIFO with no writer would block an open forever: it is never opened.
+        // A FIFO with no writer would block a plain open forever: it is opened without
+        // blocking and refused because the opened handle is not a regular file.
         let fifo = dir.join("fifo.json");
         let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
         // SAFETY: a NUL-terminated path.

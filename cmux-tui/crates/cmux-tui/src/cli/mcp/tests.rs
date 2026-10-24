@@ -299,6 +299,37 @@ impl Backend for Fake {
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
     }
+
+    fn acpmux(
+        &self,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+        idempotency_key: Option<&str>,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        self.sent.borrow_mut().push(json!({
+            "kind": "acpmux",
+            "method": method,
+            "params": params,
+            "key": idempotency_key,
+            "mutation": mutation,
+        }));
+        Ok(json!({
+            "brief": {
+                "briefId": "brief_qwen_1",
+                "title": "Qwen task",
+                "from": "acp:opus",
+                "to": "acp:qwen",
+                "target": "auto",
+                "host": "cmux16",
+                "stopCondition": "Report findings",
+                "status": "running",
+                "sessionId": "session_qwen_1"
+            },
+            "event": {"kind": "dispatch", "briefId": "brief_qwen_1"}
+        }))
+    }
 }
 
 impl Fake {
@@ -457,6 +488,51 @@ fn call(server: &mut Server<Fake>, name: &str, arguments: Value) -> Value {
     let response = server.handle(&request).expect("a response");
     assert!(response.get("error").is_none(), "{response}");
     response["result"].clone()
+}
+
+#[test]
+fn agent_dispatch_tools_route_one_harness_agnostic_call_without_shell() {
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(
+        &mut server,
+        "agent_dispatch",
+        json!({
+            "title": "Qwen task",
+            "brief": "Inspect the fixture and report the result.",
+            "target": "auto",
+            "harness": "qwen",
+            "stop_condition": "Report findings",
+            "idempotency_key": "brief-qwen-1"
+        }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["briefId"], "brief_qwen_1");
+    assert_eq!(result["structuredContent"]["event"]["kind"], "dispatch");
+    let sent = server.backend.last("acpmux");
+    assert_eq!(sent["method"], "_acpmux/dispatch");
+    assert_eq!(sent["params"]["model"], "qwen");
+    assert_eq!(sent["params"]["target"], "auto");
+    assert!(sent["params"].get("shell").is_none());
+    assert!(sent["params"].get("ssh").is_none());
+    assert_eq!(sent["key"], "brief-qwen-1");
+}
+
+#[test]
+fn agent_brief_tools_use_the_brief_id_for_steer_list_and_report() {
+    let mut server = Server::new(Fake::default(), None);
+    let _ =
+        call(&mut server, "agent_steer", json!({"brief_id": "brief_qwen_1", "text": "Keep going"}));
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/steer");
+    assert_eq!(server.backend.last("acpmux")["params"]["briefId"], "brief_qwen_1");
+    let _ = call(&mut server, "agent_briefs_list", json!({"status": "running"}));
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/briefs");
+    let _ = call(
+        &mut server,
+        "agent_report",
+        json!({"brief_id": "brief_qwen_1", "summary": "Done", "status": "reported"}),
+    );
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/report");
+    assert_eq!(server.backend.last("acpmux")["params"]["briefId"], "brief_qwen_1");
 }
 
 #[test]
@@ -1295,7 +1371,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
+fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1304,7 +1380,9 @@ fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    assert_eq!(names, ["cmux_docs", "cmux_exec"]);
+    // Only cmux_exec (Lawrence 2026-10-23): a script searches with
+    // `cmux.docs(query)`, and `cmux_docs` stays callable for old prompts.
+    assert_eq!(names, ["cmux_exec"]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
@@ -1481,12 +1559,12 @@ fn cmux_docs_answers_a_task_with_its_guide() {
 /// The tools the acpmux sub-session server's instructions point agents at
 /// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
 /// instructions reach them the way an agent's `cmux mcp serve` does: in
-/// code mode, through a `cmux_exec` script, with `cmux_docs` for arguments.
+/// code mode, through a `cmux_exec` script, with `cmux.docs` for arguments.
 #[test]
 fn the_subsession_servers_instructions_name_real_cmux_tools() {
     let mut server = code_mode_server(Fake::with_actions());
     let rules = acpmux::subsession_mcp::instructions();
-    assert!(rules.contains("cmux_exec") && rules.contains("cmux_docs"), "{rules}");
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux.docs"), "{rules}");
     let names = acpmux::subsession_mcp::CMUX_TOOLS;
     let found = call(&mut server, "cmux_docs", json!({"names": names}));
     assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");

@@ -55,9 +55,10 @@ struct PaneBrowserTabOpener {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
-        // and no tab (false, so a New Tab page that asked stays in place).
+        // and cmux://mac-screen the Mac Screen tab, and no browser tab (false, so a New Tab page that
+        // asked stays in place).
         if child == nil, let typed = target {
-            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background) else { return false }
+            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background, in: controller) else { return false }
             target = routed
         }
         if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
@@ -106,7 +107,14 @@ struct PaneBrowserTabOpener {
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
             let controller = controller, model = controller.pane
-            let intent = background ? nil : controller.workspace?.beginFocusIntent()
+            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
+            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
+            // app, Split Browser, Duplicate Tab, a popup) is made there and moves to a column on its right,
+            // as the daemon reroutes it for a dock closed to tabs. A caller's `then` places it itself
+            // (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
+            let beside = then == nil && controller.isOpenPinnedDockPane
+            let linkOpener = services.linkOpener
+            let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -117,6 +125,10 @@ struct PaneBrowserTabOpener {
                         try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
+                    if beside {
+                        linkOpener.moveBeside(surface, from: controller, focus: !background, target: url == nil ? .addressBar : .content)
+                        return nil
+                    }
                     then?(surface)
                     guard !background else { return nil }
                     controller.selectWhenReported(surface: surface)
@@ -132,20 +144,32 @@ struct PaneBrowserTabOpener {
         }
         guard Self.allowsSessionLocalTab(url: url, requested: requested) else {
             child?.close()
-            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
             return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
+        // Home's pinned dock holds no tab of this Mac's (H1): it opens in the pane right of the dock,
+        // and with the dock alone, where no daemon move can take an app-only tab, it is refused.
+        var holder = controller
+        if controller.isPinnedDockPane {
+            guard case .pane(let id) = services.linkOpener.target(from: controller), id != controller.layoutPaneID,
+                  let right = controller.workspace?.panes[id] else {
+                services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
+                return false
+            }
+            holder = right
+        }
         let local = LocalBrowserTab.make(url: url)
         // Another machine's workspace: the tab is this Mac's; its page says so.
-        if !controller.daemon.isLocal, !onMachine {
-            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
+        if !holder.daemon.isLocal, !onMachine {
+            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(holder.daemon)), forKey: local.id)
         }
-        controller.state?.localBrowserTabs[controller.paneKey].append(local)
-        controller.apply(controller.snapshot())
+        holder.state?.localBrowserTabs[holder.paneKey].append(local)
+        holder.apply(holder.snapshot())
         if background { return true }
-        controller.select(StripTabID(local.id))
-        if url == nil { controller.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+        if holder !== controller, let content = holder.workspace { PaneHandlers.focus(holder.layoutPaneID, in: content) }
+        holder.select(StripTabID(local.id))
+        if url == nil { holder.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
         return true
     }
 }

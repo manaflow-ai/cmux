@@ -31,12 +31,14 @@ to every program on this Mac.
 ## 1. Find or make a machine
 
 ```sh
-cmux --json cloud diagnostics | jq '.result.details | (fromjson? // {}) | {signed_in, unavailable, machines: [.machines[]? | {id, title, status}]}'
+cmux --json cloud list-machines
 ```
 
-That lists every Cloud machine, paused ones too; `id` is the target
-(`--target machine:<id>`). `signed_in` false or `unavailable` set means Cloud
-cannot work yet: tell the user to sign in to cmux.
+`.result.machines` lists every Cloud machine (paused ones too) with its
+`target` (`machine:<id>`, what `--target` takes), `title` and `status`.
+`.result.account.signed_in` false means Cloud cannot work yet: tell the user
+to sign in to cmux. `.result.loaded` false means the list is still loading:
+run it again before deciding there is no machine.
 
 - Prefer a running machine that fits. Never pause, resume, resize or kill a
   machine the user did not name.

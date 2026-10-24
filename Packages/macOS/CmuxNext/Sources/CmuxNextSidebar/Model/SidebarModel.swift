@@ -116,6 +116,13 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// Where a Shift range starts: the row last clicked, Cmd-clicked in or
+    /// moved to without Shift. Shift+Arrow and Shift-click select from it to
+    /// the new row, so going back shrinks the range.
+    @ObservationIgnored var selectionAnchor: WorkspaceID?
+    /// The moving end of a Shift range (the row last Shift-clicked or
+    /// Shift-arrowed to): the next Shift+Arrow steps from it, as in Finder.
+    @ObservationIgnored var selectionExtent: WorkspaceID?
     /// Every workspace on screen in this window, the shown one too (`sidebar.multiView`): their rows draw a
     /// soft fill under the selection's. The App sets it; empty draws nothing extra.
     public var onScreen: Set<WorkspaceID> = []
@@ -212,6 +219,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
+    public var showsColors = true
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner
@@ -348,7 +357,7 @@ public final class SidebarModel {
         switch intent {
         case let .select(id):
             activeWorkspaceID = id
-            if !selection.contains(id) { selection = [id] }
+            selection = [id]
         case .selectTab, .moveTab:
             break
         case let .closeGroup(id):
@@ -514,6 +523,7 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        showsColors = preferences.showColors
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
@@ -544,6 +554,7 @@ public final class SidebarModel {
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
+        o.showsColors = showsColors
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

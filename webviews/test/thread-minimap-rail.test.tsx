@@ -292,8 +292,9 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
-  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less 8 px each end.
-  expect(railHeight(60, 820, 400)).toBe(384);
+  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
+  // mask's bands (18 and 56 px) and 4 px past each.
+  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 60);
   expect(railHeight(60, 820, 820)).toBe(Math.min(600, Math.floor(820 * 0.7)));
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
@@ -391,6 +392,7 @@ test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prom
 
 test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after and before the one being read", async () => {
   const view = await mount(12);
+  const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
   // Marked from the card: the later prompts' rows are not mounted at the top of the chat.
   const mark = async (index: number) => {
     await act(async () => tick(index).focus());
@@ -399,6 +401,12 @@ test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after
   const step = async (name: "nextBookmarkedPrompt" | "previousBookmarkedPrompt") => {
     await act(async () => void dom.window.dispatchEvent(new dom.window.CustomEvent(`cmux-acpmux-${name}`)));
     await view.scrolled();
+    // The jump's direct scroll and the transcript's paced state commit land on consecutive frames;
+    // wait through both before reading the virtualized target row.
+    await act(async () => {
+      await nextFrame();
+      await nextFrame();
+    });
   };
   try {
     await mark(2);

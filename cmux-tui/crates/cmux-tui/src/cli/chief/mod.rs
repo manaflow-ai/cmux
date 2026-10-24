@@ -11,6 +11,7 @@
 
 mod adapter;
 mod avatar;
+mod backend;
 mod chat;
 mod control;
 mod editor;
@@ -23,6 +24,8 @@ mod pipe;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
+mod script;
+mod script_text;
 mod shutdown;
 #[cfg(test)]
 mod tests;
@@ -74,6 +77,8 @@ pub(super) struct Args {
     /// `--no-wait-agents`: pipe mode ends with the turn that answers the
     /// message, not after the subagents it started (E22).
     pub no_wait_agents: bool,
+    /// `--chat`, `--cloud` and the cloud lease flags (script.rs).
+    pub target: script::TargetArgs,
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -153,6 +158,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.chief = Some(id);
             }
             "--no-wait-agents" => parsed.no_wait_agents = true,
+            "--chat" | "--cloud" | "--cloud-api" | "--cloud-token-file" | "--cloud-auth" => {
+                parsed.target.flag(flag, &mut value)?;
+            }
             "--history" => {
                 let text = value()?;
                 let n: usize =
@@ -185,6 +193,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|word| word == "usage") {
         return usage::run(&global, &args[1..]);
+    }
+    if args.first().is_some_and(|word| script::WORDS.contains(&word.as_str())) {
+        return script::run(&global, args);
     }
     let args = match parse_args(args) {
         Ok(args) => args,
@@ -234,7 +245,14 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return 2;
     }
     let tail = if pipe_mode { 0 } else { args.history };
-    let session = match Session::open(&global, tail, args.chief_home.as_deref()) {
+    let target = match args.target.resolve() {
+        Ok(target) => target,
+        Err(error) => {
+            eprintln!("cmux: {error}");
+            return 2;
+        }
+    };
+    let session = match Session::open(&global, tail, args.chief_home.as_deref(), &target) {
         Ok(session) => session,
         Err((code, message)) => {
             eprintln!("cmux: {message}");
@@ -260,24 +278,54 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
 }
 
-/// The Chief conversation on one daemon: a request connection, and the
-/// `conversation.events` stream on its own connection feeding `rx`.
+/// Which chat a `cmux chief` command opens, and on which owner.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ChatTarget {
+    /// `--chat ID`: that conversation; none: the Chief conversation (local)
+    /// or the newest chat with a Chief (cloud).
+    pub chat: Option<String>,
+    /// `--cloud`: the cloud owners through the daemon's cloud proxy.
+    pub cloud: bool,
+    /// `--cloud-api` with a token or tailnet auth: the lease to set first.
+    pub lease: Option<backend::CloudLease>,
+}
+
+/// The chat on one daemon: a request connection, and the event stream on
+/// its own connection feeding `rx`.
 struct Session {
-    control: Link,
+    client: backend::ChatClient,
     conversation: String,
+    /// The chat's summary when it opened (title, participants).
+    summary: Value,
+    /// The chat's Chief (`backend::chief_of`).
+    chief: String,
     socket: std::path::PathBuf,
     derived: bool,
     tx: Sender<Input>,
     rx: Receiver<Input>,
+    /// Ends the current event stream when replaced or dropped.
+    _events: Option<link::EventsHandle>,
 }
 
 impl Session {
-    /// Opens the Chief conversation; its event stream starts with a snapshot
-    /// of the last `tail` messages.
+    /// Opens the chat `target` names; its event stream starts with a
+    /// snapshot of the last `tail` messages.
     fn open(
         global: &GlobalArgs,
         tail: usize,
         chief_home: Option<&std::path::Path>,
+        target: &ChatTarget,
+    ) -> Result<Self, (i32, String)> {
+        let mut session = Self::connect(global, chief_home, target)?;
+        session.open_chat(target.chat.as_deref(), tail)?;
+        Ok(session)
+    }
+
+    /// The request connection only (scripts that need no stream yet).
+    fn connect(
+        global: &GlobalArgs,
+        chief_home: Option<&std::path::Path>,
+        chat: &ChatTarget,
     ) -> Result<Self, (i32, String)> {
         let m = messages();
         if global.machine.is_some() {
@@ -287,36 +335,72 @@ impl Session {
             Target::Explicit(socket, derived) => (socket, derived),
             Target::Home(home) => (launch::ensure(&home).map_err(|why| (3, why))?, true),
         };
-        let connect = || {
-            Link::connect(&socket, derived)
-                .map_err(|error| (3, super::wire::connect_failure(&socket, &error)))
-        };
-        let failed = |error: LinkError| match error {
-            LinkError::Transport(message) => (3, message),
-            LinkError::Rejected { code, .. } if code.starts_with("validation.invalid") => {
-                // A daemon of another build: run its CLI (cli/skew.rs), else
-                // name the exact fix. Stopping is enough: opening the Chief
-                // again starts the home daemon with this build.
-                let _ = super::skew::reexec_at_dead_end_on(&socket);
-                let stop =
-                    super::fix_command::stop_daemon(&super::fix_command::this_cli(), &socket);
-                (1, m.no_conversations.replace("{stop}", &stop))
-            }
-            rejected => (1, rejected.to_string()),
-        };
-        let mut control = connect()?;
+        let mut control = Link::connect(&socket, derived)
+            .map_err(|error| (3, super::wire::connect_failure(&socket, &error)))?;
         // The chat names its connection `chief-chat` for as long as it runs: a DEV app restarts a
         // keyless Chief owner only while no such client is attached (CmuxNextDaemon
         // OwnerIdleProbe). Best effort: a daemon that refuses it still serves the chat.
         let named = json!({"client": "current", "name": "cmux chief", "kind": CHAT_CLIENT_KIND});
         let _ = control.call("client.metadata.update", named, None);
-        let listed = control.call("conversation.list", json!({}), None).map_err(failed)?;
-        let conversations = listed.as_array().cloned().unwrap_or_default();
-        let chief = link::select_chief(&conversations).ok_or((1, m.no_chief.to_owned()))?;
-        let conversation = chief.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
+        let owner = if chat.cloud { backend::Owner::Cloud } else { backend::Owner::Local };
+        let mut client = backend::ChatClient { link: control, owner };
+        if let Some(lease) = &chat.lease {
+            client.lease(lease).map_err(|e| {
+                (1, script_text::text().lease_failed.replace("{reason}", &e.to_string()))
+            })?;
+        }
         let (tx, rx) = channel();
-        connect()?.into_events(&conversation, tail, tx.clone()).map_err(failed)?;
-        Ok(Self { control, conversation, socket, derived, tx, rx })
+        Ok(Self {
+            client,
+            conversation: String::new(),
+            summary: Value::Null,
+            chief: adapter::AGENT_MUX.into(),
+            socket,
+            derived,
+            tx,
+            rx,
+            _events: None,
+        })
+    }
+
+    /// The daemon refusal of a chat request as the CLI says it.
+    fn failed(&self, error: LinkError) -> (i32, String) {
+        let m = messages();
+        match error {
+            LinkError::Transport(message) => (3, message),
+            LinkError::Rejected { code, .. } if code.starts_with("validation.invalid") => {
+                // A daemon of another build: run its CLI (cli/skew.rs), else
+                // name the exact fix. Stopping is enough: opening the Chief
+                // again starts the home daemon with this build.
+                let _ = super::skew::reexec_at_dead_end_on(&self.socket);
+                let stop =
+                    super::fix_command::stop_daemon(&super::fix_command::this_cli(), &self.socket);
+                (1, m.no_conversations.replace("{stop}", &stop))
+            }
+            LinkError::Rejected { code, .. } if code.contains("forbidden") => {
+                (1, script_text::text().cloud_app_lease.to_owned())
+            }
+            rejected => (1, rejected.to_string()),
+        }
+    }
+
+    /// Finds the chat `chat` names (or the default one) and opens its event
+    /// stream, ending the stream of the chat open before.
+    fn open_chat(&mut self, chat: Option<&str>, tail: usize) -> Result<(), (i32, String)> {
+        self.select(chat)?;
+        self._events = None;
+        self.reopen(tail).map_err(|e| self.failed(e))
+    }
+
+    /// Makes the chat `chat` names (or the default one) current, with no
+    /// event stream.
+    fn select(&mut self, chat: Option<&str>) -> Result<(), (i32, String)> {
+        let chats = self.client.chats().map_err(|e| self.failed(e))?;
+        let summary = pick_chat(&chats, chat, self.client.owner).map_err(|why| (1, why))?;
+        self.conversation = summary.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
+        self.chief = backend::chief_of(&summary);
+        self.summary = summary;
+        Ok(())
     }
 
     /// Opens the event stream again after it ended with a gap: a fresh
@@ -324,37 +408,82 @@ impl Session {
     fn reopen(&mut self, tail: usize) -> Result<(), LinkError> {
         let link = Link::connect(&self.socket, self.derived)
             .map_err(|e| LinkError::Transport(e.to_string()))?;
-        link.into_events(&self.conversation, tail, self.tx.clone())
+        let client = backend::ChatClient { link, owner: self.client.owner };
+        self._events = Some(client.into_events(&self.conversation, tail, self.tx.clone())?);
+        Ok(())
     }
 
-    /// Sends `text` as the person; the new message's seq.
-    /// Sends `text`; the new message's seq and id.
+    /// Sends `text` as the person; the new message's seq and id.
     fn send(&mut self, text: &str) -> Result<(u64, String), LinkError> {
-        let key = link::new_message_id();
-        let result = self.control.call(
-            "conversation.send",
-            link::send_params(&self.conversation, text),
-            Some(&key),
-        )?;
-        let message = result.pointer("/value/message");
-        let seq = message.and_then(|m| m.get("seq")).and_then(Value::as_u64).unwrap_or(0);
-        let id = message.and_then(|m| m.get("id")).and_then(Value::as_str).unwrap_or_default();
+        self.send_parts(vec![json!({"type": "text", "text": text})], None, None)
+    }
+
+    /// Sends `parts` (a reply to `reply_to`, in the thread of `thread_root`,
+    /// when given); the new message's seq and id.
+    fn send_parts(
+        &mut self,
+        parts: Vec<Value>,
+        reply_to: Option<Value>,
+        thread_root: Option<&str>,
+    ) -> Result<(u64, String), LinkError> {
+        let message = match self.client.owner {
+            // `conversation.send` takes no thread root: a thread reply is the op.
+            backend::Owner::Local if thread_root.is_none() => {
+                let key = link::new_message_id();
+                let params = link::send_parts_params(&self.conversation, parts, reply_to);
+                let result = self.client.link.call("conversation.send", params, Some(&key))?;
+                result.pointer("/value/message").cloned().unwrap_or(Value::Null)
+            }
+            _ => self.client.send(&self.conversation, parts, reply_to, thread_root)?,
+        };
+        let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
+        let id = message.get("id").and_then(Value::as_str).unwrap_or_default();
         Ok((seq, id.to_owned()))
     }
 
     /// Messages with seq in `after+1 .. before`, oldest first.
     fn between(&mut self, after: u64, before: u64) -> Result<Vec<Value>, LinkError> {
-        let limit = before.saturating_sub(after + 1).clamp(1, 500);
-        let params =
-            json!({"conversation": self.conversation, "before_seq": before, "limit": limit});
-        let messages = self.control.call("conversation.history", params, None)?;
+        let limit = before.saturating_sub(after + 1).clamp(1, 200) as usize;
+        let messages = self.client.history(&self.conversation, before, limit)?;
         Ok(messages
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
             .into_iter()
             .filter(|m| m.get("seq").and_then(Value::as_u64).is_some_and(|s| s > after))
             .collect())
+    }
+}
+
+/// The chat `chat` names among `chats` (an id, or a unique title), or the
+/// default chat: the Chief conversation (local), the newest chat with an
+/// agent (cloud).
+fn pick_chat(chats: &[Value], chat: Option<&str>, owner: backend::Owner) -> Result<Value, String> {
+    let t = script_text::text();
+    let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    if let Some(wanted) = chat {
+        if let Some(found) = chats.iter().find(|c| text(c, "id") == wanted) {
+            return Ok(found.clone());
+        }
+        let titled: Vec<&Value> =
+            chats.iter().filter(|c| text(c, "title").eq_ignore_ascii_case(wanted)).collect();
+        return match titled.as_slice() {
+            [one] => Ok((*one).clone()),
+            [] => Err(t.no_such_chat.replace("{chat}", wanted)),
+            _ => Err(t.ambiguous_chat.replace("{chat}", wanted)),
+        };
+    }
+    match owner {
+        backend::Owner::Local => {
+            link::select_chief(chats).cloned().ok_or_else(|| messages().no_chief.to_owned())
+        }
+        backend::Owner::Cloud => chats
+            .iter()
+            .find(|c| {
+                c.pointer("/inbox/dm_peer")
+                    .and_then(Value::as_str)
+                    .is_some_and(|peer| peer.starts_with("agent_"))
+            })
+            .or_else(|| chats.first())
+            .cloned()
+            .ok_or_else(|| t.no_cloud_chats.to_owned()),
     }
 }
 

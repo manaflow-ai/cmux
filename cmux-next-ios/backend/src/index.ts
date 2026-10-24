@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -29,8 +29,6 @@ const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineI
 const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
 const APNS_TOKEN = /^[0-9a-f]{64,200}$/
-const EVENT_ID = /^[A-Za-z0-9._:-]{1,64}$/
-const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
 const fail = (status: number, code: string, message: string) => {
@@ -357,11 +355,41 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ deleted: { devices: gone.length } })
   }
 
-  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify))?$/)
+  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|mailbox)(?:\/([^/]+))?)?$/)
   if (dev) {
     const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
+    const itemId = dev[3] === undefined ? undefined : decodeURIComponent(dev[3]).toLowerCase()
+    if (itemId !== undefined && sub !== "mailbox") return fail(404, "not_found", "not found")
+    if (sub === "mailbox") {
+      // PROTOCOL.md "Reply mailbox": a phone's sealed reply for its own Mac. The Worker never opens it.
+      const mac = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      if (!mac) throw new HttpError(404, "not_found", "no such device")
+      if (mac.ownerUserId !== me || mac.kind !== "mac") throw new HttpError(403, "not_owner", "replies go to your own Mac")
+      if (itemId !== undefined && method === "GET") {
+        if (!UUID.test(itemId)) throw new HttpError(400, "bad_request", "the item id must be a UUID")
+        const state = await userHub(env, caller).mailboxState(me, deviceId, itemId)
+        if (!state) throw new HttpError(404, "not_found", "no such item")
+        return json(state)
+      }
+      if (itemId !== undefined || method !== "POST") return fail(405, "method_not_allowed", "method not allowed")
+      const b = await readJson(req)
+      const id = typeof b.id === "string" ? b.id.toLowerCase() : ""
+      const from = typeof b.from === "string" ? b.from.toLowerCase() : ""
+      if (!UUID.test(id)) throw new HttpError(400, "bad_request", "id must be a UUID")
+      if (!UUID.test(from)) throw new HttpError(400, "bad_request", "from must be your phone's device id")
+      if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
+      const phone = await withStore(env, ctx, (s) => s.getDevice(from))
+      if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
+      await limit(env.MAILBOX_LIMIT, me, "replies")
+      const r = await userHub(env, caller).mailboxPost(me, { id, mac: deviceId, from, sealed: b.sealed })
+      if ("error" in r) {
+        if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
+        throw new HttpError(409, "conflict", "another reply already has this id")
+      }
+      return json(r)
+    }
     if (!sub && method === "DELETE") {
       const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
       if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
@@ -389,44 +417,44 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
           throw new HttpError(400, "bad_request", `kinds must be a list of ${PUSH_KINDS.join(", ")}`)
         kinds = [...new Set(b.kinds as Array<PushKind>)]
       }
-      const r = await withStore(env, ctx, (s) => s.setPush({ deviceId, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds }))
-      return json({ push: { environment: r.environment, topic: r.topic, kinds: r.kinds, updatedAt: r.updatedAt } })
+      let mutedMacs: Array<string> = []
+      if (b.mutedMacs !== undefined && b.mutedMacs !== null) {
+        if (!Array.isArray(b.mutedMacs) || b.mutedMacs.length > 64 || b.mutedMacs.some((m) => typeof m !== "string" || !UUID.test(m.toLowerCase())))
+          throw new HttpError(400, "bad_request", "mutedMacs must be at most 64 Mac device ids")
+        mutedMacs = [...new Set((b.mutedMacs as Array<string>).map((m) => m.toLowerCase()))]
+      }
+      if (b.previews !== undefined && b.previews !== null && typeof b.previews !== "boolean") throw new HttpError(400, "bad_request", "previews must be true or false")
+      const previews = b.previews !== false
+      const r = await withStore(env, ctx, (s) =>
+        s.setPush({ deviceId, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds, mutedMacs, previews })
+      )
+      return json({ push: { environment: r.environment, topic: r.topic, kinds: r.kinds, mutedMacs: r.mutedMacs, previews: r.previews, updatedAt: r.updatedAt } })
     }
     if (sub === "notify" && method === "POST") {
-      const b = await readJson(req)
-      if (typeof b.eventId !== "string" || !EVENT_ID.test(b.eventId)) throw new HttpError(400, "bad_request", "eventId must be 1-64 of A-Z a-z 0-9 . _ : -")
-      if (!(PUSH_KINDS as ReadonlyArray<unknown>).includes(b.kind)) throw new HttpError(400, "bad_request", `kind must be one of ${PUSH_KINDS.join(", ")}`)
-      for (const k of ["workspaceId", "tabId", "sessionId"] as const)
-        if (b[k] !== undefined && b[k] !== null && (typeof b[k] !== "string" || !OPAQUE_ID.test(b[k] as string))) throw new HttpError(400, "bad_request", `${k} must be an id`)
+      const parsed = parseNotify(await readJson(req))
+      if (typeof parsed === "string") throw new HttpError(400, "bad_request", parsed)
       const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
-      await limit(env.NOTIFY_LIMIT, deviceId, "notifications")
+      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind), "notifications")
       const config = apnsConfig(env)
-      const kind = b.kind as PushKind
-      const targets = config ? (await withStore(env, ctx, (s) => s.listOwnerPush(me))).filter((t) => t.kinds.includes(kind)).slice(0, 20) : []
-      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
+      const kind = parsed.kind
+      const regs = await withStore(env, ctx, (s) => s.listOwnerPush(me))
+      // The kinds some phone that has not muted this Mac wants: the Mac skips the rest (terminal, say).
+      const wants = wantedKinds(regs, deviceId)
+      const targets = config ? pushTargets(regs, deviceId, kind).slice(0, 20) : []
+      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
       // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
       // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
-      const key = turnPushKey(deviceId, { kind, ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {}) })
+      const key = turnPushKey(deviceId, parsed)
       if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
-        return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true })
-      const results = await sendApns(config, targets, {
-        eventId: b.eventId,
-        kind,
-        agent: clean(b.agent, 40),
-        place: clean(b.place, 60),
-        macId: deviceId,
-        macName: clean(device.name, 40),
-        ...(typeof b.workspaceId === "string" ? { workspaceId: b.workspaceId } : {}),
-        ...(typeof b.tabId === "string" ? { tabId: b.tabId } : {}),
-        ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {})
-      }, Date.now())
+        return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true, wants })
+      const results = await sendApns(config, targets, { ...parsed, macId: deviceId, macName: clean(device.name, 40) }, Date.now())
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
       if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
       const failed = results.filter((r) => r.outcome === "failed")
       if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ status: r.status, reason: r.reason })) }))
-      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length })
+      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length, wants })
     }
     return fail(405, "method_not_allowed", "method not allowed")
   }

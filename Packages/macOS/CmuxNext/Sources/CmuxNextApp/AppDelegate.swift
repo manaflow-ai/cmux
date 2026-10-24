@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.services?.crashRecovery.applicationWillTerminate()
+            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
             self?.services?.home.applicationWillTerminate()
             exit(0)
         })
@@ -85,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalThemeSetting.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
-        ThemeBridge.start()
+        ThemeBridge.start(store: ThemeScope.app.store)
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
@@ -94,25 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment)
         AppProcessRoot.shared.adopt(services)
         self.services = services
-        // A main-thread hang still running after 2 s goes to crash reporting with its stack.
-        let reporter = services.crashReporting.reporter
-        control.watchdog.onHang = { reporter.reportHang(duration: $0.duration, addresses: $0.addresses, otherThreads: $0.otherThreads.map { ($0.name, $0.addresses) }) }
-        // And to a file per hang (~/Library/Logs/<bundle id>/hangs), listed in Debug Settings > Hangs.
-        control.watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
-        // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
-        let lagSpikes = LagSpikeReporter(reporter: reporter)
-        lagSpikes.setContextProvider {
-            // The watchdog's run-loop observer on the main run loop reads it; never off main.
-            guard Thread.isMainThread else { return [:] }
-            return MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
-                let windows = NSApp.windows
-                return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),
-                        "app_active": NSApp.isActive ? "yes" : "no"]
-            }
-        }
-        control.watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
-        }
+        // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
+        AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -157,7 +141,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // An App Store request made while no window existed shows in this window (S22).
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
-            if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
+            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
+                Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
+            }
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_window_frame_committed")
@@ -195,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
+        PageWebView.openPanel = services.openPanel
         PageWebView.chromiumHosting = ChromiumPageHost(
             cef: services.cache.cef,
             preference: { [weak services] in
@@ -271,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start(announcingDiagnostics: true)
+        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
         ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
@@ -280,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
+        NewTabWeather.wire(services.agentTabs, services: services)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -305,6 +294,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
+        services.followMacScreenSettings(settings)
+        services.startDeviceHub(settings)
         services.updater.follow(settings)
         ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
@@ -343,6 +334,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerPageDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
+                services.registerMacScreenDebug(on: control.service?.router)
+                services.registerDeviceHubDebug(on: control.service?.router)
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
@@ -363,6 +356,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
+            // Share This Mac resumes when the person left it on.
+            services.macScreenPages.activate()
         }
     }
 
@@ -424,6 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()

@@ -10,6 +10,8 @@ extension LayoutRootView {
     /// canvas mode (`LayoutModel.toggleCanvas`). Nil for a screen not drawn yet.
     public func canvasSeed(for screen: ScreenID) -> (frames: [PaneID: CGRect], viewport: CGSize)? {
         guard let view = screenViews[screen] else { return nil }
+        // A hidden screen resized since it last showed has not laid out at its size yet.
+        view.reconcileIfDeferred()
         var frames: [PaneID: CGRect] = [:]
         for pane in view.geometry.panes.keys {
             if let rect = view.displayedFrame(of: pane) { frames[pane] = rect }

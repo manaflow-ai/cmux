@@ -62,13 +62,52 @@ extension TabStripModel {
 extension TabStripModel {
     /// Where Move Tab Left (`offset` -1) or Move Tab Right (+1) takes `id`, as a display index;
     /// nil at the edge of its section. A pinned tab moves only among the pinned tabs and an
-    /// unpinned one only among the rest, as in Chrome.
+    /// unpinned one only among the rest, as in Chrome. A group's members stay together
+    /// (`TabGroupOrdering.normalized`), so a tab outside a group steps past the whole group, and a
+    /// member moves only among its group's members.
     public func moveIndex(of id: TabID, by offset: Int) -> Int? {
         let ordered = orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return nil }
+        guard let index = ordered.firstIndex(where: { $0.id == id }), offset != 0 else { return nil }
         let pinnedCount = ordered.count(where: \.isPinned)
-        let section = ordered[index].isPinned ? 0..<pinnedCount : pinnedCount..<ordered.count
-        let target = index + offset
-        return target != index && section.contains(target) ? target : nil
+        var section = ordered[index].isPinned ? 0..<pinnedCount : pinnedCount..<ordered.count
+        let group = ordered[index].groupID
+        if let group, let first = ordered.firstIndex(where: { $0.groupID == group }),
+           let last = ordered.lastIndex(where: { $0.groupID == group }) {
+            section = first..<(last + 1)
+        }
+        var target = index + offset
+        guard section.contains(target) else { return nil }
+        // Beside another group: past all of it (one step inside would be undone by the ordering).
+        if group == nil, let neighbor = ordered[target].groupID {
+            target = offset < 0 ? ordered.firstIndex { $0.groupID == neighbor } ?? target
+                : ordered.lastIndex { $0.groupID == neighbor } ?? target
+        }
+        return target
+    }
+}
+
+extension TabStripModel {
+    /// The tabs the strip shows, in strip order: every tab but the members
+    /// of a collapsed group (Chrome's next and previous tab skip them too).
+    public var visibleOrderedTabs: [TabItem] {
+        let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
+        return orderedTabs.filter { tab in tab.groupID.map { !collapsed.contains($0) } ?? true }
+    }
+
+    /// The visible tab `offset` steps from `id` in strip order, wrapping
+    /// (Next / Previous Tab). From a hidden tab it counts from its place.
+    public func adjacentVisibleTab(from id: TabID?, offset: Int) -> TabID? {
+        let ordered = orderedTabs
+        let visible = Set(visibleOrderedTabs.map(\.id))
+        guard !visible.isEmpty, offset != 0 else { return nil }
+        let count = ordered.count
+        var index = id.flatMap { id in ordered.firstIndex { $0.id == id } } ?? (offset > 0 ? count - 1 : 0)
+        var remaining = abs(offset)
+        let step = offset > 0 ? 1 : -1
+        while remaining > 0 {
+            index = (index + step + count) % count
+            if visible.contains(ordered[index].id) { remaining -= 1 }
+        }
+        return ordered[index].id
     }
 }

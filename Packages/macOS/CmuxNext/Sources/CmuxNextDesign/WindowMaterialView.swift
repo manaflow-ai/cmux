@@ -1,5 +1,7 @@
 public import AppKit
 import CoreImage
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
@@ -26,7 +28,9 @@ public final class WindowMaterialView: NSView {
     public private(set) var materialView: NSView?
     private let tintView = NSView()
     private let glassTint = GlassTintBlend()
-    private let inactiveTintView = NSView()
+    /// The inactive wash sits under the in-app art. Native glass can still use it to cover the
+    /// desktop when it drops its active tint, while the person's own background remains visible.
+    let inactiveTintView = NSView()
     /// The inactive wash's alpha once its fade ends (`updateInactiveTint`).
     private var inactiveTintTarget: CGFloat = 0
     /// The theme tint at full alpha, the inactive wash's color; nil while opaque.
@@ -36,18 +40,16 @@ public final class WindowMaterialView: NSView {
     /// Bumped by each wash fade: only the latest fade-out's completion hides the view (a
     /// replaced animation completes too).
     private var inactiveTintFade = 0
-    private var keyObservers: [NSObjectProtocol] = []
+    /// The window's key tracker; it says whether the window looks inactive and calls
+    /// ``updateInactiveTint()`` when that flips.
+    private var keyFamily: WindowKeyFamily?
     /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
     public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
     /// The keyboard left the window's family: another app, or a window that is not this one, its
     /// child (a Chromium page window, popup, palette) or its sheet. Only then does the window look
     /// inactive (Leo 2026-10-21: "on itself? that should never happen"); a window whose family
     /// never held the keyboard (opening, tests, snapshots) shows the glass alone.
-    private var resignedKey = false
-    /// The window's family has held the keyboard since it moved to this window.
-    private var familyHeldKey = false
-    /// Bumped by each key change: only the latest deferred check applies.
-    private var keyCheck = 0
+    private var resignedKey: Bool { keyFamily?.isInactive ?? false }
     /// The art layer (tests read what it shows): the whole image aspect-filled over the whole
     /// view, centered, like a macOS wallpaper. Its frame autoresizes with the window, so nothing
     /// is computed per size and nothing jumps while resizing.
@@ -115,7 +117,9 @@ public final class WindowMaterialView: NSView {
         inactiveTintView.autoresizingMask = [.width, .height]
         inactiveTintView.isHidden = true
         inactiveTintView.layer?.opacity = 0
-        addSubview(inactiveTintView)
+        // The wash is a desktop shield, not a veil over the person's background. Keep it below
+        // art (and the glass/material stack above art) so losing focus cannot dim or hide that art.
+        addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
     }
 
@@ -167,53 +171,19 @@ public final class WindowMaterialView: NSView {
         if let applied, applied.backdrop.selection?.followsAppearance == true { apply(applied.backdrop, tint: applied.tint) }
     }
 
-    override public func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
-        keyObservers = []
-        resignedKey = false
-        familyHeldKey = false
-        guard let window else { return updateInactiveTint() }
-        // Any window's key change and the app's activation: the keyboard moving into this
-        // window's own Chromium page window resigns this window's key, and leaving from that page
-        // window to another app posts nothing on this window.
-        let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
-                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
-        keyObservers = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.keyDidMove() }
-            }
-        }
-        keyObservers.append(NotificationCenter.default.addObserver(forName: Self.inactiveDimDidChange, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: the observer runs on the main queue (queue: .main)
-            MainActor.assumeIsolated { self?.updateInactiveTint() }
-        })
-        updateInactiveTint()
-        keyDidMove()
+    override public func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        keyFamily?.remove(self)
+        keyFamily = nil
     }
 
-    /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
-    /// window becomes key, so the key window in between (nil) would flash the wash.
-    private func keyDidMove() {
-        keyCheck += 1
-        let check = keyCheck
-        Task { @MainActor [weak self] in
-            guard let self, check == self.keyCheck, let window = self.window else { return }
-            let key = NSApp.keyWindow
-            // Chromium can make a page window key before the fork places it as this window's
-            // child (a browser-tab workspace switch): a parentless page window acts for the main
-            // window, as `KeyWindowRole` resolves it.
-            let parentlessPage = key.map { $0.parent == nil && $0.sheetParent == nil && Self.isChromiumPageWindow($0) } ?? false
-            let holds = Self.family(of: window, holds: key, owner: { $0.parent ?? $0.sheetParent })
-                || (parentlessPage && window.isMainWindow)
-            let inactive = Self.looksInactive(appActive: NSApp.isActive, familyHoldsKey: holds, familyHeldKey: self.familyHeldKey)
-            if NSApp.isActive, holds { self.familyHeldKey = true }
-            guard inactive != self.resignedKey else { return }
-            self.resignedKey = inactive
-            self.updateInactiveTint()
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            keyFamily = WindowKeyFamily.of(window)
+            keyFamily?.add(self)
         }
+        updateInactiveTint()
     }
 
     /// Whether `key` (the key window, nil when none) is `window` or a window it owns, through
@@ -229,12 +199,6 @@ public final class WindowMaterialView: NSView {
         return false
     }
 
-    /// `CefNSWindow`: a Chromium page window.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return window.isKind(of: pageClass)
-    }
-
     /// A window looks inactive only once its family held the keyboard and then lost it to another
     /// app or another window; its own page windows, popups and sheets never make it look inactive.
     static func looksInactive(appActive: Bool, familyHoldsKey: Bool, familyHeldKey: Bool) -> Bool {
@@ -242,7 +206,7 @@ public final class WindowMaterialView: NSView {
         return !(appActive && familyHoldsKey)
     }
 
-    private func updateInactiveTint() {
+    func updateInactiveTint() {
         let alpha = washColor == nil ? 0 : Self.inactiveTintAlpha(material: material, isKeyWindow: !resignedKey, tintAlpha: tintAlpha,
                                                                    dim: CGFloat(DesignSettings.shared.inactiveWindowDim))
         let wash = alpha > 0 ? washColor : nil

@@ -1,6 +1,7 @@
 import CmuxNextFiles
 import Foundation
 import Observation
+import CmuxNextFilesUI
 
 /// The right sidebar's file explorer (classic's Files mode): a folder tree
 /// rooted at the focused terminal's folder, folders first, hidden items left

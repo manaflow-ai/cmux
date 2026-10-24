@@ -27,6 +27,13 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift 
 done
 [[ "$(area webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac export job"
 [[ "$(bash "$AREAS" --all | sed -n 's/^actions=//p')" == true ]] || fail "--all must include the action exports"
+capabilities() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^capabilities=//p'; }
+for path in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
+  Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests.swift \
+  plans/cmux-next/daemon-capabilities.json; do
+  [[ "$(capabilities "$path")" == true ]] || fail "a change to $path must repair the daemon capability export"
+done
+[[ "$(capabilities webviews/src/main.tsx)" == false ]] || fail "a webviews change must not repair the daemon capability export"
 apphost() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^apphost=//p'; }
 for path in cmux-tui/spec/resource-operations-v2.json backend/catalog/cloud-operations.json \
   plans/cmux-next/action-surfaces.json first-party-apps/notes/catalog.json \

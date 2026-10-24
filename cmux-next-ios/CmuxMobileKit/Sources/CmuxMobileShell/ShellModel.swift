@@ -183,6 +183,11 @@ final class ShellModel {
                 guard let backend, !macs.isEmpty else { throw WorkspaceCreationError("Not connected to a Mac") }
                 for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
+            // A Feed reply to a terminal agent goes to its own Mac's link, into that terminal.
+            FeedRouting.shared.replyToTerminal = { [weak live] item, text in
+                guard let feed = live?.terminalFeed(macID: item.macID) else { return "Not connected to that Mac." }
+                return await feed.reply(itemID: item.id, text: text)
+            }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
@@ -190,6 +195,7 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
+            FeedRouting.shared.replyToTerminal = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
@@ -231,21 +237,7 @@ final class ShellModel {
     /// has not arrived), so the shell tries again when it does.
     @discardableResult
     func open(_ route: NotificationRoute) -> Bool {
-        if route.kind == "chief" {
-            tab = .home
-            return true
-        }
-        // The notification's Mac: its link opens now if it was idle, so the
-        // chat and the Feed's answers reach that Mac (not the chosen one).
-        if let mac = route.mac, !mac.isEmpty, live?.canLink(macID: mac) == true { live?.touch(mac) }
-        guard let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else {
-            // The Feed lists the event meanwhile.
-            tab = .feed
-            return false
-        }
-        tab = .feed
-        feedPath = [destination]
-        return true
+        openRoute(route) // ShellModel+NotificationRoute.swift
     }
 
     /// Whether the route's chat is on screen now (its notification shows no banner).
