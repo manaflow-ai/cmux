@@ -83,4 +83,20 @@ struct PageFirstKeyOfferTests {
         offers.offer(find, Self.held("find", tab: offered))
         #expect(offers.take(find, from: ObjectIdentifier(other)) == nil, "another tab's report ran the offered tab's action")
     }
+
+    /// A tab whose page handles every page-first key it gets (Google Docs takes Copy, Paste and Find) never reports:
+    /// once the tab closes, its held keys go. They stayed for the whole session, up to the bound for every tab ever
+    /// opened, and every later offer and report walked them.
+    @Test func aClosedTabsKeysAreReleased() throws {
+        var offers = PageFirstKeyOffer()
+        do {
+            let closed = NSObject()
+            for index in 0..<3 {
+                offers.offer(try Self.key("f", keyCode: 3, at: 60 + Double(index)), Self.held("find", tab: closed))
+            }
+        }
+        let open = NSObject()
+        offers.offer(try Self.key("g", keyCode: 5, at: 70), Self.held("findNext", tab: open))
+        #expect(offers.count == 1, "a closed tab's held keys stayed")
+    }
 }
