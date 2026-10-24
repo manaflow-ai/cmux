@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -19,7 +20,7 @@ import Testing
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
         // The cap never runs out here: only the page's paint removes the picture.
-        rig.hibernation.standInClock = ManualClock()
+        rig.hibernation.standInClock = CmuxNextWakeupsTestSupport.ManualClock()
         let picture = try #require(Self.picture())
         rig.hibernation.capture = { _ in picture }
         let key = try await rig.hide(rig.page("slow", body: Self.slowPaint))
@@ -46,7 +47,7 @@ import Testing
     @Test func theCoverHasItsPictureInTheSwapsOwnTurn() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
-        rig.hibernation.standInClock = ManualClock()
+        rig.hibernation.standInClock = CmuxNextWakeupsTestSupport.ManualClock()
         let picture = try #require(Self.picture())
         rig.hibernation.capture = { _ in picture }
         let key = try await rig.hide(rig.page("swap", body: Self.slowPaint))
@@ -75,7 +76,7 @@ import Testing
     @Test func thePictureGoesAtTheCapWhenThePageHasNotPainted() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         rig.hibernation.standInClock = clock
         let picture = try #require(Self.picture())
         rig.hibernation.capture = { _ in picture }
