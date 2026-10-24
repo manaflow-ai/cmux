@@ -84,3 +84,22 @@ Legend: ✅ have · 🟡 part · ❌ missing · — not applicable. "REPL" is th
 5. iMessage `waitForCode` and send with draft card, behind the person's consent.
 6. Consent-banner rules, captcha detection, DuckDuckGo and Bing search, date-picker rules, occlusion filter, network settle (Rust).
 7. Measure: dogfood suite through the CLI and through codemode, and the classic Aside/ChatGPT parity cases (helper running).
+
+## 6. Performance target
+
+Ask (Lawrence, 2026-10-23): "1000x better perf than everything else on the market", "compare to browser-use as well". A uniform 1000x on every primitive is not physically possible: a page load is bound by the network and the site, and a click is bound by the page's own handlers. The target is therefore set per layer, measured against browser-use, Playwright MCP, Stagehand and Aside on the same pages (bench: plans/cmux-next/browser-use-perf.md, helper running), and reported honestly where cmux is slower.
+
+Where the large factors are real:
+
+| Layer | Typical market cost | cmux target | Factor | How |
+| --- | --- | --- | --- | --- |
+| A task a site tool covers (search mail, read a doc, list videos) | an agent loop: 5-15 steps x (snapshot + model call 2-5 s) = 10-75 s | one site-tool call, 0.2-1 s | 50-300x | `sites.*` call the site's own API with the person's cookies; no model step per click |
+| A repeated task (same site, same flow) | every step asks the model again | cached action plan, no model call; 10-100 ms per step | 100-1000x | action cache keyed by instruction + URL pattern + AX neighbourhood (plan item 11) |
+| Tokens the model reads per step | full DOM / large AX dumps (tens of thousands of tokens) | interactive snapshot plus diff only | 5-20x fewer tokens, so faster and cheaper model steps | distiller, occlusion filter, diffs |
+| Page-state read (no model) | browser-use DOM state about hundreds of ms on heavy pages (to be measured) | p50 under 50 ms, heavy pages under 300 ms | measured | Rust snapshot passes, one CDP round trip per frame |
+| Many pages in parallel | one tab at a time | background tabs in parallel, no focus change | N x | `tabs.content({urls})`, background tabs |
+| Call overhead per action | Python/Node process + CDP hop | in-process QuickJS + Rust CDP, one socket hop | measured | keep codemode scripts batching many actions per call |
+
+Measured baseline (cmux REPL via codemode, headless, warm, HN, 2026-10-23): goto 86 ms, full snapshot 41 ms (9,941 chars), interactive snapshot 85 ms, click with navigation 711 ms, snapshot after 81 ms. CLI page verbs: about 400 ms per call, mostly process start; agents should batch through the REPL.
+
+Gates (CI, per pin): p50/p95 per primitive on the bench pages may not regress by more than 15 percent; a competitor faster on any primitive opens a tracked item with its cause.
