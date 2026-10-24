@@ -143,6 +143,8 @@ final class KeybindingsPageProvider: PageProvider {
     }
 
     private func record(_ event: NSEvent) {
+        // A held key's repeats are not more strokes (holding ⌥⌘0 a moment recorded ⌥⌘0 ⌥⌘0).
+        guard !event.isARepeat else { return }
         guard var recorder,
               let recorded = recorder.record(KeyRecorder.stroke(for: event), isEscape: KeyRecorder.isEscape(event),
                                              isReturn: KeyRecorder.isReturn(event)) else { return }
@@ -163,14 +165,19 @@ final class KeybindingsPageProvider: PageProvider {
         let held = KeyRecorder.heldGlyphs(event.modifierFlags)
         if awaitingRelease, held.isEmpty {
             awaitingRelease = false
-            return send(recorder.keys, done: false, cancelled: false, held: "", released: true)
+            send(recorder.keys, done: false, cancelled: false, held: "", released: true)
+            // Every key up ends the shortcut (the page saves it): the next key starts a new one,
+            // which replaces it. A chord is typed with a modifier held between its strokes.
+            self.recorder = KeyRecorder()
+            return
         }
         if event.type == .flagsChanged { send(recorder.keys, done: false, cancelled: false, held: held) }
     }
 
     /// One `recorded` event: the strokes so far (`key`, `display`), how the recording ended,
     /// `held`, the glyphs of the modifiers held before the next key ("" on a stroke), and
-    /// `released` when every key of the last stroke is up (the page saves the keys then).
+    /// `released` when every key of the last stroke is up (the page saves the keys then; the next
+    /// stroke starts a new shortcut).
     private func send(_ keys: [Shortcut], done: Bool, cancelled: Bool, held: String, released: Bool = false) {
         let event: JSONValue = [
             "key": .string(KeybindingReports.text(keys)),

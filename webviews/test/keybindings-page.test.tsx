@@ -211,8 +211,9 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   await record("cmd+j");
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+shift+p" } });
 
-  // Every key up saves at once, the recorder stays open and its light confirms; a next stroke makes
-  // a chord and saves again; Escape then only closes.
+  // Every key up saves at once, the recorder stays open and its light confirms; the next key
+  // starts a new shortcut that replaces it; a chord is typed with a modifier held between its
+  // strokes; Escape then only closes.
   const releaseKeys = async () => {
     await act(async () => {
       provider.release();
@@ -242,7 +243,14 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     await Promise.resolve();
   });
   await releaseKeys();
-  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k cmd+s", replaces: { key: "cmd+k" } });
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+s", replaces: { key: "cmd+k" } });
+  await act(async () => {
+    provider.press("cmd+k");
+    provider.press("cmd+s");
+    await Promise.resolve();
+  });
+  await releaseKeys();
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k cmd+s", replaces: { key: "cmd+s" } });
   const saved = writes();
   await act(async () => {
     provider.cancel();
@@ -265,6 +273,22 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   expect(provider.recording).toBe(false);
   expect(recorder()).toBeNull();
   expect(writes()).toBe(before);
+
+  // Delete after a save is a new first key, never one more stroke: it removes the saved keys.
+  await click(row("Close Tab")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    provider.press("cmd+shift+w");
+    await Promise.resolve();
+  });
+  await releaseKeys();
+  await act(async () => {
+    provider.press("delete");
+    await Promise.resolve();
+  });
+  await act(async () => store.reload());
+  const removals = provider.calls.filter(({ op }) => op === KeybindingOps.remove).map(({ params }) => params);
+  expect(removals).toContainEqual({ command: "tab.close", key: "cmd+shift+w", when: null, idempotency_key: "key" });
+  expect(recorder()).toBeNull();
 
   // A bare Delete first removes the row's keys: the action stays, with none.
   await click(row("New Tab")?.querySelector(".keys-key-button"));

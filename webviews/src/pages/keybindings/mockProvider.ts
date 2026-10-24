@@ -192,6 +192,8 @@ export class MockKeybindingsProvider implements PageClient {
     if (!this.recording || !this.awaitingRelease) return;
     this.awaitingRelease = false;
     this.emitRecorded(false, false, "", true);
+    // As the app: every key up ends the shortcut; the next stroke starts a new one.
+    this.strokesSoFar = [];
   }
 
   private emitRecorded(done: boolean, cancelled: boolean, held = "", released = false): void {

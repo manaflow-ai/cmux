@@ -324,9 +324,10 @@ export class KeybindingsStore {
       if (finished) this.endRecording();
       return;
     }
-    // The recorder's first key: a bare Delete removes the row's keys, a bare Return (the app's
-    // recorder records it as a stroke when no key came first) closes it.
-    if (!recording.key && !event.cancelled && strokes(event.key).length === 1) {
+    // The first key of a shortcut (at the start, or after a release saved one): a bare Delete
+    // removes the row's keys, a bare Return (the app's recorder records it as a stroke when no
+    // key came first) closes the recorder.
+    if (!event.cancelled && strokes(event.key).length === 1) {
       const first = strokes(event.key)[0];
       if (first === "delete" || first === "backspace") {
         this.endRecording();
@@ -346,8 +347,9 @@ export class KeybindingsStore {
     if (event.done && event.key) this.saveKeys(recording.binding, event.key);
   }
 
-  /** Every key of a stroke is up: the keys so far are saved now, and the recording goes on (a
-   *  next stroke makes a chord of them and saves again). The recorder's light confirms each. */
+  /** Every key of a stroke is up: the shortcut is saved now and the recording goes on; the next
+   *  key starts a new shortcut that replaces it (a chord is typed with a modifier held between
+   *  its strokes). The recorder's light confirms each save. */
   private async confirm(recording: Extract<Recording, { target: "row" }>): Promise<void> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
