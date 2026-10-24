@@ -140,7 +140,7 @@ extension SidebarListView {
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
-                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
+                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id, lists: model.listsHolding(ws.id)) == true { heightChanged = true }
                 continue
             }
             let o = options ?? self.options(includeGap: true)

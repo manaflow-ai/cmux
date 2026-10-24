@@ -29,9 +29,13 @@ public final class SidebarSessionTreeFeed {
     nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
-        /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
-        /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
+        /// The session tree (`sidebar.sessionTree`) or lineage nesting (`SidebarTunables.lineageNesting`, on by
+        /// default) is on: the pass writes `SidebarSessionTree.state`. Off, the pass runs only for the pull request
+        /// badges and the Priority view's Red CI.
         var showsTree = true
+        /// The pull request reads run (the tree, the Priority view or a row's badge wants them). Nesting alone asks
+        /// GitHub nothing.
+        var readsPullRequests = true
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
@@ -45,7 +49,8 @@ public final class SidebarSessionTreeFeed {
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+                let reads = Self.readsPullRequests(sections) || Self.readsBadges(sections), nests = SidebarTunables.lineageNesting.value
+                guard reads || nests else { return nil }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
                 let chats = Self.chats(workspaces())
@@ -55,15 +60,23 @@ public final class SidebarSessionTreeFeed {
                         if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                     }
                 }
-                var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
-                                     pullRequests: pullRequests.answers)
-                pass.showsTree = sections.sessionTree
-                return pass
+                let pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
+                                     pullRequests: reads ? pullRequests.answers : [:])
+                return Self.shaped(pass, sessionTree: sections.sessionTree, nests: nests, reads: reads)
             }) {
                 Self.publish(pass, to: tree)
-                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                if let pass, pass.readsPullRequests { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
+    }
+
+    /// `pass` as the settings shape it: the tree shows while `sidebar.sessionTree` or lineage nesting is on, it nests
+    /// only while nesting is on (off, every workspace is top level), and GitHub is asked only when `reads`.
+    static func shaped(_ pass: Pass, sessionTree: Bool, nests: Bool, reads: Bool) -> Pass {
+        var pass = pass
+        (pass.showsTree, pass.readsPullRequests) = (sessionTree || nests, reads)
+        if !nests { pass.state.parents = [:] }
+        return pass
     }
 
     /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.

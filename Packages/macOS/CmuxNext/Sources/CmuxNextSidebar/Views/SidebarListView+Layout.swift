@@ -67,8 +67,13 @@ extension SidebarListViewComponents {
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.drawn {
-            (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
-            o.chatHistory = SidebarChatHistory.shared.state
+            o.sessionTree = tree
+            // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
+            // stay `sidebar.sessionTree`'s.
+            if DesignSettings.shared.sidebarSections.sessionTree {
+                o.keycaps = model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation)
+                o.chatHistory = SidebarChatHistory.shared.state
+            }
         }
         o.excludedWorkspaces.formUnion(leaving)
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)

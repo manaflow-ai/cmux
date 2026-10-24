@@ -35,7 +35,9 @@ nonisolated extension SidebarLayout {
         // rows, so the full layout places them.
         // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
         // So does one longer than the row limit (its "Show N more" row).
+        // So does one whose members nest under each other (the session tree's lineage: `treeRows` orders them).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              !(o.sessionTree.map { tree in group.workspaces.contains { tree.parents[$0.id] != nil } } ?? false),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = base.resolved(for: o)

@@ -82,6 +82,11 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
         }
     }
+    /// Whether a render opens the folds above the selection: a new selection, or new lineage (`parents`).
+    static func revealsSelection(selectionChanged: Bool, from old: SidebarSessionTreeState?, to new: SidebarSessionTreeState?) -> Bool {
+        selectionChanged || old?.parents != new?.parents
+    }
+
     func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
@@ -118,8 +123,12 @@ extension SidebarViewComponents {
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
         let listChanged = rowsChanged || selectionChanged
-        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
-        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
+        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it), also when
+        // the tree's lineage arrives after the selection (the feed starts after restored windows): only a change of
+        // parents re-reveals, so the person's own fold of the selection's parent stays.
+        if Self.revealsSelection(selectionChanged: selectionChanged, from: lastState?.tree, to: state.tree) {
+            state.selection.forEach { SidebarSessionTree.shared.reveal($0, lists: model.listsHolding($0)) }
+        }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
