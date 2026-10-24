@@ -6,6 +6,7 @@ import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight, Envelope, Spinner, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
+import { ToolText } from "./ToolText";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useT, type Translate } from "../i18n";
 import type { DispatchCall } from "./dispatchCalls";
@@ -60,7 +61,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
         <span className="cv-tool__icon">
           {running ? <Spinner size={16} /> : call.kind === "report" ? <Envelope /> : <ToolGroup />}
         </span>
-        <span className="cv-tool__text">{line}</span>
+        <ToolText working={running}>{line}</ToolText>
         <ChevronRight
           size={14}
           strokeWidth={1.2}
