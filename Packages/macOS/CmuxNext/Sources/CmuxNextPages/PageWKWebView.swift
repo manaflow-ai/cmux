@@ -51,6 +51,26 @@ final class PageWKWebView: WKWebView {
 
     private var menuActionObserver: (any NSObjectProtocol)?
 
+    /// Loads, reloads and host scripts sent to this view (``noteDocumentRequest()``). A view that has
+    /// taken none started no web content process: what a Chromium page's unused WebKit view must
+    /// keep (`debug.surfaces`, tests).
+    private(set) var documentRequests = 0
+
+    /// A load, a reload or a host script (``WebKitPageHostBridge/evaluate(_:)``) was sent to the view.
+    func noteDocumentRequest() {
+        documentRequests += 1
+    }
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        noteDocumentRequest()
+        return super.load(request)
+    }
+
+    override func reload() -> WKNavigation? {
+        noteDocumentRequest()
+        return super.reload()
+    }
+
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread

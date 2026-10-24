@@ -20,6 +20,7 @@ public final class WebKitPageHostBridge: PageHostBridge {
     }
 
     public func evaluate(_ script: String) {
+        (webView as? PageWKWebView)?.noteDocumentRequest()
         webView?.evaluateJavaScript(script, completionHandler: nil)
     }
 

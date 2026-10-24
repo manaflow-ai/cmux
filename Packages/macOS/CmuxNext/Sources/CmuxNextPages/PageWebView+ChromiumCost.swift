@@ -48,6 +48,19 @@ extension PageWebView {
     public func startWithoutShowing() {
         guard let hosting = chromiumAwaitingShow else { return }
         chromiumAwaitingShow = nil
+        startAwaitedPage(hosting: hosting)
+    }
+
+    /// Starts a page that waited for its first show, in the engine the policy picks now: the wait
+    /// can be hours (a restored tab), and since then the person may have chosen WebKit or Chromium
+    /// may have become unavailable (the crash-loop gate, a missing runtime pack). Such a page opens
+    /// in WebKit directly, with no Chromium start that fails first.
+    private func startAwaitedPage(hosting: any PageChromiumHosting) {
+        let decision = Self.engineDecision(for: descriptor, options: engineOptions, hosting: hosting)
+        guard decision.engine == .cef else {
+            showInWebKit(decision)
+            return
+        }
         startChromium(hosting: hosting)
     }
 
@@ -74,7 +87,7 @@ extension PageWebView {
         let shown = isShownForChromium
         if shown, let hosting = chromiumAwaitingShow {
             chromiumAwaitingShow = nil
-            startChromium(hosting: hosting)
+            startAwaitedPage(hosting: hosting)
         }
         if let chromiumSession { showChromium(chromiumSession, shown) }
     }

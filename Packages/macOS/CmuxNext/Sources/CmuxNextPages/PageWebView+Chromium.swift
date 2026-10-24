@@ -186,9 +186,16 @@ extension PageWebView {
         chromiumSession = nil
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
+        showInWebKit(.webKit(reason))
+    }
+
+    /// Shows the page in its WebKit view from now on, at the route it shows: after a Chromium
+    /// failure, or at the first show of a page that waited for Chromium when the policy now picks
+    /// WebKit. The one path that moves a page onto WebKit.
+    func showInWebKit(_ decision: PageEngineDecision) {
         inputReadiness.inserter = nil
         scriptTarget.bridge = bridge
-        engineDecision = .webKit(reason)
+        engineDecision = decision
         webView.isHidden = false
         router.reset()
         loaded = false

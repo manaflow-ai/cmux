@@ -648,8 +648,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            // CmuxNextResources: PageChromiumCostTests reads a WebKit view's web content process.
-            dependencies: ["CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextResources"],
+            dependencies: ["CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI

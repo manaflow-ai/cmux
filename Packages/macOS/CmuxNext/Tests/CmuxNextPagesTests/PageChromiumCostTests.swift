@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
-import CmuxNextResources
 import Foundation
 import Testing
 import WebKit
@@ -66,15 +65,10 @@ struct PageChromiumCostTests {
         func pageIsNoLongerHidden(_ page: PageWebView) { noLongerHidden += 1 }
     }
 
-    /// The WebKit web content process of `webView`, if one appears within `limit`: a script or a load
-    /// sent to a view that loaded nothing launches one, and its id shows once the launch ends.
-    private func webContentProcess(of webView: WKWebView, within limit: Duration) async -> Int32? {
-        let end = ContinuousClock.now + limit
-        while ContinuousClock.now < end {
-            if let pid = WebContentProcess.identifier(of: webView) { return pid }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return WebContentProcess.identifier(of: webView)
+    /// Loads, reloads and host scripts that reached `view`'s own WebKit view: any of them makes a
+    /// view that loaded nothing launch a WebKit web content process.
+    private func webKitRequests(_ view: PageWebView) throws -> Int {
+        try #require(view.webKitView as? PageWKWebView).documentRequests
     }
 
     @Test func aPageMadeOutOfSightStartsNoRendererUntilItShows() async throws {
@@ -221,6 +215,8 @@ struct PageChromiumCostTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
+        // Made: the init sent nothing to the WebKit view.
+        #expect(try webKitRequests(view) == 0)
         // Before the start: no engine gets the reload or the route; the start loads the route.
         view.reloadPage()
         view.open(route: "#/other")
@@ -247,7 +243,29 @@ struct PageChromiumCostTests {
         #expect(reached == true)
 
         #expect(view.webKitView.url == nil)
-        #expect(await webContentProcess(of: view.webKitView, within: .seconds(2)) == nil)
+        #expect(try webKitRequests(view) == 0, "a script, load or reload reached the Chromium page's WebKit view")
+        view.close()
+    }
+
+    /// The engine is decided again at the first show, which can be hours after the page was made
+    /// (a restored tab): a page whose person chose WebKit meanwhile, or whose Chromium became
+    /// unavailable, opens in WebKit at once, at its route, and asks Chromium for nothing.
+    @Test(arguments: [true, false])
+    func aPageThatNoLongerShowsInChromiumOpensInWebKitAtItsFirstShow(choseWebKit: Bool) async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        #expect(view.isWaitingForFirstShow)
+        if choseWebKit { hosting.preference = .webkit } else { hosting.isAvailable = false }
+
+        stage.show(view)
+        await view.chromiumStart?.value
+        #expect(hosting.made.isEmpty)
+        #expect(view.engineDecision.engine == .webKit)
+        #expect(!view.isWaitingForFirstShow)
+        #expect(!view.webKitView.isHidden)
+        #expect(view.documentWebView === view.webKitView)
+        #expect(view.webKitView.url == descriptor.url(route: "#/start"))
         view.close()
     }
 
