@@ -13,7 +13,8 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
     case openCode = "opencode"
 
     /// Lexically detects a provider from the command's first
-    /// whitespace-delimited token.
+    /// whitespace-delimited token, or from the second token when the first is
+    /// an allowlisted launcher wrapper such as Subrouter's `sr`.
     ///
     /// Detection ignores the token's path, but does not parse shell syntax, so
     /// compound or environment-prefixed commands detect no provider. Detection
@@ -21,21 +22,50 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
     /// byte-for-byte verbatim.
     /// - Parameter command: User-authored task-template command.
     public init?(command: String) {
-        guard let tokenRange = Self.tokenRange(in: command, from: command.startIndex) else {
+        guard let tokenRange = Self.agentTokenRange(in: command) else {
             return nil
         }
-        let token = command[tokenRange]
-        let basename = token.split(separator: "/", omittingEmptySubsequences: true).last
-        switch basename {
+        guard let provider = Self.provider(named: Self.basename(of: command[tokenRange])) else {
+            return nil
+        }
+        self = provider
+    }
+
+    /// Launchers that run the agent named by their next token, keeping its
+    /// arguments intact (e.g. `sr codex -- "$CMUX_TASK_PROMPT"`).
+    private static let wrapperCommands: Set<Substring> = ["sr"]
+
+    private static func provider(named name: Substring?) -> MobileTaskAgentProvider? {
+        switch name {
         case "claude":
-            self = .claude
+            .claude
         case "codex":
-            self = .codex
+            .codex
         case "opencode":
-            self = .openCode
+            .openCode
         default:
+            nil
+        }
+    }
+
+    private static func basename(of token: Substring) -> Substring? {
+        token.split(separator: "/", omittingEmptySubsequences: true).last
+    }
+
+    /// The token naming the agent: the first token, or the token after an
+    /// allowlisted wrapper on the same line. Provider flags go right after it.
+    private static func agentTokenRange(in command: String) -> Range<String.Index>? {
+        guard let first = tokenRange(in: command, from: command.startIndex) else {
             return nil
         }
+        guard let wrapper = basename(of: command[first]), wrapperCommands.contains(wrapper),
+              let agent = tokenRange(in: command, from: first.upperBound),
+              !command[first.upperBound..<agent.lowerBound].contains(where: \.isNewline),
+              provider(named: basename(of: command[agent])) != nil
+        else {
+            return first
+        }
+        return agent
     }
 
     /// Applies a model selection to the command.
@@ -43,7 +73,8 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
     /// When the first simple command already carries one of this provider's
     /// model flags, every such flag's value is replaced in place so the
     /// template's own spelling never overrides the explicit selection.
-    /// Otherwise the flag is inserted immediately after the first token.
+    /// Otherwise the flag is inserted immediately after the agent token (the
+    /// first token, or the one after an allowlisted wrapper such as `sr`).
     /// Everything else remains byte-for-byte identical. Tokenization is
     /// quote-aware (single quotes, double quotes, and backslash escapes
     /// outside single quotes), so flag text embedded in a quoted argument is
@@ -91,7 +122,7 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
         flagSpellings: [String],
         to command: String
     ) -> String {
-        guard let firstToken = Self.tokenRange(in: command, from: command.startIndex) else {
+        guard let firstToken = Self.agentTokenRange(in: command) else {
             return command
         }
         let quotedValue = Self.shellQuoted(optionValue)
@@ -158,7 +189,7 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
     }
 
     private func applyingCodexEffort(_ effortID: String, to command: String) -> String {
-        guard let firstToken = Self.tokenRange(in: command, from: command.startIndex) else {
+        guard let firstToken = Self.agentTokenRange(in: command) else {
             return command
         }
         let replacement = "model_reasoning_effort=\(Self.shellQuoted(effortID))"
