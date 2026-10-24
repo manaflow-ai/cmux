@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+@testable import CmuxNextTerminal
 import Testing
 
 /// A link clicked in a lone agent chat (Leo 2026-10-21, screenshots): the chat docks left in a new
@@ -11,16 +12,37 @@ import Testing
 /// Frames step at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
 struct ChatDockLinkSplitMotionTests {
+    /// What the link's pane holds.
+    enum Content {
+        case plain
+        /// A Chromium page's host view (`CEFHostView`).
+        case page
+        /// A real terminal: a `TerminalSession` with a libghostty surface, the view the app puts in a
+        /// terminal pane, fed by a recording IO instead of a PTY.
+        case terminal
+    }
+
     final class Panes: LayoutPaneContentProvider {
-        /// When set, the link's pane holds a Chromium page's host view (`CEFHostView`).
-        let pages: Bool
+        let content: Content
         private(set) var page: CEFHostView?
-        init(pages: Bool = false) { self.pages = pages }
+        private(set) var terminal: TerminalSession?
+        let io = GridRecordingTerminalIO()
+        init(_ content: Content = .plain) { self.content = content }
         func makeContentView(for pane: PaneID) -> NSView {
-            guard pages, pane == ChatDockLinkSplitMotionTests.anchor else { return NSView() }
-            let page = CEFHostView(frame: .zero)
-            self.page = page
-            return page
+            guard pane == ChatDockLinkSplitMotionTests.anchor else { return NSView() }
+            switch content {
+            case .plain:
+                return NSView()
+            case .page:
+                let page = CEFHostView(frame: .zero)
+                self.page = page
+                return page
+            case .terminal:
+                _ = GhosttyRuntime.shared
+                let session = TerminalSession(io: io)
+                terminal = session
+                return session.view
+            }
         }
     }
 
@@ -29,10 +51,12 @@ struct ChatDockLinkSplitMotionTests {
     static let anchor: PaneID = "anchor"
     /// The new left dock the chat moves into.
     static let dock: PaneID = "dock"
+    /// The dock's column, whose edge is the divider a person drags.
+    static let dockColumn: ColumnID = "d"
 
     static let lone = ScreenLayout.columns([LayoutColumn(id: "c1", width: 1, root: .leaf(anchor))])
     static let docked = ScreenLayout.columns([
-        LayoutColumn(id: "d", width: 0.5, root: .leaf(dock), dock: DockColumn(edge: .left, role: .agentChat)),
+        LayoutColumn(id: dockColumn, width: 0.5, root: .leaf(dock), dock: DockColumn(edge: .left, role: .agentChat)),
         LayoutColumn(id: "c1", width: 1, root: .leaf(anchor)),
     ])
 
@@ -42,8 +66,9 @@ struct ChatDockLinkSplitMotionTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(pages: Bool = false) {
-            provider = Panes(pages: pages)
+        init(_ content: Content = .plain) {
+            _ = NSApplication.shared
+            provider = Panes(content)
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: ChatDockLinkSplitMotionTests.lone)],
                                 activeScreenID: "s", focusedPane: ChatDockLinkSplitMotionTests.anchor)
             root = LayoutRootView(model: model, contentProvider: provider)
@@ -51,6 +76,7 @@ struct ChatDockLinkSplitMotionTests {
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             // The test is the clock: the display link never ticks.
@@ -65,6 +91,41 @@ struct ChatDockLinkSplitMotionTests {
         func host(_ pane: PaneID) -> PaneHostView? { root.context.hosts[pane] }
         var screen: ScreenContentView? { root.screenViews["s"] }
         func step() { _ = root.advanceFrame(ChatDockLinkSplitMotionTests.dt) }
+
+        func close() {
+            provider.io.finish()
+            window.close()
+        }
+
+        /// A real drag of the docked chat's edge, the divider between the chat and the right pane,
+        /// through the handle's drag events: `moves` pointer moves to `dx` points from the edge, one
+        /// 120 Hz frame each, then the release and the spring it starts, stepped until nothing moves.
+        /// `check` runs after every frame.
+        func dragDockEdge(by dx: CGFloat, moves: Int = 30, check: (String) -> Void) throws {
+            let view = try #require(screen)
+            let edge = try #require(view.geometry.columns[ChatDockLinkSplitMotionTests.dockColumn])
+            let kind = DividerHandleView.Kind.columnEdge(ChatDockLinkSplitMotionTests.dockColumn)
+            let start = CGPoint(x: edge.maxX + root.context.style.stripGap / 2, y: edge.midY)
+            func window(_ x: CGFloat) -> NSPoint { view.convert(CGPoint(x: x, y: start.y), to: nil) }
+            view.handleDrag(kind: kind, event: .began(window(start.x)))
+            for move in 1...moves {
+                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves))))
+                root.syncWithModel()
+                step()
+                root.layoutSubtreeIfNeeded()
+                check("drag \(move)")
+            }
+            view.handleDrag(kind: kind, event: .ended(window(start.x + dx)))
+            root.syncWithModel()
+            root.layoutSubtreeIfNeeded()
+            check("release 0")
+            var frames = 0
+            while frames < 240, root.advanceFrame(ChatDockLinkSplitMotionTests.dt) {
+                root.layoutSubtreeIfNeeded()
+                frames += 1
+                check("release \(frames)")
+            }
+        }
     }
 
     /// The part of `host` its strip mask shows (own coordinates): all of it with no mask.
@@ -79,6 +140,33 @@ struct ChatDockLinkSplitMotionTests {
     }
 
     static func sameX(_ a: CGRect, _ b: CGRect) -> Bool { abs(a.minX - b.minX) <= 1 && abs(a.width - b.width) <= 1 }
+
+    /// Why `host`'s strip mask is off its part inside the strip, or nil when it is right (or hidden).
+    static func maskError(_ host: PaneHostView, in screen: ScreenContentView, _ label: String) -> String? {
+        guard !host.isHidden else { return nil }
+        let shown = Self.shown(host), expected = Self.expectedShown(host, in: screen)
+        guard !sameX(shown, expected) else { return nil }
+        return String(format: "%@ x %.1f w %.1f: shows %.1f...%.1f, strip %.1f...%.1f", label, host.frame.minX,
+                      host.frame.width, shown.minX, shown.maxX, expected.minX, expected.maxX)
+    }
+
+    /// Why the Chromium page in `host` is off its part inside the strip, or nil when it is right: the
+    /// page is a child window no layer mask reaches, so its clip shape (`cmuxClipPath`, which carries
+    /// the strip mask) must be nil or the page's part inside the strip, and no occlusion hole may
+    /// cover a page the strip shows.
+    static func pageError(_ page: CEFHostView, in host: PaneHostView, screen: ScreenContentView, _ label: String) -> String? {
+        guard !host.isHidden, page.bounds.width > 1 else { return nil }
+        let part = page.bounds.intersection(page.convert(Self.expectedShown(host, in: screen), from: host))
+        guard part.width > 1 else { return nil }
+        let holes = (page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []
+        if holes.contains(where: { $0.contains(part.insetBy(dx: 1, dy: 1)) }) {
+            return "\(label): page \(page.bounds) hidden by holes \(holes), strip shows \(part)"
+        }
+        let clip = page.cmuxClipPath()?.bounds ?? page.bounds
+        guard abs(clip.minX - part.minX) > 1 || abs(clip.width - part.width) > 1 else { return nil }
+        return String(format: "%@: page clip %.1f...%.1f, strip shows %.1f...%.1f of %.1f", label, clip.minX, clip.maxX,
+                      part.minX, part.maxX, page.bounds.width)
+    }
 
     @Test func theChatStaysAndOnlyTheLinksPaneSlidesInFromTheRight() throws {
         let screen = Screen()
@@ -165,12 +253,7 @@ struct ChatDockLinkSplitMotionTests {
         let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
         var wrong: [String] = []
         func check(_ label: String) {
-            guard !link.isHidden else { return }
-            let shown = Self.shown(link), expected = Self.expectedShown(link, in: view)
-            if !Self.sameX(shown, expected) {
-                wrong.append(String(format: "%@ x %.1f w %.1f: shows %.1f...%.1f, strip %.1f...%.1f", label, link.frame.minX,
-                                    link.frame.width, shown.minX, shown.maxX, expected.minX, expected.maxX))
-            }
+            if let error = Self.maskError(link, in: view, label) { wrong.append(error) }
         }
         for frame in 1...120 {
             screen.step()
@@ -180,7 +263,7 @@ struct ChatDockLinkSplitMotionTests {
 
         // A divider drag's resize: the chat's dock narrows, the pane widens to the left.
         let narrower = ScreenLayout.columns([
-            LayoutColumn(id: "d", width: 0.3, root: .leaf(Self.dock), dock: DockColumn(edge: .left, role: .agentChat)),
+            LayoutColumn(id: Self.dockColumn, width: 0.3, root: .leaf(Self.dock), dock: DockColumn(edge: .left, role: .agentChat)),
             LayoutColumn(id: "c1", width: 1, root: .leaf(Self.anchor)),
         ])
         screen.show(narrower)
@@ -197,7 +280,7 @@ struct ChatDockLinkSplitMotionTests {
     /// reaches, so its clip shape (`cmuxClipPath`, which carries the strip mask) must show the
     /// whole page once it lands, not a sliver.
     @Test func aRightPageBesideADockedChatShowsTheWholePage() throws {
-        let screen = Screen(pages: true)
+        let screen = Screen(.page)
         screen.model.handOffContent(of: Self.anchor)
         screen.show(Self.docked)
         for _ in 1...120 { screen.step() }
@@ -209,6 +292,69 @@ struct ChatDockLinkSplitMotionTests {
         #expect(!holes.contains(page.bounds), "the landed page is hidden: holes \(holes)")
         let shown = page.cmuxClipPath()?.bounds ?? page.bounds
         #expect(abs(shown.width - page.bounds.width) < 1, "the landed page shows \(shown) of \(page.bounds)")
+    }
+
+    /// The page again, through a real drag of the chat's edge (Leo 2026-10-24: "I had to drag it out
+    /// to resize, and ... as I drag, I see this small sliver opening up from the center"): narrowed,
+    /// widened back, and through each release's spring, the page shows its part inside the strip on
+    /// every frame and all of it at rest.
+    @Test func aRightPageBesideADockedChatShowsTheWholePageWhileTheChatsEdgeIsDragged() throws {
+        let screen = Screen(.page)
+        defer { screen.close() }
+        screen.model.handOffContent(of: Self.anchor)
+        screen.show(Self.docked)
+        for _ in 1...120 { screen.step() }
+        screen.root.layoutSubtreeIfNeeded()
+        let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
+        let page = try #require(screen.provider.page)
+        var wrong: [String] = [], checked = 0
+        func check(_ label: String) {
+            checked += 1
+            if let error = Self.maskError(link, in: view, label) { wrong.append(error) }
+            if let error = Self.pageError(page, in: link, screen: view, label) { wrong.append(error) }
+        }
+        let before = link.frame
+        try screen.dragDockEdge(by: -240) { check("narrow \($0)") }
+        #expect(link.frame.width > before.width + 100, "the drag did not widen the page's pane: \(before) -> \(link.frame)")
+        let widened = link.frame
+        try screen.dragDockEdge(by: 120) { check("widen \($0)") }
+        #expect(link.frame.width < widened.width - 50, "the drag back did not narrow the page's pane: \(widened) -> \(link.frame)")
+        #expect(checked > 60, "only \(checked) frames were checked")
+        let holes = (page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []
+        #expect(!holes.contains(page.bounds), "the dragged page is hidden: holes \(holes)")
+        let shown = page.cmuxClipPath()?.bounds ?? page.bounds
+        #expect(abs(shown.width - page.bounds.width) < 1, "the dragged page shows \(shown) of \(page.bounds)")
+        #expect(wrong.isEmpty, "the page is off the strip: \(wrong.prefix(8).joined(separator: "; "))")
+    }
+
+    /// The same pane holding a real terminal (a `TerminalSession` with a libghostty surface): the
+    /// strip mask is on the `PaneHostView` whatever it holds, so a terminal beside a docked chat was
+    /// hidden while it slid in and a sliver while its edge was dragged, like the page. It shows its
+    /// part inside the strip on every frame of the landing and of a real drag, and all of it at rest.
+    @Test func aRightTerminalBesideADockedChatShowsItsPartInsideTheStripOnEveryFrame() throws {
+        let screen = Screen(.terminal)
+        defer { screen.close() }
+        screen.model.handOffContent(of: Self.anchor)
+        screen.show(Self.docked)
+        let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
+        let session = try #require(screen.provider.terminal, "the link's pane holds no terminal")
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        #expect(session.view.isDescendant(of: link), "the terminal is not in the link's pane")
+        var wrong: [String] = []
+        func check(_ label: String) {
+            if let error = Self.maskError(link, in: view, label) { wrong.append(error) }
+        }
+        for frame in 1...120 {
+            screen.step()
+            check("land \(frame)")
+        }
+        screen.root.layoutSubtreeIfNeeded()
+        #expect(Self.sameX(Self.shown(link), link.bounds), "the landed terminal is masked: \(Self.shown(link)) of \(link.bounds)")
+        try screen.dragDockEdge(by: -240) { check("narrow \($0)") }
+        try screen.dragDockEdge(by: 120) { check("widen \($0)") }
+        #expect(Self.sameX(Self.shown(link), link.bounds), "the dragged terminal is masked: \(Self.shown(link)) of \(link.bounds)")
+        #expect(session.view.frame.width > link.bounds.width / 2, "the terminal does not fill its pane: \(session.view.frame)")
+        #expect(wrong.isEmpty, "the terminal's pane mask is off the strip: \(wrong.prefix(8).joined(separator: "; "))")
     }
 
     /// `clipToStrip` on a host away from the screen's origin: a strip clip and a pane in front, in
