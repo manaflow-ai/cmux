@@ -193,6 +193,8 @@
 .acpmux-workflow__actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:8px;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
 .acpmux-workflow__actions button{min-height:24px;padding:0 8px;border:0;border-radius:5px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer}
 .acpmux-workflow__actions button:hover{background:var(--acpmux-pill-hover)}
+.acpmux-workflow__actions button:disabled{cursor:default;opacity:.6}
+.acpmux-workflow__actions button:disabled:hover{background:var(--acpmux-pill-fill)}
 .acpmux-workflow__actions button:focus-visible,.acpmux-workflow__phase:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */
 .acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}
