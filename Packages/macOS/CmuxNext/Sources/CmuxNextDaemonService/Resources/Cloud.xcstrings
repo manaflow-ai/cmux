@@ -8646,6 +8646,72 @@
           }
         }
       }
+    },
+    "cloud.upgrade.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need a paid plan"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.detail.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan has no Cloud machines. The Go plan is $10 a month and includes machines; Pro is $50."
+          }
+        }
+      }
+    },
+    "cloud.upgrade.detail.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan allows %d running Cloud machines and all are in use. Upgrade (Pro is $50 a month) or delete one."
+          }
+        }
+      }
+    },
+    "cloud.upgrade.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -421,7 +421,7 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
-    /// create asks the person first, on either path (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
@@ -430,7 +430,7 @@ final class CloudService {
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in CloudMachineCreateFlow.gate(self?.machines.cloudLimits) }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
