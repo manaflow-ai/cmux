@@ -17,6 +17,15 @@ import CmuxNextHomeEngine
 @MainActor
 final class HomeNewMessageView: NSView {
     let field = HomeRecipientField()
+    /// Whether a pane on screen presents the Home this page is in (``TopHomePageView``): the
+    /// conversation shown under the field and the blank page's message box follow it.
+    var isTabPresented = true {
+        didSet {
+            guard isTabPresented != oldValue else { return }
+            host?.isTabPresented = isTabPresented
+            composer?.isPresented = isTabPresented
+        }
+    }
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -148,6 +157,7 @@ final class HomeNewMessageView: NSView {
         let store = services.home.homeStore
         if !text.isEmpty, (store.draft(for: id) ?? "").isEmpty { store.setDraft(text, for: id) }
         let view = HomeHostView(services: services, conversation: id.rawValue)
+        view.isTabPresented = isTabPresented
         content.addSubview(view)
         host = view
         existing = id
@@ -175,6 +185,7 @@ final class HomeNewMessageView: NSView {
                                             openPanel: services.openPanel)
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
+        view.isPresented = isTabPresented
         view.setAccessibilityIdentifier("cmux.home.newMessage.composer")
         content.addSubview(view)
         composer = view

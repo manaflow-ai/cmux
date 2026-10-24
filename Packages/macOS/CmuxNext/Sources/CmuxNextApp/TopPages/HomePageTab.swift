@@ -36,6 +36,8 @@ final class HomePageTab: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
         let view = TopHomePageView(services: services, windowKey: { Self.widthKey })
+        // A pane tab: its transcript reports reads only while a pane on screen presents it.
+        services.home.applyTabPresence(to: view, pageKey: key)
         views[key] = view
         order.append(key)
         return view

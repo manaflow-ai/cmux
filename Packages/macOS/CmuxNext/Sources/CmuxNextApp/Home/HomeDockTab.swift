@@ -33,6 +33,7 @@ final class HomeDockTab: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
         let view = HomeDockView(services: services, mode: .messages)
+        services.home.applyTabPresence(to: view, pageKey: key)
         view.channelsSelection = { await Self.askSelection($0) }
         HomeDock.followChannelsSetting(view) { [weak services] in services?.home.dockMode = $0 }
         views[key] = view

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import Foundation
@@ -210,8 +211,7 @@ extension HomeService {
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
         if let view = tabViews[tab.id] { return view }
         let view = HomeHostView(services: services, conversation: conversation)
-        // Made before its pane presents it (followTabPresence answers the present).
-        view.transcript.isPresented = services.cache.isRendering(tab.id)
+        applyTabPresence(to: view, tabs: [tab.id])
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
         if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
@@ -220,18 +220,53 @@ extension HomeService {
 
     func existingTabView(_ key: String) -> HomeHostView? { tabViews[key] }
 
-    /// A conversation tab's transcript is presented (and so reports reads) exactly while the
+    /// Every pane tab that holds a Home transcript (``PanePresentedContent``: a conversation tab, a
+    /// `home.tab` Home, the docked Home) is presented, and so reports reads, exactly while the
     /// content cache renders the tab: a pane the layout reports on screen shows it (not scrolled out
     /// of the strip, not under a docked column, not in a parked workspace, its pane's selected tab).
-    /// The layout's own presence decides, not the view's geometry. O(changed tabs) per change.
+    /// The layout's own presence decides, not the view's geometry. One subscription for all of them;
+    /// O(changed tabs) per change.
     func followTabPresence() {
         let cache = services.cache
         cache.presentationChanges.subscribe("home-tab-presence") { [weak self, weak cache] in
             guard let self, let cache else { return }
-            for key in cache.presentationChanges.changedKeys ?? Set(tabViews.keys) {
-                tabViews[key]?.transcript.isPresented = cache.isRendering(key)
+            guard let changed = cache.presentationChanges.changedKeys else {
+                for (key, view) in tabViews { view.isTabPresented = cache.isRendering(key) }
+                for page in services.pages.madeViews { followPresence(ofPage: page) }
+                return
+            }
+            for key in changed {
+                if let view = tabViews[key] {
+                    view.isTabPresented = cache.isRendering(key)
+                } else if let page = services.pages.existingView(key) {
+                    followPresence(ofPage: page)
+                }
             }
         }
+    }
+
+    /// Sets `content` presented exactly while the cache renders one of `tabs` (its cache keys).
+    /// New content gets it when made, before any pane presents it: a pane makes a tab's content
+    /// and then presents it (the cache's change then turns it on), so it never counts as seen
+    /// in between.
+    func applyTabPresence(to content: any PanePresentedContent, tabs: [String]) {
+        content.isTabPresented = tabs.contains { services.cache.isRendering($0) }
+    }
+
+    /// The same for a page tab's Home content (``HomePageTab``, ``HomeDockTab``) under provider
+    /// key `key`: the tabs filed under that key (a provisional tab and the store's tab that replaced
+    /// it share one view; both are filed before the provider makes the view). A key no tab is filed
+    /// under is no pane tab (a window's top page, `TopPageHost`): it keeps its presence.
+    func applyTabPresence(to content: any PanePresentedContent, pageKey key: String) {
+        let tabs = services.pages.tabs(showing: key)
+        guard !tabs.isEmpty else { return }
+        applyTabPresence(to: content, tabs: tabs)
+    }
+
+    /// A page tab view's Home content follows its tabs; any other page is not Home's.
+    private func followPresence(ofPage page: InternalPageView) {
+        guard let content = page.content as? any PanePresentedContent else { return }
+        applyTabPresence(to: content, pageKey: page.key)
     }
 
     /// The strip title of conversation tab `tab`: its conversation's title.
