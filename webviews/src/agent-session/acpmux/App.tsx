@@ -629,6 +629,12 @@ function failedRowOf(error: unknown): string | undefined {
   return typeof row === "string" ? row : undefined;
 }
 
+/// Whether a failed send's prompt stays in the chat, never back in the composer: its failed row,
+/// or the transcript, which drew it once acpmux took it (direct.ts `send`).
+function keptInChat(error: unknown): boolean {
+  return failedRowOf(error) !== undefined || (error as { taken?: unknown } | null)?.taken === true;
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -5697,9 +5703,9 @@ function AcpmuxPane() {
   const [startingSends] = useState(
     () =>
       new StartingSends(setStartingRows, (text, attachments, error) => {
-        // A prompt kept as its own failed row stays there; one a harness switch handed back is in
-        // the composer already.
-        if (failedRowOf(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
+        // A prompt kept as its own failed row or in the transcript stays there; one a harness switch
+        // handed back is in the composer already.
+        if (keptInChat(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
         if (composerHandle.current) composerHandle.current.restore(text, attachments);
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
@@ -8116,7 +8122,7 @@ function AcpmuxPane() {
                   },
                   (error: unknown) => {
                     cancelOpenInWindow();
-                    if (failedRowOf(error) || isTrustRefusal(error)) return;
+                    if (keptInChat(error) || isTrustRefusal(error)) return;
                     // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
                     if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
                     (composerHandle.current ?? holder)?.restore(text, attachments);
