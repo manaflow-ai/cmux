@@ -44,8 +44,7 @@ import Testing
         let cancel = "cancelWebAuthenticationSessionRequest:"
         try #require(handler.responds(to: NSSelectorFromString(begin)))
         try #require(handler.responds(to: NSSelectorFromString(cancel)))
-        // The handler is not Sendable: only this one detached task calls it, and the test waits for that task.
-        nonisolated(unsafe) let system = handler
+        let system = handler
         await Task.detached {
             _ = system.perform(NSSelectorFromString(begin), with: nil)
             _ = system.perform(NSSelectorFromString(cancel), with: nil)
