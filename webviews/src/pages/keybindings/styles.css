@@ -566,12 +566,21 @@
     inset 0 -1px 0 var(--ui-line);
 }
 
+/* The saved keys' conflicts: "ⓘ Conflicts with:" in the theme's warning yellow, then the actions. */
 .keys-recorder-conflict {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 4px;
   font-size: var(--text-caption);
   color: var(--ui-fg);
+}
+
+.keys-recorder-conflict-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cmux-app-warning, #ffcc00);
 }
 
 /* The footer: the action on the left, cut to one line with an ellipsis, and a small Close with its

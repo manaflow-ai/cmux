@@ -48,6 +48,8 @@ const ICONS = {
   reset: "M3 3.25v3.5h3.5M3.4 6.6A5.25 5.25 0 1 1 3.75 10.5",
   // Cross.
   close: "M4.5 4.5l7 7M11.5 4.5l-7 7",
+  // "i" in a circle.
+  info: "M8 1.75a6.25 6.25 0 1 0 0 12.5 6.25 6.25 0 0 0 0-12.5ZM8 7.25v3.75M8 5v.01",
   // Warning triangle.
   conflict: "M8 2.25 14.25 13.25H1.75ZM8 6.5v3M8 11.25v.25",
 };
@@ -387,8 +389,11 @@ function Recorder({
       <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>
       {others.length > 0 && (
         <output className="keys-recorder-conflict">
-          <Icon name="conflict" />
-          <span>{strings.format("keybindings.page.alsoUsedBy", others.map((other) => other.title).join(", "))}</span>
+          <span className="keys-recorder-conflict-label">
+            <Icon name="info" />
+            {t("keybindings.page.recorder.conflictsWith")}
+          </span>
+          <span className="keys-recorder-conflict-list">{others.map((other) => other.title).join(", ")}</span>
         </output>
       )}
       <div className="keys-recorder-actions">

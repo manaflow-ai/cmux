@@ -191,7 +191,10 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     await Promise.resolve();
   });
   await act(async () => store.reload());
-  expect(conflict()).toContain("Open Command Palette");
+  expect(recorder()?.querySelector(".keys-recorder-conflict-label")?.textContent).toBe(
+    strings.t("keybindings.page.recorder.conflictsWith"),
+  );
+  expect(recorder()?.querySelector(".keys-recorder-conflict-list")?.textContent).toContain("Open Command Palette");
   // The row shows the keys as they go down too, not only the recorder.
   expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
 
