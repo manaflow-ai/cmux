@@ -376,6 +376,39 @@ mod provider_listener_tests {
         }
     }
 
+    /// `auto` follows the app's provider: in-app Chromium while an app that
+    /// offers `cef` is connected, headless before it connects and after it left.
+    #[test]
+    fn codemode_parity_auto_is_cef_while_the_app_offers_it() {
+        use crate::host::Engines as _;
+        let dir = std::env::temp_dir().join(format!("cmux-bh-auto-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("browser-host-provider.sock");
+        let listener = bind(&path, true).unwrap();
+        let engines = crate::engines::HostEngines::new("agent");
+        let slot = engines.provider_slot();
+        assert_eq!(engines.auto_engine(), "headless", "no app connected");
+        let secret = "s".repeat(40);
+        let (thread_slot, thread_secret) = (slot.clone(), ProviderSecret::new(secret.clone()));
+        std::thread::spawn(move || {
+            serve_providers(listener, thread_secret, thread_slot, Arc::from("agent"))
+        });
+        let app = dial(&path, &secret).expect("the app connects");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while engines.auto_engine() != "cef" && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(engines.auto_engine(), "cef", "the app offered cef in its hello");
+        drop(app);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while engines.auto_engine() != "headless" && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(engines.auto_engine(), "headless", "the app left");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_provider_listener_needs_the_secret_and_takes_one_provider_at_a_time() {
         let dir = std::env::temp_dir().join(format!("cmux-bh-provider-{}", std::process::id()));

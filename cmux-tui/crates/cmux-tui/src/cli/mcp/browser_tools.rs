@@ -120,13 +120,23 @@ impl BrowserTool {
     }
 
     /// The host request for a call. Unknown arguments are refused here; the
-    /// host validates the values.
-    pub(super) fn request(&self, arguments: &Map<String, Value>) -> Result<Request, Value> {
+    /// host validates the values. A call without `session` from an agent
+    /// chat (`agent_session`, acpmux's `CMUX_AGENT_SESSION`) uses that
+    /// chat's own session ([`agent_session_name`]): a named session gets the
+    /// app's in-app browser where the app runs (the host refuses the
+    /// person's tabs to the shared implicit `default`), and two chats never
+    /// share one page.
+    pub(super) fn request(
+        &self,
+        arguments: &Map<String, Value>,
+        agent_session: Option<&str>,
+    ) -> Result<Request, Value> {
         let fields = self.fields();
         if let Some(name) = arguments.keys().find(|name| !fields.contains_key(*name)) {
             return Err(invalid(format!("{} has no argument {name:?}", self.name)));
         }
         let mut params = arguments.clone();
+        let _ = agent_session;
         let mut timeout = REQUEST_TIMEOUT;
         if self.evaluates() {
             let eval_ms = match params.get("timeoutMs") {
@@ -142,4 +152,9 @@ impl BrowserTool {
         }
         Ok(Request { method: self.method, params: Value::Object(params), timeout })
     }
+}
+
+/// The browser session of an agent chat (not yet).
+pub(super) fn agent_session_name(_agent_session: &str) -> Option<String> {
+    None
 }

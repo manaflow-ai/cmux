@@ -371,17 +371,77 @@ pub(super) fn watch_app_events(
 /// The browser host's listener (`cmux-browser-host`'s `default_socket_path`):
 /// `CMUX_BROWSER_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/cmux/browser-host.sock`,
 /// else `$TMPDIR/cmux-<uid>/browser-host.sock`.
-pub(super) fn browser_host_socket() -> std::path::PathBuf {
-    let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
-    if let Some(path) = env("CMUX_BROWSER_HOST_SOCKET") {
+pub(super) fn browser_host_socket(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> std::path::PathBuf {
+    let set = |name: &str| env(name).filter(|value| !value.is_empty());
+    if let Some(path) = set("CMUX_BROWSER_HOST_SOCKET") {
         return path.into();
     }
-    let base = match env("XDG_RUNTIME_DIR") {
+    let base = match set("XDG_RUNTIME_DIR") {
         Some(dir) => std::path::PathBuf::from(dir).join("cmux"),
         // SAFETY: getuid(2) has no failure modes or memory effects.
         None => std::env::temp_dir().join(format!("cmux-{}", unsafe { libc::getuid() })),
     };
     base.join("browser-host.sock")
+}
+
+/// One place `cmux mcp` may reach a browser host, and how.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HostRoute {
+    pub socket: std::path::PathBuf,
+    pub reach: Reach,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Reach {
+    /// The daemon of this terminal owns the socket: wait for its host (it
+    /// has the app's provider secret), never start one.
+    Daemon,
+    /// The host of the daemon `cmux mcp` talks to (the app's own daemon for
+    /// the bundled `cmux`): use it when it answers, else try the next route.
+    /// That host has the app's in-app browser engines.
+    DaemonHost,
+    /// No daemon host: start this binary's `serve` on the socket when
+    /// nothing answers (a headless host, as `cmux-browser-host eval` does).
+    Start(std::path::PathBuf),
+    /// No binary to start: only an answering host.
+    Existing,
+}
+
+/// The routes to the browser host, in order. A daemon terminal's named host
+/// is the only route. Else the host of the daemon this server talks to
+/// (`daemon`, from the CLI's own socket resolution), when that daemon runs
+/// one (its socket exists), so code mode drives the app's in-app browser
+/// like the person's own tabs. Else the default socket, starting the host
+/// `binary` there when nothing answers (headless, also on a Linux VM).
+pub(super) fn browser_host_routes(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    _daemon: Option<&std::path::Path>,
+    _binary: Option<std::path::PathBuf>,
+) -> Vec<HostRoute> {
+    vec![HostRoute { socket: browser_host_socket(env), reach: Reach::Existing }]
+}
+
+/// Connects to the first route that answers, or explains why none did.
+pub(super) fn connect_browser_host(
+    routes: &[HostRoute],
+) -> Result<std::os::unix::net::UnixStream, CallFailure> {
+    let mut failures = Vec::new();
+    for route in routes {
+        match std::os::unix::net::UnixStream::connect(&route.socket) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => failures.push(format!("{} ({error})", route.socket.display())),
+        }
+    }
+    Err(CallFailure::local(
+        FailureKind::NotRun,
+        "browser_host.unavailable",
+        format!(
+            "no browser host listens on {}; start it with `cmux-browser-host serve`",
+            failures.join(", ")
+        ),
+    ))
 }
 
 /// `params` with the server's own terminal (`CMUX_TUI_TERMINAL_ID`) on the
@@ -401,23 +461,14 @@ fn with_caller_terminal(method: &str, mut params: Value) -> Value {
 /// runs each request at most once, so a lost answer to a change is
 /// `in_progress`, never retried here.
 pub(super) fn browser_host(
+    routes: &[HostRoute],
     method: &str,
     params: Value,
     timeout: Duration,
     mutation: bool,
 ) -> Result<Value, CallFailure> {
     use std::io::Write;
-    let socket = browser_host_socket();
-    let mut stream = std::os::unix::net::UnixStream::connect(&socket).map_err(|error| {
-        CallFailure::local(
-            FailureKind::NotRun,
-            "browser_host.unavailable",
-            format!(
-                "no browser host listens on {} ({error}); start it with `cmux-browser-host serve`",
-                socket.display()
-            ),
-        )
-    })?;
+    let mut stream = connect_browser_host(routes)?;
     let id = wire::random_request_id()
         .map_err(|error| CallFailure::local(FailureKind::NotRun, "usage.invalid", error.0))?;
     let request = json!({"id": id, "method": method, "params": with_caller_terminal(method, params), "origin": "mcp"});

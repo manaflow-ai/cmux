@@ -94,6 +94,13 @@ pub fn host_binary_exists() -> bool {
     resolve_binary().is_some()
 }
 
+/// The browser host binary: `CMUX_BROWSER_HOST_BIN`, else
+/// `cmux-browser-host` next to this executable (the daemon, or `cmux mcp`,
+/// which starts a host of its own where no daemon owns one).
+pub fn host_binary() -> Option<PathBuf> {
+    resolve_binary()
+}
+
 /// `CMUX_BROWSER_HOST_BIN`, else `cmux-browser-host` next to the daemon
 /// executable. `None` when neither is a file.
 fn resolve_binary() -> Option<PathBuf> {

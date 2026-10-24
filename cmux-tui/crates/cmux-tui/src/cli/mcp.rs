@@ -258,7 +258,11 @@ impl Backend for LiveBackend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure> {
-        transport::browser_host(request.method, request.params, request.timeout, mutation)
+        let env = |name: &str| std::env::var_os(name);
+        let daemon = super::wire::resolve_socket_with_env(&self.global, env).ok().map(|(s, _)| s);
+        let binary = cmux_tui_core::browser_host::host_binary();
+        let routes = transport::browser_host_routes(&env, daemon.as_deref(), binary);
+        transport::browser_host(&routes, request.method, request.params, request.timeout, mutation)
     }
 
     fn acpmux(
@@ -690,7 +694,8 @@ impl<B: Backend> Server<B> {
             return Ok(self.call_v2(tool, &arguments));
         }
         if let Some(tool) = browser_tools::find(name) {
-            return Ok(match tool.request(&arguments) {
+            let agent_session = std::env::var(AGENT_SESSION_ENV).ok();
+            return Ok(match tool.request(&arguments, agent_session.as_deref()) {
                 Ok(request) => match self.backend.browser(request, tool.mutation) {
                     Ok(value) => success(value, tool.mutation),
                     Err(failure) => failure_result(failure),
