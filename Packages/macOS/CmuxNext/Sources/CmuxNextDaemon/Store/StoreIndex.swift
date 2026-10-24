@@ -130,6 +130,9 @@ import Foundation
         var hasher = Hasher()
         hasher.combine("pane")
         hasher.combine(pane.id)
+        // The handle too: two records of one id (a pane moving between workspaces) must not cancel
+        // in the XOR when both go in one publish.
+        hasher.combine(pane.handle)
         return hasher.finalize()
     }
 
