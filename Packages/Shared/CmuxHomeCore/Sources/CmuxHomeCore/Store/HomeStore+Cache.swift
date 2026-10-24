@@ -66,15 +66,21 @@ extension HomeStore {
         }
     }
 
-    /// Writes the cache soon (coalesced), or at once with no delay.
-    func scheduleCacheWrite() {
+    /// Called on every write to the mirror or the log: schedules a cache write only when what the
+    /// cache holds of them moved (O(1): two counters), so an owner event that changes nothing
+    /// cached (typing, a connection change, an owner recovery) wakes nothing and builds no snapshot.
+    func ownerStateChanged() {
+        let state = (mirror: mirror.cacheChanges.value, log: log.cacheChanges.value)
+        guard state != cachedOwnerState else { return }
+        cachedOwnerState = state
         viewCache.scheduleWrite()
     }
 
-    /// The owner's state as the mirror has it (the view cache adds the client's own state).
+    /// The owner's state as the mirror has it (the view cache adds the client's own state). The
+    /// mirror's `me` is the store's (every assignment of `me` copies it).
     func ownerCacheSnapshot() -> HomeCacheSnapshot {
         var snapshot = HomeCacheSnapshot()
-        snapshot.me = me ?? mirror.me
+        snapshot.me = mirror.me ?? me
         snapshot.conversations = mirror.conversations.values.sorted { $0.id.rawValue < $1.id.rawValue }
         snapshot.windows = mirror.windows.compactMapValues { window in
             window.messages.isEmpty ? nil : Array(window.messages.suffix(HomeCache.windowLimit))
