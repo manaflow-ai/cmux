@@ -241,7 +241,15 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     provider.hold("⌘");
     await Promise.resolve();
   });
-  await releaseKeys();
+  // A real keyboard can send one more modifier change, nothing held, right after the release
+  // (while the app is asked about conflicts): the keys stay and the save goes on.
+  await act(async () => {
+    provider.release();
+    provider.hold("");
+    await Promise.resolve();
+  });
+  await act(async () => store.reload());
+  expect(recorderKeys()?.textContent).toBe("⌘K");
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k", replaces: { key: "cmd+j" } });
   expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeNull();
   expect(provider.recording).toBe(true);

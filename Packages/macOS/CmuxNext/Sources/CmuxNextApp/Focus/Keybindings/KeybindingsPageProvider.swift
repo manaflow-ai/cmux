@@ -24,6 +24,8 @@ final class KeybindingsPageProvider: PageProvider {
     private var awaitingRelease = false
     /// Every key up ends the shortcut (a row's recorder; the search's records a chord's strokes).
     private var resetsOnRelease = false
+    /// The held modifiers last sent: a keyboard can repeat a modifier change with nothing new.
+    private var sentHeld = ""
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var fileListener: UUID?
@@ -127,6 +129,7 @@ final class KeybindingsPageProvider: PageProvider {
     private func startRecording(resetsOnRelease: Bool) {
         recorder = KeyRecorder()
         self.resetsOnRelease = resetsOnRelease
+        sentHeld = ""
         services.keyRouter.keyRecorder = { [weak self] event, window in
             guard let self, let page = self.pageWindow(), window === page || window?.parent === page else { return false }
             self.record(event)
@@ -177,7 +180,7 @@ final class KeybindingsPageProvider: PageProvider {
             if resetsOnRelease { self.recorder = KeyRecorder() }
             return
         }
-        if event.type == .flagsChanged { send(recorder.keys, done: false, cancelled: false, held: held) }
+        if event.type == .flagsChanged, held != sentHeld { send(recorder.keys, done: false, cancelled: false, held: held) }
     }
 
     /// One `recorded` event: the strokes so far (`key`, `display`), how the recording ended,
@@ -185,6 +188,7 @@ final class KeybindingsPageProvider: PageProvider {
     /// `released` when every key of the last stroke is up (the page saves the keys then; the next
     /// stroke starts a new shortcut).
     private func send(_ keys: [Shortcut], done: Bool, cancelled: Bool, held: String, released: Bool = false) {
+        sentHeld = held
         let event: JSONValue = [
             "key": .string(KeybindingReports.text(keys)),
             "display": .string(keys.map(\.displayString).joined(separator: " ")),

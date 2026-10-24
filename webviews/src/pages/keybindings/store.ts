@@ -416,6 +416,12 @@ export class KeybindingsStore {
       }
     }
     if (!finished) {
+      // Nothing down and no stroke (a modifier change after a release): the keys shown stay; a
+      // new modifier or key going down starts the next shortcut.
+      if (!event.key && !event.held) {
+        if (recording.held) this.set({ recording: { ...recording, held: "" } });
+        return;
+      }
       this.set({ recording: { ...recording, key: event.key, display: event.display, held: event.held ?? "" } });
       return;
     }
