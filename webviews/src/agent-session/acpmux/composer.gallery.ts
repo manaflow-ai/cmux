@@ -142,7 +142,14 @@ const waitingSteerSr2 = () => {
     ],
     { isWorking: true },
   );
-  return { ...running, summary: { ...running.summary!, harness: "claude-sr2", family: "claude-sr2", steering: true } };
+  return { ...running, summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
 };
 
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).

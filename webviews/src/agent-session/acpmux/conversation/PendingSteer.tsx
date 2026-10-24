@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
@@ -27,16 +27,26 @@ export function PendingSteer({
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
   const [sending, setSending] = useState(false);
-  // The width it folds from, set once Send now worked; `gone` when the fold ended.
+  const waiting = row.steer === "waiting";
+  // Shown while the steer waited: it leaves with the fold too when the agent reads it first.
+  const [shown, setShown] = useState(waiting);
+  if (waiting && !shown) setShown(true);
+  const [sentNow, setSentNow] = useState(false);
+  // The width it folds from, set once Send now worked or the agent read the steer; `gone` when
+  // the fold ended.
   const [leaving, setLeaving] = useState<number | "gone">();
   const self = useRef<HTMLDivElement>(null);
+  // Measured before paint, so the controls never draw a frame unfolded after they should leave.
+  useLayoutEffect(() => {
+    if (leaving === undefined && (sentNow || (shown && !waiting))) setLeaving(self.current?.offsetWidth ?? 0);
+  }, [leaving, sentNow, shown, waiting]);
   // The fold's one timer: it stops when the fold ends, and is cleared if the row goes first.
   useEffect(() => {
     if (typeof leaving !== "number") return;
     const timer = setTimeout(() => setLeaving("gone"), LEAVE_MS);
     return () => clearTimeout(timer);
   }, [leaving]);
-  if (row.steer !== "waiting" || leaving === "gone") return null;
+  if (!shown || leaving === "gone") return null;
   const promptId = row.steerPromptId;
   const busy = sending || leaving !== undefined;
   return (
@@ -58,7 +68,7 @@ export function PendingSteer({
             void send(promptId, { op: "send_now" })
               .catch(() => false)
               .then((sent) => {
-                if (sent) setLeaving(self.current?.offsetWidth ?? 0);
+                if (sent) setSentNow(true);
               })
               .finally(() => setSending(false));
           }}
@@ -91,11 +101,11 @@ export function PendingSteer({
 /// length of conversation.css `.cv-user__pending--leaving`.
 const LEAVE_MS = 180;
 
-/// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`). Only acpmux's Claude
-/// Code adapter steers, and it takes one back; its family can be a profile's own name (Leo's
-/// claude-sr2), so the X follows `steering`, not the family.
-export function takesSteersBack(summary: { steering?: boolean } | undefined, connected: boolean): boolean {
-  return connected && summary?.steering === true;
+/// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
+/// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is
+/// named (Leo's claude-sr2); `steering` alone does not, as other ACP agents steer too.
+export function takesSteersBack(summary: { backgroundsWork?: boolean } | undefined, connected: boolean): boolean {
+  return connected && summary?.backgroundsWork === true;
 }
 
 /// Takes back steer `row` while the agent has not read it: acpmux drops it (`withdraw`), and its

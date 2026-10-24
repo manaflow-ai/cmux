@@ -95,13 +95,47 @@ test("Send now remains available when delivery fails", async () => {
   expect(failed.querySelector(".cv-user__pending--leaving")).toBeNull();
 });
 
+test("Send now and the X fold away when the agent reads the steer first", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const draw = (row: AcpmuxRow) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+          <PendingSteer row={row} send={() => new Promise<boolean>(() => {})} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  await draw(waiting);
+  jest.useFakeTimers();
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // acpmux's snapshot says the agent read it before Send now's reply came.
+  await draw({ ...waiting, version: 2, steer: "landed" });
+  expect(container.querySelector(".cv-user__pending--leaving")).not.toBeNull();
+  await runFold();
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+test("a steer read before it was drawn has no Send now or X", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+        <PendingSteer row={{ ...waiting, steer: "landed" }} send={async () => true} />
+      </TurnActionsContext.Provider>,
+    );
+  });
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
 // Leo, 2026-10-24: "where's the, like, X button? All I see is the send now". His Claude chats run
-// a Claude Code profile under its own family name (claude-sr2): the X follows what the agent can do
-// (acpmux steers only through its Claude Code adapter, which takes a steer back), not the name.
-test("the X is offered wherever the agent steers, whatever its family is named", () => {
-  const sr2 = { harness: "claude-sr2", family: "claude-sr2", steering: true };
-  const claude = { harness: "claude", family: "claude", steering: true };
-  const codex = { harness: "codex", family: "codex", steering: false };
+// a Claude Code profile under its own family name (claude-sr2). Only acpmux's Claude Code adapter
+// takes a steer back, and `backgroundsWork` marks a chat that runs it; other agents steer too.
+test("the X is offered in every Claude Code chat, whatever its family is named, and nowhere else", () => {
+  const sr2 = { harness: "claude-sr2", family: "claude-sr2", steering: true, backgroundsWork: true };
+  const claude = { harness: "claude", family: "claude", steering: true, backgroundsWork: true };
+  const codex = { harness: "codex", family: "codex", steering: true, backgroundsWork: false };
   expect(takesSteersBack(sr2, true)).toBe(true);
   expect(takesSteersBack(claude, true)).toBe(true);
   expect(takesSteersBack(codex, true)).toBe(false);
