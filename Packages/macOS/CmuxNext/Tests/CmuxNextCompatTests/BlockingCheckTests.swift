@@ -240,30 +240,32 @@ struct BlockingCheckTests {
             let ranNested = await BlockingViolationTable.$scoped.withValue(table) {
                 await MainActor.run { () -> Bool in
                     // AppKit adds its event-tracking mode to the common modes; this process has no
-                    // NSApplication, so add it the same way (main-queue work then runs in that mode).
+                    // NSApplication, so add it the same way.
                     let tracking = CFRunLoopMode(rawValue: "NSEventTrackingRunLoopMode" as CFString)
                     CFRunLoopAddCommonMode(CFRunLoopGetMain(), tracking)
-                    let ran = MainFlag()
+                    let ran = SharedCount()  // Sendable: the run-loop block below is a @Sendable closure
                     allowBlocking(BlockingAllowance(reviewed: "test")) {
-                        // Another main-actor job, enqueued now and run by the nested tracking run below.
-                        Task { @MainActor in
+                        // Another main-thread job, delivered by the nested tracking run as AppKit delivers
+                        // events and timers there (a run-loop block in that mode). It opens its own allowance,
+                        // then makes one call outside it.
+                        RunLoop.main.perform(inModes: [RunLoop.Mode(tracking.rawValue as String)]) {
                             allowBlocking(BlockingAllowance(reviewed: "test-inner")) {
                                 _ = FileManager.checked.fileExists(atPath: "/")  // allowed by the inner scope
                             }
                             _ = FileManager.checked.isReadableFile(atPath: "/")  // not allowed: recorded
-                            ran.value = true
+                            ran.mutex.withLock { $0 = 1 }
                         }
-                        // Bounded: the job is already queued; each run returns after handling one source.
-                        for _ in 0..<100 where !ran.value { _ = CFRunLoopRunInMode(tracking, 1, true) }
+                        // Bounded: the block is already queued; each run returns after handling one source.
+                        for _ in 0..<100 where ran.mutex.withLock({ $0 }) == 0 { _ = CFRunLoopRunInMode(tracking, 1, true) }
                         _ = FileManager.checked.isWritableFile(atPath: "/")  // the outer body again: allowed
                     }
-                    return ran.value
+                    return ran.mutex.withLock { $0 } == 1
                 }
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
-            let ok = ranNested && sites.count == 1 && sites.first?.kind == .fileIO && sites.first?.count == 1
-            exit(ok ? 0 : 3)
+            // 0: right; 3: the nested job did not run; 4: wrong sites recorded.
+            exit(!ranNested ? 3 : sites.count == 1 && sites.first?.kind == .fileIO && sites.first?.count == 1 ? 0 : 4)
         }
     }
 
@@ -394,12 +396,6 @@ struct BlockingCheckTests {
 }
 
 #if DEBUG || CMUX_BLOCKING_CHECKS
-/// A main-actor flag a nested job sets.
-@MainActor
-private final class MainFlag {
-    var value = false
-}
-
 /// A semaphore made with value 0 and signaled once: one wait returns at once and leaves it at its initial
 /// value. (A semaphore made with value 1 and waited on is below its initial value when it is released, and
 /// libdispatch traps on that: the SIGTRAP of the suite runs at 1b71848e3c4 and ee33c68f2a3.)
