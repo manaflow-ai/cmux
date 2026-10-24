@@ -113,6 +113,14 @@ final class AppServices {
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
     let chromiumRuntime = ChromiumRuntimeService.make()
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
+    #if DEBUG
+    /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
+    private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
+        let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
+        ResizeCoordinator.shared.onSend = { [weak trace] in trace?.noteSend($0, columns: $1.cols, rows: $1.rows) }
+        return trace
+    }()
+    #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
     private(set) lazy var palette: PaletteController = {
