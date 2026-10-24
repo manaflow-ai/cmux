@@ -97,6 +97,8 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // Its workflows ran in the agent's process: they end with it.
+                    tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
                         .append_logged(
                             &tap_session,
