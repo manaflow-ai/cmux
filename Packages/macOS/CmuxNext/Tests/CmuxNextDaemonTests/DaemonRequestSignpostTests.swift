@@ -34,7 +34,9 @@ struct DaemonRequestSignpostTests {
 
 /// Accepts one connection, reads one request line, and answers `{"id": <its id>, "ok": true}`.
 private final class OneReplyServer: Sendable {
-    private let id = Mutex<UInt64?>(nil)
+    /// The id the server read, shared with its thread (Mutex is not copyable, so it lives in a box).
+    private final class Box: Sendable { let id = Mutex<UInt64?>(nil) }
+    private let box = Box()
 
     init(path: String) throws {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -50,7 +52,7 @@ private final class OneReplyServer: Sendable {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         guard bound == 0, listen(fd, 1) == 0 else { close(fd); throw POSIXError(.EADDRINUSE) }
-        let id = id
+        let box = box
         Thread.detachNewThread {
             defer { close(fd) }
             let client = accept(fd, nil, nil)
@@ -61,7 +63,7 @@ private final class OneReplyServer: Sendable {
             while read(client, &byte, 1) == 1, byte != 0x0A { line.append(byte) }
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                   let number = (object["id"] as? NSNumber)?.uint64Value else { return }
-            id.withLock { $0 = number }
+            box.id.withLock { $0 = number }
             let reply = Data(#"{"id":\#(number),"ok":true}"#.utf8) + Data([0x0A])
             _ = reply.withUnsafeBytes { write(client, $0.baseAddress, reply.count) }
             // Keep the connection open until the client closes it.
@@ -69,5 +71,5 @@ private final class OneReplyServer: Sendable {
         }
     }
 
-    func receivedID() -> UInt64? { id.withLock { $0 } }
+    func receivedID() -> UInt64? { box.id.withLock { $0 } }
 }
