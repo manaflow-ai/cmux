@@ -221,7 +221,11 @@ public final class TerminalSurfaceView: NSView {
         observeWindow(shown)
         if shown {
             updateContentScale()
-            updateSurfaceSize()
+            // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
+            // report (held while it was not shown) would be a size no frame rests at.
+            let joined = isInPaneMotion && joinPaneMotion()
+            updateSurfaceSize(forceReport: pendingForcedReport && !joined)
+            pendingForcedReport = false
         }
         updateOcclusion()
         updateFocus()
@@ -230,7 +234,10 @@ public final class TerminalSurfaceView: NSView {
     /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
     /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
     /// warm terminal's surface and resized its PTY); showing it applies the last size once.
-    private var isShown = false
+    private(set) var isShown = false
+    /// A forced grid report asked for while the view was not shown (`TerminalSession.init`, a new owner):
+    /// it goes when the view is shown.
+    private var pendingForcedReport = false
 
     private func observeWindow(_ observe: Bool) {
         guard observe == windowObservers.isEmpty else { return }
@@ -364,6 +371,12 @@ public final class TerminalSurfaceView: NSView {
     /// announcement.
     func updateSurfaceSize(forceReport: Bool = false) {
         guard let surface else { return }
+        // Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once it
+        // is shown (`syncWindowState`), a forced report included.
+        guard isShown else {
+            pendingForcedReport = pendingForcedReport || forceReport
+            return
+        }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }

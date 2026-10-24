@@ -17,8 +17,23 @@ extension TerminalSurfaceView: PaneMotionSettling {
 /// pane is smaller and beside the terminal background while it is larger: it reflows once, not per frame.
 extension TerminalSurfaceView: PaneMotionTargeting {
     public func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
-        guard let surface else { return .top }
         let size = NSSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
+        return restAt(size, growing: sizeChange.height > 0.5)
+    }
+
+    /// The view joined a pane already on a layout spring (a split's new pane gets its terminal from the
+    /// daemon's echo mid-spring): its final grid goes now, as at a spring's start, from the size its host
+    /// will rest at. Returns whether it did.
+    func joinPaneMotion() -> Bool {
+        guard let host = superview as? TerminalHostView, let change = enclosingRestSizeChange else { return false }
+        let hostSize = CGSize(width: max(0, host.bounds.width + change.width), height: max(0, host.bounds.height + change.height))
+        _ = restAt(host.surfaceSize(forHostSize: hostSize), growing: change.height > 0.5)
+        return true
+    }
+
+    /// Reports the grid a view of `size` points fits and holds the surface at that size in its host.
+    private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
+        guard let surface else { return .top }
         let pixels = convertToBacking(size)
         var columns: UInt16 = 0
         var rows: UInt16 = 0
@@ -26,7 +41,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
               ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
-        let anchor = motionAnchor(growing: sizeChange.height > 0.5)
+        let anchor = motionAnchor(growing: growing)
         (superview as? TerminalHostView)?.holdSurface(size: size, anchor: anchor)
         return anchor
     }
