@@ -27,6 +27,9 @@ public final class PageHostPool {
     let options: PageEngineOptions
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
+    /// The Chromium host a pooled page would show in now (``PageWebView/chromiumHosting``).
+    /// Red-commit stub: nothing reads it yet (the next commit does).
+    let chromiumHosting: () -> (any PageChromiumHosting)?
     let timer: DemandTimer
     let parking = PageHostParking()
     var spare: PageWebView?
@@ -51,11 +54,13 @@ public final class PageHostPool {
     public init(policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
-                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
+                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+                chromiumHosting: @escaping () -> (any PageChromiumHosting)? = { PageWebView.chromiumHosting }) {
         self.policy = policy
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
+        self.chromiumHosting = chromiumHosting
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
     }
 
