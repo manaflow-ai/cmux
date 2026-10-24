@@ -107,14 +107,25 @@ import Foundation
               daemon != nil || (store.panesByHandle[provisional.handle] == nil
                                 && (provisional.moving != nil || store.tabsBySurface[provisional.surface] == nil)),
               let screen = store.screen(containing: target) else { return nil }
-        // A move takes a tab out of a pane that keeps another: a pane's only tab leaves its pane closing
-        // on the daemon, which the stand-in does not show (the move waits for the daemon then).
+        // A move takes an existing tab out of its pane; a pane left empty closes in the same turn, as the
+        // daemon closes it (the anchor itself too: its column goes and the new one stays).
         let moving = daemon == nil ? provisional.moving.flatMap { movable($0, in: store) } : nil
         if provisional.moving != nil, daemon == nil, moving == nil { return nil }
         if let column = provisional.column {
             let undo = applyColumn(column, after: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
             guard let undo, let moving else { return undo }
-            return move(moving, into: provisional, in: store).map { .movedIntoSplit(split: undo, moved: $0) } ?? undo
+            guard let moved = move(moving, into: provisional, in: store) else {
+                IntentOverlay.undo(undo, in: store)
+                return nil
+            }
+            guard moving.1.tabs.isEmpty else { return .movedIntoSplit(split: undo, moved: moved, closed: nil) }
+            guard let closed = CancelledCreation.hidePane(moving.1, in: store) else {
+                // The emptied pane cannot leave its trees here: show nothing, the move waits for the daemon.
+                undoMove(moved, in: store)
+                IntentOverlay.undo(undo, in: store)
+                return nil
+            }
+            return .movedIntoSplit(split: undo, moved: moved, closed: closed)
         }
         if let row = provisional.row {
             return applyRow(row, below: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
@@ -227,9 +238,9 @@ import Foundation
         return undo
     }
 
-    /// The tab on `surface` and its pane, when that pane keeps another tab after it leaves.
+    /// The tab on `surface` and the pane it leaves.
     private static func movable(_ surface: SurfaceID, in store: DaemonStore) -> (TabModel, PaneModel)? {
-        guard let tab = store.tabsBySurface[surface], let source = store.index.pane(holding: tab), source.tabs.count > 1 else { return nil }
+        guard let tab = store.tabsBySurface[surface], let source = store.index.pane(holding: tab) else { return nil }
         return (tab, source)
     }
 

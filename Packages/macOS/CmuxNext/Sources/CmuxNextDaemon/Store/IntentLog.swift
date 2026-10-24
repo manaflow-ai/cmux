@@ -34,9 +34,9 @@ enum IntentUndo: Equatable {
     /// A create's guessed daemon tab hidden (``ProvisionalTab/matched(_:in:)``) and its
     /// provisional tab shown, until the daemon names the tab's create.
     indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
-    /// A provisional column that took an existing tab (Move Tab to New Column): the split's undo, and the
-    /// tab's place before the move.
-    indirect case movedIntoSplit(split: IntentUndo, moved: HiddenTab)
+    /// A provisional column that took an existing tab (Move Tab to New Column): the split's undo, the tab's
+    /// place before the move, and the pane the move emptied and closed (nil when it kept a tab).
+    indirect case movedIntoSplit(split: IntentUndo, moved: HiddenTab, closed: HiddenPane?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)

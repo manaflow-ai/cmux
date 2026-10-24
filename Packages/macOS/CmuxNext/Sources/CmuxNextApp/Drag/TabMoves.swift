@@ -137,10 +137,10 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
-        // In the input's turn when the daemon takes client keys and the tab's pane keeps another tab: a stand-in
-        // column holds the tab under the pane id the daemon's pane keeps (ProvisionalSplit); a refusal puts it back.
+        // In the input's turn when the daemon takes client keys: a stand-in column holds the tab under the pane id
+        // the daemon's pane keeps, an emptied source pane closes with it (ProvisionalSplit); a refusal puts both back.
         if afterColumn == nil, echoes, daemon.supports(DaemonCapability.tabColumnClientKeys.rawValue),
-           let source = daemon.store.pane(containing: surface), source.tabs.count > 1 {
+           daemon.store.pane(containing: surface) != nil {
             let provisional = ProvisionalPane(moving: surface, columnWidth: width,
                                               widths: spawn.widths, treeWidth: spawn.treeWidth)
             let intent = Intent.splitPane(pane: paneHandle, direction: .right, ratio: 0.5, provisional: provisional)
@@ -149,6 +149,9 @@ enum TabMoves {
                 try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, keepFocus: keepFocus,
                                                      transaction: transaction, paneID: paneID, splitID: splitID)
             }
+            // Laid out and mounted in this turn (the window follows the store a turn later otherwise), so the
+            // moved tab shows in its column in the input's frame; the action's revealer keeps the keyboard on it.
+            services.paneController(for: pane)?.workspace?.applyCurrent()
             services.registry.track(Task {
                 let failure: ActionWorkFailure?
                 switch await send() {

@@ -59,36 +59,44 @@ import Foundation
             guard let surface = entry.createdSurface ?? entry.replySurface, let hidden = hideTab(surface, in: store) else { return nil }
             return .hiddenTab(hidden)
         case .splitPane(_, _, _, let provisional):
-            guard let pane = daemonPane(provisional, in: store), let screen = store.screen(containing: pane.handle),
-                  let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
-            let layout = screen.layout, columns = screen.columns
-            // A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
-            guard let unsplit = removing(pane.handle, from: layout) else { return nil }
-            var reached = true
-            // A column that is only this pane (New Column's) goes with it.
-            let unsplitColumns = columns.filter { $0.layout != .leaf(pane.handle) }.map { column -> ColumnSnapshot in
-                guard column.layout.paneIDs.contains(pane.handle) else { return column }
-                var column = column
-                guard let tree = removing(pane.handle, from: column.layout) else { reached = false; return column }
-                column.layout = tree
-                // A row that is only this pane (New Row's) goes with it.
-                column.rows = column.rows.filter { $0.layout != .leaf(pane.handle) }.map { row in
-                    guard row.layout.paneIDs.contains(pane.handle) else { return row }
-                    var row = row
-                    if let tree = removing(pane.handle, from: row.layout) { row.layout = tree } else { reached = false }
-                    return row
-                }
-                return column
-            }
-            guard reached else { return nil }
-            store.index.remove(pane)
-            screen.panes.remove(at: index)
-            screen.layout = unsplit
-            if unsplitColumns != columns { screen.columns = unsplitColumns }
-            return .hiddenPane(HiddenPane(pane: pane, screen: screen.handle, index: index, layout: layout, columns: columns))
+            guard let pane = daemonPane(provisional, in: store), let hidden = hidePane(pane, in: store) else { return nil }
+            return .hiddenPane(hidden)
         default:
             return nil
         }
+    }
+
+    /// Takes `pane` out of the visible records with its place in the screen's trees (its column or row
+    /// goes when it held only this pane); nil when it is the whole tree (it would leave no pane) or a tree
+    /// cannot lose it. The undo is ``unhide(_:in:)`` with ``IntentUndo/hiddenPane(_:)``.
+    static func hidePane(_ pane: PaneModel, in store: DaemonStore) -> HiddenPane? {
+        guard let screen = store.screen(containing: pane.handle),
+              let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
+        let layout = screen.layout, columns = screen.columns
+        // A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
+        guard let unsplit = removing(pane.handle, from: layout) else { return nil }
+        var reached = true
+        // A column that is only this pane (New Column's) goes with it.
+        let unsplitColumns = columns.filter { $0.layout != .leaf(pane.handle) }.map { column -> ColumnSnapshot in
+            guard column.layout.paneIDs.contains(pane.handle) else { return column }
+            var column = column
+            guard let tree = removing(pane.handle, from: column.layout) else { reached = false; return column }
+            column.layout = tree
+            // A row that is only this pane (New Row's) goes with it.
+            column.rows = column.rows.filter { $0.layout != .leaf(pane.handle) }.map { row in
+                guard row.layout.paneIDs.contains(pane.handle) else { return row }
+                var row = row
+                if let tree = removing(pane.handle, from: row.layout) { row.layout = tree } else { reached = false }
+                return row
+            }
+            return column
+        }
+        guard reached else { return nil }
+        store.index.remove(pane)
+        screen.panes.remove(at: index)
+        screen.layout = unsplit
+        if unsplitColumns != columns { screen.columns = unsplitColumns }
+        return HiddenPane(pane: pane, screen: screen.handle, index: index, layout: layout, columns: columns)
     }
 
     /// Takes the daemon's tab on `surface` out of the visible records, with its place.
