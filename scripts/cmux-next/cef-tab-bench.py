@@ -28,8 +28,8 @@ Not a CI gate (Lawrence 2026-10-23): run it yourself on a fleet GUI host, before
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-tab-bench.py --tag "$NX_APP_TAG" --app "$NX_APP" --out "$NX_ARTIFACTS" --sessions light,stress
 or, building the app in the step:
-  cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/cef-tab.sh --ref SHA \\
-    --artifact artifacts/cef-tab.json [--arg=--rounds=6] [--arg=--sessions=light,stress]
+  cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
+    --arg=--suite=cef-tab --artifact artifacts/split-spring/report.json [--arg=--rounds=6] [--arg=--sessions=light,stress]
 Local, on a built app (never on a laptop in use):
   cef-tab-bench.py --tag T --app "<...>/cmux DEV T.app" [--rounds 6] [--sessions light,stress] [--json F]
 """
