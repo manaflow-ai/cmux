@@ -39,8 +39,10 @@ const PAGE_LINES: usize = 200;
 const MAX_LINES: usize = 500;
 /// The most of a transcript read.
 const FILE_BYTES: u64 = 32 << 20;
-/// About the most a page's updates hold, serialized.
+/// About the most a page's updates hold, serialized; one line's past it go as an `omitted` stub.
 const PAGE_BYTES: usize = 4 << 20;
+/// The most of a transcript parsed for one page, the page and the lines replayed before it.
+const PARSE_BYTES: usize = 16 << 20;
 
 /// Lines before a page replayed with it, so a call there pairs with its result on the page.
 const REPLAY_BEFORE: usize = 1000;
@@ -95,15 +97,15 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     let limit = number("limit").unwrap_or(PAGE_LINES).clamp(1, MAX_LINES);
     let (before, after) = (number("before"), number("after"));
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
-    let (lines, truncated) =
+    let (text, truncated) =
         tokio::task::spawn_blocking(move || read(&home, &session_id, run.as_deref(), &agent))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))??;
-    let total = lines.len();
+    let total = text.lines.len();
     let (start, end) = window(total, limit, before, after);
+    let (start, end, from) = text.bounded(start, end, after.is_some());
+    let replayed: Vec<Value> = (from..end).map(|at| text.message(at)).collect();
     // Replayed off the runtime: a page and the lines before it are CPU work.
-    let from = start.saturating_sub(REPLAY_BEFORE);
-    let replayed: Vec<Value> = lines.into_iter().take(end).skip(from).collect();
     let per_line = tokio::task::spawn_blocking(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
@@ -128,13 +130,62 @@ fn plain_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// The transcript's message lines, and whether it was longer than `FILE_BYTES`. Blocking.
+/// A transcript as read: its bytes and the byte range of each of its lines, so only the lines a
+/// page needs are ever parsed.
+struct Text {
+    bytes: Vec<u8>,
+    lines: Vec<(usize, usize)>,
+}
+
+impl Text {
+    fn len_of(&self, at: usize) -> usize {
+        self.lines.get(at).map_or(0, |(start, end)| end - start)
+    }
+
+    /// Line `at` as the replay reads it: a `user` or `assistant` message, else null (the replay
+    /// passes over it).
+    fn message(&self, at: usize) -> Value {
+        let line = self.lines.get(at).and_then(|(start, end)| self.bytes.get(*start..*end));
+        line.and_then(|line| serde_json::from_slice::<Value>(line).ok())
+            .filter(|line| {
+                matches!(line.get("type").and_then(Value::as_str), Some("user" | "assistant"))
+            })
+            .unwrap_or(Value::Null)
+    }
+
+    /// The page `start..end` cut to `PARSE_BYTES` of source (a forward page keeps its first lines,
+    /// one read back its last, at least one), and where its replay starts: up to `REPLAY_BEFORE`
+    /// lines before it, within the same budget.
+    fn bounded(&self, mut start: usize, mut end: usize, forward: bool) -> (usize, usize, usize) {
+        let mut bytes: usize = (start..end).map(|at| self.len_of(at)).sum();
+        while bytes > PARSE_BYTES && end - start > 1 {
+            if forward {
+                end -= 1;
+                bytes -= self.len_of(end);
+            } else {
+                bytes -= self.len_of(start);
+                start += 1;
+            }
+        }
+        let mut from = start;
+        while from > 0
+            && start - from < REPLAY_BEFORE
+            && bytes + self.len_of(from - 1) <= PARSE_BYTES
+        {
+            from -= 1;
+            bytes += self.len_of(from);
+        }
+        (start, end, from)
+    }
+}
+
+/// The transcript, and whether it was longer than `FILE_BYTES`. Blocking.
 fn read(
     home: &Path,
     session: &str,
     run: Option<&str>,
     agent: &str,
-) -> Result<(Vec<Value>, bool), RpcError> {
+) -> Result<(Text, bool), RpcError> {
     let missing = || refused("transcript.missing", "no such transcript");
     let own = crate::adopt::find_claude(home, session).ok_or_else(missing)?;
     let project = own.parent().ok_or_else(missing)?;
@@ -163,27 +214,37 @@ fn read(
     Err(missing())
 }
 
-/// The `user` and `assistant` lines of the opened transcript, from its last `FILE_BYTES` when
-/// it is longer (the first, cut line left out), and whether it was.
-fn lines_of(mut file: File) -> Result<(Vec<Value>, bool), RpcError> {
+/// The opened transcript's lines, from its last `FILE_BYTES` when it is longer, and whether it
+/// was. A line the cut fell inside is left out; one the cut fell just before is kept.
+fn lines_of(mut file: File) -> Result<(Text, bool), RpcError> {
     use std::io::{Read, Seek, SeekFrom};
     let unreadable = |_| refused("transcript.unreadable", "the transcript could not be read");
     let size = file.metadata().map_err(unreadable)?.len();
     let truncated = size > FILE_BYTES;
+    // One byte before the window says whether its first line is whole.
+    let lead = u64::from(truncated);
     if truncated {
-        file.seek(SeekFrom::Start(size - FILE_BYTES)).map_err(unreadable)?;
+        file.seek(SeekFrom::Start(size - FILE_BYTES - lead)).map_err(unreadable)?;
     }
     let mut bytes = Vec::new();
-    file.take(FILE_BYTES).read_to_end(&mut bytes).map_err(unreadable)?;
-    let lines = bytes
-        .split(|b| *b == b'\n')
-        .skip(usize::from(truncated))
-        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
-        .filter(|line| {
-            matches!(line.get("type").and_then(Value::as_str), Some("user" | "assistant"))
-        })
-        .collect();
-    Ok((lines, truncated))
+    file.take(FILE_BYTES + lead).read_to_end(&mut bytes).map_err(unreadable)?;
+    let mut at = 0;
+    if truncated {
+        at = match bytes.first() {
+            Some(b'\n') => 1,
+            _ => bytes.iter().position(|b| *b == b'\n').map_or(bytes.len(), |end| end + 1),
+        };
+    }
+    let mut lines = Vec::new();
+    while at < bytes.len() {
+        let end = bytes.get(at..).and_then(|rest| rest.iter().position(|b| *b == b'\n'));
+        let end = end.map_or(bytes.len(), |n| at + n);
+        if end > at {
+            lines.push((at, end));
+        }
+        at = end + 1;
+    }
+    Ok((Text { bytes, lines }, truncated))
 }
 
 /// The lines a page holds of `total`: `limit` from `after` on, else `limit` before `before`.
@@ -203,13 +264,26 @@ fn window(
 }
 
 /// The page cut to about `PAGE_BYTES` of updates, at least one line: a page read forward
-/// (`after`) keeps its first lines, one read back its last, so neither cursor skips a line.
+/// (`after`) keeps its first lines, one read back its last, so neither cursor skips a line. A line
+/// whose updates alone pass `PAGE_BYTES` goes as one `omitted` stub saying how much it held, so a
+/// reply always fits a message and its cursors always move on.
 fn fit(
     per_line: Vec<Vec<Value>>,
     start: usize,
     end: usize,
     forward: bool,
 ) -> (usize, usize, Vec<Value>) {
+    let per_line: Vec<Vec<Value>> = per_line
+        .into_iter()
+        .map(|updates| {
+            let bytes: usize = updates.iter().map(|u| u.to_string().len()).sum();
+            if bytes <= PAGE_BYTES {
+                return updates;
+            }
+            vec![json!({"sessionUpdate": "omitted",
+                "_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}})]
+        })
+        .collect();
     let sizes: Vec<usize> =
         per_line.iter().map(|ups| ups.iter().map(|u| u.to_string().len()).sum()).collect();
     let mut kept = 0;
@@ -267,9 +341,10 @@ mod tests {
         write(&project.join("s1/subagents/workflows/wf_new"), "a01", 3);
         write(&project.join("s0/subagents/workflows/wf_old"), "a02", 2);
         write(&project.join("s1/subagents"), "b01", 2);
-        assert_eq!(read(&home, "s1", Some("wf_new"), "a01").unwrap().0.len(), 3);
-        assert_eq!(read(&home, "s1", Some("wf_old"), "a02").unwrap().0.len(), 2);
-        assert_eq!(read(&home, "s1", None, "b01").unwrap().0.len(), 2);
+        // Every line counts (the attachment too); only messages are replayed.
+        assert_eq!(read(&home, "s1", Some("wf_new"), "a01").unwrap().0.lines.len(), 4);
+        assert_eq!(read(&home, "s1", Some("wf_old"), "a02").unwrap().0.lines.len(), 3);
+        assert_eq!(read(&home, "s1", None, "b01").unwrap().0.lines.len(), 3);
         // A background agent is the chat's own: never another session's.
         write(&project.join("s0/subagents"), "b02", 2);
         assert!(read(&home, "s1", None, "b02").is_err());
@@ -332,9 +407,59 @@ mod tests {
         let line = json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "x".repeat(1 << 20)}]}}).to_string();
         let text: String = (0..40).map(|_| format!("{line}\n")).collect();
         std::fs::write(dir.join("agent-b09.jsonl"), text).unwrap();
-        let (lines, truncated) = read(&home, "s1", None, "b09").unwrap();
+        let (text, truncated) = read(&home, "s1", None, "b09").unwrap();
         assert!(truncated);
-        assert!(lines.len() < 40 && lines.len() >= 30, "{}", lines.len());
+        assert!(text.lines.len() < 40 && text.lines.len() >= 30, "{}", text.lines.len());
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    /// A cut that falls just before a line keeps that line whole.
+    #[test]
+    fn a_cut_at_a_line_start_keeps_the_line() {
+        let home = store("cut");
+        let dir = home.join("projects/-work/s1/subagents");
+        std::fs::create_dir_all(&dir).unwrap();
+        // 40 lines of exactly 1 MiB each, newline included: the last 32 MiB start at a line.
+        let head = r#"{"type":"assistant","message":{"content":[{"type":"text","text":""#;
+        let tail = r#""}]}}"#;
+        let pad = (1 << 20) - 1 - head.len() - tail.len();
+        let line = format!("{head}{}{tail}\n", "x".repeat(pad));
+        assert_eq!(line.len(), 1 << 20);
+        std::fs::write(dir.join("agent-b10.jsonl"), line.repeat(40)).unwrap();
+        let (text, truncated) = read(&home, "s1", None, "b10").unwrap();
+        assert!(truncated);
+        assert_eq!(text.lines.len(), 32);
+        assert!(text.message(0).is_object(), "the first line is whole");
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    /// A line too large for any reply goes as a stub saying so, and the cursors move past it.
+    #[test]
+    fn a_line_too_large_for_a_reply_goes_as_a_stub() {
+        let huge =
+            vec![json!({"sessionUpdate": "tool_call_update", "text": "x".repeat(PAGE_BYTES + 10)})];
+        let small = vec![json!({"sessionUpdate": "agent_message_chunk"})];
+        let (start, end, updates) = fit(vec![huge, small], 7, 9, true);
+        assert_eq!((start, end, updates.len()), (7, 9, 2));
+        assert_eq!(updates[0]["sessionUpdate"], "omitted");
+        assert_eq!(updates[0]["_meta"]["acpmux"]["omitted"]["reason"], "too_large");
+    }
+
+    /// The source parsed for a page is bounded: the page itself, then the lines replayed before it.
+    #[test]
+    fn a_page_parses_a_bounded_amount_of_the_transcript() {
+        let mb = 1 << 20;
+        let text = Text {
+            bytes: Vec::new(),
+            lines: (0..40).map(|n| (n * 6 * mb, n * 6 * mb + 6 * mb - 1)).collect(),
+        };
+        // Back from the end: three 6 MiB lines fit 16 MiB, so the page keeps its last two and
+        // nothing more is replayed.
+        let (start, end, from) = text.bounded(30, 40, false);
+        assert_eq!((start, end, from), (38, 40, 38));
+        let small =
+            Text { bytes: Vec::new(), lines: (0..2000).map(|n| (n * 10, n * 10 + 9)).collect() };
+        let (start, end, from) = small.bounded(1500, 1700, false);
+        assert_eq!((start, end, from), (1500, 1700, 1500 - REPLAY_BEFORE));
     }
 }
