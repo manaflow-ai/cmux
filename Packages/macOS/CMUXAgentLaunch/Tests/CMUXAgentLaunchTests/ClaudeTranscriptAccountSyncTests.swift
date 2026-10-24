@@ -59,15 +59,35 @@ import Testing
         #expect(again == .alreadyCurrent)
     }
 
-    @Test func refreshesStaleTarget() async throws {
+    private func targetProject(_ root: String, cwd: String = "/p") -> String {
+        "\(root)/dst/projects/\(slug(cwd))"
+    }
+
+    private func setModificationDate(_ date: Date, _ path: String) throws {
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: path)
+    }
+
+    /// The first two lines of ``conversation``: what the other account saw before the last turn.
+    private static let conversationPrefix = conversation.components(separatedBy: "\n").prefix(2)
+        .joined(separator: "\n") + "\n"
+
+    private static func userLine(_ text: String) -> String {
+        #"{"type":"user","message":{"role":"user","content":""# + text + #""}}"# + "\n"
+    }
+
+    /// A target that holds only the start of the source's transcript is refreshed, even when its
+    /// mtime is newer: Claude Code transcripts are append-only, so the content decides.
+    @Test func refreshesATargetThatIsAPrefixOfTheSourceWhateverItsMtime() async throws {
         let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
         let now = Date()
-        let src = try seedSource(root: root, cwd: "/p", mtime: now.addingTimeInterval(60))
-        let dstProject = "\(root)/dst/projects/\(slug("/p"))"
+        let src = try seedSource(root: root, cwd: "/p", mtime: now)
+        let dstProject = targetProject(root)
         try fm.createDirectory(atPath: "\(dstProject)/s1/old", withIntermediateDirectories: true)
-        try "line1\n".write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
-        try fm.setAttributes([.modificationDate: now], ofItemAtPath: "\(dstProject)/s1.jsonl")
+        try Self.conversationPrefix.write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
+        try setModificationDate(now.addingTimeInterval(60), "\(dstProject)/s1.jsonl")
+
         let outcome = try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+
         #expect(outcome == .refreshed)
         #expect(try Data(contentsOf: URL(fileURLWithPath: "\(dstProject)/s1.jsonl"))
                 == Data(contentsOf: URL(fileURLWithPath: src)))
@@ -77,17 +97,95 @@ import Testing
         #expect(leftovers.isEmpty)
     }
 
-    @Test func keepsNewerTarget() async throws {
+    /// A target that already continues the source's transcript (the conversation went on under
+    /// the target account) is kept, even when its mtime is older, and so is its sidecar.
+    @Test func keepsATargetThatContinuesTheSourceWhateverItsMtime() async throws {
         let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
         let now = Date()
-        try seedSource(root: root, cwd: "/p", mtime: now)
-        let dstProject = "\(root)/dst/projects/\(slug("/p"))"
-        try fm.createDirectory(atPath: "\(dstProject)/s1", withIntermediateDirectories: true)
-        try "newer target\n".write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
-        try fm.setAttributes([.modificationDate: now.addingTimeInterval(60)], ofItemAtPath: "\(dstProject)/s1.jsonl")
+        try seedSource(root: root, cwd: "/p", mtime: now.addingTimeInterval(60))
+        let dstProject = targetProject(root)
+        let continued = Self.conversation + Self.userLine("more")
+        try fm.createDirectory(atPath: "\(dstProject)/s1/target-only", withIntermediateDirectories: true)
+        try continued.write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
+        try setModificationDate(now, "\(dstProject)/s1.jsonl")
+
         let outcome = try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+
         #expect(outcome == .alreadyCurrent)
-        #expect(try String(contentsOfFile: "\(dstProject)/s1.jsonl", encoding: .utf8) == "newer target\n")
+        #expect(try String(contentsOfFile: "\(dstProject)/s1.jsonl", encoding: .utf8) == continued)
+        #expect(fm.fileExists(atPath: "\(dstProject)/s1/target-only"))
+        #expect(!fm.fileExists(atPath: "\(dstProject)/s1/subagents"))
+    }
+
+    /// The same conversation continued separately under both accounts: neither copy is a prefix
+    /// of the other. The sync refuses and leaves both copies and the target sidecar untouched,
+    /// whichever copy is newer, because overwriting either one loses turns.
+    @Test(arguments: [false, true])
+    func refusesDivergedCopiesAndTouchesNothing(targetIsNewer: Bool) async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let now = Date()
+        let sourceBody = Self.conversationPrefix + Self.userLine("A")
+        let targetBody = Self.conversationPrefix + Self.userLine("B")
+        let src = try seedSource(
+            root: root, cwd: "/p", body: sourceBody, mtime: now.addingTimeInterval(targetIsNewer ? 0 : 60)
+        )
+        let dstProject = targetProject(root)
+        try fm.createDirectory(atPath: "\(dstProject)/s1/target-only", withIntermediateDirectories: true)
+        try targetBody.write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
+        try setModificationDate(now.addingTimeInterval(targetIsNewer ? 60 : 0), "\(dstProject)/s1.jsonl")
+
+        await #expect(throws: (any Error).self) {
+            try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+        }
+
+        #expect(try String(contentsOfFile: "\(dstProject)/s1.jsonl", encoding: .utf8) == targetBody)
+        #expect(try String(contentsOfFile: src, encoding: .utf8) == sourceBody)
+        #expect(fm.fileExists(atPath: "\(dstProject)/s1/target-only"))
+        #expect(!fm.fileExists(atPath: "\(dstProject)/s1/subagents"))
+    }
+
+    /// An identical copy is current; a sidecar only the source has is filled in, because both
+    /// copies describe the same conversation state.
+    @Test func fillsTheMissingSidecarOfAnIdenticalCopy() async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        try seedSource(root: root, cwd: "/p")
+        let dstProject = targetProject(root)
+        try fm.createDirectory(atPath: dstProject, withIntermediateDirectories: true)
+        try Self.conversation.write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
+
+        let outcome = try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+
+        #expect(outcome == .refreshed)
+        #expect(fm.fileExists(atPath: "\(dstProject)/s1/subagents/a.jsonl"))
+        #expect(try String(contentsOfFile: "\(dstProject)/s1.jsonl", encoding: .utf8) == Self.conversation)
+    }
+
+    /// Claude Code can keep a transcript at `<sid>/messages/<sid>.jsonl`, inside the sidecar
+    /// directory; the prefix rule applies to it the same way, mtimes notwithstanding.
+    @Test func appliesThePrefixRuleToTheNestedMessagesLayout() async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let sourceNested = "\(root)/src/projects/\(slug("/p"))/s1/messages/s1.jsonl"
+        let targetNested = "\(targetProject(root))/s1/messages/s1.jsonl"
+        try fm.createDirectory(
+            atPath: (sourceNested as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+        )
+        try Self.conversation.write(toFile: sourceNested, atomically: true, encoding: .utf8)
+
+        #expect(try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p")) == .copied)
+        #expect(try String(contentsOfFile: targetNested, encoding: .utf8) == Self.conversation)
+
+        // The target account went on, and its copy is older by mtime: still kept.
+        let continued = Self.conversation + Self.userLine("more")
+        try continued.write(toFile: targetNested, atomically: true, encoding: .utf8)
+        try setModificationDate(Date().addingTimeInterval(-60), targetNested)
+        #expect(try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p")) == .alreadyCurrent)
+        #expect(try String(contentsOfFile: targetNested, encoding: .utf8) == continued)
+
+        // The source caught up past the target: the target is a prefix again and is refreshed.
+        let further = continued + Self.userLine("again")
+        try further.write(toFile: sourceNested, atomically: true, encoding: .utf8)
+        #expect(try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p")) == .refreshed)
+        #expect(try String(contentsOfFile: targetNested, encoding: .utf8) == further)
     }
 
     @Test func syncsTranscriptForCwdWithSpacesAndUnicode() async throws {
