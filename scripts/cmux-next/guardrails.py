@@ -1826,7 +1826,9 @@ SEAM_BLOCKING = re.compile(
 # sleep holds a thread to wait for time.
 ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
 # A new thread or queue. `extension Thread {` and a type annotation are not one.
-THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|(?<!extension )(?<![:\w.])Thread\s*(\{|\(block:|\(target:)"
+# `Thread {` counts only where a value starts (after `=`, `(`, `,`, `return`, or as a statement), so a superclass,
+# a return type or a type annotation (`class W: Thread {`, `-> Thread {`, `var t: Thread {`) is not one.
+THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|(?:^\s*|[=(,]\s*|\breturn\s+)Thread\s*(\{|\(block:|\(target:)"
                            r"|\bThread\.detachNewThread\b|\bOperationQueue\(\)|\bpthread_create\(|\bDispatchSerialQueue\("
                            r"|\bDispatchWorkloop\(")
 THREAD_NAME = re.compile(r'(\.name\s*=|label:)\s*(?P<literal>"((?:\\.|[^"\\])*)")?')
@@ -1835,12 +1837,24 @@ THREAD_BINDING = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*\w+\s*)?=\s*(?:Thre
 THREAD_NAME_WINDOW = 80  # lines after `let thread = Thread {` that its `thread.name = "..."` may follow
 AWAIT = re.compile(r"\bawait\b")
 STATEMENT_START = re.compile(r"[;{}]")
-# A block opener that runs its body later or elsewhere (a closure, an escaping handler), as opposed to a control
-# statement or a declaration body: `queue.async {`, `handler = {`, `Thread {`, `.setEventHandler {`.
-CONTROL_OPENER = re.compile(r"\b(if|else|guard|for|while|repeat|switch|case|default|do|catch|defer|func|init|deinit|"
-                            r"get|set|willSet|didSet|var|let|class|struct|enum|actor|extension|protocol)\b[^{]*\{\s*$|"
-                            r"^\s*\{\s*$")
-DECL_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{|\b(get|set|willSet|didSet)\s*\{")
+# How a block's header (its opener line, joined with the lines of a header split over several lines) decides
+# where the block's body runs. MAIN: openers that run their body on the main thread. DECLARATION: a function,
+# initializer, subscript or accessor body (the body runs where its declaration's isolation says), or a type
+# body. CONTROL: control flow, which runs inline. Any other `{` is a closure: it may run later or on another
+# thread, so main-blocking does not judge its body (the runtime detector does).
+MAIN_OPENER = re.compile(r"\bDispatchQueue\.main\.(async|sync)\s*(\(execute:)?\s*\{|\bMainActor\.run\s*(\([^{]*\))?\s*\{"
+                         r"|\bTask\s*(\([^{]*\))?\s*\{\s*@MainActor\b")
+DECLARATION_OPENER = re.compile(r"^\s*(@[\w.]+(\([^)]*\))?\s+|(public|package|internal|private|fileprivate|open|final|"
+                                r"static|class|override|mutating|nonmutating|nonisolated|isolated|convenience|required|"
+                                r"lazy|dynamic|indirect|distributed)\s+)*"
+                                r"(func|init[?!]?|deinit|subscript|get|set|willSet|didSet|_read|_modify|class|struct|enum|"
+                                r"actor|extension|protocol)\b"
+                                r"|^\s*(@[\w.]+(\([^)]*\))?\s+|(public|package|internal|private|fileprivate|open|"
+                                r"static|class|override|nonisolated|lazy)\s+)*var\s+\w+\s*:[^=]*\{\s*$")
+CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch|case|default|do|catch|defer)\b|^\s*\{\s*$")
+# A line that ends a statement (the header of the next block starts after it).
+STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
+HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
 # HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
 BLOCKING_CONTEXT: dict[str, object] = {}
 
@@ -1902,26 +1916,51 @@ def ui_targets() -> set[str]:
     return BLOCKING_CONTEXT["ui_targets"]
 
 
+def block_header(lines: list[str], number: int, code: str) -> str:
+    """The whole header of the block that opens on 1-based line NUMBER (whose code up to its `{` is CODE): the
+    lines back to the previous statement's end, joined, so `func f(\n a: A\n) async throws {` and
+    `if a,\n b {` read as one header."""
+    parts = [code]
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES:
+        text = code_of(lines[j])
+        if STATEMENT_END.search(text):
+            break
+        parts.insert(0, text)
+        j -= 1
+    return " ".join(part.strip() for part in parts)
+
+
 def runs_on_main(version: Version, index: int) -> bool:
-    """Whether VERSION's line INDEX runs on the main thread for sure: main-actor code (a uiSwiftSettings target's
-    default or `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached scopes, as
-    check-main-actor-work.py reads them) directly in a function body, not inside a closure that may run later
-    or on another thread (`queue.async {`, `terminationHandler = {`, `Thread {`, `setEventHandler {`)."""
+    """Whether VERSION's line INDEX runs on the main thread for sure: inside an opener that runs on main
+    (`DispatchQueue.main.async {`, `MainActor.run {`, `Task { @MainActor in`), or main-actor code (a
+    uiSwiftSettings target's default or `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached
+    scopes, as check-main-actor-work.py reads them) directly in a function body. Inside any other closure it is
+    not judged: such a body may run later or elsewhere."""
     if "main_lines" not in version.memo:
         module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
         version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, module in ui_targets())
-    lines = version.memo["main_lines"]
-    if not (index < len(lines) and lines[index]):
-        return False
+    main_lines = version.memo["main_lines"]
+    declared_main = index < len(main_lines) and main_lines[index]
     code = code_of(version.lines[index])
     match = MAIN_SCAN.search(code)
     prefix = code[:match.start()] if match else ""
-    for opener, _ in enclosing_openers(version.lines, index, DECL_STOP, prefix):
-        if DECL_STOP.search(opener):
+    for opener, number in enclosing_openers(version.lines, index, OPENER_STOP, prefix):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        # The whole opener line: `Task { @MainActor in` names its isolation after the `{`.
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(code_of(version.lines[number - 1])):
             return True
-        if not CONTROL_OPENER.search(opener):
-            return False  # inside a closure
-    return True
+        if DECLARATION_OPENER.search(header):
+            return declared_main
+        if CONTROL_OPENER.search(header):
+            continue
+        return False  # inside a closure
+    return declared_main
+
+
+# Where the walk out of the blocks stops: an opener line that names a declaration (a function or type body).
+# A function whose signature spans lines opens on a `) {` line, so the walk passes it and stops at its type.
+OPENER_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
 
 
 def changed_debt(changes: list[FileChange], judge: Callable[[Version, int, str], bool]) -> list[Added]:
