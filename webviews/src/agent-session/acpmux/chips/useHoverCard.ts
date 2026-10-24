@@ -62,9 +62,9 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   const cardElement = () =>
     typeof document === "undefined"
       ? null
-      : document.querySelector<HTMLElement>(`[data-cmux-hover-bridge="${bridgeId.current}"]`)?.closest<HTMLElement>(
-          ".ui-tooltip",
-        ) ?? null;
+      : (document
+          .querySelector<HTMLElement>(`[data-cmux-hover-bridge="${bridgeId.current}"]`)
+          ?.closest<HTMLElement>(".ui-tooltip") ?? null);
   const refresh = () => bridge.current?.update({ trigger: rect(trigger.current), card: rect(cardElement()) });
   const watch = () => {
     if (unwatch.current) return;
@@ -104,10 +104,13 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
 
   // The portal gap has no React owner. One shared document listener fans pointer moves to active
   // bridges; each bridge's one timer owns the delayed close/stop condition.
-  useEffect(() => () => {
-    stopWatching();
-    bridge.current?.stop();
-  }, []);
+  useEffect(
+    () => () => {
+      stopWatching();
+      bridge.current?.stop();
+    },
+    [],
+  );
 
   // Stable across renders, so a caller's Escape listener can depend on it.
   const dismiss = useCallback(() => {

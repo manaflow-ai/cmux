@@ -433,7 +433,8 @@ export class HoverBridge {
     // default (0, 0) look like it is still on a pinned card forever.
     const trigger = validRect(this.triggerRect) ? this.triggerRect : undefined;
     const card = validRect(this.cardRect) ? this.cardRect : undefined;
-    if (containsRect(trigger, point, HOVER_BRIDGE_PADDING) || containsRect(card, point, HOVER_BRIDGE_PADDING)) return true;
+    if (containsRect(trigger, point, HOVER_BRIDGE_PADDING) || containsRect(card, point, HOVER_BRIDGE_PADDING))
+      return true;
     if (!trigger || !card) return false;
     const from = nearestPoint(trigger, card);
     const to = nearestPoint(card, trigger);
@@ -446,28 +447,38 @@ const HOVER_BRIDGE_PADDING = 10;
 function containsRect(rect: Rect | undefined, point: Point, padding: number): boolean {
   return Boolean(
     validRect(rect) &&
-      point.x >= rect.left - padding &&
-      point.x <= rect.right + padding &&
-      point.y >= rect.top - padding &&
-      point.y <= rect.bottom + padding,
+    point.x >= rect.left - padding &&
+    point.x <= rect.right + padding &&
+    point.y >= rect.top - padding &&
+    point.y <= rect.bottom + padding,
   );
 }
 
 function validRect(rect: Rect | undefined): rect is Rect {
   return Boolean(
     rect &&
-      Number.isFinite(rect.left) &&
-      Number.isFinite(rect.top) &&
-      Number.isFinite(rect.right) &&
-      Number.isFinite(rect.bottom) &&
-      rect.right > rect.left &&
-      rect.bottom > rect.top,
+    Number.isFinite(rect.left) &&
+    Number.isFinite(rect.top) &&
+    Number.isFinite(rect.right) &&
+    Number.isFinite(rect.bottom) &&
+    rect.right > rect.left &&
+    rect.bottom > rect.top,
   );
 }
 
 function nearestPoint(from: Rect, to: Rect): Point {
-  const x = from.right < to.left ? from.right : from.left > to.right ? from.left : Math.max(from.left, Math.min((to.left + to.right) / 2, from.right));
-  const y = from.bottom < to.top ? from.bottom : from.top > to.bottom ? from.top : Math.max(from.top, Math.min((to.top + to.bottom) / 2, from.bottom));
+  const x =
+    from.right < to.left
+      ? from.right
+      : from.left > to.right
+        ? from.left
+        : Math.max(from.left, Math.min((to.left + to.right) / 2, from.right));
+  const y =
+    from.bottom < to.top
+      ? from.bottom
+      : from.top > to.bottom
+        ? from.top
+        : Math.max(from.top, Math.min((to.top + to.bottom) / 2, from.bottom));
   return { x, y };
 }
 
