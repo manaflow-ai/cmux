@@ -217,9 +217,13 @@ struct PageFactory {
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
                           pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
+        // The wallpaper grid's choices, listed off the main actor once per page (BackdropCatalogStore).
+        let backdrops = services.settingsWindow.backdrops
+        backdrops.refresh()
+        provider.backdropsChanged = { [weak backdrops] in backdrops?.refresh() }
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          currentChoices: { SettingsWindowService.backdrops.choices },
+        let dynamicResources = SettingsBackdropThumbnails(choices: backdrops.catalog.choices,
+                                                          currentChoices: { [weak backdrops] in backdrops?.catalog.choices ?? [] },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)

@@ -30,6 +30,10 @@ final class SettingsWindowService: InternalPageProvider {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
+    /// The wallpaper grid's choices, listed off the main actor at each opening and for each new
+    /// Settings page; a read is the last listing.
+    private(set) lazy var backdrops = BackdropCatalogStore(list: Self.backdropLister())
+
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
     /// The route the next page view opens on.
@@ -47,6 +51,8 @@ final class SettingsWindowService: InternalPageProvider {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         // task-owner: one read of the device list per opening (Settings > Devices)
         Task { [devices = services.devices] in await devices.refresh() }
+        // The wallpaper grid as the folders are now (a wallpaper downloaded in System Settings meanwhile).
+        backdrops.refresh()
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {
