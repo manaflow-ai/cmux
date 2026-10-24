@@ -72,12 +72,17 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
-    private static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
-        guard KeyRouter.isChord(event.modifierFlags) else { return false }
+    /// `event`'s binding in `controller`'s focus, when it is a chord with one.
+    private static func command(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> ActionID? {
+        guard KeyRouter.isChord(event.modifierFlags) else { return nil }
         let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return false }
-        return WindowKeyTable.isClose(binding.command)
+        return router.resolve(event, context: context)?.command
+    }
+
+    /// Whether `id` makes a pane or a tab (a split, New Column or Row, a terminal or browser tab).
+    static func creates(_ id: ActionID, in registry: ActionRegistry) -> Bool {
+        guard let descriptor = registry.descriptor(for: id) else { return false }
+        return descriptor.startsTerminal || descriptor.waitsForKeyedCreate
     }
 
     /// Takes `event` while a creation in its window is pending.
@@ -88,7 +93,12 @@ final class CreationInputCoordinator {
         let shell = controller?.window ?? window
         guard let buffer = buffers[shell.windowNumber] else { return false }
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
-        let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
+        let command = controller.flatMap { Self.command(event, in: shell, controller: $0, router: router) }
+        let closes = command.map(WindowKeyTable.isClose) ?? false
+        // A create key (Cmd-D) runs now when the window shows what it acts on: no focus on its way.
+        let registry = router.services?.registry
+        let creates = controller?.focus.state.expectation == nil
+            && command.flatMap { id in registry.map { Self.creates(id, in: $0) } } == true
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
         // the keys typed for it go with it, the others keep waiting in order, and the close runs now
         // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
@@ -99,9 +109,9 @@ final class CreationInputCoordinator {
         }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
-        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes, creates: creates) else {
             flush(in: shell, force: true)
-            guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
+            guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes, creates: creates) else { return false }
             next.capture(event)
             return true
         }

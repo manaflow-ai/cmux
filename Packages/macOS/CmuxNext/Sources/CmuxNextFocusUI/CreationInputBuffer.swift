@@ -112,13 +112,18 @@ public final class CreationInputBuffer {
     ///   what it closes, a pending creation included (TabLifecycle cancels it). Held, it ran later
     ///   with the other held keys and closed the next tab, then the window (macOS 15 tester,
     ///   2026-10-19: Cmd-D then Cmd-W from Settings).
+    /// - A create key (`creates`: its binding makes a pane or tab, Cmd-D, Cmd-T, Cmd-Shift-L) with no
+    ///   key held before it never waits: the window already shows what it acts on (the caller
+    ///   checks that no focus is on its way), and the daemon gets the creates in press order
+    ///   (`orderedCreate`). Held, a burst of Cmd-D waited one daemon reply per press.
     /// - A creation waiting for its reply keeps every other key.
     /// - After the reply the hold ends `limit` later (`expiring`), even when the focus it asked for
     ///   never lands (a split from a page tab shows a New Tab page, not a terminal).
     /// - A hold that only waits for a selected terminal's surface ends `limit` after it began, and
     ///   lets a chord through while it holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
-    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false) -> Bool {
+    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false, creates: Bool = false) -> Bool {
         if closes { return false }
+        if creates, events.isEmpty { return false }
         guard !hasPendingCreation else { return true }
         if expiring, ContinuousClock.now - (repliedAt ?? began) >= limit { return false }
         if holdsCreation { return true }
