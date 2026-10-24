@@ -46,7 +46,7 @@ public final class HomeNativeTranscriptView: NSView {
     var intake: Task<Void, Never>?
     /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
     let drop = HomeDropState()
-    private var stopped = false
+    private(set) var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
     /// False while the owner is unreachable (H17: offline Send is off; the
