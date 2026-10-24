@@ -91,9 +91,10 @@ final class TerminalOutputRingMapping: Sendable {
     /// them). Foundation keeps a span of at most 14 bytes inline: it copies
     /// those bytes and runs the deallocator at once, whose lap check then
     /// validates the copy (a keystroke echo is such a span: copied, no heap).
-    /// Returns nil when the bytes are already lost or being overwritten
-    /// (checked before any span exists, so a lapped read never reaches the
-    /// parser). Each span calls `onRelease` with its start, its length and
+    /// Returns nil when the bytes are already lost or being overwritten at
+    /// the cut. A span the writer laps later, while it waits in the view's
+    /// queue or during the parse, is reported at its release (`lapped`), and
+    /// the view resyncs from a snapshot. Each span calls `onRelease` with its start, its length and
     /// whether the writer lapped it, when it is released after the parse; the
     /// caller must not hold a lock `onRelease` takes (an inline span releases
     /// inside this call).
