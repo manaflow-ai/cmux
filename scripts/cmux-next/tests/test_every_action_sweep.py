@@ -5,11 +5,13 @@
    closed-history entries the measured input made, never the newest entry of the history (Cmd-Shift-T): the
    sweep's own cleanup closes fill that history, and a reopen lands in the store after its reply. The layout must
    then equal the base (per pane: its column and the multiset of its tab kinds), not only reach its counts.
+2. A session that fails fails the run: main() exits FAILED_SESSION_EXIT, every-action.md names the failed session,
+   and --merge keeps a shard's failure (and exits the same way) instead of reading its missing rows as covered.
 
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
 """
-import copy, importlib.util, itertools, os, shutil, sys, tempfile, unittest
+import copy, importlib.util, itertools, json, os, shutil, sys, tempfile, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -235,6 +237,86 @@ class ReopenTests(unittest.TestCase):
         self.assertEqual(layout(fake, base["id"]), want_base)
         self.assertEqual(sweep.base["pane"], measured["id"])
         self.assertEqual(fake.focus["pane"], measured["id"])
+
+
+def session(name, rows, failures=None):
+    out = {"name": name, "summary": {}, "validity": {"chromium_ok": True, "cef_flags": []}, "idle": {"frames": {}},
+           "rows": rows, "interactions": []}
+    if failures:
+        out["failed"] = failures
+    return out
+
+
+ENV = {"host": "cmux-test", "macos": "26.1", "sha": "a" * 40}
+
+
+class FailedSessionTests(unittest.TestCase):
+    def test_a_session_that_fails_fails_the_run_and_the_report_says_so(self):
+        class App:
+            process = None
+
+            def launch(self):
+                pass
+
+            def relaunch(self):
+                pass
+
+            def stop(self):
+                pass
+
+        class Failing(sweep_mod.Sweep):
+            def run(self, actions):
+                raise RuntimeError("socket timeout while the light session was built")
+
+        def rpc(method, params=None, timeout=60):
+            return {"actions": []} if method == "action.list" else {}
+
+        signposts = sweep_mod.SIGNPOSTS
+        with mock.patch.object(sweep_mod, "App", App), mock.patch.object(sweep_mod, "Sweep", Failing), \
+                mock.patch.object(sweep_mod, "rpc", rpc), mock.patch.object(signposts, "live", False), \
+                mock.patch.object(signposts, "start", lambda module: setattr(signposts, "live", True)), \
+                mock.patch.object(sweep_mod.opts, "sessions", "light"), mock.patch.object(sweep_mod.opts, "keep", True), \
+                mock.patch.dict(os.environ, {"CMUX_CI_SHA": "b" * 40}):
+            with self.assertRaises(SystemExit) as raised:
+                sweep_mod.main()
+        self.assertEqual(raised.exception.code, sweep_mod.FAILED_SESSION_EXIT)
+        self.assertNotEqual(sweep_mod.FAILED_SESSION_EXIT, 0)
+        with open(os.path.join(OUT, "every-action.json")) as f:
+            report = json.load(f)
+        self.assertEqual([f["name"] for f in report["failed_sessions"]], ["light"])
+        with open(os.path.join(OUT, "every-action.md")) as f:
+            md = f.read()
+        self.assertIn("light", md)
+        self.assertIn("socket timeout while the light session was built", md)
+
+    def test_a_session_that_failed_partway_is_marked_in_the_markdown(self):
+        failure = {"name": "stress", "error": "RuntimeError('the app exited (code -11)')", "rows": 1}
+        report = {"env": ENV, "sessions": [session("stress", [{"id": "closePane"}], [failure])], "failed_sessions": [failure]}
+        md = sweep_mod.markdown(report)
+        stress = md[md.index("## stress"):]
+        self.assertIn("the app exited (code -11)", stress)
+
+    def test_merge_keeps_a_shards_failure(self):
+        folder = tempfile.mkdtemp(prefix="every-action-merge-", dir=OUT)
+        failure = {"name": "stress", "error": "RuntimeError('the app exited (code -11)')", "rows": 1}
+        shards = [{"env": dict(ENV, shard="1/2"), "sessions": [session("stress", [{"id": "a"}])]},
+                  {"env": dict(ENV, shard="2/2"), "sessions": [session("stress", [{"id": "b"}], [failure])],
+                   "failed_sessions": [failure]}]
+        paths = []
+        for index, shard in enumerate(shards):
+            paths.append(os.path.join(folder, f"shard{index}.json"))
+            with open(paths[-1], "w") as f:
+                json.dump(shard, f)
+        out = os.path.join(folder, "every-action.json")
+        with self.assertRaises(SystemExit) as raised:
+            sweep_mod.merge(out, paths)
+        self.assertEqual(raised.exception.code, sweep_mod.FAILED_SESSION_EXIT)
+        with open(out) as f:
+            merged = json.load(f)
+        self.assertEqual([(f["name"], f.get("shard")) for f in merged["failed_sessions"]], [("stress", "2/2")])
+        self.assertTrue(merged["sessions"][0].get("failed"))
+        with open(os.path.join(folder, "every-action.md")) as f:
+            self.assertIn("the app exited (code -11)", f.read())
 
 
 if __name__ == "__main__":
