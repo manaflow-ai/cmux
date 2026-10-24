@@ -439,6 +439,21 @@ describe("Grok models through xAI keys", () => {
     expect(error.message).not.toContain("cr add codex");
   });
 
+  test("a team whose xAI keys are all unusable is pointed at those keys, not a Codex subscription", async () => {
+    const exhausted = createCodexResponsesProxy({
+      authenticate,
+      select: async () => null,
+      credential: async () => credentialFor(),
+      cooldown: async () => {},
+      hasConfiguredAccount: async () => true,
+    }, { capacityHoldBudgetMs: 0 });
+    const response = await exhausted(responsesRequest({ model: "grok-code-fast-1", input: [] }));
+    expect(response.status).toBe(503);
+    const text = await response.text();
+    expect(text).toContain("xAI key");
+    expect(text).not.toContain("Codex subscription");
+  });
+
   test("a body that never finishes cannot hold the request past its failover budget", async () => {
     const stalled = createCodexResponsesProxy({
       authenticate,
