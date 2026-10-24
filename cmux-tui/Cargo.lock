@@ -1578,6 +1578,7 @@ dependencies = [
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
