@@ -199,7 +199,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Valu
         // project settings are the ones a turn is sure to read.
         "autoMemoryEnabled": false,
         "disableAllHooks": true,
-        "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS,
+        // Never `cleanupPeriodDays` here: Claude Code's retention sweep is
+        // over its whole configuration's projects, so a turn on ~/.claude
+        // (claude-sr, a subagent, a refused preset) read it and deleted every
+        // one of the person's own chat transcripts past the Chief's 2 days.
+        // The Chief's turns expire by `turn_retention.rs`, which removes only
+        // its own directories.
     })
 }
 
@@ -797,6 +802,11 @@ pub fn set_session_cache(
             .and_then(|t| serde_json::from_str(&t).ok())
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
+        // Written by an earlier host (`settings_json`): a retention here
+        // sweeps the person's own transcripts too.
+        if let Some(object) = value.as_object_mut() {
+            object.remove("cleanupPeriodDays");
+        }
         if let Some(late) = &late {
             if !value["permissions"]["deny"].is_array() {
                 value["permissions"]["deny"] = json!([]);

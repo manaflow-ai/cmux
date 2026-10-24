@@ -565,11 +565,14 @@ byte-identical across turns. The request the model gets is not fully ours:
   on claude-sr, which resets `CLAUDE_CONFIG_DIR` (see Compactor routes). When
   acpmux refuses the preset, turns still start (with the harness's own
   configuration) and host.log says so; compactor sessions never do.
-  Claude Code keeps each turn's transcript (the whole view) for 2 days
-  (`cleanupPeriodDays`, minimum 1, set in both the isolated configuration
-  and the session directory's project settings); on claude-sr the
-  transcripts are under `~/.claude/projects/`, and whether a project-level
-  `cleanupPeriodDays` governs that sweep is not checked.
+  Each turn's transcript (the whole view) is kept 2 days: the isolated
+  configuration's user settings set `cleanupPeriodDays`, and
+  `turn_retention.rs` removes the Chief's own turn and subagent project
+  directories, in that configuration and in `~/.claude/projects/` (where
+  claude-sr and subagents put them). Project settings never set
+  `cleanupPeriodDays`: Claude Code's sweep covers every project of the
+  configuration it runs on, so a 2-day value there deleted the person's own
+  chat transcripts in `~/.claude` (measured 2026-10-24).
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.

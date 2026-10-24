@@ -21,10 +21,16 @@ pub struct TurnRetention {
 impl TurnRetention {
     pub fn new(paths: &Paths, user_claude_home: &Path) -> TurnRetention {
         let project = crate::compactor::project_dir_name(&paths.session);
+        let subagent = crate::compactor::project_dir_name(&paths.subagent);
         TurnRetention {
             roots: vec![
                 paths.claude_config.join("projects").join(&project),
                 user_claude_home.join("projects").join(project),
+                // Subagents run on the person's own configuration: their
+                // project's transcripts expire here, never by a retention in
+                // their settings, which would sweep every other project too.
+                paths.claude_config.join("projects").join(&subagent),
+                user_claude_home.join("projects").join(subagent),
                 paths.turn_codex.join("sessions"),
                 paths.turn_codex.join("shell_snapshots"),
             ],
