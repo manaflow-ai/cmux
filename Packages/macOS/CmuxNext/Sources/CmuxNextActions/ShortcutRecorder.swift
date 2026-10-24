@@ -210,8 +210,8 @@ extension ShortcutRecorder {
     /// The recorder's view of a key-down: the base key (Cmd-Shift-[ is `[`
     /// with Shift, as catalog shortcuts are written) and its modifiers.
     public static func shortcut(for event: NSEvent) -> Shortcut {
-        let base = event.characters(byApplyingModifiers: [])?.lowercased()
-        let key = base.flatMap { $0.isEmpty ? nil : $0 } ?? event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let key = Shortcut.eventKey(event).flatMap { $0.isEmpty ? nil : $0 }
+            ?? event.charactersIgnoringModifiers?.lowercased() ?? ""
         return Shortcut(key, modifiers: event.modifierFlags)
     }
 }

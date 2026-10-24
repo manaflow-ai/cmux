@@ -90,7 +90,8 @@ enum BrowserChordTable {
     /// back-tab U+0019).
     private static func shortcuts(of event: NSEvent) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
-        let keys = [event.charactersIgnoringModifiers, event.characters(byApplyingModifiers: [])].compactMap { $0 }
+        let keys = [Shortcut.physicalKey(for: event), event.charactersIgnoringModifiers,
+                    event.characters(byApplyingModifiers: [])].compactMap { $0 }
         return keys.map { Shortcut($0, modifiers: event.modifierFlags) }
     }
 
