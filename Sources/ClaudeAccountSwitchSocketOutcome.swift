@@ -64,6 +64,8 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
             code = "not_claude"
         case .remoteUnsupported:
             code = "remote_unsupported"
+        case .agentNotOwnedByPane:
+            code = "agent_not_owned_by_pane"
         case .alreadySwitching:
             code = "already_switching"
         case .transcriptUnavailable:
@@ -139,8 +141,21 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
         if let manualResume {
             payload["resume_command"] = .string(manualResume.command)
             payload["pane_closed"] = .bool(manualResume.paneWasReplaced)
+            payload["not_resumed_reason"] = .string(Self.notResumedReason(manualResume.reason))
         }
         return .object(payload)
+    }
+
+    /// Why the resume was not typed, as the socket names it.
+    private static func notResumedReason(_ reason: ClaudeAccountSwitchManualResume.Reason) -> String {
+        switch reason {
+        case .paneReplaced:
+            return "pane_closed"
+        case .notTyped:
+            return "no_prompt"
+        case .previousClaudeStillRunning:
+            return "previous_claude_running"
+        }
     }
 
     private static func errorData(surfaceId: UUID) -> JSONValue {

@@ -54,7 +54,30 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
             "resumed": .bool(false),
             "resume_command": .string(manualResume.command),
             "pane_closed": .bool(paneWasReplaced),
+            "not_resumed_reason": .string(paneWasReplaced ? "pane_closed" : "no_prompt"),
         ])))
+    }
+
+    @Test
+    func switchWhilePreviousClaudeStillRunsSaysWhyItDidNotResume() throws {
+        let plan = try makePlan(to: "work")
+        let manualResume = ClaudeAccountSwitchManualResume(
+            command: "cd /Users/cmux-test/project && claude --resume \(sessionID)",
+            typedInput: "x\n",
+            reason: .previousClaudeStillRunning(processIDs: [48_213])
+        )
+        let outcome = ClaudeAccountSwitchSocketOutcome.finished(.switchedWithoutResume(plan, .refreshed, manualResume))
+
+        guard case .ok(.object(let payload)) = outcome.controlCallResult(surfaceId: surfaceId, requestedAccountName: "work") else {
+            Issue.record("a switch whose resume was held back still succeeds")
+            return
+        }
+        #expect(payload["resumed"] == .bool(false))
+        #expect(payload["pane_closed"] == .bool(false))
+        #expect(payload["not_resumed_reason"] == .string("previous_claude_running"))
+        #expect(payload["resume_command"] == .string(manualResume.command))
+        // The socket path posts it as a notification, since the caller may have died with the pane.
+        #expect(outcome.resumeNotification?.body.contains("48213") == true)
     }
 
     @Test
@@ -68,6 +91,7 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
             (.finished(.refused(.transcriptDiverged(newerAccount: "work"))), "transcript_diverged"),
             (.finished(.notClaude), "not_claude"),
             (.finished(.remoteUnsupported), "remote_unsupported"),
+            (.finished(.agentNotOwnedByPane), "agent_not_owned_by_pane"),
             (.finished(.alreadySwitching), "already_switching"),
             (.finished(.transcriptUnavailable), "transcript_unavailable"),
             (.finished(.respawnFailed), "respawn_failed"),

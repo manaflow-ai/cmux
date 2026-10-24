@@ -672641,6 +672641,183 @@
           }
         }
       }
+    },
+    "cli.claudeAccount.previousClaudeStillRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال Claude السابق قيد التشغيل، لذا لم يستأنف cmux المحادثة: كانت ستعمل في مكانين. بعد إغلاق Claude ذلك، شغّل هذا الأمر في تلك الطرفية:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das vorherige Claude läuft noch, daher hat cmux die Unterhaltung nicht fortgesetzt: Sie würde sonst an zwei Stellen laufen. Sobald dieses Claude beendet ist, führen Sie diesen Befehl in diesem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Claude anterior sigue en ejecución, así que cmux no reanudó la conversación: se ejecutaría en dos sitios. Cuando ese Claude se haya cerrado, ejecuta este comando en esa terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'ancien Claude est toujours en cours d'exécution ; cmux n'a donc pas repris la conversation, qui s'exécuterait sinon à deux endroits. Une fois ce Claude fermé, exécutez cette commande dans ce terminal :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の Claude がまだ実行中のため、cmux は会話を再開しませんでした。再開すると同じ会話が 2 か所で実行されます。その Claude が終了したら、そのターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 Claude가 아직 실행 중이라 cmux가 대화를 이어가지 않았습니다. 이어가면 같은 대화가 두 곳에서 실행됩니다. 그 Claude가 종료되면 해당 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前的 Claude 仍在运行，因此 cmux 没有继续对话：否则对话会同时在两处运行。待该 Claude 退出后，请在那个终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先前的 Claude 仍在執行，因此 cmux 沒有繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在那個終端機中執行此命令："
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.agentNotOwnedByPane.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in this terminal runs inside tmux or screen, or detached from the terminal, so restarting the terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل Claude في هذه الطرفية داخل tmux أو screen، أو منفصلًا عن الطرفية، لذا لن توقفه إعادة تشغيل الطرفية وستعمل المحادثة في مكانين. تُركت الطرفية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude läuft in diesem Terminal innerhalb von tmux oder screen oder vom Terminal getrennt. Ein Neustart des Terminals würde es daher nicht beenden, und die Unterhaltung würde an zwei Stellen laufen. Das Terminal wurde nicht verändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En esta terminal, Claude se ejecuta dentro de tmux o screen, o separado de la terminal, así que reiniciar la terminal no lo detendría y la conversación se ejecutaría en dos sitios. La terminal no se modificó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans ce terminal, Claude s'exécute dans tmux ou screen, ou détaché du terminal ; redémarrer le terminal ne l'arrêterait donc pas et la conversation s'exécuterait à deux endroits. Le terminal n'a pas été modifié."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルの Claude は tmux や screen の中、またはターミナルから切り離された状態で実行されているため、ターミナルを再起動しても停止せず、同じ会話が 2 か所で実行されます。ターミナルは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널의 Claude는 tmux나 screen 안에서, 또는 터미널과 분리되어 실행 중이라 터미널을 다시 시작해도 멈추지 않고 같은 대화가 두 곳에서 실행됩니다. 터미널을 변경하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端中的 Claude 在 tmux 或 screen 内运行，或已与终端分离，因此重启终端无法将它停止，对话会同时在两处运行。终端保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機中的 Claude 在 tmux 或 screen 內執行，或已與終端機分離，因此重新啟動終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.previousClaudeStillRunning.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The previous Claude (process %1$@) is still running, so cmux didn't resume the conversation here: it would run in two places. Once that Claude has quit, run this command in this terminal:\n\n%2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال Claude السابق (العملية %1$@) قيد التشغيل، لذا لم يستأنف cmux المحادثة هنا: كانت ستعمل في مكانين. بعد إغلاق Claude ذلك، شغّل هذا الأمر في هذه الطرفية:\n\n%2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das vorherige Claude (Prozess %1$@) läuft noch, daher hat cmux die Unterhaltung hier nicht fortgesetzt: Sie würde sonst an zwei Stellen laufen. Sobald dieses Claude beendet ist, führen Sie diesen Befehl in diesem Terminal aus:\n\n%2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Claude anterior (proceso %1$@) sigue en ejecución, así que cmux no reanudó la conversación aquí: se ejecutaría en dos sitios. Cuando ese Claude se haya cerrado, ejecuta este comando en esta terminal:\n\n%2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'ancien Claude (processus %1$@) est toujours en cours d'exécution ; cmux n'a donc pas repris la conversation ici, car elle s'exécuterait à deux endroits. Une fois ce Claude fermé, exécutez cette commande dans ce terminal :\n\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の Claude (プロセス %1$@) がまだ実行中のため、cmux はここで会話を再開しませんでした。再開すると同じ会話が 2 か所で実行されます。その Claude が終了したら、このターミナルで次のコマンドを実行してください:\n\n%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 Claude(프로세스 %1$@)가 아직 실행 중이라 cmux가 여기서 대화를 이어가지 않았습니다. 이어가면 같은 대화가 두 곳에서 실행됩니다. 그 Claude가 종료되면 이 터미널에서 다음 명령을 실행하세요:\n\n%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前的 Claude（进程 %1$@）仍在运行，因此 cmux 没有在这里继续对话：否则对话会同时在两处运行。待该 Claude 退出后，请在此终端中运行此命令：\n\n%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先前的 Claude（處理程序 %1$@）仍在執行，因此 cmux 沒有在這裡繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在此終端機中執行此命令：\n\n%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

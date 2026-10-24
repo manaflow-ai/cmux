@@ -6,9 +6,10 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     /// command was typed into it.
     case switched(ClaudeAccountSwitchPlan, ClaudeTranscriptAccountSyncOutcome)
     /// The pane respawned on the target account and the transcript is there, but the resume
-    /// command was never typed: the pane was closed or replaced, or its new shell did not
-    /// report a prompt in time. The pane may sit at a bare shell, so callers hand the user the
-    /// built resume command from the ``ClaudeAccountSwitchManualResume``.
+    /// command was never typed: the pane was closed or replaced, its new shell did not report a
+    /// prompt in time, or the replaced Claude was still running. The pane may sit at a bare
+    /// shell, so callers hand the user the built resume command from the
+    /// ``ClaudeAccountSwitchManualResume``, whose `reason` says which.
     case switchedWithoutResume(
         ClaudeAccountSwitchPlan,
         ClaudeTranscriptAccountSyncOutcome,
@@ -22,6 +23,10 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     case notClaude
     /// The pane runs on another machine (SSH, cloud or remote tmux).
     case remoteUnsupported
+    /// The pane's Claude runs on another terminal (inside tmux or screen) or none (detached), so
+    /// restarting the pane would not stop it and the session would run in two places. Nothing
+    /// changed.
+    case agentNotOwnedByPane
     /// A switch for this pane is already in progress.
     case alreadySwitching
     /// The transcript could not be made available to the target account; the pane was left

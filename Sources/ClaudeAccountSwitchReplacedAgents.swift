@@ -44,12 +44,16 @@ struct ClaudeAccountSwitchReplacedAgents {
 
     /// The recorded processes still running as the same process generation.
     var stillRunning: [AgentPIDProcessIdentity] {
-        []
+        processes.filter { currentIdentity($0.pid) == $0 }
     }
 
     /// Whether closing the pane's terminal, whose PTY device is `paneTTYDevice`, stops every
-    /// recorded process that is still running.
+    /// recorded process that is still running. An unknown pane terminal or an unreadable process
+    /// terminal counts as not owned: the switch fails closed rather than risk a second writer.
     func ownership(paneTTYDevice: Int64?) -> Ownership {
-        .ownedByPane
+        let running = stillRunning
+        guard !running.isEmpty else { return .noLiveAgent }
+        guard let paneTTYDevice else { return .notOwnedByPane }
+        return running.allSatisfy { controllingTTYDevice($0.pid) == paneTTYDevice } ? .ownedByPane : .notOwnedByPane
     }
 }

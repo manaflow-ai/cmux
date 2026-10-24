@@ -8,6 +8,9 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// user runs it. `paneClosed` means the respawned pane is gone, so there is nothing to type
     /// it into.
     case resumeManually(accountName: String, command: String, paneClosed: Bool)
+    /// The pane now runs on `accountName`, but the replaced Claude (`processIDs`) was still
+    /// running, so cmux did not resume: the user runs `command` once it has quit.
+    case previousClaudeStillRunning(accountName: String, command: String, processIDs: [Int32])
     /// No registered account has this name.
     case unknownAccount(String)
     /// The pane already runs on this account.
@@ -25,6 +28,9 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case notClaude
     /// The pane runs on another machine.
     case remoteUnsupported
+    /// The pane's Claude runs inside tmux or screen, or detached, so restarting the pane would
+    /// not stop it; the pane was left alone.
+    case agentNotOwnedByPane
     /// A switch for the pane is already in progress.
     case alreadySwitching
     /// The transcript could not be made available to `accountName`; the pane was left alone.
@@ -42,11 +48,20 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
         case .switched:
             return nil
         case .switchedWithoutResume(let plan, _, let manualResume):
-            self = .resumeManually(
-                accountName: plan.target.name,
-                command: manualResume.command,
-                paneClosed: manualResume.paneWasReplaced
-            )
+            switch manualResume.reason {
+            case .paneReplaced, .notTyped:
+                self = .resumeManually(
+                    accountName: plan.target.name,
+                    command: manualResume.command,
+                    paneClosed: manualResume.paneWasReplaced
+                )
+            case .previousClaudeStillRunning(let processIDs):
+                self = .previousClaudeStillRunning(
+                    accountName: plan.target.name,
+                    command: manualResume.command,
+                    processIDs: processIDs
+                )
+            }
         case .refused(.noClaudeSession):
             self = .noClaudeSession
         case .refused(.missingWorkingDirectory):
@@ -63,6 +78,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             self = .notClaude
         case .remoteUnsupported:
             self = .remoteUnsupported
+        case .agentNotOwnedByPane:
+            self = .agentNotOwnedByPane
         case .alreadySwitching:
             self = .alreadySwitching
         case .transcriptUnavailable:
@@ -74,8 +91,12 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
 
     /// Whether the switch failed and the pane was left as it was.
     var reportsFailure: Bool {
-        if case .resumeManually = self { return false }
-        return true
+        switch self {
+        case .resumeManually, .previousClaudeStillRunning:
+            return false
+        default:
+            return true
+        }
     }
 
     /// Whether the alert can offer to type the resume command into the respawned pane.
@@ -87,7 +108,7 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// The alert's headline.
     var title: String {
         switch self {
-        case .resumeManually(let accountName, _, _):
+        case .resumeManually(let accountName, _, _), .previousClaudeStillRunning(let accountName, _, _):
             return String(
                 format: String(
                     localized: "dialog.claudeAccountSwitch.resumeManually.title",
@@ -134,6 +155,15 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
                     localized: "dialog.claudeAccountSwitch.resumeManuallyPaneClosed.message",
                     defaultValue: "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
                 ),
+                command
+            )
+        case .previousClaudeStillRunning(_, let command, let processIDs):
+            return String(
+                format: String(
+                    localized: "dialog.claudeAccountSwitch.previousClaudeStillRunning.message",
+                    defaultValue: "The previous Claude (process %1$@) is still running, so cmux didn't resume the conversation here: it would run in two places. Once that Claude has quit, run this command in this terminal:\n\n%2$@"
+                ),
+                processIDs.map(String.init).joined(separator: ", "),
                 command
             )
         case .unknownAccount(let name):
@@ -184,6 +214,11 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 localized: "dialog.claudeAccountSwitch.remoteUnsupported.message",
                 defaultValue: "Claude accounts can't be switched in a terminal that runs on another machine."
+            )
+        case .agentNotOwnedByPane:
+            return String(
+                localized: "dialog.claudeAccountSwitch.agentNotOwnedByPane.message",
+                defaultValue: "Claude in this terminal runs inside tmux or screen, or detached from the terminal, so restarting the terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
             )
         case .alreadySwitching:
             return String(

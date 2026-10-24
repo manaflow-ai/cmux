@@ -128,15 +128,23 @@ extension CMUXCLI {
         guard response["resumed"] as? Bool == false, let command = response["resume_command"] as? String else {
             return
         }
-        let explanation = response["pane_closed"] as? Bool == true
-            ? String(
+        let explanation: String
+        if response["not_resumed_reason"] as? String == "previous_claude_running" {
+            explanation = String(
+                localized: "cli.claudeAccount.previousClaudeStillRunning",
+                defaultValue: "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:"
+            )
+        } else if response["pane_closed"] as? Bool == true {
+            explanation = String(
                 localized: "cli.claudeAccount.resumeManuallyPaneClosed",
                 defaultValue: "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
             )
-            : String(
+        } else {
+            explanation = String(
                 localized: "cli.claudeAccount.resumeManually",
                 defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run this command in that terminal:"
             )
+        }
         print("\n\(explanation)\n\n\(command)")
     }
 

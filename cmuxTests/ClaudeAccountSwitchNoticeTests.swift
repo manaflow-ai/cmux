@@ -75,6 +75,37 @@ struct ClaudeAccountSwitchNoticeTests {
         #expect(notice.message != openPaneNotice.message)
     }
 
+    /// The old Claude outlived the exit wait, so cmux typed nothing. The notice names it and
+    /// hands over the command, but never offers to type it: that could run the session twice.
+    @Test
+    func switchWhilePreviousClaudeStillRunsNeverOffersToTypeTheResume() throws {
+        let built = try makeManualResume(paneWasReplaced: false)
+        let manualResume = ClaudeAccountSwitchManualResume(
+            command: built.command,
+            typedInput: built.typedInput,
+            reason: .previousClaudeStillRunning(processIDs: [48_213])
+        )
+        let plan = try makePlan(to: ClaudeAccountRegistry.defaultAccountName, from: "\(home)/.claude-work")
+
+        let notice = try #require(ClaudeAccountSwitchNotice(
+            result: .switchedWithoutResume(plan, .refreshed, manualResume),
+            requestedAccountName: ClaudeAccountRegistry.defaultAccountName
+        ))
+
+        #expect(notice == .previousClaudeStillRunning(
+            accountName: ClaudeAccountRegistry.defaultAccountName,
+            command: built.command,
+            processIDs: [48_213]
+        ))
+        #expect(!manualResume.paneWasReplaced)
+        #expect(!notice.offersTypingResumeCommand)
+        #expect(!notice.reportsFailure)
+        #expect(notice.message.contains(built.command))
+        #expect(notice.message.contains("48213"))
+        #expect(notice.notificationMessage == notice.message)
+        #expect(notice.title.contains(ClaudeAccountRegistry.defaultAccountName))
+    }
+
     @Test
     func everyFailureMapsToItsOwnMessage() {
         let results: [ClaudeAccountSwitchResult] = [
@@ -86,6 +117,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .refused(.sameAccount("work")),
             .notClaude,
             .remoteUnsupported,
+            .agentNotOwnedByPane,
             .alreadySwitching,
             .transcriptUnavailable,
             .respawnFailed,
@@ -102,6 +134,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .alreadyOnAccount("work"),
             .notClaude,
             .remoteUnsupported,
+            .agentNotOwnedByPane,
             .alreadySwitching,
             .transcriptUnavailable(accountName: "work"),
             .respawnFailed,
