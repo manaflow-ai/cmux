@@ -30,7 +30,12 @@ a compile error are NO-VERDICT; the results upload in every case.
 | Date (UTC) | Step | Build | macOS | Suite | Result |
 |------------|------|-------|-------|-------|--------|
 | 2026-10-24 | 1ec9c6df57b9f89652924bef (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | smoke | PASS, PASS (first end-to-end fleet run) |
-| 2026-10-24 | d73d003fafc81a0e4967dfbb (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 21, 30 min | 14 PASS (616 steps); 15 FAIL: watchdog trap at step 563 (see "Hang B") |
+| 2026-10-24 | d73d003fafc81a0e4967dfbb (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 21 | 14 PASS; 15 FAIL: watchdog trap at step 563 (see "Hang B") |
+| 2026-10-24 | e2c9cf16ed1f173dd31bd02d (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 22 | 14 PASS; 15 FAIL: one 5 s hang at step 351 (a right-click), no sample (fixed in 52ea1f1890e) |
+| 2026-10-24 | 242004ecce1da33452f500c5 (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 23 | PASS, PASS |
+
+The seed 21-23 runs asked for `--minutes 30` but stopped at the 600-step default (616 with the tour): 5 to 10
+min per major. Fixed after them: `--minutes` without `--steps` now walks until the time is up.
 
 ## Hang B: macOS 15, main-thread watchdog trap after Import Settings (not reproduced)
 
