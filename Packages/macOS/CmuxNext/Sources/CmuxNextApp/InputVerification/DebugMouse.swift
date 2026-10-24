@@ -98,10 +98,15 @@ enum DebugMouse {
                 return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                                 "delivered_to": .string("LayoutRootView")])
             }
+            let started = ContinuousClock.now
             target.scrollWheel(with: event)
+            let handled = started.duration(to: .now)
             if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
+            // handled_ms: main-thread time of the view's own scrollWheel (bench-terminal-resize scroll phase).
+            let handledMs = Double(handled.components.seconds) * 1000 + Double(handled.components.attoseconds) / 1e15
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
-                            "delivered_to": .string(String(describing: type(of: target)))])
+                            "delivered_to": .string(String(describing: type(of: target))),
+                            "handled_ms": .number(handledMs)])
         case "leave":
             // The synthesized pointer leaves the window (divider hover clears).
             LayoutRootView.setDebugPointer(nil, in: window)

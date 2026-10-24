@@ -7,6 +7,7 @@
 Launches the tagged app (no activation, automation socket, scratch config), then per layout drags a
 vertical divider left and right, one `debug.mouse` move per display frame:
 
+  scroll-output  wheel events on a terminal that floods output (and at rest): main ms per event.
   idle-cursor  a focused terminal at rest with a hidden cursor: Ghostty frames drawn in --idle-s
            seconds (0 expected: a blink tick of a hidden cursor changes no pixel).
 
@@ -233,6 +234,61 @@ def idle_cursor():
             "note": "the bench window is never key (no activation): Ghostty's blink timer runs only when focused"}
 
 
+def window_point_of_terminal():
+    """The center of the shown pane in window points, top-left origin as debug.mouse takes it
+    (debug.layers windows[0].rings[0].frame_in_window, bottom-left origin)."""
+    w = window()
+    height = (w.get("frame") or [0, 0, 0, 1000])[3]
+    rings = [r for plane in (w.get("planes") or [w]) for r in (plane.get("rings") or [])]
+    if rings:
+        x, y, wd, h = rings[0]["frame_in_window"]
+        return x + wd / 2, height - (y + h / 2)
+    frame = w.get("frame") or [0, 0, 1600, 1000]
+    return frame[2] / 2, frame[3] / 2
+
+
+def scroll_events(n, refresh_s):
+    x, y = window_point_of_terminal()
+    times, errors = [], 0
+    next_at = time.monotonic()
+    for i in range(n):
+        reply = rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": -40 if i % 2 == 0 else 40, "hover": False})
+        if isinstance(reply, dict) and "handled_ms" in reply:
+            times.append(reply["handled_ms"])
+        else:
+            errors += 1
+        next_at += refresh_s
+        pause = next_at - time.monotonic()
+        if pause > 0:
+            time.sleep(pause)  # bench script: one wheel event per display frame
+    times.sort()
+    pct = lambda q: round(times[min(len(times) - 1, int(q * (len(times) - 1)))], 3) if times else None
+    return {"events": n, "measured": len(times), "errors": errors, "p50_ms": pct(0.5), "p95_ms": pct(0.95),
+            "max_ms": round(times[-1], 3) if times else None}
+
+
+def scroll_output():
+    """Terminal wheel scroll while that terminal floods output (sweep scroll.terminal, fling): main-thread
+    time per wheel event in the view's scrollWheel (debug.mouse handled_ms). Control: the same terminal
+    at rest. Target: p95 < 1 ms busy."""
+    rpc("action.run", {"action": "newTab", "focus": True})
+    wait(lambda: surfaces(), 30)
+    write(f"clear; seq 1 {opts.scrollback}\r")
+    time.sleep(2.0)  # bench script: the history prints before the idle control
+    rpc("debug.frames", {"action": "start"})
+    time.sleep(0.5)  # bench script: idle frames give the refresh period
+    refresh_ms = (rpc("debug.frames", {"action": "stop"}) or {}).get("refresh_ms") or 16.67
+    idle = scroll_events(60, refresh_ms / 1000)
+    write("yes 'cmux scroll bench output line padded to a long width 0123456789 0123456789 0123456789'\r")
+    time.sleep(1.5)  # bench script: the flood reaches a steady rate before the measured events
+    rpc("debug.frames", {"action": "start"})
+    busy = scroll_events(60, refresh_ms / 1000)
+    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    write("\x03")
+    return {"layout": "scroll-output", "refresh_ms": refresh_ms, "idle": idle, "busy": busy,
+            "busy_frames": {k: frames.get(k) for k in ("frames", "missed", "p95_ms", "max_ms", "main_p95_ms", "main_max_ms")}}
+
+
 def stress():
     path = os.path.join(HERE, "perf-stress-session.py")
     spec = importlib.util.spec_from_file_location("perf_stress_session", path)
@@ -273,7 +329,7 @@ try:
     except LaunchError as error:
         sys.exit(f"app did not come up: {error}")
     for name in [n for n in opts.layouts.split(",") if n]:
-        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress}[name]()
+        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "scroll-output": scroll_output}[name]()
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
