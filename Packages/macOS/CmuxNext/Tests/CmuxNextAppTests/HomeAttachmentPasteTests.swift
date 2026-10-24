@@ -11,6 +11,8 @@ struct HomeAttachmentPasteTests {
         var types: [NSPasteboard.PasteboardType: Data] = [:]
         var text: String?
         var fileURLs: [URL] = []
+        /// The pasteboard's items (empty: the board is its one item).
+        var items: [any HomePasteboardContents] = []
 
         func hasType(_ wanted: [NSPasteboard.PasteboardType]) -> Bool {
             wanted.contains { $0 == .string ? text != nil : types[$0] != nil }
@@ -64,5 +66,65 @@ struct HomeAttachmentPasteTests {
         let board = Board(types: [.png: Self.png, .rtfd: Data(), .URL: Data()], text: "https://example.com/cat.png")
         #expect(HomeAttachmentIntake.offers(board))
         #expect(pictureType(HomeAttachmentIntake.inputs(from: board)) != nil)
+    }
+
+    // MARK: Several items, and text beside attachments (the user, msg 12179: copy and paste of
+    // pictures, text and attachments between other apps and Home's message box is buggy)
+
+    /// Two pictures copied together (Photos, a browser, a design tool) are two items: both attach,
+    /// in order, not only the first.
+    @Test func everyCopiedPictureAttaches() {
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        let first = Board(types: [.png: Self.png]), second = Board(types: [NSPasteboard.PasteboardType("public.jpeg"): jpeg])
+        let board = Board(types: [.png: Self.png], items: [first, second])
+        let inputs = HomeAttachmentIntake.inputs(from: board)
+        let kinds = inputs.map { input -> String? in
+            guard case let .data(_, type) = input else { return nil }
+            return type
+        }
+        #expect(kinds == [NSPasteboard.PasteboardType.png.rawValue, "public.jpeg"])
+    }
+
+    /// Finder's Copy: the file's item carries its name as text, which is not text to paste.
+    @Test func aCopiedFileHasNoTextBesideIt() {
+        let file = URL(fileURLWithPath: "/tmp/report.pdf")
+        let item = Board(text: "report.pdf", fileURLs: [file])
+        let board = Board(text: "report.pdf", fileURLs: [file], items: [item])
+        #expect(HomeAttachmentIntake.inputs(from: board).count == 1)
+        #expect(HomeAttachmentIntake.textBeside(board) == nil)
+    }
+
+    /// A copy that holds words and a file (the message box's own Copy, Mail, Slack): the files
+    /// attach and the words still paste, instead of the words being dropped.
+    @Test func wordsBesideCopiedFilesStillPaste() {
+        let file = URL(fileURLWithPath: "/tmp/cat.png")
+        let words = Board(text: "look at this")
+        let fileItem = Board(types: [.png: Self.png], text: "cat.png", fileURLs: [file])
+        let board = Board(text: "look at this", fileURLs: [file], items: [words, fileItem])
+        #expect(HomeAttachmentIntake.inputs(from: board).count == 1)
+        #expect(HomeAttachmentIntake.textBeside(board) == "look at this")
+    }
+
+    /// Rich text with pictures in it (Notes, TextEdit, Mail, Pages): the pictures attach and the
+    /// words paste, without the pictures' U+FFFC marks; before, the pictures were lost.
+    @Test func picturesInsideRichTextAttachBesideItsWords() throws {
+        let wrapper = FileWrapper(regularFileWithContents: Self.png)
+        wrapper.preferredFilename = "cat.png"
+        let rich = NSMutableAttributedString(string: "Hello ")
+        rich.append(NSAttributedString(attachment: NSTextAttachment(fileWrapper: wrapper)))
+        rich.append(NSAttributedString(string: " world"))
+        let rtfd = try #require(rich.rtfd(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]))
+        let board = Board(types: [.rtfd: rtfd, .png: Self.png], text: "Hello \u{FFFC} world")
+        let inputs = HomeAttachmentIntake.inputs(from: board)
+        #expect(pictureType(inputs) == NSPasteboard.PasteboardType.png.rawValue)
+        #expect(HomeAttachmentIntake.textBeside(board) == "Hello  world")
+    }
+
+    /// Rich text with no picture in it still pastes as text alone (nothing attaches).
+    @Test func richTextWithoutPicturesAttachesNothing() throws {
+        let rich = NSAttributedString(string: "Just words")
+        let rtfd = try #require(rich.rtfd(from: NSRange(location: 0, length: rich.length), documentAttributes: [:]))
+        let board = Board(types: [.rtfd: rtfd, .png: Self.png], text: "Just words")
+        #expect(HomeAttachmentIntake.inputs(from: board).isEmpty)
     }
 }
