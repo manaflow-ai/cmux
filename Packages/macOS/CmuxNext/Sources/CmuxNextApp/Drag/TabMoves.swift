@@ -240,11 +240,13 @@ enum TabMoves {
     static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
         // An agent chat's name is its chat's title, which only the turn store knows.
         let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
-        guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
+        guard let sourceID = services.workspaceID(ofTab: tab.id), let source = services.workspace(id: sourceID),
               source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
+        // The source workspace's own daemon, as WorkspaceAutoNameWiring reads it (none: legacy defaults apply).
+        let daemon = services.machines.daemon(forWorkspace: sourceID)
         return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName,
                                            workspaceNameSource: source.nameSource, workspaceNameRevision: source.nameRevision,
-                                           allowsLegacyDefaults: !daemon.supports(DaemonCapabilities.workspaceNameSource))
+                                           allowsLegacyDefaults: !(daemon?.supports(DaemonCapabilities.workspaceNameSource) ?? false))
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page

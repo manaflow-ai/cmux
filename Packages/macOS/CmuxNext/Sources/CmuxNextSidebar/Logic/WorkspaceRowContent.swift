@@ -117,7 +117,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         }
         let working = ws.agentWorking && set.shows(.working)
         self.init(
-            icon: (set.shows(.icon) ? ws.icon : nil) ?? ws.taskStatus?.glyph,
+            // Task status is already represented by the trailing status dots; only a user icon
+            // belongs before the title (Chrome's chat list has no extra idle/status ring).
+            icon: set.shows(.icon) ? ws.icon : nil,
             detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
@@ -142,7 +144,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
-            icon: ws.icon ?? ws.taskStatus?.glyph,
+            icon: ws.icon,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
                 ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                 ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
