@@ -7,6 +7,7 @@ use crate::panic_free::RecoverPoison;
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
+use super::Command;
 use super::ConnectionPermit;
 use super::Request;
 use super::ResponseErrorDelivery;
@@ -363,22 +364,33 @@ impl ConnectionSurfaceScheduler {
         writer: &MessageWriter,
     ) -> bool {
         let request_id = request.id.clone();
+        // An attach refused before its handler runs opened no stream: its
+        // stream-end tells the client to free the id and its sink, as for an
+        // attach its handler refused (`cmd_attach::end_failed_stream`).
+        let opens_stream = matches!(request.cmd, Command::AttachSurface { .. });
+        let end_refused = |keep_open: bool| {
+            if opens_stream {
+                super::cmd_attach::end_failed_stream(&mux, client, writer, stream);
+            }
+            keep_open
+        };
         if self.state.lock().recover_poison().closed {
             return false;
         }
         let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
             Ok(bytes) => bytes,
             Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
-                return send_request_error(
+                return end_refused(send_request_error(
                     writer,
                     request_id,
                     "server surface-operation byte budget is full; request was not executed",
-                );
+                ));
             }
         };
         let lanes = self.stream_lanes.get_or_init(|| {
             let scheduler = Arc::downgrade(self);
             let writer = writer.clone();
+            let mux = mux.clone();
             StreamLanes::new(
                 CONNECTION_SURFACE_QUEUE_CAPACITY,
                 CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY,
@@ -413,18 +425,18 @@ impl ConnectionSurfaceScheduler {
         match lanes.submit(stream, pending, retained_bytes) {
             Ok(()) => true,
             Err(LaneRefusal::Closed) => false,
-            Err(LaneRefusal::Full) => send_request_error_with_delivery(
+            Err(LaneRefusal::Full) => end_refused(send_request_error_with_delivery(
                 writer,
                 request_id,
                 "stream request queue is full; request was not executed",
                 Some(ResponseErrorDelivery::KnownNotDelivered),
-            ),
-            Err(LaneRefusal::Spawn) => send_request_error_with_delivery(
+            )),
+            Err(LaneRefusal::Spawn) => end_refused(send_request_error_with_delivery(
                 writer,
                 request_id,
                 "could not start a stream request worker; request was not executed",
                 Some(ResponseErrorDelivery::KnownNotDelivered),
-            ),
+            )),
         }
     }
 
