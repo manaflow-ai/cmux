@@ -128,6 +128,7 @@ Swift/Rust builds and tests stay on the fleet.
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
+- Threads: [threading-model.md](plans/cmux-next/threading-model.md) says what each thread owns, may block on, its QoS and bound; the main thread never blocks (Debug detector, `allowBlocking` only for a listed reason).
 - Copy Chrome's performance model (Lawrence 2026-10-24). Before you design a fast path, find how Chromium
   does the same job and do that, or write in the commit why cmux differs:
   - The main thread never blocks: no sync daemon, disk, network or lock wait on it (Chrome's UI-thread

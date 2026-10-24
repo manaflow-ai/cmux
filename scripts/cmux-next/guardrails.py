@@ -1794,6 +1794,196 @@ RULES = (
 )
 
 
+# ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
+# plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
+# detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
+# The block owns its lines from here to `RULES += BLOCKING_RULES`; other rules go above it.
+THREADING_DOC = "plans/cmux-next/threading-model.md"
+PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+# The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
+BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
+BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
+FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
+            r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
+            r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
+            r"trashItem|url")
+# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading.
+RAW_BLOCKING = re.compile(
+    r"\bData\(contentsOf:|\bString\(contentsOf(File)?:|\bNS(Data|String|Dictionary|Array|Image)\(contentsOf(File|URL)?:"
+    r"|\bFileManager\.default\.(" + FILE_OPS + r")\("
+    r"|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
+    r"|\.resourceValues\(forKeys:|\bxpc_connection_send_message_with_reply_sync\("
+    r"|(?<!await )(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\)"
+    r"|\.sync\s*(\{|\(execute:)")
+# The checked seams: fine off the main thread, a violation on it.
+SEAM_BLOCKING = re.compile(
+    r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
+    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply)\(")
+# Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
+# sleep holds a thread to wait for time.
+ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
+THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|\bThread\s*(\{|\(block:|\(target:)|\bThread\.detachNewThread\b"
+                           r"|\bOperationQueue\(\)|\bpthread_create\(|\bDispatchSerialQueue\(|\bDispatchWorkloop\(")
+THREAD_NAME = re.compile(r'(\.name\s*=|label:)\s*"((?:\\.|[^"\\])*)"')
+ALLOWANCE_DECL = re.compile(r"\bstatic\s+let\s+(\w+)\s*=\s*BlockingAllowance\(")
+# HEAD's threading doc and package manifest; check() fills it for each run.
+BLOCKING_CONTEXT: dict[str, object] = {}
+
+
+def main_actor_scope():
+    """check-main-actor-work.py next to this file (the hook copies it): its lexical main-actor scopes."""
+    if "scope" not in BLOCKING_CONTEXT:
+        spec = importlib.util.spec_from_file_location("cmux_next_main_actor_scope", HERE / "check-main-actor-work.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        BLOCKING_CONTEXT["scope"] = module
+    return BLOCKING_CONTEXT["scope"]
+
+
+def main_isolated(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION's line INDEX is main-actor code: a uiSwiftSettings target's default isolation or
+    `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached scopes (check-main-actor-work.py)."""
+    if "main_lines" not in version.memo:
+        scope = main_actor_scope()
+        module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+        version.memo["main_lines"] = scope.main_actor_lines(version.lines, module in ui_targets())
+    lines = version.memo["main_lines"]
+    return (index < len(lines) and lines[index]), []
+
+
+def ui_targets() -> set[str]:
+    """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
+    reads them."""
+    if "ui_targets" not in BLOCKING_CONTEXT:
+        manifest = BLOCKING_CONTEXT.get("manifest")
+        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
+                           manifest if isinstance(manifest, str) else "", re.S)
+        BLOCKING_CONTEXT["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+    return BLOCKING_CONTEXT["ui_targets"]
+
+
+def off_main(version: Version, index: int) -> tuple[bool, list[int]]:
+    return not main_isolated(version, index)[0], []
+
+
+def outside_seams(changes: list[FileChange]) -> list[FileChange]:
+    return [c for c in changes if not c.path.startswith(BLOCKING_SEAMS)]
+
+
+class Prefiltered:
+    """PATTERN behind one literal-keyword search: most lines hold none of KEYS, and that search costs a tenth of
+    the full alternation (the gate stays under 1 s on a 240k-line push)."""
+
+    def __init__(self, pattern: re.Pattern, keys: tuple[str, ...]) -> None:
+        self.pattern = pattern
+        self.keys = re.compile("|".join(re.escape(key) for key in keys))
+
+    def search(self, text: str):
+        return self.pattern.search(text) if self.keys.search(text) else None
+
+
+BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
+                 "esourceValues", "xpc_", "blocking")
+RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
+MAIN_BLOCKING = Matcher(Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS),
+                        BLOCKING_ALLOW, main_isolated)
+
+
+def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added lines that block on the main thread: any blocking call (raw or seam) in main-isolated code, and
+    a main-queue sync hop or a sleep anywhere."""
+    scoped = outside_seams(changes)
+    always = matcher_rule(Matcher(Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep(")), BLOCKING_ALLOW))(scoped, moved)
+    seen = {(h.path, h.number) for h in always}
+    return always + [h for h in matcher_rule(MAIN_BLOCKING)(scoped, moved) if (h.path, h.number) not in seen]
+
+
+def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added raw blocking primitives outside main-isolated code (main-blocking reports those)."""
+    return matcher_rule(Matcher(RAW_SCAN, BLOCKING_ALLOW, off_main))(outside_seams(changes), moved)
+
+
+def doc_labels(doc: str) -> list[re.Pattern]:
+    """The thread and queue labels the threading doc lists in backticks, each `<x>` a wildcard."""
+    return [re.compile("^" + ".*".join(re.escape(part) for part in re.split(r"<[^>]*>", token)) + "$")
+            for token in re.findall(r"`([^`\n]+)`", doc)]
+
+
+def label_listed(label: str, patterns: list[re.Pattern]) -> bool:
+    text = re.sub(r"\\\([^)]*\)", "x", label)  # a string interpolation stands for any text
+    return any(p.match(text) for p in patterns)
+
+
+def undocumented_threads(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added threads, queues and BlockingAllowance reasons that plans/cmux-next/threading-model.md does not list."""
+    listed: dict[str, object] = {}
+
+    def doc() -> dict[str, object]:
+        """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge."""
+        if not listed:
+            text = BLOCKING_CONTEXT.get("threading_doc")
+            if not isinstance(text, str):
+                raise RuntimeError(f"{THREADING_DOC} could not be read at the pushed head")
+            listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
+        return listed
+
+    def keep(version: Version, index: int) -> tuple[bool, list[int]]:
+        labels, allowances = doc()["labels"], doc()["allowances"]
+        decl = ALLOWANCE_DECL.search(code_of(version.lines[index]))
+        if decl:
+            return decl.group(1) not in allowances, []
+        # The label or name: on the line, or a `.name = "..."` within the next 6 lines (`Thread { }` then `.name`).
+        for text in version.lines[index:index + 7]:
+            named = THREAD_NAME.search(text)
+            if named:
+                return not label_listed(named.group(2), labels), []
+        return True, []  # an unnamed thread or queue: name it and list it
+
+    pattern = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
+                          ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance"))
+    return matcher_rule(Matcher(pattern, BLOCKING_ALLOW, keep))(changes, moved)
+
+
+def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
+    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
+    for key in ("threading_doc", "manifest", "ui_targets"):
+        BLOCKING_CONTEXT.pop(key, None)
+    for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
+        if (head, path) in texts:
+            BLOCKING_CONTEXT[key] = texts[(head, path)]
+
+
+BLOCKING_RULES = (
+    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait, a "
+         "sync hop or a sleep in main-isolated code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
+         "the main thread never blocks (plans/cmux-next/threading-model.md, Chrome's ScopedBlockingCall): one disk, "
+         "lock or process wait on it drops frames and delays the next input; in Debug the runtime detector reports it",
+         "move the work off the main thread (an actor, `Task.detached`, a `nonisolated` async function, the daemon) "
+         "and apply its result on main; a wait becomes an `await` or a callback. The checked seams "
+         "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
+         "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
+         blocking_on_main),
+    Rule("raw-blocking", "A raw blocking primitive (file read/write, `FileManager.default.<disk op>`, `.wait()`, "
+         "`.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC) instead of its checked seam",
+         "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
+         "main thread blocks it unseen",
+         "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
+         "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
+         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
+         "// blocking-allow: <why the seam does not fit>",
+         raw_blocking),
+    Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
+         "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
+         "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
+         "name the thread or queue and add its label to the doc's \"Registered threads and queues\" (and a table row "
+         "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
+         "// blocking-allow: <why this thread needs no entry>",
+         undocumented_threads),
+)
+RULES += BLOCKING_RULES
+# ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
+
+
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
@@ -2107,7 +2297,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
-                  + [(head, MANIFEST), (base, MANIFEST)], blob_ids)
+                  + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -2119,6 +2309,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if late:
         texts.update(blobs(repo, [(head, p) for p in late] + [(base, p) for p in late], blob_ids))
     LEX_CACHE["dir"] = lex_cache_dir(repo)
+    load_blocking_context(texts, head)
     for path in paths:
         change = changes[path]
         # A side with changed lines has the file: git lists no added line of a path absent at head.
