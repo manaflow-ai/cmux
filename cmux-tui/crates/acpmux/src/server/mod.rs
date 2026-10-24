@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Semaphore, broadcast, mpsc, oneshot};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -86,6 +86,32 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+}
+
+// Transport readers already have bounded channels. Bound the work they can
+// start as well: a client may otherwise keep long-running requests alive by
+// sending faster than their handlers finish. Notifications have their own
+// slots so a burst of requests cannot keep a cancel from being admitted.
+const REQUEST_WORK_LIMIT: usize = 64;
+const NOTIFICATION_WORK_LIMIT: usize = 16;
+const NOTIFICATION_QUEUE_LIMIT: usize = 16;
+// A transport reader can itself be stuck forwarding into a full inbound
+// channel, so its close signal alone cannot end an admission wait. Close the
+// overloaded connection if it makes no progress within this bound.
+const WORK_BACKPRESSURE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+struct WorkAdmission {
+    notification_slots: Arc<Semaphore>,
+    max_wait: std::time::Duration,
+}
+
+impl Default for WorkAdmission {
+    fn default() -> Self {
+        Self {
+            notification_slots: Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT)),
+            max_wait: WORK_BACKPRESSURE_WAIT,
+        }
+    }
 }
 
 impl Conn {
@@ -675,7 +701,11 @@ pub async fn serve_ws_with(
             {
                 return;
             }
+            let (reader_done_tx, reader_done_rx) = oneshot::channel();
             let reader = tokio::spawn(async move {
+                // Dropping this sender also signals an aborted reader (token
+                // rotation and peer revocation use that path).
+                let _reader_done = reader_done_tx;
                 while let Some(frame) = source.next().await {
                     let frame = match frame {
                         Ok(frame) => frame,
@@ -696,23 +726,24 @@ pub async fn serve_ws_with(
             // other tasks may still hold a clone of `out_tx`.
             let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
             tokio::spawn(async move {
-                loop {
-                    let line = tokio::select! {
-                        line = out_rx.recv() => line,
-                        _ = &mut stopped => None,
-                    };
-                    let Some(line) = line else { break };
-                    let text = line.trim_end_matches('\n').to_owned();
-                    if sink
-                        .send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
-                        .await
-                        .is_err()
-                    {
-                        break;
+                let write = async {
+                    while let Some(line) = out_rx.recv().await {
+                        let text = line.trim_end_matches('\n').to_owned();
+                        if sink
+                            .send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
+                };
+                tokio::select! {
+                    _ = write => {},
+                    _ = &mut stopped => {},
                 }
                 // Say so with a Close frame.
-                let _ = sink.close().await;
+                let _ = tokio::time::timeout(WORK_BACKPRESSURE_WAIT, sink.close()).await;
             });
             // A rotation ends a Web or Peer connection, which presented the
             // dashboard token; a revocation ends a paired machine's, which
@@ -734,7 +765,17 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
+            serve_connection_from(
+                hub,
+                in_rx,
+                out_tx,
+                origin,
+                proof,
+                None,
+                Some(reader_done_rx),
+                WorkAdmission::default(),
+            )
+            .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -910,7 +951,8 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None, WorkAdmission::default())
+        .await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -921,6 +963,8 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    mut reader_done: Option<oneshot::Receiver<()>>,
+    admission: WorkAdmission,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -957,6 +1001,27 @@ async fn serve_connection_from(
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
+    let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+    let (notification_tx, mut notification_rx) =
+        mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
+    let notification_worker = {
+        let slots = admission.notification_slots.clone();
+        let hub = hub.clone();
+        let conn = conn.clone();
+        tokio::spawn(async move {
+            while let Some((method, params)) = notification_rx.recv().await {
+                let Ok(slot) = slots.clone().acquire_owned().await else {
+                    break;
+                };
+                let hub = hub.clone();
+                let conn = conn.clone();
+                tokio::spawn(async move {
+                    let _slot = slot;
+                    handle_notification(&hub, &conn, &method, params).await;
+                });
+            }
+        })
+    };
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -971,12 +1036,37 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                let Ok(slot) = request_slots.clone().try_acquire_owned() else {
+                    let error = RpcError::new(-32000, "connection request limit reached")
+                        .with_data(json!({"reason": "connection.busy", "retryable": true}));
+                    // Backpressure this connection when its output is also
+                    // full; a rejected request must receive a reply while
+                    // its transport remains connected.
+                    let send = conn.out.send(Message::err(id, error).to_line());
+                    let delivered = tokio::time::timeout(admission.max_wait, async {
+                        match reader_done.as_mut() {
+                            Some(done) => tokio::select! {
+                                sent = send => sent.is_ok(),
+                                _ = done => false,
+                            },
+                            None => send.await.is_ok(),
+                        }
+                    })
+                    .await
+                    .unwrap_or(false);
+                    if !delivered {
+                        tracing::warn!(conn = %conn.id, "closing a connection blocked on a busy reply");
+                        break;
+                    }
+                    continue;
+                };
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
+                    let _slot = slot;
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
@@ -987,11 +1077,26 @@ async fn serve_connection_from(
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(async move {
-                    handle_notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                });
+                // Keep notification admission separate from request handling:
+                // the worker may wait for a notification slot while this loop
+                // continues to admit requests and their replies. The bounded
+                // queue still applies backpressure to a notification flood.
+                let send = notification_tx.send((m, params.unwrap_or(Value::Null)));
+                let accepted = tokio::time::timeout(admission.max_wait, async {
+                    match reader_done.as_mut() {
+                        Some(done) => tokio::select! {
+                            sent = send => sent.is_ok(),
+                            _ = done => false,
+                        },
+                        None => send.await.is_ok(),
+                    }
+                })
+                .await
+                .unwrap_or(false);
+                if !accepted {
+                    tracing::warn!(conn = %conn.id, "closing a connection blocked on notification work");
+                    break;
+                }
             }
             Message::Response { .. } => {
                 // acpmux sends no requests to clients today (permission goes
@@ -999,6 +1104,8 @@ async fn serve_connection_from(
             }
         }
     }
+    drop(notification_tx);
+    notification_worker.abort();
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
