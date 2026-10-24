@@ -1,7 +1,7 @@
 public import Foundation
 
 /// ``ProcessLaunching`` with `Process.run()`, on the caller's thread (the sender's actor).
-public struct ProcessLauncher: ProcessLaunching {
+public nonisolated struct ProcessLauncher: ProcessLaunching {
     /// A launcher.
     public init() {}
 
