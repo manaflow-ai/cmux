@@ -18,10 +18,14 @@ public struct ConsoleErrorCapture {
 
     /// The page's name: the log category and the journal source `page:<page>`.
     public let page: String
+    /// The journal a report should go into. Not used yet: each report goes to the unified log
+    /// alone, and the journal finds it at the next harvest.
+    public let journal: ErrorJournal?
 
     /// Makes a capture for one page.
-    public init(page: String) {
+    public init(page: String, journal: ErrorJournal? = nil) {
         self.page = page
+        self.journal = journal
     }
 
     /// The document-start script that reports console errors to ``handlerName``.
@@ -86,12 +90,16 @@ public struct ConsoleErrorCapture {
     /// Chromium page's binding): the same redacted line the WebKit receiver logs.
     ///
     /// - Parameter body: The posted object (`level`, `message`, `stack`).
-    public func record(_ body: Any) {
-        guard let body = body as? [String: Any] else { return }
+    /// - Returns: The journal's record of it; always nil here (the journal finds the line at its
+    ///   next harvest).
+    @discardableResult
+    public func record(_ body: Any) -> Task<Void, Never>? {
+        guard let body = body as? [String: Any] else { return nil }
         let text = Self.logText(level: body["level"] as? String ?? "error", message: body["message"] as? String ?? "",
                                 stack: body["stack"] as? String ?? "")
         // Redacted above, so public: the journal must read the text back.
         Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
+        return nil
     }
 
     public nonisolated static func logText(level: String, message: String, stack: String) -> String {
