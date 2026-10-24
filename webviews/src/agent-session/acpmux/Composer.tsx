@@ -474,7 +474,7 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
-  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach } =
+  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach, discardPending } =
     useAttachmentIntake({
       allowImages,
       dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -503,6 +503,7 @@ export function Composer({
       reserveInline: (ids) => field.current?.insertInlineAttachments(ids),
       inlineIndex: (id) => field.current?.inlineAttachmentIndex(id),
       releaseInline: (ids) => {
+        discardPending(ids);
         for (const id of ids) field.current?.removeInlineAttachment(id);
       },
     });
@@ -514,11 +515,12 @@ export function Composer({
     (id: string) => {
       const current = attachmentsRef.current;
       const index = current.findIndex((attachment) => attachment.id === id);
+      discardPending([id]);
       if (index >= 0) removedInline.current.push({ attachment: current[index]!, index });
       setAttachments((items) => items.filter((item) => item.id !== id));
       field.current?.focus();
     },
-    [setAttachments],
+    [discardPending, setAttachments],
   );
   const restoreAttachment = useCallback(
     (ids: readonly string[]) => {

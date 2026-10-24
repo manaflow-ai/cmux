@@ -645,7 +645,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // A custom inline clipboard replacement can keep the same number of marks. Remember which
     // removed payloads need the same-mark history undo path.
     const sameMarkRemovalIds = new Set<string>();
-    const sameMarkReplacements: { removed: string[]; cloned: string[] }[] = [];
+    const sameMarkReplacements: { removed: string[]; cloned: string[]; undoDepth?: number }[] = [];
     const deleteInlineAttachment = (editorView: EditorView, id: string): boolean => {
       const index = currentInlineAttachmentIDs().indexOf(id);
       if (index < 0) return false;
@@ -689,11 +689,21 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               const oldMarks = previousDecorations.markCount;
               const newMarks = inlineMarkCount(next.doc);
               const historyUndo = isHistoryTransaction(transaction) && undoDepth(next) < undoDepth(previous);
-              if (historyUndo && (removedInlineIds.length || sameMarkReplacements.length)) {
+              let replacementIndex = -1;
+              if (historyUndo) {
+                for (let index = sameMarkReplacements.length - 1; index >= 0; index -= 1) {
+                  if (sameMarkReplacements[index]?.undoDepth === undoDepth(previous)) {
+                    replacementIndex = index;
+                    break;
+                  }
+                }
+              }
+              if (historyUndo && (removedInlineIds.length || replacementIndex >= 0)) {
                 const markDelta = newMarks - oldMarks;
-                const replacement = markDelta > 0 ? undefined : sameMarkReplacements.pop();
+                const replacement =
+                  replacementIndex >= 0 ? sameMarkReplacements.splice(replacementIndex, 1)[0] : undefined;
                 const count = Math.min(
-                  markDelta > 0 ? markDelta : (replacement?.removed.length ?? sameMarkRemovalIds.size),
+                  replacement ? replacement.removed.length : markDelta > 0 ? markDelta : sameMarkRemovalIds.size,
                   removedInlineIds.length,
                 );
                 if (count <= 0) {
@@ -803,12 +813,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 removedInlineIds.push(...selectedIds);
                 for (const id of selectedIds) sameMarkRemovalIds.add(id);
                 for (const id of selectedIds) inlineRemoveRef.current?.(id);
-                sameMarkReplacements.push({
+                const replacement: { removed: string[]; cloned: string[]; undoDepth?: number } = {
                   removed: selectedIds,
                   cloned: cloned.map((attachment) => attachment.id),
-                });
+                };
+                sameMarkReplacements.push(replacement);
                 const index = positions.filter((position) => position < from).length;
                 insertPlain(editorView, text);
+                replacement.undoDepth = undoDepth(editorView.state);
                 inlinePasteRef.current?.(cloned, index);
                 showPastedEnd(editorView.state);
                 event.preventDefault();

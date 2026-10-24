@@ -2,7 +2,7 @@
 // pictures in the new tab area but it works in the existing chats"): a chat's composer (Composer.tsx)
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
-import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -293,6 +293,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
+  const discardPending = useCallback((ids: readonly string[]) => {
+    if (!ids.length) return;
+    const removed = new Set(ids);
+    setPending((chips) => chips.filter((chip) => !removed.has(chip.id)));
+  }, []);
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {
@@ -305,6 +310,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     drop,
     dropLanded,
     attach,
+    discardPending,
   };
 }
 
