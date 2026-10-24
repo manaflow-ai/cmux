@@ -44,6 +44,21 @@ extension TerminalController {
             )
         }
 
+        // A destructive method never falls back to whichever pane happens to be focused.
+        switch request.params["surface_id"] {
+        case nil, .null?:
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.claudeAccountSwitch.surfaceRequired",
+                    defaultValue: "Missing surface_id"
+                )
+            )
+        default:
+            break
+        }
+
         // Refs (`surface:3`) resolve on the main actor; one bounded hop keeps the socket worker
         // from blocking on the main queue.
         let target = try await v2MainAsync { () -> Result<ClaudeAccountSwitchTarget, ClaudeAccountSwitchTargetError> in
@@ -89,8 +104,9 @@ extension TerminalController {
         )
     }
 
-    /// The pane named by `surface_id` (a UUID or ref) in the workspace `workspace_id` names, or
-    /// the focused pane of the selected workspace when the request names none.
+    /// The pane named by the required `surface_id` (a UUID or ref), in the workspace
+    /// `workspace_id` names when present. A `workspace_id` or `surface_id` that names nothing
+    /// is `not_found`, never ignored.
     private func claudeAccountSwitchTarget(
         _ request: ControlRequest
     ) -> Result<ClaudeAccountSwitchTarget, ClaudeAccountSwitchTargetError> {
@@ -99,35 +115,25 @@ extension TerminalController {
         }
         v2RefreshKnownRefs()
         let params = request.params.mapValues(\.foundationObject)
+        let workspaceNotFound = ClaudeAccountSwitchTargetError(result: .err(
+            code: "not_found",
+            message: String(
+                localized: "socket.surfaceSelection.workspaceNotFound",
+                defaultValue: "Workspace not found."
+            ),
+            data: nil
+        ))
+        if v2HasNonNullParam(params, "workspace_id"), v2UUIDAny(params["workspace_id"]) == nil {
+            return .failure(workspaceNotFound)
+        }
+        guard let panelId = v2UUIDAny(params["surface_id"]) else {
+            return .failure(ClaudeAccountSwitchTargetError(result: Self.claudeAccountSwitchSurfaceNotFound))
+        }
         guard let tabManager = v2ResolveTabManager(params: params),
               let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return .failure(ClaudeAccountSwitchTargetError(result: .err(
-                code: "not_found",
-                message: String(
-                    localized: "socket.surfaceSelection.workspaceNotFound",
-                    defaultValue: "Workspace not found."
-                ),
-                data: nil
-            )))
-        }
-        let panelId: UUID
-        if v2HasNonNullParam(params, "surface_id") {
-            guard let requested = v2UUIDAny(params["surface_id"]) else {
-                return .failure(ClaudeAccountSwitchTargetError(result: Self.claudeAccountSwitchSurfaceNotFound))
-            }
-            panelId = requested
-        } else {
-            guard let focused = workspace.focusedPanelId else {
-                return .failure(ClaudeAccountSwitchTargetError(result: .err(
-                    code: "not_found",
-                    message: String(
-                        localized: "socket.surfaceSelection.noFocusedSurface",
-                        defaultValue: "No surface is focused."
-                    ),
-                    data: nil
-                )))
-            }
-            panelId = focused
+            return .failure(v2HasNonNullParam(params, "workspace_id")
+                ? workspaceNotFound
+                : ClaudeAccountSwitchTargetError(result: Self.claudeAccountSwitchSurfaceNotFound))
         }
         guard workspace.panels[panelId] != nil else {
             return .failure(ClaudeAccountSwitchTargetError(result: Self.claudeAccountSwitchSurfaceNotFound))
@@ -135,10 +141,11 @@ extension TerminalController {
         return .success(ClaudeAccountSwitchTarget(workspaceId: workspace.id, panelId: panelId))
     }
 
-    /// Checks the request against the pane, then runs the shared switch. `nil` when the pane is
-    /// gone. An account the pane's registry does not know is refused before Claude is looked
-    /// up, so a typo is reported as such. Claude mid-response needs `force`, the socket's
-    /// answer to the confirmation the menu asks for.
+    /// Checks the request against the pane (``ClaudeAccountSwitchSocketPreflight``), then runs
+    /// the shared switch. `nil` when the pane is gone. Claude mid-response needs `force`, the
+    /// socket's answer to the confirmation the menu asks for. A switch whose resume was never
+    /// typed also posts a notification on the pane, because the caller may have been running
+    /// in that very pane and died with the respawn.
     private func claudeAccountSwitchOutcome(
         workspaceId: UUID,
         panelId: UUID,
@@ -149,16 +156,30 @@ extension TerminalController {
               workspace.panels[panelId] != nil else {
             return nil
         }
-        guard workspace.claudeAccountRegistry(forPanelId: panelId).account(named: accountName) != nil else {
-            return .finished(.refused(.unknownAccount(accountName)))
-        }
-        if !force, workspace.isClaudeResponseRunning(panelId: panelId) {
-            return .agentRunning
-        }
-        return .finished(await workspace.switchClaudeAccount(
+        let preflight = ClaudeAccountSwitchSocketPreflight(
+            accountName: accountName,
+            target: workspace.claudeAccountRegistry(forPanelId: panelId).account(named: accountName),
+            current: workspace.currentClaudeAccount(panelId: panelId),
+            runsOnAnotherMachine: workspace.terminalRunsOnAnotherMachine(panelId),
+            responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
+            force: force,
+            homeDirectory: NSHomeDirectory()
+        )
+        if let refusal = preflight.refusal { return refusal }
+        let outcome = ClaudeAccountSwitchSocketOutcome.finished(await workspace.switchClaudeAccount(
             panelId: panelId,
             toAccountNamed: accountName,
             trigger: .manual
         ))
+        outcome.resumeNotification?.post(workspaceId: workspaceId, panelId: panelId) { tabId, surfaceId, title, subtitle, body in
+            deliverNotificationSynchronously(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
+        return outcome
     }
 }

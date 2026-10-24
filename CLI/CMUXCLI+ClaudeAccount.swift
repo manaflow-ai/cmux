@@ -16,7 +16,7 @@ extension CMUXCLI {
         claudeAccountUsage + "\n\n" + String(localized: "cli.claudeAccount.help", defaultValue: """
         list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.
 
-        switch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface or --workspace names another. --force also switches while Claude is responding, which stops the response.
+        switch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.
 
         <surface> is a UUID, a ref like surface:3, or an index with --workspace.
         """)
@@ -76,12 +76,12 @@ extension CMUXCLI {
             throw CLIError(message: Self.claudeAccountUsage)
         }
 
-        // The calling terminal by default. Outside cmux a target must be named, so a typo never
-        // restarts whichever pane happens to be focused.
+        // The calling terminal by default. Otherwise --surface must name one (the app requires
+        // surface_id), so a typo never restarts whichever pane happens to be focused.
         let callerSurface = ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let surfaceRaw = surfaceOption ?? (workspaceOption == nil ? callerSurface : nil)
-        guard workspaceOption != nil || surfaceRaw?.isEmpty == false else {
+        guard let surfaceRaw = surfaceOption ?? (workspaceOption == nil ? callerSurface : nil),
+              !surfaceRaw.isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.claudeAccount.error.noTarget",
                 defaultValue: "No terminal to switch: run this inside a cmux terminal, or pass --surface."
@@ -94,12 +94,10 @@ extension CMUXCLI {
             client: client
         )
         if let workspaceId { params["workspace_id"] = workspaceId }
-        if let surfaceRaw {
-            guard let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId) else {
-                throw CLIError(message: Self.claudeAccountUsage)
-            }
-            params["surface_id"] = surfaceId
+        guard let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId) else {
+            throw CLIError(message: Self.claudeAccountUsage)
         }
+        params["surface_id"] = surfaceId
 
         let response: [String: Any]
         do {
@@ -123,7 +121,7 @@ extension CMUXCLI {
         }
         print(String(
             format: String(localized: "cli.claudeAccount.switched", defaultValue: "OK switched %1$@ from %2$@ to %3$@"),
-            surfaceOption ?? (response["surface_id"] as? String) ?? surfaceRaw ?? "",
+            surfaceOption ?? (response["surface_id"] as? String) ?? surfaceRaw,
             (response["from"] as? String) ?? "",
             (response["to"] as? String) ?? accountName
         ))

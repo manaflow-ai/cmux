@@ -94,6 +94,19 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
         }
     }
 
+    /// The explanation for a cmux notification. It matches ``message`` except where the alert
+    /// points at its Type Resume Command button, which a notification does not have.
+    var notificationMessage: String {
+        guard case .resumeManually(_, let command, paneClosed: false) = self else { return message }
+        return String(
+            format: String(
+                localized: "notification.claudeAccountSwitch.resumeManually.message",
+                defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run this command in the terminal:\n\n%@"
+            ),
+            command
+        )
+    }
+
     /// The alert's explanation.
     var message: String {
         switch self {

@@ -86,6 +86,16 @@ def main() -> int:
             )
             _must(code == "not_found", f"unknown surface: expected not_found, got {code}")
 
+            # A destructive method never falls back to whichever pane is focused.
+            code = _error_code(c, {"workspace_id": created_workspace, "account": unknown})
+            _must(code == "invalid_params", f"missing surface_id: expected invalid_params, got {code}")
+            code = _error_code(c, {"account": unknown, "workspace_id": "garbage"})
+            _must(code == "invalid_params", f"no surface_id, bad workspace_id: expected invalid_params, got {code}")
+            code = _error_code(c, {"workspace_id": "garbage", "surface_id": surface_id, "account": unknown})
+            _must(code == "not_found", f"malformed workspace_id: expected not_found, got {code}")
+            code = _error_code(c, {"workspace_id": created_workspace, "surface_id": "garbage", "account": unknown})
+            _must(code == "not_found", f"malformed surface_id: expected not_found, got {code}")
+
             _must(
                 c.current_workspace() == baseline_workspace,
                 f"{METHOD} refusals must not change the selected workspace",

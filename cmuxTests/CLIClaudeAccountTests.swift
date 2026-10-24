@@ -95,6 +95,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.commands.contains { $0.contains("claude_account.switch") }, "\(result.commands)")
     }
 
+    func testClaudeAccountSwitchWithOnlyAWorkspaceNeedsASurface() throws {
+        // The app requires surface_id; a workspace alone never means "its focused pane".
+        let result = try runClaudeAccountCLI(
+            name: "claude-account-wsonly",
+            arguments: ["claude-account", "switch", "work", "--workspace", UUID().uuidString],
+            callerSurfaceId: UUID().uuidString,
+            respond: { _, _ in nil }
+        )
+        XCTAssertNotEqual(result.process.status, 0)
+        XCTAssertTrue(result.process.stderr.contains("--surface"), result.process.stderr)
+        XCTAssertFalse(result.commands.contains { $0.contains("claude_account.switch") }, "\(result.commands)")
+    }
+
     func testClaudeAccountListReadsTheConfigWithoutTheApp() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-account-\(UUID().uuidString.prefix(8))")

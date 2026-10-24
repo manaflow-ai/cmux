@@ -75,6 +75,49 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
         )
     }
 
+    /// A cmux notification the socket path posts with its reply.
+    struct ResumeNotification: Equatable, Sendable {
+        let title: String
+        let subtitle: String
+        let body: String
+
+        /// Posts on the pane, or on its workspace when the pane is gone. Delivery goes through
+        /// the notification store only, so it never activates the app or moves focus.
+        ///
+        /// - Parameter deliver: Records one notification and returns its id, or `nil` when
+        ///   nothing was recorded (an unknown target or a muted workspace).
+        @MainActor
+        @discardableResult
+        func post(
+            workspaceId: UUID,
+            panelId: UUID,
+            deliver: (_ workspaceId: UUID, _ surfaceId: UUID?, _ title: String, _ subtitle: String, _ body: String) -> UUID?
+        ) -> UUID? {
+            deliver(workspaceId, panelId, title, subtitle, body)
+                ?? deliver(workspaceId, nil, title, subtitle, body)
+        }
+    }
+
+    /// The notification to post for this outcome: only a switch whose resume was never typed
+    /// gets one. Its reply may never be read, because the CLI that asked can run in the very
+    /// pane the switch respawned and die with it, so the notification carries the built
+    /// command too. The wording is the menu notice's.
+    var resumeNotification: ResumeNotification? {
+        guard case .finished(let result) = self,
+              case .switchedWithoutResume(let plan, _, _) = result,
+              let notice = ClaudeAccountSwitchNotice(result: result, requestedAccountName: plan.target.name) else {
+            return nil
+        }
+        return ResumeNotification(
+            title: String(
+                localized: "notification.claudeAccountSwitch.title",
+                defaultValue: "Claude account switched"
+            ),
+            subtitle: notice.title,
+            body: notice.notificationMessage
+        )
+    }
+
     private static func switchedPayload(
         plan: ClaudeAccountSwitchPlan,
         transcript: ClaudeTranscriptAccountSyncOutcome,

@@ -671822,55 +671822,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface or --workspace names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace."
+            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface أو --workspace طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace."
+            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface oder --workspace kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace."
+            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface o --workspace indiquen otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace."
+            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface indique otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface ou --workspace en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace."
+            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface または --workspace で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。"
+            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface나 --workspace로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다."
+            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 或 --workspace 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。"
+            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 或 --workspace 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。"
+            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。"
           }
         }
       }
@@ -672343,6 +672343,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "force 必須是 true 或 false"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountSwitch.resumeManually.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't resume the conversation automatically. To continue it, run this command in the terminal:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها، شغّل هذا الأمر في الطرفية:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Um sie fortzusetzen, führen Sie diesen Befehl im Terminal aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla, ejecuta este comando en la terminal:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre, exécutez cette commande dans le terminal :\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話を自動で再開できませんでした。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法自动继续对话。如需继续，请在终端中运行此命令：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法自動繼續對話。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountSwitch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude account switched"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تبديل حساب Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto gewechselt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta de Claude cambiada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte Claude changé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントを切り替えました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정 전환됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换 Claude 账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切換 Claude 帳號"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.surfaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing surface_id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id مفقود"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id fehlt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta surface_id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id manquant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id가 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 surface_id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 surface_id"
           }
         }
       }

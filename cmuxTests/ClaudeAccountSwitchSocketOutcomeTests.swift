@@ -105,6 +105,69 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
         ))
     }
 
+    @Test(arguments: [false, true])
+    func switchWithoutResumePostsTheBuiltCommandAsANotification(paneWasReplaced: Bool) throws {
+        // The CLI that asked may have run in the respawned pane and died with it, so the reply
+        // alone can be lost; the notification carries the same command.
+        let plan = try makePlan(to: "work")
+        let manualResume = ClaudeAccountSwitchManualResume(
+            command: "cd /Users/cmux-test/project && CLAUDE_CONFIG_DIR=/Users/cmux-test/.claude-work claude --resume \(sessionID)",
+            typedInput: "x\n",
+            paneWasReplaced: paneWasReplaced
+        )
+        let result = ClaudeAccountSwitchResult.switchedWithoutResume(plan, .copied, manualResume)
+        let notice = try #require(ClaudeAccountSwitchNotice(result: result, requestedAccountName: "work"))
+
+        let notification = try #require(ClaudeAccountSwitchSocketOutcome.finished(result).resumeNotification)
+
+        #expect(notification.title == "Claude account switched")
+        #expect(notification.subtitle == notice.title)
+        #expect(notification.body.contains(manualResume.command))
+        #expect(notification.body == notice.notificationMessage)
+        // A notification has no Type Resume Command button, so it never points at one.
+        #expect(!notification.body.contains("Type Resume Command"))
+        if paneWasReplaced {
+            #expect(notification.body == notice.message)
+        }
+    }
+
+    @Test
+    func onlyASwitchWithoutResumePostsANotification() throws {
+        let outcomes: [ClaudeAccountSwitchSocketOutcome] = [
+            .finished(.switched(try makePlan(to: "work"), .copied)),
+            .finished(.refused(.unknownAccount("ghost"))),
+            .finished(.notClaude),
+            .finished(.respawnFailed),
+            .agentRunning,
+        ]
+
+        #expect(outcomes.allSatisfy { $0.resumeNotification == nil })
+    }
+
+    @Test
+    @MainActor
+    func theNotificationFallsBackToTheWorkspaceWhenThePaneIsGone() {
+        let workspaceId = UUID()
+        let notification = ClaudeAccountSwitchSocketOutcome.ResumeNotification(title: "t", subtitle: "s", body: "b")
+        var deliveries: [UUID?] = []
+
+        let paneGone = notification.post(workspaceId: workspaceId, panelId: surfaceId) { tabId, surface, title, subtitle, body in
+            #expect(tabId == workspaceId && title == "t" && subtitle == "s" && body == "b")
+            deliveries.append(surface)
+            return surface == nil ? UUID() : nil
+        }
+        #expect(paneGone != nil)
+        #expect(deliveries == [surfaceId, nil])
+
+        deliveries = []
+        let paneThere = notification.post(workspaceId: workspaceId, panelId: surfaceId) { _, surface, _, _, _ in
+            deliveries.append(surface)
+            return UUID()
+        }
+        #expect(paneThere != nil)
+        #expect(deliveries == [surfaceId])
+    }
+
     private func makePlan(to target: String, from sourceConfigDirectory: String? = nil) throws -> ClaudeAccountSwitchPlan {
         let registry = ClaudeAccountRegistry(
             declarations: [ClaudeAccountDeclaration(name: "work", configDir: "~/.claude-work")],
