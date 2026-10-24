@@ -650,7 +650,10 @@ fn every_chief_change_reaches_the_subscribers_that_asked() {
     assert_eq!(next_chief_change(&mut page), (scout.clone(), "deleted".to_owned()));
     // The list names the deleted Chief apart from the live ones (Home hides its direct message).
     let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
-    assert!(!listed["chiefs"].as_array().unwrap().iter().any(|c| c["id"] == json!(scout)), "{listed}");
+    assert!(
+        !listed["chiefs"].as_array().unwrap().iter().any(|c| c["id"] == json!(scout)),
+        "{listed}"
+    );
     assert!(listed["deleted"].as_array().unwrap().contains(&json!(scout)), "{listed}");
 
     quiet.request("identify", json!({}));
