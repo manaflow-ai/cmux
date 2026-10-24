@@ -120,6 +120,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
     private var observers: [any NSObjectProtocol] = []
+    /// It hears its window's key and occlusion notices now.
+    var isObservingWindow: Bool { !observers.isEmpty }
+    /// Whether a person can see `window` now: key and on screen (tests stand in for a window
+    /// server that makes no test window key).
+    var isWindowSeen: @MainActor (NSWindow) -> Bool = { $0.isKeyWindow && $0.occlusionState.contains(.visible) }
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
