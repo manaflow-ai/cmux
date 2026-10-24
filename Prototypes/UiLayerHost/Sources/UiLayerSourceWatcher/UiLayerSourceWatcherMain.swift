@@ -2,7 +2,7 @@ import Darwin
 import Dispatch
 import Foundation
 
-private func uiLayerSignalHandler(_ signalNumber: Int32) {}
+private func uiLayerSignalHandler(_: Int32) {}
 
 @main
 @MainActor
@@ -80,7 +80,8 @@ private final class SourceSupervisor {
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
         process.terminationHandler = { [weak self] process in
-            Task { @MainActor in self?.childExited(process.terminationStatus) }
+            let status = process.terminationStatus
+            Task { @MainActor [weak self] in self?.childExited(status) }
         }
         do {
             try process.run()
