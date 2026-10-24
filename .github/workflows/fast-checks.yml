@@ -108,12 +108,13 @@ jobs:
       - name: Initialize Rust native dependencies
         if: inputs.setup == 'rust'
         run: |
+          bash scripts/ci/init-submodule.sh ghostty
           export GHOSTTY_ZIG_SOURCE=ghostty
           if [[ "$(git ls-files --stage -- ghostty-next)" == 160000* ]]; then
             export GHOSTTY_ZIG_SOURCE=ghostty-next
+            bash scripts/ci/init-submodule.sh ghostty-next
           fi
           echo "GHOSTTY_ZIG_SOURCE=$GHOSTTY_ZIG_SOURCE" >> "$GITHUB_ENV"
-          bash scripts/ci/init-submodule.sh "$GHOSTTY_ZIG_SOURCE"
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
           ./scripts/install-zig-ci.sh
