@@ -668,10 +668,11 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
-        # The Release compile is the base's compile check: a superseded feat-cmux-next push still
-        # compiles (ReleaseCompileOnCmuxNextSwiftPullRequests covers it); its job group keeps one running, the newest waiting.
-        self.assertIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
-                      jobs["release-compile"]["if"])
+        # Superseded pushes skip before queueing; a started compile has its own
+        # run group so a newer push cannot evict it.
+        self.assertNotIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                         jobs["release-compile"]["if"])
+        self.assertIn("needs.push-head-preflight.outputs.current == 'true'", jobs["release-compile"]["if"])
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
@@ -1979,15 +1980,15 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     def runs(self, context: dict) -> bool:
         return bool(evaluate(self.job()["if"], context))
 
-    def test_a_superseded_base_push_still_compiles_one_at_a_time(self):
-        """Merges land about once a minute, so nearly every feat-cmux-next push is superseded before its
-        preflight runs; it still compiles, one running and the newest waiting (2026-10-21: 0 of 40 compiled)."""
+    def test_a_superseded_base_push_skips_before_queueing(self):
+        """A superseded push does not occupy the Release compile queue."""
         context = self.context([], event="push")
         context["needs.push-head-preflight.outputs.current"] = "false"
-        self.assertTrue(self.runs(context))
+        context["github.run_id"] = "7"
+        self.assertFalse(self.runs(context))
         self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
         group = self.job()["concurrency"]
-        self.assertEqual(evaluate(group["group"], context), "cmux-next-push-refs/heads/feat-cmux-next-release-compile")
+        self.assertEqual(evaluate(group["group"], context), "cmux-next-release-compile-7")
         self.assertIs(group["cancel-in-progress"], False)
         # A superseded pull request run is still skipped (its run is cancelled anyway), and so is a main push.
         for event, ref in (("pull_request", "refs/pull/1/merge"), ("push", "refs/heads/main")):
