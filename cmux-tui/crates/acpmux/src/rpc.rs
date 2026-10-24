@@ -338,9 +338,11 @@ pub mod method {
     /// A file the person dropped into a chat, saved on the machine that runs it
     /// (`hub/file_uploads.rs`).
     pub const MUX_FILE_PUT: &str = "_acpmux/file_put";
-    /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
-    pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
-    pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
+    /// Resumable file uploads: begin a private part, append bounded chunks, then commit it.
+    pub const MUX_FILE_PUT_BEGIN: &str = "_acpmux/file_put_begin";
+    pub const MUX_FILE_PUT_CHUNK: &str = "_acpmux/file_put_chunk";
+    pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
+    pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
