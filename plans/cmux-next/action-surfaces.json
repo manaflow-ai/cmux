@@ -21558,6 +21558,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent toggle-ui-pointer",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.togglePointerInspector",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Point at cmux UI",
+      "title_key" : null,
+      "title_table" : null
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent quick",
       "context_menu" : "noObject",
       "context_menus" : [
