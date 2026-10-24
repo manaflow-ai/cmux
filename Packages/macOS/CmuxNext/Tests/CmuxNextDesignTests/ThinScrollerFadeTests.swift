@@ -15,7 +15,7 @@ struct ThinScrollerFadeTests {
     private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
-        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock)
+        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock, notificationCenter: NotificationCenter())
         SystemScrollers.followThin(scrollView)
         scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 800))
         scrollView.tile()

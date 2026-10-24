@@ -10,10 +10,12 @@ final class ThinScrollerProximity: NSResponder {
     private weak var host: NSView?
     private var area: NSTrackingArea?
     private var liveScroll: (any NSObjectProtocol)?
+    private let notificationCenter: NotificationCenter
 
     init(scroller: ThinScroller, host: NSView, notificationCenter: NotificationCenter) {
         self.scroller = scroller
         self.host = host
+        self.notificationCenter = notificationCenter
         super.init()
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
                                   owner: self, userInfo: nil)
@@ -36,7 +38,7 @@ final class ThinScrollerProximity: NSResponder {
     func detach() {
         if let area { host?.removeTrackingArea(area) }
         area = nil
-        if let liveScroll { NotificationCenter.default.removeObserver(liveScroll) }
+        if let liveScroll { notificationCenter.removeObserver(liveScroll) }
         liveScroll = nil
     }
 
