@@ -2,7 +2,10 @@ import Darwin
 import Dispatch
 import Foundation
 
+private func uiLayerSignalHandler(_ signalNumber: Int32) {}
+
 @main
+@MainActor
 struct UiLayerSourceWatcherMain {
     static func main() {
         do {
@@ -48,6 +51,7 @@ private enum WatchError: LocalizedError {
     }
 }
 
+@MainActor
 private final class SourceSupervisor {
     private let options: WatchOptions
     private var child: Process?
@@ -71,12 +75,12 @@ private final class SourceSupervisor {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [
             "swift", "run", "--package-path", options.package.path,
-            "--product", "cmux-ui-layer", "--",
+            "cmux-ui-layer", "--",
         ] + options.hostArguments
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
         process.terminationHandler = { [weak self] process in
-            DispatchQueue.main.async { self?.childExited(process.terminationStatus) }
+            Task { @MainActor in self?.childExited(process.terminationStatus) }
         }
         do {
             try process.run()
@@ -129,7 +133,9 @@ private final class SourceSupervisor {
             eventMask: [.write, .rename, .delete],
             queue: .main
         )
-        source.setEventHandler { [weak self] in self?.sourceChanged(url) }
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in self?.sourceChanged(url) }
+        }
         source.setCancelHandler { close(descriptor) }
         source.resume()
         watchers.append(source)
@@ -137,9 +143,14 @@ private final class SourceSupervisor {
 
     private func installSignalHandlers() {
         for signalNumber in [SIGINT, SIGTERM] {
-            signal(signalNumber, SIG_IGN)
+            // A caught signal is reset to the default disposition across exec;
+            // SIG_IGN would be inherited by the Swift host and make terminate()
+            // unable to stop it for a source reload.
+            signal(signalNumber, uiLayerSignalHandler)
             let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
-            source.setEventHandler { [weak self] in self?.shutdown() }
+            source.setEventHandler { [weak self] in
+                Task { @MainActor in self?.shutdown() }
+            }
             source.resume()
             signalSources.append(source)
         }

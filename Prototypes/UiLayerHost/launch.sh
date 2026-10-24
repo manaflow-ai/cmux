@@ -92,7 +92,7 @@ if (( watch )); then
   else
     watch_args+=(--snapshot "$snapshot")
   fi
-  exec swift run --package-path "$package" --product cmux-ui-layer-watch -- "${watch_args[@]}"
+  exec swift run --package-path "$package" cmux-ui-layer-watch -- "${watch_args[@]}"
 fi
 
 if (( ! watch )); then
