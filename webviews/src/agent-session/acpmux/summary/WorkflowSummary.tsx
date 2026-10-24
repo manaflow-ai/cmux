@@ -37,7 +37,11 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
   const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
   return (
     <>
-      {ticking && signals.capacity && <output className="acpmux-workflow__warning">{t("workflow.capacity")}</output>}
+      {ticking && signals.capacity && (
+        <p className="acpmux-workflow__warning">
+          <output>{t("workflow.capacity")}</output>
+        </p>
+      )}
       {workflows.map((workflow) => (
         <WorkflowSummaryRow
           key={workflow.id}
@@ -169,7 +173,9 @@ export function WorkflowSummaryRow({
             <p className="acpmux-summary-meta">{t("workflow.projectedTokens", { tokens: workflow.projectedTokens })}</p>
           )}
           {workflow.runId && !actions.onPullAgent && (
-            <output className="acpmux-summary-meta">{t("workflow.detailUnavailable")}</output>
+            <p className="acpmux-summary-meta">
+              <output>{t("workflow.detailUnavailable")}</output>
+            </p>
           )}
           {workflow.large && (
             <p className="acpmux-workflow__warning" role="alert">

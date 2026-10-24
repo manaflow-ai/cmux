@@ -220,7 +220,9 @@ public final class UpdaterService {
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
-            let controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
+            let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
+                                              isDisabledByPolicy: { policy.disablesUpdates })
             // Never prompt: download in the background and wait for a click.
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.

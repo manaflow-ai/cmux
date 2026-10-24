@@ -42,6 +42,6 @@ pub async fn deliver(
     provenance: Option<&Value>,
 ) -> Result<Value> {
     let prompt =
-        PromptId { id: prompt_id.to_owned(), resend: true, from_agent: None, supersede: None };
+        PromptId { id: prompt_id.to_owned(), resend: true, from_agent: None, supersede: None, cli_host: None };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }
