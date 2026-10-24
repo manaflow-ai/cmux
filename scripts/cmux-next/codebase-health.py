@@ -487,7 +487,7 @@ def report(repo: Path) -> str:
     w("lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it")
     w("is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file")
     w("does not count. Removed lines pay only when they were debt in the base (same context and escape rules), and an")
-    w("unchanged line counts when the push changes its context (a new loop around a sleep, `struct` -> `class`). Lines a")
+    w("unchanged line counts when the push changes its context (`struct` -> `class` around a static, a view renamed to a row). Lines a")
     w("push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,")
     w("why, the right pattern and the escape. One rule is not per line: `app-size` is a net count over the push in")
     w("CmuxNextApp source lines (CI's lexer, as `check-app-size.sh --base` counts them), where removed App lines pay")

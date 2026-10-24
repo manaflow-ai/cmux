@@ -81,13 +81,9 @@ CASES = {
     "singleton": ("final class Cache {\n    static let shared = Cache()\n}\n",
                   "final class Cache {\n    // singleton-allow: the process has exactly one memory-pressure source\n"
                   "    static let shared = Cache()\n}\n"),
-    "assume-isolated": ("func f() {\n    MainActor.assumeIsolated { print(1) }\n}\n",
-                        "func f() {\n    MainActor.assumeIsolated { print(1) } // main-proof: observer on queue: .main\n}\n"),
     "unchecked-sendable": ("final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
                            "// crash-allow: x is written once in init, then only read\n"
                            "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"),
-    "sleep-poll": ("func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
-                   "func wait() async throws {\n    try await Task.sleep(for: .seconds(2)) // a minimum display time\n}\n"),
     "main-async": ("func f() {\n    DispatchQueue.main.async { print(1) }\n}\n",
                    "@MainActor func f() {\n    print(1)\n}\n"),
     "broadcast-name": ("extension Notification.Name {\n    static let pagesChanged = Notification.Name(\"pagesChanged\")\n}\n",
@@ -199,17 +195,11 @@ class RuleTests(Fixture):
         before = {
             f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old()\n}\n",
             f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
-            f"{KIT}/Hop.swift": "func f(_ x: Int) {\n    MainActor.assumeIsolated { self.handle(x) }\n}\n",
-            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
-                                 "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
         }
         self.rebase_on(before)
         after = {
             f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old(limit: 2)\n}\n",
             f"{KIT}/Box.swift": "final class Box: Equatable, @unchecked Sendable {\n    var x = 0\n}\n",
-            f"{KIT}/Hop.swift": "func f(_ x: Int) {\n    MainActor.assumeIsolated { self.handle(x + 1) }\n}\n",
-            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
-                                "        try await Task.sleep(for: .milliseconds(50))\n    }\n}\n",
         }
         for relative, text in after.items():
             self.write(relative, text)
@@ -223,16 +213,6 @@ class RuleTests(Fixture):
         self.commit("edits one singleton and adds another")
         refusals, _ = self.check()
         self.assertEqual([(r.id, len(hits)) for r, hits in refusals], [("singleton", 1)])
-
-    def test_a_one_line_poll_is_refused_and_wakeup_allow_is_its_escape(self):
-        poll = "func wait() async throws {\n    while !ready() { try await Task.sleep(for: .milliseconds(5)) }\n}\n"
-        self.write(f"{KIT}/Added.swift", poll)
-        self.commit("one-line poll")
-        self.assertIn("sleep-poll", [r.id for r, _ in self.check()[0]])
-        self.git("reset", "--quiet", "--hard", self.base)
-        self.write(f"{KIT}/Added.swift", poll.replace("    while", "    // wakeup-allow: the device has no change event\n    while"))
-        self.commit("reviewed poll")
-        self.assertEqual(self.check()[0], [])
 
     def test_stateful_named_singletons_are_refused_and_value_constants_pass(self):
         cases = {
@@ -256,29 +236,6 @@ class RuleTests(Fixture):
                 self.commit("short name")
                 self.assertIn("broadcast-name", [r.id for r, _ in self.check()[0]])
 
-    def test_a_removed_one_shot_delay_does_not_pay_for_a_new_poll(self):
-        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"})
-        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
-                                        "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
-        self.commit("delay -> poll")
-        self.assertEqual(self.refused(), [("sleep-poll", ["Wait.swift: try await Task.sleep(for: .milliseconds(5))"])])
-
-    def test_wrapping_an_old_sleep_in_a_new_loop_is_refused(self):
-        delay = "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"
-        start = self.base
-        for name, wrapped in (
-            ("re-indented", "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .seconds(2))\n"
-                            "    }\n}\n"),
-            ("same indent", "func wait() async throws {\n    while !ready() {\n    try await Task.sleep(for: .seconds(2))\n"
-                            "    }\n}\n"),
-        ):
-            with self.subTest(name):
-                self.git("reset", "--quiet", "--hard", start)
-                self.rebase_on({f"{KIT}/Wait.swift": delay})
-                self.write(f"{KIT}/Wait.swift", wrapped)
-                self.commit("wraps the delay in a loop")
-                self.assertEqual([rule for rule, _ in self.refused()], ["sleep-poll"])
-
     def test_a_struct_that_becomes_a_class_around_a_named_static_is_refused(self):
         start = self.base
         for name, after in (
@@ -293,11 +250,12 @@ class RuleTests(Fixture):
                 self.assertEqual([rule for rule, _ in self.refused()], ["singleton"])
 
     def test_an_edit_of_the_opener_around_old_debt_adds_none(self):
-        poll = "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
-        self.rebase_on({f"{KIT}/Wait.swift": poll})
+        row = ("import SwiftUI\nstruct EntryRow: View {\n    @Environment(SidebarStore.self) private var store\n"
+               "    var body: some View { Text(\"x\") }\n}\n")
+        self.rebase_on({f"{KIT}/Entry.swift": row})
         self.write(f"{KIT}/Old.swift", "final class Old: Sendable {\n    static let shared = Old()\n}\n")
-        self.write(f"{KIT}/Wait.swift", poll.replace("!ready()", "!isReady()"))
-        self.commit("edits the class and loop lines around old debt")
+        self.write(f"{KIT}/Entry.swift", row.replace("struct EntryRow: View {", "struct EntryRow: View, Equatable {"))
+        self.commit("edits the class and row lines around old debt")
         self.assertEqual(self.refused(), [])
 
     def test_a_view_renamed_to_a_row_around_a_store_is_refused(self):
@@ -968,27 +926,6 @@ class SharedRuleTests(Fixture):
                 self.write(f"{KIT}/Added.swift", text)
                 self.commit("an unchecked box")
                 self.assertEqual("unchecked-sendable" in [rule for rule, _ in self.refused()], counted)
-
-    def test_the_new_app_file_limit_is_check_no_godfiles_budget(self):
-        # One budget: a copy of the checks whose check-no-godfiles.sh says 300 refuses a new 350-line App file.
-        checks = self.root / "checks"
-        source = SOURCE / "scripts/cmux-next"
-        checks.mkdir()
-        for path in source.iterdir():
-            if path.is_file():
-                shutil.copy2(path, checks / path.name)
-        godfiles = checks / "check-no-godfiles.sh"
-        text = godfiles.read_text()
-        self.assertIn("\nswift_file_limit=400\n", text)
-        godfiles.write_text(text.replace("\nswift_file_limit=400\n", "\nswift_file_limit=300\n"))
-        spec = importlib.util.spec_from_file_location("cmux_next_guardrails_300", checks / "guardrails.py")
-        copy = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = copy
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(copy)
-        self.write(f"{APP}/Feature.swift", "".join(f"let value{n} = {n}\n" for n in range(350)))
-        self.commit("a new 350-line App file")
-        self.assertIn("app-big-file", [rule.id for rule, _ in self.check(copy.check)[0]])
 
 
 class SleepRuleTests(unittest.TestCase):

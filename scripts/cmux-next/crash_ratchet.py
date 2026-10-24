@@ -355,8 +355,14 @@ def swift_code(line):
     return "".join(out)
 
 
+def allow_lines(lines, index):
+    """The 0-based lines whose `// crash-allow:` waives LINES[INDEX]: the line itself and the line directly
+    above. guardrails.py reads the same window, so it never passes a line this ratchet counts."""
+    return [index, index - 1] if index > 0 else [index]
+
+
 def allowed(lines, index):
-    return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
+    return any(ALLOW.search(lines[i]) for i in allow_lines(lines, index))
 
 
 # --exported-tree: REPO is a tree of tracked files only (git archive of a ref), so every file
@@ -569,7 +575,8 @@ def scan_swift(repo, counts, banned_files=None):
 def load_allowlist():
     if not os.path.exists(ALLOWLIST):
         return {"banned": [], "allow": []}
-    data = json.load(open(ALLOWLIST))
+    with open(ALLOWLIST, encoding="utf-8") as handle:
+        data = json.load(handle)
     data.setdefault("banned", [])
     data.setdefault("allow", [])
     return data
