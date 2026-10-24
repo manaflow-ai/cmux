@@ -83,4 +83,44 @@ import Testing
         #expect(store.index.tabsBySurface[SurfaceID(rawValue: 4 * 100 + 10)] == nil)
         #expect(store.index.tabsBySurface[SurfaceID(rawValue: 42 * 100 + 10)] != nil)
     }
+
+    /// Review 1 of pl-main-bc: after the off-main diff, the main actor still compared every
+    /// workspace's whole snapshot with the memo (recordSnapshotMemo) and copied the memo's
+    /// dictionary: O(session) on main per snapshot. A live resync hands main its diff; main walks
+    /// no workspace snapshot for the memo.
+    @Test(arguments: [50, 500])
+    func aLiveResyncWithItsOffMainDiffWalksNoWorkspaceSnapshotOnMain(sessionSize: Int) async {
+        let store = DaemonStore()
+        store.apply(snapshot: session(sessionSize))
+        let next = session(sessionSize, changing: 7)
+        let memo = store.snapshotMemo
+        let diff = await SnapshotDiff.computed(next, against: memo.applied, revision: memo.revision)
+        let before = store.snapshotWorkspacesWalkedOnMain
+        store.apply(snapshot: next, diff: diff)
+        let walked = store.snapshotWorkspacesWalkedOnMain - before
+        #expect(walked == 0, "main walked \(walked) workspace snapshots in a \(sessionSize)-workspace session")
+        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
+        // The memo vouches for the tree it applied: the same snapshot again differs nowhere.
+        let again = await SnapshotDiff.computed(next, against: store.snapshotMemo.applied, revision: store.snapshotMemo.revision)
+        #expect(again.changed.isEmpty)
+        #expect(store.snapshotMemo.applied.count == sessionSize)
+    }
+
+    /// Review 1 of pl-main-bc: a snapshot that changes only the saved groups (a group saved or
+    /// unsaved while its live group's own snapshot stays the same) left `isSaved` stale on the
+    /// live group, because the incremental apply primed only the workspaces that changed.
+    @Test func savingOrUnsavingAGroupInASnapshotThatChangesOnlyTheSavedGroupsMarksItsLiveGroup() throws {
+        let store = DaemonStore()
+        var workspaces = session(5).workspaces
+        workspaces[2].screens[0].panes[0].tabGroups = [
+            TabGroupSnapshot(id: "g", surfaces: [SurfaceID(rawValue: 2 * 100 + 10)], pane: PaneID(rawValue: 2 * 100 + 1)),
+        ]
+        store.apply(snapshot: DaemonTree(workspaces: workspaces))
+        let group = try #require(store.index.tabGroupsByID["g"])
+        #expect(!group.isSaved)
+        store.apply(snapshot: DaemonTree(workspaces: workspaces, savedTabGroups: [SavedTabGroupSnapshot(id: "s", openGroup: "g")]))
+        #expect(group.isSaved, "the saved record now names the open group")
+        store.apply(snapshot: DaemonTree(workspaces: workspaces))
+        #expect(!group.isSaved, "the saved record is gone")
+    }
 }
