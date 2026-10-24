@@ -79,7 +79,7 @@ final class BrowserHibernation {
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     /// The memory pressure events it follows, made by `AppServices` (tests pass their own).
     private let memoryPressure: MemoryPressureEvents
-    private var pressureObservation: MainActorHandlerRegistration<KernelMemoryPressure>?
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     /// Memory pressure changed (the App resizes the terminal warm set).
@@ -140,12 +140,12 @@ final class BrowserHibernation {
         NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
     }
 
-    /// Starts listening to memory pressure (`memoryPressure`'s dispatch source; no polling). Each event
-    /// arrives synchronously on the main queue, so none lands after `stop()`.
+    /// Starts following memory pressure (`memoryPressure`; event-driven, no polling). Each level arrives
+    /// on the main actor and `stop()` cancels the registration at once, so none lands after `stop()`.
     func start() {
         guard pressureObservation == nil else { return }
         pressureObservation = memoryPressure.observe { [weak self] pressure in
-            self?.pressureDidChange(MemoryPressureLevel(pressure))
+            self?.pressureDidChange(pressure)
         }
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
     }
@@ -687,15 +687,4 @@ struct PageProbe {
 
 private extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
-}
-
-private extension MemoryPressureLevel {
-    /// The level for the kernel's memory pressure event.
-    init(_ pressure: KernelMemoryPressure) {
-        switch pressure {
-        case .normal: self = .normal
-        case .warning: self = .warning
-        case .critical: self = .critical
-        }
-    }
 }
