@@ -30,7 +30,9 @@ test("a long transcript reuses its ordered snapshot between metadata emissions",
   const started = performance.now();
   const snapshots = Array.from({ length: 20 }, () => rows.sorted());
   const elapsed = performance.now() - started;
-  console.log(`transcript-perf rows=${EVENT_COUNT} repeatedSnapshots=20 elapsedMs=${elapsed.toFixed(2)} repeatedTurns=20 turnViewElapsedMs=${viewElapsed.toFixed(2)}`);
+  console.log(
+    `transcript-perf rows=${EVENT_COUNT} repeatedSnapshots=20 elapsedMs=${elapsed.toFixed(2)} repeatedTurns=20 turnViewElapsedMs=${viewElapsed.toFixed(2)}`,
+  );
 
   expect(views.every((view) => view === previous)).toBe(true);
   expect(snapshots.every((snapshot) => snapshot === first)).toBe(true);
