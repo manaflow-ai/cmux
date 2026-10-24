@@ -39,8 +39,11 @@ public final class BackdropCatalogStore {
     /// - Parameter list: Builds the catalog. It runs on a background task, never on the main actor.
     public init(list: @escaping @Sendable () -> BackdropCatalog) {
         self.list = list
-        pageRows = BackdropCatalog.unlisted.pageRows
+        pageRows = Self.unlistedRows
     }
+
+    /// ``BackdropCatalog/unlisted``'s page rows, built once per process.
+    private static let unlistedRows = BackdropCatalog.unlisted.pageRows
 
     /// Lists the folders again on a background task. A refresh while one runs lists once more
     /// after it (the folders may have changed since it started); more refreshes meanwhile add
@@ -54,12 +57,17 @@ public final class BackdropCatalogStore {
         let list = list
         // task-owner: one listing at a time; it ends after one folder read and, when asked meanwhile, starts the next
         listing = Task { [weak self] in
-            let next = await Task.detached(priority: .userInitiated) { list() }.value
+            // The rows too: each art row's title and credit are localized and formatted strings
+            // (sweep 2026-10-23: BackdropArt.label in pageRows, 24 ms on main).
+            let (next, rows) = await Task.detached(priority: .userInitiated) { () -> (BackdropCatalog, JSONValue) in
+                let catalog = list()
+                return (catalog, catalog.pageRows)
+            }.value
             guard let self else { return }
             self.listing = nil
             if next != self.catalog {
                 self.catalog = next
-                self.pageRows = next.pageRows
+                self.pageRows = rows
             }
             if self.listAgain {
                 self.listAgain = false
