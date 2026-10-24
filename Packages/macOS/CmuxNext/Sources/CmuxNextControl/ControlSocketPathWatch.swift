@@ -81,6 +81,9 @@ final class ControlSocketPathWatch: Sendable {
     /// Follow the listener of a foreign live socket that holds the path in a shared directory,
     /// not the directory.
     private let yieldsToHeldPath: Bool
+    /// Connects to the socket at a path to see who holds it (``ControlSocketServer/probe(_:)``;
+    /// tests pass a stand-in).
+    private let probe: @Sendable (String) -> ControlSocketServer.ProbeResult
     // Lock carve-out: stop() runs off `queue` and must cancel the installed watch synchronously
     // (deinit); held only to swap one small value, never across a call out.
     private let installed = Mutex(InstalledWatch())
@@ -131,10 +134,17 @@ final class ControlSocketPathWatch: Sendable {
         }
     }
 
-    init(path: String, queue: DispatchQueue, yieldsToHeldPath: Bool = false, onMissing: @escaping @Sendable () -> Bool) {
+    init(
+        path: String,
+        queue: DispatchQueue,
+        yieldsToHeldPath: Bool = false,
+        probe: @escaping @Sendable (String) -> ControlSocketServer.ProbeResult = { ControlSocketServer.probe($0) },
+        onMissing: @escaping @Sendable () -> Bool
+    ) {
         self.path = path
         self.queue = queue
         self.yieldsToHeldPath = yieldsToHeldPath
+        self.probe = probe
         self.onMissing = onMissing
     }
 
@@ -208,7 +218,7 @@ final class ControlSocketPathWatch: Sendable {
         // A file this watch cannot open holds the path (a socket file, mostly).
         let held = FileIdentity(info)
         if shared {
-            let probed = ControlSocketServer.probe(path)
+            let probed = probe(path)
             switch probed {
             case .accepted(let listener?) where canFollow(listener):
                 // Another app's live socket: nothing can be made there until its listener ends,

@@ -309,6 +309,142 @@ import Testing
                 "the path was not taken back when the new listener ended")
     }
 
+    /// A probe that fails for a moment (EAGAIN, or a short shortage such as EMFILE or ENOBUFS)
+    /// says nothing about the socket file. The watch recorded the held file for every outcome it
+    /// could not follow, so the same file was never probed again: a live listener held the path,
+    /// the watch stayed on /tmp for the whole run (two lstats per write there by any process) and
+    /// never followed the listener, so the link was not made when it ended. A transient outcome is
+    /// now probed again on the next /tmp event, which follows the listener.
+    @Test func aHeldSocketWhoseProbeFailsForAMomentIsProbedAgain() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let descriptor = try liveSocket(at: path)  // this test process is the listener to follow
+        defer { close(descriptor); unlink(path) }
+        let queue = DispatchQueue(label: "test.path-watch")
+        let probes = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true, probe: { path in
+            // The first connect fails for the moment; later ones reach the listener.
+            probes.value.add(1, ordering: .relaxed).oldValue == 0 ? .inconclusive(EAGAIN) : ControlSocketServer.probe(path)
+        }) { true }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        #expect(probes.value.load(ordering: .relaxed) == 1)
+
+        let checks = watch.checks.load(ordering: .relaxed)
+        try writeInTmp()
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checks }, "the watch is not on /tmp")
+        queue.sync {}
+        #expect(probes.value.load(ordering: .relaxed) >= 2, "a /tmp event did not probe the held socket again")
+
+        // It follows the listener now, not /tmp.
+        let settled = watch.checks.load(ordering: .relaxed)
+        for _ in 0..<20 { try writeInTmp() }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "a probe that failed for a moment kept the watch on /tmp")
+    }
+
+    /// A socket that appears at the link path is often a live app between bind() and listen()
+    /// (a classic cmux binds, chmods, then listens; this app's server renames its socket into place
+    /// and then listens): a connect then is refused. The watch ran the link's restore on that
+    /// refused socket of this user, and the restore (makeLink) unlinked it, so the other app
+    /// listened on an unlinked file. Only a file the watch did not see appear (at start, or left
+    /// by a listener whose exit it followed) is given to the restore; a socket that appears is
+    /// probed again on the next event and followed once it listens.
+    @Test func aSocketThatAppearsBeforeItListensIsNotReplaced() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        defer { unlink(path) }
+        let queue = DispatchQueue(label: "test.path-watch")
+        let heldRestores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            // Only restores asked while a file is at the path count: with the path empty the
+            // restore runs (and fails here, as one that loses the path does) by design.
+            if FileIdentity.at(path) != nil { heldRestores.value.add(1, ordering: .relaxed) }
+            return false
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+
+        let checksBeforeBind = watch.checks.load(ordering: .relaxed)
+        // The bind is one /tmp event. Made on the watch's queue: no check of the empty path (whose
+        // restore is asked with nothing there) can run across it.
+        let descriptor = try queue.sync { try liveSocket(at: path, listening: false) }
+        defer { close(descriptor) }
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checksBeforeBind }, "the watch is not on /tmp")
+        queue.sync {}
+        for _ in 0..<3 {
+            let checks = watch.checks.load(ordering: .relaxed)
+            try writeInTmp()
+            #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checks })
+            queue.sync {}
+        }
+        #expect(heldRestores.value.load(ordering: .relaxed) == 0, "the restore ran on a socket that had not listened yet")
+        #expect(FileIdentity.at(path) != nil, "the new socket was removed")
+
+        // It listens now: the next /tmp event follows it.
+        try #require(listen(descriptor, 8) == 0)
+        let checks = watch.checks.load(ordering: .relaxed)
+        try writeInTmp()
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checks })
+        queue.sync {}
+        let settled = watch.checks.load(ordering: .relaxed)
+        for _ in 0..<20 { try writeInTmp() }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "the watch did not follow the socket once it listened")
+        #expect(heldRestores.value.load(ordering: .relaxed) == 0)
+    }
+
+    /// On macOS a connect to a listener whose accept queue is full is refused (ECONNREFUSED, the
+    /// same answer as no listener; Linux says EAGAIN), as for a classic cmux that hangs while its
+    /// CLI clients keep connecting. The watch took that refusal of a socket that appeared at the
+    /// path as final: it ran the restore on it once and then recorded the file, so it never
+    /// probed it again and stayed on /tmp after the listener drained its queue. A refused probe
+    /// is now probed again on the next event, and the restore never runs on it.
+    @Test func aLiveListenerWithAFullBacklogIsFollowedOnceItDrains() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let staging = path + ".staging"
+        let descriptor = try liveSocket(at: staging)  // listen(fd, 1)
+        defer { close(descriptor); unlink(path); unlink(staging) }
+        var full = false
+        for _ in 0..<16 where !full {
+            // Each accepted probe leaves its closed connection in the queue until accept().
+            full = ControlSocketServer.probe(staging) == .refused
+        }
+        try #require(full, "the listen backlog did not fill")
+
+        let queue = DispatchQueue(label: "test.path-watch")
+        let heldRestores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            if FileIdentity.at(path) != nil { heldRestores.value.add(1, ordering: .relaxed) }
+            return false
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        let checksBeforeRename = watch.checks.load(ordering: .relaxed)
+        // One /tmp event, whose probe is refused. Renamed on the watch's queue: no check of the
+        // empty path (whose restore is asked with nothing there) can run across it.
+        try #require(queue.sync { rename(staging, path) } == 0)
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checksBeforeRename }, "the watch is not on /tmp")
+        queue.sync {}
+        #expect(heldRestores.value.load(ordering: .relaxed) == 0, "the restore ran on a live listener with a full backlog")
+
+        // The listener drains its queue; the next /tmp event follows it.
+        #expect(Self.pendingConnections(descriptor) > 0)
+        let checks = watch.checks.load(ordering: .relaxed)
+        try writeInTmp()
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checks })
+        queue.sync {}
+        let settled = watch.checks.load(ordering: .relaxed)
+        for _ in 0..<20 { try writeInTmp() }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "the watch stayed on /tmp after the backlog drained")
+        #expect(heldRestores.value.load(ordering: .relaxed) == 0)
+    }
+
     /// Takes every connection waiting in `listener`'s accept queue (closed ones too) and returns
     /// how many there were.
     static func pendingConnections(_ listener: Int32) -> Int {
