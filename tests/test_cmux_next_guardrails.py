@@ -987,6 +987,34 @@ class WarningTests(Fixture):
         self.assertIn("a590", owners[0])
         self.assertIn("plans/cmux-next/sidebar-owner.md", owners[0])
 
+    def test_the_owned_areas_of_the_plan_warn_with_their_owner(self):
+        # plans/cmux-next/OWNERS.md as it ships: each area perf-lead.md and the lead brief assign has a row whose
+        # globs cover its code paths, so a push there names the owner.
+        self.write("plans/cmux-next/OWNERS.md", (SOURCE / "plans/cmux-next/OWNERS.md").read_text())
+        self.commit("the shipped owner map")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        expected = {
+            f"{PKG}/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift": ["PL-ghostty", "PL-typing"],
+            f"{PKG}/Sources/CmuxNextTerminal/GhosttyRuntime.swift": ["PL-ghostty"],
+            f"{PKG}/Sources/CmuxNextApp/GhosttyConfigLiveReload.swift": ["PL-ghostty"],
+            "cmux-tui/crates/cmux-tui-core/src/service.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon holder"],
+            "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon holder"],
+            "cmux-tui/crates/acpmux/src/lib.rs": ["PL-acpmux"],
+            f"{PKG}/Sources/CmuxNextHangReports/HangReportService.swift": ["PL-telemetry"],
+            f"{PKG}/Sources/CmuxNextApp/HangReports/HangReportsController.swift": ["PL-telemetry"],
+            f"{PKG}/Sources/CmuxNextApp/Windows/WindowState.swift": ["PL-switch"],
+            f"{PKG}/Sources/CmuxNextApp/Windows/WindowRegistry+Selection.swift": ["PL-switch"],
+        }
+        for path, owners in expected.items():
+            with self.subTest(path=path):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, "// touched\n")
+                self.commit(f"touches {path}")
+                warned = [w for kind, w in self.check()[1] if kind == "owner"]
+                for owner in owners:
+                    self.assertTrue(any(f"owner {owner}" in w for w in warned), (owner, warned))
+
     def test_a_typical_push_runs_git_a_fixed_number_of_times(self):
         # The cost that grows with a push is git process starts, so count them instead of timing a busy runner:
         # one diff, one name list and one batched blob read, however many files the push changes.
