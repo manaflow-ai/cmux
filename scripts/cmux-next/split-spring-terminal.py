@@ -83,6 +83,11 @@ if "--suite=sidebar-churn" in sys.argv:
 if "--suite=automation-typing" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation-typing-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=automation-typing"])
+# `--suite=script-storm`: terminal typing and Cmd-D / Cmd-W while a script storms background workspaces (sidebar
+# reorders, tab moves, New Column/Row, renames, action.batch), light and STRESS, scripts/cmux-next/script-storm-bench.py.
+if "--suite=script-storm" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script-storm-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=script-storm"])
 # `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
 # split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
 # yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
