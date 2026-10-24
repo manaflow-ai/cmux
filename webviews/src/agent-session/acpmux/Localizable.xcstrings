@@ -223409,6 +223409,26 @@
         }
       }
     },
+    "newTab.widget.clock": {
+      "comment": "Accessible name for the optional New Tab clock widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Clock"}}}
+    },
+    "newTab.widget.timer": {
+      "comment": "Accessible name for the optional New Tab stopwatch widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Stopwatch"}}}
+    },
+    "newTab.widget.warmGreeting": {
+      "comment": "Accessible name for the optional New Tab time-of-day greeting widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Time of day"}}}
+    },
+    "newTab.widget.quote": {
+      "comment": "Accessible name for the optional New Tab quote widget.",
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Quote"}}}
+    },
     "subagents.openOnHost": {
       "comment": "Agent pane: tooltip of a received message's sender chip; {host} is the other machine its chat runs on",
       "extractionState": "manual",
