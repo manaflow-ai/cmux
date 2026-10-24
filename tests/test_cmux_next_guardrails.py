@@ -11,6 +11,7 @@ import dataclasses
 import importlib.util
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -411,6 +412,22 @@ class RuleTests(Fixture):
         failed = [text for kind, text in warnings if kind == "guardrails"]
         self.assertEqual(len(failed), 1, warnings)
         self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
+
+    def test_a_refusal_names_only_crash_ratchet_options_that_exist(self):
+        # The unchecked-sendable refusal sends the author to crash_ratchet.py: every option it names must run.
+        self.write(f"{KIT}/Added.swift", CASES["unchecked-sendable"][0])
+        self.commit("adds an unchecked Sendable")
+        refusals, _ = self.check()
+        self.assertEqual([r.id for r, _ in refusals], ["unchecked-sendable"])
+        text, refused = guardrails.format_report(refusals, [])
+        self.assertTrue(refused, text)
+        self.assertIn("crash_ratchet.py", text)
+        named = [option for options in re.findall(r"crash_ratchet\.py((?:\s+--[\w-]+)+)", text)
+                 for option in options.split()]
+        usage = subprocess.run([sys.executable, "-I", str(SOURCE / "scripts/cmux-next/crash_ratchet.py"), "--help"],
+                               capture_output=True, text=True, check=True).stdout
+        for option in named:
+            self.assertRegex(usage, rf"(^|\s|\[){re.escape(option)}\b", f"{option} is not a crash_ratchet.py option")
 
     def test_a_rule_that_raises_only_on_the_pushed_range_of_a_merge_is_warned_once(self):
         # A branch that merged feat-cmux-next in: check_push checks the pushed range and the branch's own range.
