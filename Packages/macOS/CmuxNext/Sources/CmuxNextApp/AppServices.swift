@@ -49,6 +49,8 @@ final class AppServices {
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
     let launchReveal: LaunchReveal
+    /// `debug.input_commit`: any key or click to its commit, with the workspaces it showed in its turn (switch-bench.py).
+    let inputCommit = InputCommitTimer(owner: "debug.input_commit")
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
@@ -545,6 +547,7 @@ final class AppServices {
         browserHost?.start()
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
+        (NSApp as? CmuxApplication)?.inputCommit = inputCommit
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
             self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
             self?.browserHost?.noteInput(event)
