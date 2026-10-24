@@ -144,6 +144,7 @@ fn serve() -> u16 {
                     "/clicks" => files::clicks_page(),
                     "/editing" => editing::editing_page(),
                     "/opener" => popups::opener_page(),
+                    "/rerender" => press::rerender_page(),
                     "/popup" => popups::popup_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
@@ -1285,6 +1286,10 @@ mod editing;
 // window.open popups with and without an opener (classic parity).
 #[path = "chromium/popups.rs"]
 mod popups;
+
+// The press target check and clicks on re-rendering targets (classic parity).
+#[path = "chromium/press.rs"]
+mod press;
 
 // HTML5 drag and drop (input.drag, parity 05).
 #[path = "chromium/drag.rs"]

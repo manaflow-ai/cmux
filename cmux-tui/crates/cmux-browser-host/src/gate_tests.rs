@@ -1484,3 +1484,36 @@ mod isolated;
 
 #[path = "gate_typing_tests.rs"]
 mod typing;
+
+/// An `input.mouse` press that names its target (`expect`) is checked right
+/// before it is sent: when the page put another element at the point, no
+/// press reaches the engine and the call fails `stale` (classic cmux
+/// BrowserReplPressTarget). The engine never sees `expect`.
+#[test]
+fn a_press_on_a_changed_target_is_never_sent() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    let press = |handle: &str| {
+        gate.driver_call(
+            "input.mouse",
+            json!({"targetId": "T", "type": "down", "x": 10, "y": 20, "button": "left", "clickCount": 1,
+                   "expect": {"frameId": null, "handle": handle, "x": 10, "y": 20, "owners": []}}),
+        )
+    };
+    driver.observed.lock().unwrap().insert("hitTarget".into(), json!("<div id=\"cover\"></div>"));
+    let error = press("h1").unwrap_err();
+    assert_eq!(error.code, ErrorCode::Stale);
+    assert_eq!(
+        error.message,
+        "no press was sent: <div id=\"cover\"></div> intercepts pointer events when the press was about to be sent (the page changed under the pointer)"
+    );
+    assert!(!methods(&driver).contains(&"input.mouse".to_owned()), "{:?}", methods(&driver));
+    driver.observed.lock().unwrap().insert("hitTarget".into(), json!("done"));
+    press("h1").unwrap();
+    let calls = driver.calls.lock().unwrap();
+    let (_, sent) =
+        calls.iter().rev().find(|(m, _)| m == "input.mouse").expect("the press was sent");
+    assert!(sent.get("expect").is_none(), "{sent}");
+    let (_, check) = calls.iter().rev().find(|(m, _)| m == "frame.observe").expect("the check ran");
+    assert_eq!(check["method"], "hitTarget");
+    assert_eq!(check["args"], json!(["h1", {"x": 10, "y": 20}, "button-link"]));
+}
