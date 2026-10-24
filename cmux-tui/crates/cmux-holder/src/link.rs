@@ -60,6 +60,28 @@ struct State {
     open: bool,
 }
 
+/// A SPAWN that started no terminal: the holder refused it (its ERROR
+/// answer), or the link was already lost before it went out.
+#[derive(Debug)]
+struct NotStarted(String);
+
+impl std::fmt::Display for NotStarted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NotStarted {}
+
+/// Whether a [`HolderLink::spawn`] that failed with `error` may still have
+/// left its terminal on the holder: every failure but a refusal or a link
+/// lost before the SPAWN went out (a timeout, a link that broke after it,
+/// a malformed SPAWNED). The caller ends such a terminal on its next link
+/// to the same holder.
+pub fn spawn_may_have_started(error: &io::Error) -> bool {
+    !error.get_ref().is_some_and(|inner| inner.is::<NotStarted>())
+}
+
 /// A holder's answer to an ADOPT, still on its way ([`HolderLink::adopt`]):
 /// several ADOPTs go out before the first answer is waited for.
 pub struct PendingAdopt(Option<Receiver<AdoptReply>>);
@@ -167,7 +189,9 @@ impl HolderLink {
     /// start the terminal: the spawn fails, and the holder is told to end
     /// that terminal (a CLOSE now, and another one when its late SPAWNED
     /// arrives), so no shell keeps running, blocked behind output nobody
-    /// acknowledges, for the life of the link.
+    /// acknowledges, for the life of the link. A CLOSE written to a link
+    /// that broke is lost: the caller ends such a terminal on its next link
+    /// to the same holder ([`spawn_may_have_started`]).
     pub fn spawn(
         &self,
         chan: u32,
@@ -178,7 +202,10 @@ impl HolderLink {
         {
             let mut state = self.lock();
             if !state.open {
-                return Err(lost());
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    NotStarted("holder link lost".to_string()),
+                ));
             }
             state.sinks.insert(chan, sink);
             state.spawns.insert(chan, reply);
@@ -200,8 +227,8 @@ impl HolderLink {
             state.spawns.remove(&chan);
         }
         if timed_out {
-            // Best effort: a link that broke meanwhile is lost, and the
-            // daemon ends the terminals a new link lists that it does not own.
+            // Best effort: on a link that broke meanwhile the CLOSE is lost,
+            // and the caller sends it again on its next link to the holder.
             let _ = self.close(chan, UNOWNED_CLOSE_GRACE_MS);
         }
         result
@@ -429,7 +456,7 @@ fn read_loop(
                     if request == Kind::Spawn as u16
                         && let Some(waiter) = link.lock().spawns.remove(&chan)
                     {
-                        let _ = waiter.try_send(Err(io::Error::other(message)));
+                        let _ = waiter.try_send(Err(io::Error::other(NotStarted(message))));
                     } else if request == Kind::Adopt as u16
                         && let Some(waiter) = link.lock().adopts.remove(&chan)
                     {
