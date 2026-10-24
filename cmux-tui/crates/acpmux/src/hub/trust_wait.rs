@@ -308,7 +308,8 @@ impl Hub {
     /// Whether a start in `cwd` (resolved) takes the trust of `parent`'s own folder instead of a
     /// card (Leo, 2026-10-24, on a card a chat in full access raised: "why did this even happen in
     /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
-    /// access by its mode or command (`subsession_guard.rs` `Access::Full`), outside a Web turn;
+    /// access by its mode or command (`subsession_guard.rs` `Access::Full`), outside a Web turn and
+    /// never a chat a Web client started (`remote_origin`);
     /// `cwd` is the parent's own folder or under it; a decision trusts that folder for the parent's
     /// agent (a person's answer, the agent's own level, or a folder cmux made: never an auto-trust
     /// rule alone); and nobody marked `cwd` untrusted. Any other start keeps its card, and the
@@ -326,7 +327,8 @@ impl Hub {
             return false;
         }
         let pm = parent.meta();
-        if self.caller_access(&pm) != super::subsession_guard::Access::Full {
+        // A Web client's chat stays one after a local turn: only the person's own chats lend trust.
+        if pm.remote_origin || self.caller_access(&pm) != super::subsession_guard::Access::Full {
             return false;
         }
         let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };

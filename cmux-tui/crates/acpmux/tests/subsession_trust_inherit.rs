@@ -39,9 +39,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn new(hub: &Arc<Hub>) -> Self {
+        Self::from(hub, Origin::Local)
+    }
+
+    fn from(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
     }
 
@@ -153,6 +157,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "full/bad",
         "asks/lanes",
         "undecided/lanes",
+        "web/lanes",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -244,6 +249,31 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(
         start_waits_on_a_card(&hub, &mut app, &undecided, &under).await,
         "no card under a folder nobody trusted"
+    );
+
+    // A chat a Web client started, in a folder the person trusted: outside a Web turn it lends no
+    // trust either. (A Web client's chat in full access needs the person's own switch in the app,
+    // which this hermetic test cannot make; `inherits_parent_trust` refuses `remote_origin` too.)
+    let mut web_cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"cc": fake("claude", json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}))},
+        "defaultHarness": "cc",
+        "permissionPolicy": "approve-all",
+        "webRoots": [root],
+    }))
+    .unwrap();
+    web_cfg.store.mode = StoreMode::Memory;
+    let web_store = acpmux::store::open(&web_cfg.store, Path::new("/nonexistent")).unwrap();
+    let web_hub = Hub::new(web_cfg, web_store);
+    web_hub.set_trust_gate(Some(paths.clone()));
+    decide("web", "trusted");
+    let mut web = Client::from(&web_hub, Origin::Web);
+    let web_parent = web.new_session(&root.join("web"), "cc").await;
+    let mut web_app = Client::new(&web_hub);
+    let meta = web_hub.resolve(&web_parent).unwrap().meta();
+    assert!(meta.remote_origin);
+    assert!(
+        start_waits_on_a_card(&web_hub, &mut web_app, &web_parent, &root.join("web/lanes")).await,
+        "a Web client's chat lent its folder's trust"
     );
 
     let _ = std::fs::remove_dir_all(&root);
