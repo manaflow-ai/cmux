@@ -10,6 +10,16 @@ final class WindowVisibilityObserver {
     private weak var window: NSWindow?
     private var onChange: (Bool) -> Void = { _ in }
     private var observer: MainActorObservation?
+    /// The center the window's occlusion changes arrive on (AppKit posts them on `NotificationCenter.default`).
+    private let center: NotificationCenter
+
+    /// Creates an observer that follows windows on `center`.
+    ///
+    /// - Parameter center: The center to observe (default `NotificationCenter.default`, where AppKit
+    ///   posts the window's occlusion changes; tests pass their own).
+    init(center: NotificationCenter = .default) {
+        self.center = center
+    }
 
     // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
     // thread) runs no runtime hop; an implicit deinit is isolated in this target. The occlusion
@@ -23,7 +33,7 @@ final class WindowVisibilityObserver {
         self.onChange = onChange
         guard let window else { return }
         changed()
-        observer = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: window) { [weak self] in
+        observer = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: window, center: center) { [weak self] in
             self?.changed()
         }
     }
