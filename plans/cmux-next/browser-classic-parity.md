@@ -78,7 +78,7 @@ Differential failures left after this round (host-headless):
 | cdc30a8c323 (red), 2d9dbc14431 | A `window.open` popup with an opener gets a page agent for its real document (the global reused from about:blank kept the old agent) | edge.window-open |
 
 Verification: on the Linux Testbox, the whole crate's tests (lib 338, real-Chromium 51), clippy
-`-D warnings` and fmt passed at b3dd90d11d2 (the same tree before the rebase onto the tip, which did not touch the crate). On the macOS fleet (step 5908aec3e23),
+`-D warnings` and fmt passed at b3dd90d11d2, the pre-rebase head. The rebase onto 6abc8c09d04 brought other lanes' crate changes (host_runtime_tests.rs, cdp_driver_fake.rs and 5 more files); the landed head 2d9dbc14431 was not tested again on its own. On the macOS fleet (step 5908aec3e23),
 `editing_commands_follow_mac_shortcuts` passed. The step is red only on a clippy error in
 `cmux-tui-core` (`surface/tests/input.rs:166`, `fork_count_tests.rs:410`), a file this round does not
 touch. Fleet step eb33a883388 (`fs_errors_read_like_node` on macOS) was still queued when this landed.
