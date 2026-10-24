@@ -403,6 +403,7 @@
         "CmuxNextTestExitTrace",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport",
         "CmuxNextWorkspaceNaming"
       ],
       "packages": [

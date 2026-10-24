@@ -4,18 +4,19 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextFloating
 import CmuxNextSettings
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
 /// The Chief pet hears the notification service: what would alert on this Mac reaches its bubble,
 /// a click on the bubble opens that tab, a read tab's notice leaves, and a finished turn leaves on its own.
-@MainActor @Suite(.serialized) struct ChiefPetNoticeTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct ChiefPetNoticeTests {
 
     @MainActor
     final class Harness {
         let store = DaemonStore()
         let service = NotificationCenterService()
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let defaults: UserDefaults
         let controller: ChiefPetController
         var opened: [UInt64] = []
