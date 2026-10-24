@@ -2,6 +2,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSPrope
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
+import { foldMs } from "./fold";
 import { Close } from "./icons";
 import { TurnActionsContext } from "./turnActions";
 
@@ -16,7 +17,8 @@ import { TurnActionsContext } from "./turnActions";
 /// Both lead the prompt's action row, before its receipt, age and message buttons (Leo, 2026-10-24).
 /// Once Send now worked they leave at once, though acpmux still says the steer waits until the agent
 /// reads it (Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear"):
-/// they fade and fold their width, the row's height never changes, and after `LEAVE_MS` they are gone.
+/// they fade and fold their width over the transcript's fold duration, the row's height never
+/// changes, and then they are gone.
 export function PendingSteer({
   row,
   send,
@@ -40,10 +42,11 @@ export function PendingSteer({
   useLayoutEffect(() => {
     if (leaving === undefined && (sentNow || (shown && !waiting))) setLeaving(self.current?.offsetWidth ?? 0);
   }, [leaving, sentNow, shown, waiting]);
-  // The fold's one timer: it stops when the fold ends, and is cleared if the row goes first.
+  // The fold's one timer, as long as the transcript's folds (`foldMs`: 0 under Reduce Motion or
+  // with the app's animation off): it stops when the fold ends, and is cleared if the row goes first.
   useEffect(() => {
     if (typeof leaving !== "number") return;
-    const timer = setTimeout(() => setLeaving("gone"), LEAVE_MS);
+    const timer = setTimeout(() => setLeaving("gone"), foldMs(self.current));
     return () => clearTimeout(timer);
   }, [leaving]);
   if (!shown || leaving === "gone") return null;
@@ -96,10 +99,6 @@ export function PendingSteer({
     </div>
   );
 }
-
-/// How long Send now and the X take to leave once Send now worked: `--cmux-motion-standard`, the
-/// length of conversation.css `.cv-user__pending--leaving`.
-const LEAVE_MS = 180;
 
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is

@@ -3921,7 +3921,7 @@ article.acpmux-row:empty {
 }
 /* Send now worked (PendingSteer.tsx): Send now and the X fade, then fold their width to nothing.
    The action row keeps its one line, so nothing above or below moves; the timer that removes them
-   matches this length (LEAVE_MS). */
+   reads the same fold duration (fold.ts foldMs), 0 under Reduce Motion or with animation off. */
 .cv-user__pending--leaving {
   overflow: hidden;
   pointer-events: none;
@@ -3934,7 +3934,7 @@ article.acpmux-row:empty {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__pending--leaving {
-    animation: cv-user-pending-leave var(--cmux-motion-standard, 180ms) var(--cv-actions-ease) forwards;
+    animation: cv-user-pending-leave var(--cv-fold-duration) var(--cv-actions-ease) forwards;
   }
 }
 @keyframes cv-user-pending-leave {
