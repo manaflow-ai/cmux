@@ -199,12 +199,11 @@ class WiringTests(unittest.TestCase):
     def test_the_fleet_dispatch_preflights_worker_access(self) -> None:
         fleet = self.job.index("- name: Run Swift package tests on the build fleet")
         dispatch = self.job.index('"$client" run', fleet)
-        preflight = self.job.index('"$client" workers', fleet)
+        preflight = self.job.index("scripts/ci/fleet-instance-preflight.sh", fleet)
         self.assertLess(preflight, dispatch)
         guard = self.job[preflight:dispatch]
-        self.assertIn('>/dev/null 2>&1', guard)
-        self.assertIn("compute.instances.get", guard)
-        self.assertIn("No CI job was dispatched", guard)
+        self.assertIn("No CI job was dispatched", (ROOT / "scripts/ci/fleet-instance-preflight.sh").read_text())
+        self.assertNotIn('"$client" workers', guard)
 
     def test_the_new_scripts_are_job_inputs(self) -> None:
         select = load("select_package_tests")

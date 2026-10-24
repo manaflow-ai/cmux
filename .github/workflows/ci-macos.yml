@@ -2122,12 +2122,10 @@ jobs:
             echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME. There is no automatic fallback in phase 1: install the client on that gateway, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again."
             exit 127
           fi
-          # Probe the controller before submitting a job. A missing GCP
-          # instance-read permission otherwise fails after dispatch and looks
-          # like an ordinary empty-fleet result. Keep controller details out of
-          # the public log and tell the caller that no job was created.
-          if ! "$client" workers >/dev/null 2>&1; then
-            echo "::error title=Build fleet preflight failed::Could not verify build-fleet worker access (compute.instances.get). No CI job was dispatched; restore controller access and rerun."
+          # A GCE gateway must prove instance-read access before submitting a
+          # job. Non-GCE runners have no metadata endpoint, so the helper skips
+          # this cloud-only check there.
+          if ! scripts/ci/fleet-instance-preflight.sh; then
             exit 69
           fi
           status=0
