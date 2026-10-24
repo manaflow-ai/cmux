@@ -47,6 +47,7 @@ members = [
     "crates/cmux-panic-log",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote-transcript",
@@ -191,6 +192,7 @@ cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
+cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }

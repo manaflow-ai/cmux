@@ -194,6 +194,7 @@ pub(crate) fn start_host_runtime(
                 }
                 Err(_) => break,
             };
+            cmux_flow_trace::hop("host.pty.read", 0, || reader_host.terminal_id.to_hex());
             let bytes = buffer.get(..count).unwrap_or(&buffer).to_vec();
             let _source_order = reader_host.source_order_lock.lock().recover_poison();
             reader_host.parser_budget.reserve(count);
