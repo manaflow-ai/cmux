@@ -177,6 +177,7 @@ select_packages() {
     CmuxFeedback
     CmuxLiveEval
     CmuxPanes
+    CmuxPhoneControl
     CmuxPhonePush
     CMUXProjectModel
     CmuxSidebar
@@ -480,6 +481,14 @@ run_package_tests() {
       else
         python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
       fi
+      ;;
+    CmuxPhoneControl)
+      run_swift_test
+      if [ "$test_status" -ne 0 ]; then
+        return "$test_status"
+      fi
+      python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
+      swift run --package-path "$pkgdir" cmux-phone self-test
       ;;
     *)
       # Blacksmith macOS runners intermittently abort a package's

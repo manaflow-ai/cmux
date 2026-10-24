@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/phone-control-v1.json",
+  "title": "cmux phone control v1 envelope",
+  "type": "object",
+  "required": ["protocol", "version", "type"],
+  "properties": {
+    "protocol": { "const": "cmux.phone" },
+    "version": { "const": 1 },
+    "type": { "enum": ["request", "response", "event", "error"] },
+    "id": { "type": "string", "minLength": 1 },
+    "method": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "ts": { "type": "number" },
+    "params": {},
+    "result": {},
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "request" } } },
+      "then": { "required": ["id", "method"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "response" } } },
+      "then": { "required": ["id"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "event" } } },
+      "then": { "required": ["method", "session_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": { "required": ["error"] }
+    }
+  ]
+}
