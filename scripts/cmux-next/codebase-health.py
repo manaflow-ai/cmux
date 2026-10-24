@@ -42,7 +42,6 @@ UPSTREAM = "origin/feat-cmux-next"
 # What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
 MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
-PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
 
 def load_arch_counts():
     """scripts/cmux-next/arch_counts.py: the one definition of the architecture rows and the layer rule."""
@@ -424,31 +423,37 @@ def file_list(counter: collections.Counter, limit: int | None = None) -> str:
 
 
 class Marker(NamedTuple):
-    """One `// perf-hot: <budget> <path-id>` marker: the file, its 1-based line and its path id."""
+    """One `// perf-hot: <budget> <path-id>` marker: the file, its 1-based line, its path id, and the 1-based line
+    of the declaration it marks as the pre-push hook resolves it (None: it marks no declaration)."""
     path: str
     line: int
     pid: str
+    declaration: int | None
 
 
-def perf_hot_markers(repo: Path) -> list[Marker]:
-    """Every `// perf-hot:` marker with a path id in the working tree's tracked Swift.
+def marked_texts(repo: Path) -> dict[str, str]:
+    """{path: working-tree text} of every tracked Swift file in the repository with a `perf-hot:` in it.
 
-    Reads every tracked Swift file in the repository (markers live in shared packages too, e.g.
-    Packages/Shared/CmuxMessagesLab), not only the app sources the debt counts cover.
+    Reads every tracked Swift file (markers live in shared packages too, e.g. Packages/Shared/CmuxMessagesLab),
+    not only the app sources the debt counts cover.
     """
-    # git grep exits 1 when nothing matches: no marker anywhere is a result, not an error.
-    found = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-z", "-n", "-F", "perf-hot:", "--", "*.swift"],
-                           capture_output=True, text=True)
+    # git grep exits 1 when nothing matches: no marker anywhere is a result, not an error. A fixed output format:
+    # color.grep would put escape codes around each name.
+    found = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-z", "-l", "--no-color", "-F", "perf-hot:",
+                            "--", "*.swift"], capture_output=True, text=True)
     if found.returncode not in (0, 1):
         raise SystemExit(f"codebase-health: git grep failed: {found.stderr.strip()}")
-    markers = []
-    for record in found.stdout.splitlines():
-        path, _, rest = record.partition("\0")
-        number, _, line = rest.partition("\0")
-        match = PERF_HOT_ID.search(line)
-        if match:
-            markers.append(Marker(path, int(number), match.group(1)))
-    return markers
+    return {path: (repo / path).read_text(encoding="utf-8", errors="replace")
+            for path in found.stdout.split("\0") if path}
+
+
+def perf_hot_markers(guardrails, texts: dict[str, str]) -> list[Marker]:
+    """Every `// perf-hot:` marker with a path id in TEXTS, resolved to its declaration by the hook's own
+    resolver (guardrails.perf_hot_markers: the comment block above, the declaration line, or the `{` line of a
+    wrapped signature), never a copy of it."""
+    return [Marker(path, found.line, found.path_id, found.span[0] if found.span else None)
+            for path, text in sorted(texts.items())
+            for found in guardrails.perf_hot_markers(text.split("\n")) if found.path_id]
 
 
 def load_guardrails():
@@ -464,6 +469,8 @@ def load_guardrails():
 # guardrails.perf_hot_warnings' line for an edited marked declaration: `<path>:<line>: changes perf-hot ... (budget
 # <budget>, <path-id>...`.
 HOOK_WARNING = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): changes perf-hot .*\(budget [^,]+, (?P<pid>[\w-]+)")
+# Its line for a touched marker that marks no declaration: `<path>:<line>: this `// perf-hot:` marks no declaration`.
+HOOK_DANGLING = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): this `// perf-hot:` marks no declaration")
 
 
 def git_env(repo: Path, env: dict[str, str], *args: str, stdin: str | None = None) -> str:
@@ -525,6 +532,8 @@ def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> li
             raise SystemExit(f"codebase-health: guardrails could not judge the perf-hot markers: {text}")
         if kind != "perf-hot":
             continue
+        if HOOK_DANGLING.match(text):  # the marker's own line, not an edit of a hot function: it warns for nobody's
+            continue                   # function, which the resolver's declaration None already says
         match = HOOK_WARNING.match(text)
         if not match:  # never guess: a reworded warning must not read as "no marker warns"
             raise SystemExit(f"codebase-health: cannot read guardrails' perf-hot warning (reworded?): {text}")
@@ -532,31 +541,26 @@ def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> li
     return found
 
 
-def hook_view(repo: Path, markers: list[Marker]) -> dict[Marker, str]:
-    """Per marker, what the pre-push hook does when a push edits its function: "warns"; "outside" (the hook's
-    parser finds the declaration, but the hook never diffs the file); or "unparsed" (the hook's parser finds no
-    declaration for the marker, e.g. a trailing marker on the last line of a multi-line signature)."""
+def hook_view(repo: Path, guardrails, texts: dict[str, str], markers: list[Marker]) -> dict[Marker, str]:
+    """Per marker, what the pre-push hook does when a push edits its function: "warns"; "outside" (the hook
+    resolves the declaration, but never diffs the file); or "unparsed" (the marker marks no declaration, e.g. a
+    trailing marker on a statement line)."""
     if not markers:
         return {}
-    guardrails = load_guardrails()
-    in_file: dict[str, list[Marker]] = collections.defaultdict(list)
-    for marker in markers:
-        in_file[marker.path].append(marker)
-    texts = {path: (repo / path).read_text(encoding="utf-8", errors="replace") for path in in_file}
+    warned = set(hook_warnings_for_edits(repo, guardrails, {m.path: texts[m.path] for m in markers}))
 
-    def owner(path: str, first: int, pid: str) -> Marker | None:
-        # A declaration's marker is the nearest one of its id at or above it (on its line, or in the comment above).
-        return max((m for m in in_file[path] if m.pid == pid and m.line <= first), key=lambda m: m.line, default=None)
+    def state(marker: Marker) -> str:
+        if marker.declaration is None:
+            return "unparsed"
+        # The hook names a warned function by its file, its declaration line and its marker's path id.
+        return "warns" if (marker.path, marker.declaration, marker.pid) in warned else "outside"
 
-    parsed = {owner(path, span[0], span[4]) for path, text in texts.items()
-              for span in guardrails.function_spans(text.split("\n"))}
-    warned = {owner(path, line, pid) for path, line, pid in hook_warnings_for_edits(repo, guardrails, texts)}
-    return {m: "warns" if m in warned else "outside" if m in parsed else "unparsed" for m in markers}
+    return {m: state(m) for m in markers}
 
 
 NO_WARNING = {
     "outside": "outside the pre-push hook's diff scope: no warning",
-    "unparsed": "not on a declaration line the hook parses (a multi-line signature's last line?): no warning",
+    "unparsed": "marks no declaration (not above one, on its line, or on a wrapped signature's `{` line): no warning",
 }
 
 
@@ -757,8 +761,10 @@ def report(repo: Path) -> str:
         known = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
     except (OSError, ValueError):
         known = {}
-    markers = perf_hot_markers(repo)
-    states = hook_view(repo, markers)
+    guardrails = load_guardrails()
+    texts = marked_texts(repo)
+    markers = perf_hot_markers(guardrails, texts)
+    states = hook_view(repo, guardrails, texts, markers)
     per_id: dict[str, list[Marker]] = collections.defaultdict(list)
     for marker in markers:
         per_id[marker.pid].append(marker)
@@ -767,10 +773,11 @@ def report(repo: Path) -> str:
     silent = [m for m in markers if states[m] != "warns"]
     w("Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner")
     w("marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or")
-    w("`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what")
-    w("`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and")
-    w("declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not")
-    w("read as a declaration, is flagged: an edit of that function warns nobody.")
+    w("`var`, or on the line with the body's `{` of a wrapped signature, adds no line; or a comment line right above")
+    w("the declaration). Which declaration a marker marks is what the hook's own resolver says, and whether it")
+    w("warns is what `guardrails.check` itself reports for a push that edits every line of the marked files (its own")
+    w("diff scope, not a copy), so a marker outside the hook's diff scope, or one that marks no declaration, is")
+    w("flagged: an edit of that function warns nobody.")
     w("")
     w(f"Marked: {len(marked)} of {len(known)} path ids ({len(markers)} markers); {len(warning)} of {len(known)} "
       f"warn at push; {len(silent)} of {len(markers)} markers never warn.")

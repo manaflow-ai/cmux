@@ -457,10 +457,11 @@ It also warns (never refuses) when a push changes a `// perf-hot:` function (nam
 
 Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner
 marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or
-`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what
-`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and
-declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not
-read as a declaration, is flagged: an edit of that function warns nobody.
+`var`, or on the line with the body's `{` of a wrapped signature, adds no line; or a comment line right above
+the declaration). Which declaration a marker marks is what the hook's own resolver says, and whether it
+warns is what `guardrails.check` itself reports for a push that edits every line of the marked files (its own
+diff scope, not a copy), so a marker outside the hook's diff scope, or one that marks no declaration, is
+flagged: an edit of that function warns nobody.
 
 Marked: 13 of 15 path ids (23 markers); 13 of 15 warn at push; 1 of 23 markers never warn.
 
