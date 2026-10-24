@@ -59,3 +59,55 @@ fn a_view_request_never_waits_behind_a_blocked_control_request_on_the_shared_con
     );
     assert!(waited < Duration::from_secs(5), "the key waited {waited:?} behind the control lane");
 }
+
+/// Across lanes, a surface's requests keep their wire order, as on one serial
+/// connection: a view's request waits for its surface's earlier control request
+/// (a clear-history barrier, a close, a read), while other surfaces never wait.
+#[test]
+fn a_view_request_keeps_its_wire_order_behind_its_surfaces_earlier_control_request() {
+    let mux = test_mux();
+    let view = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let socket = TestSocket::new("stream-lane-order");
+    let listener = transport::listen(&socket.path).unwrap();
+    let mut client = transport::connect(&socket.path).unwrap();
+    let server = listener.accept().unwrap();
+    let server_mux = mux.clone();
+    let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+    let mut reader = BufReader::new(client.try_clone_box().unwrap());
+    reader.get_ref().set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut send = |value: Value| {
+        writeln!(client, "{value}").unwrap();
+        client.flush().unwrap();
+    };
+    let mut order = Vec::new();
+    let mut reply = |id: u64, order: &mut Vec<u64>| loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("a reply in time");
+        let value: Value = serde_json::from_str(&line).expect("a JSON line");
+        if let Some(seen) = value["id"].as_u64() {
+            order.push(seen);
+        }
+        if value["id"] == id {
+            return value;
+        }
+    };
+    send(json!({"id": 1, "cmd": "set-client-info", "name": "order-test", "kind": "frontend",
+                "capabilities": ["attach-streams-v1"]}));
+    reply(1, &mut order);
+    send(json!({"id": 2, "cmd": "attach-surface", "attach_stream": 1, "surface": view.id}));
+    reply(2, &mut order);
+    // A control request of the view's surface that holds its place for 1.5 s...
+    send(json!({"id": 3, "cmd": "wait-for", "surface": view.id, "pattern": "never printed",
+                "timeout_ms": 1_500}));
+    // ...then the view's input on its stream: it must run after it.
+    send(json!({"id": 4, "cmd": "send", "attach_stream": 1, "surface": view.id, "text": "k"}));
+    reply(4, &mut order);
+    reply(3, &mut order);
+
+    let _ = client.shutdown(Shutdown::Both);
+    handler.join().unwrap();
+    mux.shutdown();
+    let three = order.iter().position(|id| *id == 3).unwrap();
+    let four = order.iter().position(|id| *id == 4).unwrap();
+    assert!(three < four, "the view's input overtook its surface's earlier request: {order:?}");
+}

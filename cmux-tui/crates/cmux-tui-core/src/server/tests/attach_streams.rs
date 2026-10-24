@@ -244,6 +244,39 @@ fn a_snapshot_request_for_an_ended_stream_resyncs_no_other_view_of_the_surface()
 }
 
 #[test]
+fn a_byte_replay_attach_gets_its_replay_raw_in_a_replay_frame_with_one_written_meta() {
+    let mut harness = Harness::connect("streams-replay", BOTH);
+    let surface = harness.mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.inject_output_for_test(b"replayed screen\r\n");
+    send(
+        &mut harness.client,
+        json!({"id": 2, "cmd": "attach-surface", "attach_stream": 6, "surface": surface.id,
+               "cols": 80, "rows": 24}),
+    );
+    let mut seen = Vec::new();
+    assert_eq!(harness.reader.reply(2, &mut seen)["ok"], true);
+    let (header, payload) = seen
+        .iter()
+        .filter_map(Wire::frame)
+        .find(|(header, _)| header.kind == FrameKind::Replay)
+        .expect("a REPLAY frame before the reply");
+    assert_eq!(header.stream.get(), 6);
+    let (meta, data) = Wire::meta(payload);
+    assert_eq!(meta["event"], "vt-state", "{meta}");
+    assert_eq!((meta["cols"].as_u64(), meta["rows"].as_u64()), (Some(80), Some(24)));
+    assert!(
+        meta.get("data").is_none() && meta.get("pending").is_none(),
+        "no base64 in the meta: {meta}"
+    );
+    let pending = meta["pending_len"].as_u64().expect("pending_len") as usize;
+    let replay = &data[..data.len() - pending];
+    assert!(
+        replay.windows(b"replayed screen".len()).any(|window| window == b"replayed screen"),
+        "the raw replay holds the screen"
+    );
+}
+
+#[test]
 fn a_client_with_streams_but_no_frames_gets_json_events_tagged_with_their_stream() {
     let mut harness = Harness::connect("streams-json", &["attach-streams-v1"]);
     let surface = harness.mux.new_workspace(None, Some((80, 24))).unwrap();
