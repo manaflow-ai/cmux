@@ -39,9 +39,8 @@ struct SleepySceneView: View {
                 .foregroundStyle(.white)
                 .allowsHitTesting(false)
                 Button(SleepyModeStrings.lockMac, systemImage: "lock.fill") { lockMac() }
-                    .buttonStyle(.bordered)
+                    .glassButtonStyle()
                     .controlSize(.large)
-                    .tint(.white)
                     .padding(.top, 12)
                 Text(SleepyModeStrings.hint)
                     .font(.callout)
@@ -50,5 +49,8 @@ struct SleepySceneView: View {
             }
         }
         .background(Color(red: 0.03, green: 0.04, blue: 0.12))
+        // The scene is a night sky in every appearance: its controls draw for a dark surface (in Light
+        // Mode the Lock Mac button had dark text on a clear bezel, near-invisible on the sky).
+        .environment(\.colorScheme, .dark)
     }
 }
