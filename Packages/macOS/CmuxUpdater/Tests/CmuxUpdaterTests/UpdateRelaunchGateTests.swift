@@ -87,8 +87,8 @@ private final class CallCounter: @unchecked Sendable {
         #expect(!driver.relaunchGate.isWaiting)
     }
 
-    /// cmux-next: the click hides every window before Sparkle asks, so a held user install
-    /// would leave cmux invisible; only the idle policy's automatic installs wait.
+    /// A host that preserves sessions can disable the gate for both click-driven and automatic
+    /// installs; generic hosts still exercise the gate below.
     @Test func aHostThatDoesNotHoldUserInstallsRelaunchesAClickOverBusyWork() {
         let driver = makeDriver()
         driver.holdsUserInstalls = false
@@ -96,6 +96,17 @@ private final class CallCounter: @unchecked Sendable {
 
         #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
         #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func aSessionPreservingHostRelaunchesAnAutomaticInstallOverLiveWork() {
+        let driver = makeDriver()
+        driver.holdsUserInstalls = false
+        driver.relaunchIsAutomatic = true
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 4)
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+        #expect(model.state == .idle)
     }
 
     @Test func restartNowAfterAnAutomaticLaterIsAUserInstallOnAHostThatDoesNotHoldThem() {
