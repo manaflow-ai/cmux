@@ -1705,132 +1705,133 @@
       }
     },
     "remoteBrowser.localHost.timedOut": {
+      "comment": "Alert detail when the local remote-browser host did not start in time (%1$@: the seconds waited, already written by Foundation in this language's short units, for example \"60 sec\", ar \"60 ث\"; %2$@: the path of its log). Do not add a unit or a noun next to %1$@.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يصبح المضيف جاهزًا خلال %1$lld ثانية وتم إيقافه. سجله في %2$@."
+            "value": "لم يصبح المضيف جاهزًا خلال %1$@ وتم إيقافه. سجله في %2$@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Host nije bio spreman u roku od %1$lld sekundi i zaustavljen je. Njegov dnevnik je u %2$@."
+            "value": "Host nije bio spreman u roku od %1$@ i zaustavljen je. Njegov dnevnik je u %2$@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Værten blev ikke klar inden for %1$lld sekunder og blev stoppet. Dens log ligger i %2$@."
+            "value": "Værten blev ikke klar inden for %1$@ og blev stoppet. Dens log ligger i %2$@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Host war nicht innerhalb von %1$lld Sekunden bereit und wurde beendet. Sein Protokoll liegt unter %2$@."
+            "value": "Der Host war nicht innerhalb von %1$@ bereit und wurde beendet. Sein Protokoll liegt unter %2$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The host did not get ready within %1$lld seconds and was stopped. Its log is at %2$@."
+            "value": "The host did not get ready within %1$@ and was stopped. Its log is at %2$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El host no estuvo listo en %1$lld segundos y se detuvo. Su registro está en %2$@."
+            "value": "El host no estuvo listo en %1$@ y se detuvo. Su registro está en %2$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’hôte n’était pas prêt dans les %1$lld secondes et a été arrêté. Son journal se trouve dans %2$@."
+            "value": "L’hôte n’était pas prêt au bout de %1$@ et a été arrêté. Son journal se trouve dans %2$@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’host non era pronto entro %1$lld secondi ed è stato arrestato. Il suo log è in %2$@."
+            "value": "L’host non era pronto entro %1$@ ed è stato arrestato. Il suo log è in %2$@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ホストが %1$lld 秒以内に準備できなかったため停止しました。ログ: %2$@"
+            "state": "needs_review",
+            "value": "ホストが %1$@以内に準備できなかったため停止しました。ログ: %2$@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនមិនបានរួចរាល់ក្នុង %1$lld វិនាទី ហើយត្រូវបានបញ្ឈប់។ កំណត់ហេតុរបស់វានៅ %2$@។"
+            "value": "ម៉ាស៊ីនមិនបានរួចរាល់ក្នុង %1$@ ហើយត្រូវបានបញ្ឈប់។ កំណត់ហេតុរបស់វានៅ %2$@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "호스트가 %1$lld초 안에 준비되지 않아 중지했습니다. 로그 위치: %2$@"
+            "value": "호스트가 %1$@ 안에 준비되지 않아 중지했습니다. 로그 위치: %2$@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verten ble ikke klar innen %1$lld sekunder og ble stoppet. Loggen ligger i %2$@."
+            "value": "Verten ble ikke klar innen %1$@ og ble stoppet. Loggen ligger i %2$@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Host nie był gotowy w ciągu %1$lld s i został zatrzymany. Jego dziennik jest w %2$@."
+            "value": "Host nie był gotowy w ciągu %1$@ i został zatrzymany. Jego dziennik jest w %2$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O host não ficou pronto em %1$lld segundos e foi parado. O log está em %2$@."
+            "value": "O host não ficou pronto em %1$@ e foi parado. O log está em %2$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хост не был готов в течение %1$lld с и был остановлен. Его журнал: %2$@."
+            "value": "Хост не был готов в течение %1$@ и был остановлен. Его журнал: %2$@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โฮสต์ไม่พร้อมภายใน %1$lld วินาทีและถูกหยุด บันทึกอยู่ที่ %2$@"
+            "value": "โฮสต์ไม่พร้อมภายใน %1$@และถูกหยุด บันทึกอยู่ที่ %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana bilgisayar %1$lld saniye içinde hazır olmadı ve durduruldu. Günlüğü: %2$@."
+            "value": "Ana bilgisayar %1$@ içinde hazır olmadı ve durduruldu. Günlüğü: %2$@."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хост не був готовий протягом %1$lld с і його зупинено. Його журнал: %2$@."
+            "value": "Хост не був готовий протягом %1$@ і його зупинено. Його журнал: %2$@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chủ không sẵn sàng trong %1$lld giây và đã bị dừng. Nhật ký ở %2$@."
+            "value": "Máy chủ không sẵn sàng trong %1$@ và đã bị dừng. Nhật ký ở %2$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主机未在 %1$lld 秒内就绪，已停止。日志位于 %2$@。"
+            "value": "主机未在 %1$@内就绪，已停止。日志位于 %2$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主機未在 %1$lld 秒內就緒，已停止。記錄位於 %2$@。"
+            "value": "主機未在 %1$@內就緒，已停止。記錄位於 %2$@。"
           }
         }
       }
