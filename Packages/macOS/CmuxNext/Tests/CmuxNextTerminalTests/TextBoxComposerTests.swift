@@ -164,6 +164,41 @@ struct TextBoxComposerTests {
         #expect(harness.sink.sent == [.paste("claude --dangerously-skip-permissions -- 'it'\\''s broken'"), .returnKey])
     }
 
+    /// #24912: the user types a draft, Return sends it (the controller clears the editor), the
+    /// user types again, then Edit > Undo. The typing action recorded for the draft kept its range
+    /// into the cleared text and undo raised NSRangeException. Each step is its own undo group,
+    /// as each key event is in the app.
+    @Test func undoAfterASubmitStepsBackWithoutAStaleRange() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        harness.textBox.show(focus: true)
+        let textView = harness.textBox.textView
+        let undo = try #require(textView.undoManager)
+        undo.groupsByEvent = false
+        defer { undo.removeAllActions(); undo.groupsByEvent = true }
+        func step(_ body: () -> Void) {
+            undo.beginUndoGrouping()
+            body()
+            undo.endUndoGrouping()
+        }
+        let draft = String(repeating: "a", count: 74)
+        step { textView.insertText(draft, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        step { #expect(harness.textBox.submit()) }
+        #expect(textView.string.isEmpty)
+        step { textView.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        #expect(textView.string == "x")
+        #expect(harness.sink.sent == [.paste(draft), .returnKey])
+
+        var shown: [String] = []
+        while undo.canUndo {
+            undo.undo()
+            shown.append(textView.string)
+        }
+        #expect(shown.first == "", "the first undo takes back the typed x")
+        #expect(shown.contains(draft), "an undo brings the sent draft back")
+        #expect(shown.last == "")
+    }
+
     @Test func attachedFilesGoInAsShellQuotedPaths() {
         let model = TextBoxModel()
         model.text = "look at"
