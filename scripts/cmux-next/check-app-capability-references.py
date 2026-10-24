@@ -56,6 +56,11 @@ Rules (each violation names the file and line):
      no list, so the export, check-daemon-capabilities.sh and DaemonCompatibility
      never see it, and the gate APIs take any String, so it compiles at a gate.
      check-daemon-capabilities-fresh.py's catalog_strays finds them for both checks.
+     A stopgap with known gaps (a static in a type nested in an extension, a
+     `typealias` of String, a brace in a string literal of the catalog body, a
+     two-part name such as `DaemonCapability.More.orphan` at a gate): the fix is
+     typed gates (architecture-refactor-DESIGN.md slice B6), which deletes this
+     rule and catalog_strays.
 
 Usage: check-app-capability-references.py [--repo ROOT] [--list]
   --list prints every reference (capability, kind, file:line) and exits 0.
