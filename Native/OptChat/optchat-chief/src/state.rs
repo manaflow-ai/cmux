@@ -319,6 +319,10 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// That workspace's public id (`ws_…`) once the app's session names it:
+    /// the id `peers` and the spawn answer link (`cmux://workspace/ws_…`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
     /// local subagents count against the live cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]

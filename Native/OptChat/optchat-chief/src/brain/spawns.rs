@@ -675,10 +675,17 @@ impl Brain {
         self.flush_inbox(id);
     }
 
-    pub(super) fn sub_workspace(&mut self, id: &str, key: String, name: String) {
+    pub(super) fn sub_workspace(
+        &mut self,
+        id: &str,
+        key: String,
+        name: String,
+        ws: Option<String>,
+    ) {
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);
+            sub.workspace_id = ws;
             sub.title = name;
             shown_session = sub.session_id.clone().filter(|_| sub.peer.is_none());
             matches!(sub.status, SubStatus::Done | SubStatus::Reported)
@@ -1659,12 +1666,21 @@ impl Brain {
                 .filter(|(id, _)| *id == sub.id)
                 .map_or(sub.title.as_str(), |(_, t)| t);
             let you = if sub.id == caller { " (you)" } else { "" };
-            let workspace = sub
-                .workspace
+            // A link, never the raw key (a636): `ws_…` when the app named it.
+            let workspace = match (&sub.workspace_id, &sub.workspace) {
+                (Some(ws), _) => format!(", [workspace](cmux://workspace/{ws})"),
+                (None, Some(key)) => format!(", workspace {key}"),
+                _ => String::new(),
+            };
+            let place = sub
+                .peer
                 .as_deref()
-                .map(|w| format!(", workspace {w}"))
+                .map(|p| format!(", on {p}"))
                 .unwrap_or_default();
-            lines.push(format!("- {}{you}: {title} ({state}{workspace})", sub.id));
+            lines.push(format!(
+                "- {}{you}: {title} ({state}{place}{workspace})",
+                sub.id
+            ));
         }
         if lines.is_empty() {
             lines.push("No other subagent is at work.".to_owned());

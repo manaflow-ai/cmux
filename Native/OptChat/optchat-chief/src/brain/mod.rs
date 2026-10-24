@@ -164,6 +164,8 @@ pub enum Input {
         id: String,
         key: String,
         name: String,
+        /// The workspace's `ws_…` id when the session named it.
+        ws: Option<String>,
     },
     /// A subagent could not start.
     SubagentFailed {
@@ -1309,7 +1311,9 @@ impl Brain {
                 self.stop_if_cancelled(&id);
             }
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
-            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentWorkspace { id, key, name, ws } => {
+                self.sub_workspace(&id, key, name, ws)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),

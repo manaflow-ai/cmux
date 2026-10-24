@@ -796,7 +796,13 @@ impl Spawner {
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
         let name = crate::workspaces::title(task);
-        let group = crate::workspaces::topic_group(task);
+        // A cloud subagent's workspace sits in a group named for its machine
+        // (a636); a per-agent VM (`chief-sub-aN`) shares one "Cloud" group.
+        let group = match &peer {
+            Some(p) if !p.starts_with("chief-sub-") => p.clone(),
+            Some(_) => "Cloud".to_owned(),
+            None => crate::workspaces::topic_group(task),
+        };
         let key = key.unwrap_or_else(crate::workspaces::new_key);
         // The terminal beside the chat runs on this Mac: a peer session's
         // folder is on the VM (/home/agent/work), and a PTY spawned in a
@@ -815,12 +821,13 @@ impl Spawner {
                     json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place,
                         "ws": located.as_ref().map(|r| r.id.clone()), "session": located.as_ref().map(|r| r.session.clone())}),
                 );
-                // No link here: the posted reply links every mention (link_subagents), so
-                // the memory keeps the plain id, not a 70-character URL per mention.
+                // The workspace link is here once (a636); the subagent's `aN` mentions are
+                // linked by the posted reply (link_subagents).
                 let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
                 if let Some(r) = &located {
                     note.push_str(&format!(
-                        " (id {}; `{}` moves it to the top)",
+                        " ([open it](cmux://workspace/{}); id {}; `{}` moves it to the top)",
+                        r.id,
                         r.id,
                         r.move_to_top()
                     ));
@@ -829,6 +836,7 @@ impl Spawner {
                     id: id.to_owned(),
                     key,
                     name,
+                    ws: located.as_ref().map(|r| r.id.clone()),
                 });
                 Ok(note)
             }
