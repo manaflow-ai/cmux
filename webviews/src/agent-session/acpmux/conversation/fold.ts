@@ -97,14 +97,23 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     stopMotionWatch.current?.();
     stopMotionWatch.current = undefined;
   };
-  const watchMotion = (node: HTMLElement) => {
+  const watchMotion = (node: HTMLElement, opening: boolean) => {
     const root = node.ownerDocument.documentElement;
     const Observer = node.ownerDocument.defaultView?.MutationObserver;
     if (!root || !Observer) return;
     const observer = new Observer(() => {
       // Reduce Motion can leave fade tokens nonzero while the structural move token becomes zero.
       // The fold must still settle immediately instead of finishing its old height animation.
-      if (running.current && foldMs(node) <= 0) running.current.cancel();
+      if (running.current && foldMs(node) <= 0) {
+        // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
+        // Settle the layout synchronously first so a closing body cannot flash back to natural height.
+        if (opening) node.style.overflow = "";
+        else {
+          pin(node, 0);
+          setClosing(false);
+        }
+        running.current.cancel();
+      }
     });
     observer.observe(root, { attributes: true, attributeFilter: ["style", "data-agent-motion", "data-cmux-motion"] });
     stopMotionWatch.current = () => observer.disconnect();
@@ -153,7 +162,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
       { duration: ms, easing: foldMotion.easing(node) },
     );
     running.current = animation;
-    watchMotion(node);
+    watchMotion(node, open);
     // An open whose body draws its content late (a diff, highlighted code) grows to it in the same
     // motion: a later size takes over from the drawn height for the time left, instead of the box
     // stopping short and then snapping to its full height. It stops watching when the fold ends.

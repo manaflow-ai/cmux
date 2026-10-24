@@ -264,12 +264,15 @@ test("a move token that becomes zero settles the active fold even when fade moti
   animations[0]!.finish();
   click();
   expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  const box = container.querySelector<HTMLElement>(".cv-fold")!;
   document.documentElement.style.setProperty("--agent-motion-in", "80ms");
   token = 0;
   document.documentElement.style.setProperty("--agent-motion-move", "0ms");
   await act(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
+  expect(box.style.height).toBe("0px");
+  expect(box.style.opacity).toBe("0");
   expect(container.querySelector(".cv-tool-output-card")).toBeNull();
 });
 

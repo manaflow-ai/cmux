@@ -618,7 +618,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
    still apply it at once. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-composer-queue {
+  .acpmux-composer-queue[data-fit-ready] {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
 }

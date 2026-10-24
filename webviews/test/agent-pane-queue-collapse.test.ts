@@ -282,9 +282,16 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const before = await page.evaluate(() => {
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
         const style = getComputedStyle(list);
-        return { height: list.getBoundingClientRect().height, transition: style.transition };
+        return {
+          height: list.getBoundingClientRect().height,
+          transition: style.transition,
+          ready: list.hasAttribute("data-fit-ready"),
+          animations: list.getAnimations().length,
+        };
       });
       expect(before.transition).toContain("max-height");
+      expect(before.ready).toBe(true);
+      expect(before.animations).toBe(0);
       await page.locator(".acpmux-queue-fold").click();
       await page.waitForFunction(
         (height) =>

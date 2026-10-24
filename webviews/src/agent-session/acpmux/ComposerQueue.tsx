@@ -209,10 +209,23 @@ export function ComposerQueue({
   // height does: an agent's message opened, or its Details, is that line's own state
   // (IncomingMessageLine), which draws no queue again.
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
+  const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
-    if (current) fitList(current);
+    if (current) {
+      const firstFit = !current.hasAttribute("data-fit-ready");
+      fitList(current);
+      if (firstFit) {
+        const view = current.ownerDocument.defaultView;
+        if (view) {
+          fitReadyFrame.current = view.requestAnimationFrame(() => {
+            fitReadyFrame.current = undefined;
+            if (current.isConnected) current.setAttribute("data-fit-ready", "");
+          });
+        }
+      }
+    }
     // Opening lands at the top: the header and the next prompt.
     if (current && unfolded && !wasOpen.current) current.scrollTop = 0;
     wasOpen.current = unfolded;
@@ -241,6 +254,9 @@ export function ComposerQueue({
   });
   useEffect(
     () => () => {
+      const view = list.current?.ownerDocument.defaultView;
+      if (fitReadyFrame.current !== undefined) view?.cancelAnimationFrame(fitReadyFrame.current);
+      fitReadyFrame.current = undefined;
       watched.current?.observer.disconnect();
       watched.current?.rows.disconnect();
     },
