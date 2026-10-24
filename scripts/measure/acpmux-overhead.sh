@@ -71,11 +71,17 @@ if [[ "$bench" == daemon ]]; then
     local label="$1" tree="$2" log="$work/perf-$1.log" code=0 result=ok
     (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" cargo test --release --locked \
       -p acpmux --test perf_ops -- --nocapture 2>&1) | tee "$log" \
-      | sed -n "s/^\(ACPMUX-PERF[A-Z-]*\) /\1 $label /p;/over the daemon budgets/,/^]/p" || code=$?
+      | sed -n "s/^\(ACPMUX-PERF[A-Z-]*\) /\1 $label /p;/^over the daemon budgets: \[/,/^]/p" || code=$?
     if (( code != 0 )); then
-      # perf_ops asserts its budgets last (`over the daemon budgets: [...]`): any other failure means
-      # the side has no complete rows (no test target, a lock or compile error, a daemon that did not start).
-      if grep -q 'over the daemon budgets' "$log"; then result=over-budget; else result=failed; fi
+      # perf_ops asserts its budgets last: the panic payload `over the daemon budgets: [...]` starts a line
+      # (after `panicked at ...:`) and libtest ends with `test result: FAILED`. Any other failure means the side
+      # has no complete rows (no test target, a lock or compile error, a daemon that did not start). A rustc
+      # error that quotes the assert line (`634 |     assert!(..., "over the daemon budgets: ...`) is one.
+      if grep -q '^over the daemon budgets: \[' "$log" && grep -q '^test result: FAILED' "$log"; then
+        result=over-budget
+      else
+        result=failed
+      fi
     fi
     echo "ACPMUX-PERF-STATUS $label exit=$code result=$result log=$log"
     (( code == 0 )) || tail -n 40 "$log" | sed "s/^/ACPMUX-PERF-LOG $label /"
