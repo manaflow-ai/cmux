@@ -1543,12 +1543,12 @@ final class FileExplorerStore: ObservableObject {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
             if directoryWatchPath != rootPath { stopDirectoryWatcher() }
             directoryWatchPath = rootPath
-            let paths = expandedPaths.filter { Self.path($0, isContainedIn: rootPath) }.union([rootPath])
-            for path in directoryWatchers.keys where !paths.contains(path) {
+            // Reload discards cached listings; loadChildren re-arms only directories that still exist.
+            for path in directoryWatchers.keys where path != rootPath {
                 directoryWatchTasks.removeValue(forKey: path)?.cancel()
                 directoryWatchers.removeValue(forKey: path)
             }
-            for path in paths { watchDirectory(at: path) }
+            watchDirectory(at: rootPath)
         } else {
             stopDirectoryWatcher()
         }

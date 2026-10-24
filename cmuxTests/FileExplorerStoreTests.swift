@@ -955,11 +955,12 @@ struct FileExplorerStoreTests {
 
     @Test
     func testExternalNestedFileChangesRefreshOutlineWithoutReload() async throws {
-        let rootURL = FileManager.default.temporaryDirectory
+        let containerURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-files-watch-\(UUID().uuidString)", isDirectory: true)
+        let rootURL = containerURL.appendingPathComponent("root", isDirectory: true)
         let sourceURL = rootURL.appendingPathComponent("Sources/Nested", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
+        defer { try? FileManager.default.removeItem(at: containerURL) }
         let keepURL = sourceURL.appendingPathComponent("Keep.swift")
         try Data().write(to: keepURL)
 
