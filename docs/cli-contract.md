@@ -553,7 +553,8 @@ declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `action run -` reads app actions from stdin, a JSON array or one JSON object
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",
 "args": {…}}`), and sends them as ONE `action.batch` request: the app checks
-every op before any runs (one bad op runs nothing and names its index), runs
+every op before any runs (one bad op runs nothing and names its index, `op`,
+counted from 0; the CLI names a stdin parse error by line and column), runs
 them in order in one main-thread task, and answers once. What the app owns
 (selection, focus, settings) changes in that one task and shows together;
 what the session daemon owns (a daemon tab renamed, a column made, a close)

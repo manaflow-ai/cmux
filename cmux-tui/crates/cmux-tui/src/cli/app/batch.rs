@@ -10,6 +10,7 @@ use std::io::Read;
 use serde_json::{Map, Value, json};
 
 use super::{AppCommand, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT};
+use crate::localization::AppControlMessages;
 
 /// `cmux action run - [--no-wait] [--no-atomic]` with stdin's ops. `origin`
 /// is set on every op that does not name its own.
@@ -51,32 +52,36 @@ pub(super) fn parse_batch(
 }
 
 /// The ops of stdin `text`: one JSON array, or one object per non-blank line.
+/// A parse error names its line and column over `text` as given (1-based,
+/// blank lines counted); an op that is not an object names its op index
+/// (0-based, as the app's `data.op`).
 fn batch_ops(text: &str, origin: &str) -> Result<Vec<Value>, UsageError> {
-    let messages = &crate::localization::catalog().app_control;
-    let trimmed = text.trim();
-    let ops: Vec<Value> = if trimmed.starts_with('[') {
-        serde_json::from_str(trimmed).map_err(|error| {
-            UsageError::new(
-                messages
-                    .action_batch_line
-                    .replace("{line}", "1")
-                    .replace("{error}", &error.to_string()),
-            )
-        })?
+    batch_ops_in(text, origin, &crate::localization::catalog().app_control)
+}
+
+fn batch_ops_in(
+    text: &str,
+    origin: &str,
+    messages: &AppControlMessages,
+) -> Result<Vec<Value>, UsageError> {
+    let parse_error = |line: usize, error: &serde_json::Error| {
+        UsageError::new(
+            messages
+                .action_batch_parse
+                .replace("{line}", &line.to_string())
+                .replace("{column}", &error.column().to_string())
+                .replace("{error}", &without_position(error)),
+        )
+    };
+    let ops: Vec<Value> = if text.trim_start().starts_with('[') {
+        // serde_json counts lines and columns over the whole text, leading blank lines too.
+        serde_json::from_str(text).map_err(|error| parse_error(error.line(), &error))?
     } else {
-        trimmed
-            .lines()
+        text.lines()
             .enumerate()
             .filter(|(_, line)| !line.trim().is_empty())
             .map(|(index, line)| {
-                serde_json::from_str(line).map_err(|error| {
-                    UsageError::new(
-                        messages
-                            .action_batch_line
-                            .replace("{line}", &(index + 1).to_string())
-                            .replace("{error}", &error.to_string()),
-                    )
-                })
+                serde_json::from_str(line).map_err(|error| parse_error(index + 1, &error))
             })
             .collect::<Result<_, _>>()?
     };
@@ -88,10 +93,7 @@ fn batch_ops(text: &str, origin: &str) -> Result<Vec<Value>, UsageError> {
         .map(|(index, op)| {
             let Value::Object(mut members) = op else {
                 return Err(UsageError::new(
-                    messages
-                        .action_batch_line
-                        .replace("{line}", &(index + 1).to_string())
-                        .replace("{error}", messages.action_batch_not_object),
+                    messages.action_batch_not_object.replace("{op}", &index.to_string()),
                 ));
             };
             members.entry("origin").or_insert_with(|| json!(origin));
@@ -100,11 +102,28 @@ fn batch_ops(text: &str, origin: &str) -> Result<Vec<Value>, UsageError> {
         .collect()
 }
 
+/// `error`'s text without serde_json's own " at line L column C": the message
+/// names the position over all of stdin, which a per-line parse does not know.
+fn without_position(error: &serde_json::Error) -> String {
+    let text = error.to_string();
+    let position = format!(" at line {} column {}", error.line(), error.column());
+    if let Some(message) = text.strip_suffix(&position) {
+        return message.to_owned();
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{AppCommand, parse_batch};
+    use super::{AppCommand, batch_ops_in, parse_batch};
+    use crate::localization::catalog_for_locale;
+
+    /// The English message of `text`'s refusal.
+    fn refusal(text: &str) -> String {
+        batch_ops_in(text, "script", &catalog_for_locale("en").app_control).unwrap_err().to_string()
+    }
 
     fn parse(args: &[&str], stdin: &str) -> Result<AppCommand, String> {
         let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
@@ -148,5 +167,31 @@ mod tests {
         assert!(parse(&[], "{\"action\":\"newRow\"}\nnot json\n").unwrap_err().contains('2'));
         assert!(parse(&[], "[1]").is_err());
         assert!(parse(&["--target"], "{\"action\":\"newRow\"}").is_err());
+    }
+
+    #[test]
+    fn a_bad_json_line_is_named_by_its_line_in_stdin_as_given() {
+        let message = refusal("\n\n{\"action\":\"newRow\"}\n\nnot json\n");
+        assert!(message.contains("line 5, column "), "{message}");
+        assert!(
+            !message.contains("at line 1 column"),
+            "serde's per-line position leaked: {message}"
+        );
+    }
+
+    #[test]
+    fn a_bad_op_in_an_array_is_named_by_its_own_line_and_column() {
+        let message = refusal(
+            "\n[{\"action\":\"a\"},\n {\"action\":\"b\"},\n {\"action\":\"c\"},\n {\"action\": }]\n",
+        );
+        assert!(message.contains("line 5, column "), "{message}");
+    }
+
+    #[test]
+    fn an_op_that_is_not_an_object_is_named_from_zero_as_the_app_does() {
+        let message = refusal("[{\"action\":\"a\"}, {\"action\":\"b\"}, 3]");
+        assert!(message.contains("op 2 of stdin"), "{message}");
+        let message = refusal("\n{\"action\":\"a\"}\n\n[1]\n");
+        assert!(message.contains("op 1 of stdin"), "{message}");
     }
 }
