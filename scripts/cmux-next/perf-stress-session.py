@@ -320,13 +320,37 @@ class Stress:
         made = wait(lambda: next((p["id"] for p in self.panes(self.workspace(workspace)) if p["id"] not in before), None), 15, step=0.1)
         if not made:
             self.refusals.append(f"{verb} on {pane} made no pane")
+        else:
+            self.record_first(workspace, made)
         return made
+
+    def record_first(self, workspace, pane):
+        """Records `pane`'s first terminal (the tab a new pane comes with) as a tab this builder owns."""
+        tabs = wait(lambda: self.tabs(workspace, pane), 10, step=0.05) or []
+        first = next((t.get("id") for t in tabs if t.get("kind") == "terminal"), None)
+        if self.made.get(pane) and self.made[pane][0][0] == "terminal" and self.made[pane][0][1] == first:
+            return
+        self.made.setdefault(pane, []).insert(0, ("terminal", first, False))
+
+    def live_busy(self, measured):
+        """Busy ids that are still terminal tabs: in the measured workspace (busy_where measured) or in the
+        background workspaces (elsewhere)."""
+        places = [measured] if self.busy_where == "measured" else [self.workspace(w) for w in getattr(self, "background", [])]
+        terminals = {t.get("id") for w in places for p in self.panes(w) for t in p.get("tabs") or [] if t.get("kind") == "terminal"}
+        return sum(1 for tab in getattr(self, "busy", []) if tab in terminals)
+
+    def make_busy(self, tab_id):
+        """Starts the output loop in terminal `tab_id` and records it as a busy terminal."""
+        self.send(tab_id, BUSY_COMMAND)
+        self.busy = getattr(self, "busy", [])
+        self.busy.append(tab_id)
 
     def build_grid(self, workspace):
         """The measured workspace's panes: COLUMNS x ROWS plus the nested splits, each split aimed at
         its pane by id. Columns split balanced (halves, then quarters), so no column is ever narrower
         than a quarter of the window while the grid grows."""
         first = self.panes(self.workspace(workspace))[0]["id"]
+        self.record_first(workspace, first)
         # Halves, then quarters: [first, b] -> [first, c, b, d].
         b = self.split(workspace, first, "splitRight")
         c = self.split(workspace, first, "splitRight")
@@ -389,28 +413,26 @@ class Stress:
             for kind in order:
                 self.add_tab(workspace, pane, kind)
             self.log(f"stress: pane {index + 1}/{len(panes)} has {len(self.tabs(workspace, pane))} tabs")
-        busy = []
+        self.busy = []
         if self.busy_where == "measured":
             for pane in panes[:BUSY_TERMINALS]:
                 tabs = self.tabs(workspace, pane)
                 selected = next((t for t in tabs if t.get("kind") == "terminal" and t.get("selected")), None)
                 terminal = selected or next((t for t in reversed(tabs) if t.get("kind") == "terminal"), None)
                 if terminal:
-                    self.send(terminal["id"], BUSY_COMMAND)
-                    busy.append(terminal["id"])
+                    self.make_busy(terminal["id"])
         else:
             for other in getattr(self, "background", [])[-BUSY_TERMINALS:]:
                 for pane in self.panes(self.workspace(other)):
                     terminal = next((t for t in pane.get("tabs") or [] if t.get("kind") == "terminal"), None)
                     if terminal:
-                        self.send(terminal["id"], BUSY_COMMAND)
-                        busy.append(terminal["id"])
+                        self.make_busy(terminal["id"])
                         break
         self.action("goToWorkspace", {"workspace": workspace})
         wait(lambda: self.focused_workspace() == workspace, 20)
         if panes:
             self.focus_pane(panes[0])
-        self.measured, self.busy = workspace, busy
+        self.measured = workspace
         return workspace
 
     def build(self, check=True):
@@ -504,7 +526,7 @@ class Stress:
         for pane in self.panes(measured):
             tabs = {t.get("id"): t.get("kind") for t in pane.get("tabs") or []}
             asked = self.made.get(pane.get("id"), [])
-            got = {k: sum(1 for kind, _, _ in asked if kind == k) + (k == "terminal") for k in want}
+            got = {k: sum(1 for kind, _, _ in asked if kind == k) for k in want}
             wrong = [f"{kind} tab {tab} is {tabs.get(tab)}" for kind, tab, fallback in asked
                      if tab is None or tabs.get(tab) not in topology_kinds(kind, fallback)]
             if got != want or len(tabs) != 6 or wrong:
@@ -529,7 +551,7 @@ class Stress:
                 **window_on_screen(on_screen),
                 "grid_problems": grid_problems(window),
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
-                "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
+                "measured_tabs": kinds, "busy_terminals": self.live_busy(measured), "busy_where": self.busy_where,
                 "selected": self.selected,
                 "chromium_workspaces": sum(1 for pages in background if pages >= CHROMIUM_PER_WORKSPACE),
                 "chat_fallbacks": self.chat_fallbacks, "chat_fallback_ok": self.allow_chat_fallback, "refusals": self.refusals[:10], "layout_refusals": layout[:6],
