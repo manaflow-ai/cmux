@@ -59,7 +59,9 @@ public final class DaemonService {
     /// The connection Quit's end choice runs on, kept after
     /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
     @ObservationIgnored var endingConnection: DaemonConnection?
-    @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
+    /// The daemon's event batches: visible updates no action of the person caused (the person's own
+    /// change shows in the key's turn through an intent), so they run under the visible budget.
+    @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain", kind: .budgeted(.visible))
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.

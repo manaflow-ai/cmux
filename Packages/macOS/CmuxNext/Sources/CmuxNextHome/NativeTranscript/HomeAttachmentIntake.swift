@@ -13,10 +13,14 @@ protocol HomePasteboardContents {
     /// A drag's file promises, in order (the screenshot thumbnail, Photos, a
     /// browser's picture): files the source writes only when the drop asks.
     var filePromises: [any HomeFilePromise] { get }
+    /// The pasteboard's items, in order (several copied pictures; words beside
+    /// files); empty when the board is its one item.
+    var items: [any HomePasteboardContents] { get }
 }
 
 extension HomePasteboardContents {
     var filePromises: [any HomeFilePromise] { [] }
+    var items: [any HomePasteboardContents] { [] }
 }
 
 /// A file a drag's source writes when the drop asks: `NSFilePromiseReceiver`
@@ -44,6 +48,17 @@ extension NSPasteboard: HomePasteboardContents {
     var filePromises: [any HomeFilePromise] {
         readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver] ?? []
     }
+
+    var items: [any HomePasteboardContents] { pasteboardItems ?? [] }
+}
+
+extension NSPasteboardItem: HomePasteboardContents {
+    var fileURLs: [URL] {
+        guard let link = string(forType: .fileURL), let url = URL(string: link), url.isFileURL else { return [] }
+        return [url]
+    }
+
+    func hasType(_ wanted: [NSPasteboard.PasteboardType]) -> Bool { availableType(from: wanted) != nil }
 }
 
 /// What a pasteboard (drop or paste) offers as attachments: file URLs
@@ -84,11 +99,54 @@ enum HomeAttachmentIntake {
         return !hasText(board) && acceptedPictureType(board) != nil
     }
 
+    /// The attachments a paste or drop gives, in order: its files; else, with no text, each
+    /// item's picture (several pictures copied together all attach); else the pictures inside
+    /// its rich text (a note's or a mail's), whose words paste beside them (``textBeside(_:)``).
     static func inputs(from board: any HomePasteboardContents) -> [HomeDraftInput] {
         let urls = board.fileURLs
         if !urls.isEmpty { return urls.map { .file($0) } }
-        guard !hasText(board), let type = acceptedPictureType(board), let data = board.data(forType: type) else { return [] }
-        return [.data(data, typeIdentifier: type.rawValue)]
+        if hasText(board) { return richTextPictures(board) }
+        let pictures = board.items.compactMap(picture)
+        if !pictures.isEmpty { return pictures }
+        return picture(board).map { [$0] } ?? []
+    }
+
+    /// The words a paste carries beside the attachments ``inputs(from:)`` takes, for the field to
+    /// insert at the caret: the items with text and no file (a file's own item names it: not
+    /// words), or the words around rich text's pictures without their U+FFFC marks; nil: none.
+    static func textBeside(_ board: any HomePasteboardContents) -> String? {
+        let text: String
+        if !board.fileURLs.isEmpty {
+            text = board.items.filter { $0.fileURLs.isEmpty && hasText($0) }.compactMap { $0.string(forType: .string) }
+                .joined(separator: "\n")
+        } else if hasText(board) {
+            text = String((board.string(forType: .string) ?? "").unicodeScalars.filter { $0 != "\u{FFFC}" })
+        } else {
+            return nil
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// One item's (or a whole board's) picture bytes, under the first type the data side takes.
+    private static func picture(_ board: any HomePasteboardContents) -> HomeDraftInput? {
+        guard let type = acceptedPictureType(board), let data = board.data(forType: type) else { return nil }
+        return .data(data, typeIdentifier: type.rawValue)
+    }
+
+    /// The files inside a board's RTFD (Notes, TextEdit, Mail, Pages) the data side takes, in
+    /// their order in the text; empty without RTFD.
+    private static func richTextPictures(_ board: any HomePasteboardContents) -> [HomeDraftInput] {
+        guard let data = board.data(forType: .rtfd), let rich = NSAttributedString(rtfd: data, documentAttributes: nil) else { return [] }
+        var out: [HomeDraftInput] = []
+        rich.enumerateAttribute(.attachment, in: NSRange(location: 0, length: rich.length)) { value, _, _ in
+            guard let wrapper = (value as? NSTextAttachment)?.fileWrapper, wrapper.isRegularFile,
+                  let bytes = wrapper.regularFileContents,
+                  let name = wrapper.preferredFilename ?? wrapper.filename,
+                  let type = UTType(filenameExtension: (name as NSString).pathExtension),
+                  HomeAttachmentPolicy.accepts(typeIdentifier: type.identifier) else { return }
+            out.append(.data(bytes, typeIdentifier: type.identifier))
+        }
+        return out
     }
 
     /// A promise of at least one file the data side takes: not only folders (it takes any file).

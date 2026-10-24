@@ -10,7 +10,7 @@ headless simulator driven with AXe (accessibility taps on that simulator only).
 
 For each state (Chief connected, then the rig Mac quit: disconnected) and each
 appearance (light, dark) it opens Chief, opens Chief's info from the header's
-trailing button, and records:
+name, and records:
 
 - the navigation buttons' centers (Done in the old sheet; Back and Edit now);
 - the avatar's frame (its own element now; the old sheet's header element, whose
@@ -135,7 +135,8 @@ def on_info(sim):
 
 
 def open_info(sim):
-    sim.tap_q(ident="conversation.header.trailing")
+    # The header's name opens Chief's info (the trailing button is Invite to cmux).
+    sim.tap_q(ident="conversation.header.name")
     found = sim.wait(timeout=10, ident="chief.settings")
     time.sleep(1.8)  # the push (or sheet) settles
     return bool(found)

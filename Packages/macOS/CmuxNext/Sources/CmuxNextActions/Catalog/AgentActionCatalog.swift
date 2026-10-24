@@ -42,7 +42,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
                 keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ContextMenuPlacement(.agentChat, .inspect, 0, folder: .tools),
+                ])
             ),
             ActionDescriptor(
                 id: "agentPane.togglePointerInspector",
@@ -51,7 +53,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
-                    ContextMenuPlacement(.agentChat, .inspect, 1, label: "Inspect Element"),
+                    ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Inspect Element"),
                     ContextMenuPlacement(.tab, .inspect, 510, label: "Inspect Element"),
                     ContextMenuPlacement(.pane, .inspect, 510, label: "Inspect Element"),
                     ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),

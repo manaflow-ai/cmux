@@ -58,6 +58,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onPickAttachments: () -> Void = {}
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// The words beside the attachments a taken paste carries; nil when none.
+    var onAttachmentPasteText: (NSPasteboard) -> String? = { _ in nil }
     /// Whether a paste would be taken, types only.
     var acceptsAttachmentDrag: (NSPasteboard) -> Bool = { _ in false }
     /// A drop on the field; true when taken. Nil takes it as a paste.
@@ -657,6 +659,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func attachmentPasteText(from pasteboard: NSPasteboard) -> String? { onAttachmentPasteText(pasteboard) }
+    /// A draft attachment's file under its own name (the store's copy is named by hash), linked
+    /// once into HomeMedia's folder: Copy of the box's selection puts it on the pasteboard.
+    func draftAttachmentFile(_ id: ID) -> URL? {
+        guard let local = drafts[id] else { return nil }
+        let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
+        return (try? opener.namedCopy(of: local.fileURL, name: local.ref.name, hash: local.ref.hash)) ?? local.fileURL
+    }
     func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
     func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
     func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }

@@ -315,6 +315,8 @@ final class CEFPaneHost {
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        // The resize deadline addresses the page window through a live browser of it.
+        hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
         if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {

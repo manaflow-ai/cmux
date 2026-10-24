@@ -502,6 +502,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cmux: the rows fade out over this many points at the window's top, as they scroll away
     /// (a Home pane with no header); 0, Messages: none, its header blurs them.
     var topFade: CGFloat = 0 { didSet { if topFade != oldValue { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } } }
+    /// cmux: the rows' alpha at points under the window's top (y down, ascending), full strength
+    /// below the last; wins over `topFade` when not empty (Home's top fade styles, HostView+TopFade.swift).
+    var topMaskStops: [(y: CGFloat, alpha: CGFloat)] = [] {
+        didSet { if topMaskStops.map(\.y) != oldValue.map(\.y) || topMaskStops.map(\.alpha) != oldValue.map(\.alpha) { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } }
+    }
 
     private var laidOutSize = CGSize.zero
     private func layoutFrames() {
@@ -861,11 +866,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         clipMask.position = CGPoint(x: bounds.width / 2, y: -200)
         // cmux: with a top fade, nothing above the window's top and a ramp to full strength over
         // `topFade` points under it (the mask starts 200 pt above the window; y runs down).
-        if topFade > 0 {
+        if topFade > 0 || !topMaskStops.isEmpty {
             let h = max(1, clipMask.bounds.height)
+            let stops = topMaskStops.isEmpty ? [(y: CGFloat(0), alpha: CGFloat(0)), (y: topFade, alpha: CGFloat(1))] : topMaskStops
             clipMask.backgroundColor = nil
-            clipMask.colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
-            clipMask.locations = [0, NSNumber(value: Double(200 / h)), NSNumber(value: Double(min(h, 200 + topFade) / h)), 1]
+            clipMask.colors = [UIColor.clear.cgColor] + stops.map { UIColor.black.withAlphaComponent($0.alpha).cgColor } + [UIColor.black.cgColor]
+            clipMask.locations = [0] + stops.map { NSNumber(value: Double(min(h, 200 + $0.y) / h)) } + [1]
         } else {
             clipMask.colors = nil
             clipMask.backgroundColor = UIColor.black.cgColor

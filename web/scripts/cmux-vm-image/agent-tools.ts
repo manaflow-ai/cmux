@@ -31,12 +31,19 @@ import { CURRENT_BIN, type InputsLock, type RolesManifest, rolesManifest, sq } f
 
 export const AGENT_TOOLS_DIR = "/opt/cmux/agent-tools";
 export const AGENT_TOOLS_BIN = `${AGENT_TOOLS_DIR}/bin`;
-export const DISPLAY_UNIT = "cmux-agent-display.service";
-export const CUA_UNIT = "cmux-agent-cua.service";
 /** One shared display per machine while cmux-cua holds one X11 connection (D-A3). */
-export const AGENT_DISPLAY = ":99";
+const AGENT_DISPLAY_NUMBER = "99";
+export const AGENT_DISPLAY = `:${AGENT_DISPLAY_NUMBER}`;
+/**
+ * The shared display is display `:99` of the per-display template (displayTemplateUnit), so its
+ * AT-SPI bus (A11Y_UNIT, a11yTemplateUnit) follows it; without that bus cmux-cua returns empty
+ * accessibility trees and can type only into the globally focused window.
+ */
+export const DISPLAY_UNIT = `cmux-agent-display@${AGENT_DISPLAY_NUMBER}.service`;
+/** The shared display's AT-SPI bus. */
+export const A11Y_UNIT = `cmux-agent-a11y@${AGENT_DISPLAY_NUMBER}.service`;
+export const CUA_UNIT = "cmux-agent-cua.service";
 export const AGENT_DISPLAY_DIR = `${DEVBOX_WORK_HOME}/.cache/cmux-display`;
-export const AGENT_XAUTHORITY = `${AGENT_DISPLAY_DIR}/Xauthority`;
 /** cmux-cua's Linux default socket (`$HOME/.cache/cmux-cua/cmux-cua.sock`), which the proxy dials. */
 export const CUA_SOCKET = `${DEVBOX_WORK_HOME}/.cache/cmux-cua/cmux-cua.sock`;
 export const WORK_USER_CMUX_JSON = `${DEVBOX_WORK_HOME}/.config/cmux/cmux.json`;
@@ -123,16 +130,12 @@ function xvfbUnit(description: string, display: string, xauthority: string, extr
   ].join("\n");
 }
 
-/** Xvfb for computer use, as the work user, X11 over its Unix socket only, with a per-start cookie. */
-export function displayUnit(): string {
-  return xvfbUnit("cmux agent display (Xvfb) for computer use, started on demand by cmux-cua", AGENT_DISPLAY, AGENT_XAUTHORITY);
-}
-
 /**
  * Per-workspace displays (bead cx-ncc.5): `cmux-agent-display@N.service` is Xvfb on `:N` and
  * `cmux-agent-a11y@N.service` its AT-SPI bus. cmux-cua takes a display per call (the proxy env
  * CMUX_CUA_DISPLAY=:N), so one machine can give each workspace its own. Nothing allocates
- * displays or starts these yet; like the units above they have no [Install] and stay off.
+ * displays per workspace yet; the shared display is instance 99 (DISPLAY_UNIT, A11Y_UNIT), which
+ * cmux-cua's unit starts. Like the units above they have no [Install] and stay off.
  */
 export const DISPLAY_TEMPLATE_UNIT = "cmux-agent-display@.service";
 export const A11Y_TEMPLATE_UNIT = "cmux-agent-a11y@.service";
@@ -141,6 +144,8 @@ const A11Y_RUNTIME_NAME = "cmux-agent-a11y";
 export function agentXauthority(n: string): string {
   return `${AGENT_DISPLAY_DIR}/Xauthority-${n}`;
 }
+/** The shared display's cookie file. */
+export const AGENT_XAUTHORITY = agentXauthority(AGENT_DISPLAY_NUMBER);
 /** Display `:n`'s runtime dir (session bus socket, a11y bus, ready marker): owned by the work user, 0700, removed when the a11y unit stops. */
 export function a11yRuntimeDir(n: string): string {
   return `/run/${A11Y_RUNTIME_NAME}-${n}`;
@@ -314,13 +319,19 @@ export function cuaRefuseScript(name: string): string {
   ].join("\n");
 }
 
-/** `cmux-cua serve` on the agent display, as the work user, on its default socket. */
+/**
+ * `cmux-cua serve` on the agent display, as the work user, on its default socket, with the
+ * display's AT-SPI session bus: cmux-cua reads trees and types through AT-SPI there, and the apps
+ * it launches inherit the bus. `Wants`, not `Requires`: a bus that fails to start leaves the
+ * driver running with screenshots and X11 input.
+ */
 export function cuaUnit(): string {
   return [
     "[Unit]",
     "Description=cmux agent computer use (cmux-cua serve on the agent display), started on demand",
     `Requires=${DISPLAY_UNIT}`,
-    `After=${DISPLAY_UNIT}`,
+    `Wants=${A11Y_UNIT}`,
+    `After=${DISPLAY_UNIT} ${A11Y_UNIT}`,
     "",
     "[Service]",
     "Type=simple",
@@ -329,6 +340,8 @@ export function cuaUnit(): string {
     `Environment=HOME=${DEVBOX_WORK_HOME}`,
     `Environment=DISPLAY=${AGENT_DISPLAY}`,
     `Environment=XAUTHORITY=${AGENT_XAUTHORITY}`,
+    `Environment=XDG_RUNTIME_DIR=${a11yRuntimeDir(AGENT_DISPLAY_NUMBER)}`,
+    `Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=${a11yRuntimeDir(AGENT_DISPLAY_NUMBER)}/bus`,
     `Environment=PATH=${CUA_REFUSE_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     "NoNewPrivileges=yes",
     "Environment=CMUX_CUA_TELEMETRY_ENABLED=false",
@@ -370,7 +383,6 @@ export function agentToolsLinkCommand(): string {
 export function agentToolsFiles(): Array<{ path: string; text: string; mode: number }> {
   return [
     { path: `${AGENT_TOOLS_BIN}/cmux-cua`, text: cuaWrapperScript(), mode: 0o755 },
-    { path: `/etc/systemd/system/${DISPLAY_UNIT}`, text: displayUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${CUA_UNIT}`, text: cuaUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${DISPLAY_TEMPLATE_UNIT}`, text: displayTemplateUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`, text: a11yTemplateUnit(), mode: 0o644 },

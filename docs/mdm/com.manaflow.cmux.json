@@ -1705,11 +1705,12 @@
       "type" : "boolean"
     },
     "diff.layout" : {
-      "default" : "unified",
+      "default" : "auto",
       "description" : "diff.layout",
       "enum" : [
         "split",
-        "unified"
+        "unified",
+        "auto"
       ],
       "title" : "Layout",
       "type" : "string"
@@ -4190,6 +4191,12 @@
       "title" : "Show Recent Chats on New Tab",
       "type" : "boolean"
     },
+    "tabs.newTabWidgets.clock" : {
+      "default" : false,
+      "description" : "A quiet local time display beside the composer.",
+      "title" : "Show Clock on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabWidgets.greeting" : {
       "default" : false,
       "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
@@ -4226,10 +4233,28 @@
       "title" : "Show Projects on New Tab",
       "type" : "boolean"
     },
+    "tabs.newTabWidgets.quote" : {
+      "default" : false,
+      "description" : "A bundled public-domain quote, changing daily.",
+      "title" : "Show Quote of the Day on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabWidgets.styleDots" : {
       "default" : false,
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.timer" : {
+      "default" : false,
+      "description" : "A small elapsed-time stopwatch beside the composer.",
+      "title" : "Show Stopwatch on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.warmGreeting" : {
+      "default" : false,
+      "description" : "A time-of-day greeting such as Good afternoon.",
+      "title" : "Show Warm Greeting on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabWidgets.weather" : {

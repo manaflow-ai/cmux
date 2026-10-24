@@ -392,6 +392,7 @@ mod tests {
     fn run(text: &str, agent: Option<&str>, provenance: Option<Value>) -> Arc<PromptRun> {
         Arc::new(PromptRun {
             blocks: vec![json!({"type": "text", "text": text})],
+            display_parts: None,
             control: Control::default(),
             trust_gate: false,
             provenance,

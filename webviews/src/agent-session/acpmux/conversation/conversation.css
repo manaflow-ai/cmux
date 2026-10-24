@@ -1537,11 +1537,9 @@ pre.cv-math-source {
 /* The running turn's line as its last row (`below`): its words stand 16px under a reply (the reply
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
-   The gap comes out of the row's bottom padding, so the line's row is the chat's last footer's
-   32px (its 24px line and the 8px message gap) and the turn's end, which swaps one for the other,
-   moves nothing. */
+   The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
 .cv-worked.is-below {
-  height: calc(var(--cv-meta-row) + var(--cv-message-gap));
+  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
 }
 /* Its time is quieter than its words, as the tool rows' time is. */
@@ -1765,6 +1763,20 @@ pre.cv-math-source {
 .cv-tool__chevron {
   margin-left: -4px;
   color: var(--cv-text-dim);
+}
+/* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
+   action slot before the chevron so the hover actions read duration, Copy, expand
+   at every width; the Shell card has its own in-flow actions and is unaffected. */
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool,
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool {
+  padding-right: 8px;
+}
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
+  margin-left: 34px;
+}
+.acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
+  right: 24px;
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
@@ -2326,14 +2338,14 @@ button.cv-received__name:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* A long message, closed: its first six lines (IncomingMessageCard.tsx RECEIVED_LINES), the last
+/* A long message, closed: its first eight lines (IncomingMessageCard.tsx RECEIVED_LINES), the last
    fading out under a mask (the card's glass shows through, never a cover); a click opens it.
    model.ts estimates the same height: change them together. */
 .cv-received__body[data-cut] {
   cursor: pointer;
 }
 .cv-received__body[data-cut] > .cv-received__text {
-  max-height: calc(var(--cv-line-height) * 6);
+  max-height: calc(var(--cv-line-height) * 8);
   overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
@@ -2584,8 +2596,8 @@ a.cv-sha:focus-visible {
 /* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
    all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
    over that gap (24px, the line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
-   took a full line). The chat's last footer has only the 8px message gap, too short for the line,
-   so there it draws nothing: the prompt's own hover row has the same Fork and age. */
+   took a full line). The chat's last footer keeps that same gap, so its hidden controls never add a
+   second band over the composer. */
 .cv-turn-actions--empty {
   position: absolute;
   inset: 0 0 auto;
@@ -3895,9 +3907,14 @@ article.acpmux-row:empty {
   min-height: 0;
   padding-bottom: var(--cv-turn-gap);
 }
-/* The chat's last footer: the message gap, so no band sits over the composer. */
+/* The chat's last footer keeps the normal turn gap above the composer. */
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
-  padding-bottom: var(--cv-message-gap);
+  padding-bottom: var(--cv-turn-gap);
+}
+/* A legacy/history turn can end without a footer. Mark only its latest row so the composer keeps
+   the normal turn rhythm without a permanent runway below every turn. */
+.acpmux-row.acpmux-row--last-turn {
+  padding-bottom: var(--cv-turn-gap);
 }
 
 /* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action

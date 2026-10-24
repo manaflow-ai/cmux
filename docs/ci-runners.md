@@ -97,6 +97,21 @@ Fork pull requests may use the same ephemeral Blacksmith size as the trusted
 Linux compile or test job. They keep read-only contents permissions and receive
 no secrets; small routing/status jobs may remain on the 4-vCPU lane.
 
+### cmux-next compile order
+
+Compile and build gates use this order:
+
+1. Fast checks, including a reusable fleet compile-check receipt for the exact
+   SHA when one exists.
+2. Any free compatible owned Mac selected through the controller.
+3. Blacksmith macOS as the last resort.
+
+No compile or build may depend on a single-host reservation without a fallback.
+The nightly app build remains on its dedicated builder; the Release gate does
+not share that reservation. Steps that require macOS, such as signing,
+notarization or GUI checks, run on an owned Mac first and Blacksmith macOS last,
+in parallel with the fast checks. The target is zero queue.
+
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
 capability reads the same one. It does not name the lane asking, which the

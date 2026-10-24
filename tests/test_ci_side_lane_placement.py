@@ -163,6 +163,14 @@ class Decide(unittest.TestCase):
         for label in ("", FALLBACK, STD, "glaeda-aws-side-std-xcode-26.6"):
             self.assertEqual(placement.session_route_label(label, [gui, session]), "", label)
 
+    def test_free_gui_and_session_routes_skip_busy_owned_runners(self):
+        busy = runner("mini-a-glaeda-4", busy=True, labels=(STD, GUI, SESSION))
+        idle = runner("mini-b-glaeda-4", labels=(STD, GUI, SESSION))
+        self.assertEqual(placement.free_gui_route_label(SIDE, [busy]), "")
+        self.assertEqual(placement.free_session_route_label(SIDE, [busy]), "")
+        self.assertEqual(placement.free_gui_route_label(SIDE, [busy, idle]), GUI)
+        self.assertEqual(placement.free_session_route_label(SIDE, [busy, idle]), SESSION)
+
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abc"]
@@ -238,6 +246,7 @@ class Decide(unittest.TestCase):
                 placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual((lines["gui_runner"], lines["session_runner"]), (GUI, SESSION))
+            self.assertEqual((lines["free_gui_runner"], lines["free_session_runner"]), (GUI, SESSION))
 
 
 LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
@@ -358,6 +367,7 @@ class CmuxNextWiring(unittest.TestCase):
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
+                            "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
                             "web-bundles": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
@@ -416,6 +426,12 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="")
         for name in GUI_JOBS:
             self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+
+    def test_bot_retry_uses_a_newly_free_owned_session_runner(self):
+        job_spec = self.workflow()["jobs"]["generated-files"]
+        context = self.context("2", triggering_actor="github-actions[bot]")
+        context["needs"][self.PLACEMENT]["outputs"]["free_session_runner"] = SESSION
+        self.assertEqual(evaluate(job_spec["runs-on"], context), SESSION)
 
     def test_session_jobs_take_a_live_session_label_and_otherwise_keep_the_gui_label(self):
         jobs = self.workflow()["jobs"]
@@ -543,7 +559,8 @@ class CmuxNextWiring(unittest.TestCase):
                 context["needs"] = {}  # the skipped placement has no outputs
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
-            self.assertTrue(evaluate(jobs[name]["if"].replace("!cancelled() && ", ""), self.context()))
+            gate = jobs[name]["if"].replace("always() && ", "").replace("!cancelled() && ", "")
+            self.assertTrue(evaluate(gate, self.context()))
             self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), on(name, SIDE))
 
     def test_the_watch_marker_follows_the_placement(self):

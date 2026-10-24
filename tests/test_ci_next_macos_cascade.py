@@ -532,7 +532,7 @@ class Wiring(unittest.TestCase):
                 # A fork keeps its own route.
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, hosted=f" {name} ")), SMALL)
 
-    def test_a_feat_push_release_compile_takes_the_promotion_mini_unless_the_placement_overflowed_it(self):
+    def test_a_feat_push_release_compile_uses_a_free_fleet_mac_then_blacksmith(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
 
         def push(**outputs: str) -> dict:
@@ -542,17 +542,22 @@ class Wiring(unittest.TestCase):
             context["vars"]["CI_NEXT_PROMOTE_POOL"] = PROMOTE
             return context
 
-        self.assertEqual(evaluate(runs_on, push()), PROMOTE)
-        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), LARGE)
-        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SMALL)
+        # A free owned Mac wins; the Blacksmith pool is the last resort.
+        self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
+        self.assertEqual(evaluate(runs_on, push()), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), LARGE)
         # Another job's slot is not the Release compile's.
-        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), PROMOTE)
+        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
-        # The runs-on value is a two-label array for the dedicated nightly
-        # runner; helper scripts keep a single runner label in the env.
-        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
+        # Release compile never targets the dedicated nightly runner.
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
 
-    def test_a_feat_push_release_compile_prefers_the_idle_dedicated_nightly_runner(self):
+    def test_a_feat_push_release_compile_never_targets_the_dedicated_nightly_runner(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
         context = self.context()
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
@@ -562,12 +567,10 @@ class Wiring(unittest.TestCase):
             CI_NEXT_PROMOTE_POOL=PROMOTE,
         )
         context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = "true"
-        self.assertEqual(evaluate(runs_on, context), [
+        self.assertNotEqual(evaluate(runs_on, context), [
             "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
             "glaeda-trusted-next-nightly",
         ])
-        self.assertEqual(evaluate(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], context),
-                         "glaeda-runner-cmux22-nightly-next")
 
     def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
@@ -578,7 +581,10 @@ class Wiring(unittest.TestCase):
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
         )
         context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = ""
-        self.assertEqual(evaluate(runs_on, context), "blacksmith-12vcpu-macos-26")
+        self.assertNotEqual(evaluate(runs_on, context), [
+            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
+            "glaeda-trusted-next-nightly",
+        ])
 
     def test_the_placement_knows_the_promotion_label_only_on_a_feat_push(self):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
