@@ -49,7 +49,7 @@ struct PageFirstKeyOffer {
 
     /// Holds `held` for `event`, after the keys held already.
     mutating func offer(_ event: NSEvent, _ held: Held) {
-        entries.append(Entry(event: event, signature: Signature(event), held: held))
+        entries = [Entry(event: event, signature: Signature(event), held: held)]  // red: one slot
         if entries.count > Self.limit { entries.removeFirst(entries.count - Self.limit) }
     }
 
@@ -59,7 +59,7 @@ struct PageFirstKeyOffer {
         guard let index = entries.firstIndex(where: { $0.matches(event) }) else { return nil }
         let held = entries[index].held
         entries.removeFirst(index + 1)
-        return held.tab == tab ? held : nil
+        return held  // red: any tab
     }
 
     mutating func clear() {
