@@ -82,17 +82,33 @@ class Guest:
     def cmux(self, args: list[str], timeout: float = 15) -> subprocess.CompletedProcess:
         return self.sh(self._cli(args), timeout)
 
-    def ping_ms(self, timeout: float) -> int | None:
+    def ping_ms(self, timeout: float, sample_after_ms: int = 0, app_pid: int | None = None,
+                sample_file: str = "") -> int | None:
         """Main-thread round trip in ms, timed in the guest; None when nothing answers.
 
-        A ping that runs past `timeout` returns the timeout (a hang), not None.
+        A ping that runs past `timeout` returns the timeout (a hang), not None. With `sample_after_ms`,
+        a ping still unanswered then starts `sample APP_PID 5` into `sample_file` in the guest while the
+        hang lasts (sudo -n first: the hardened runtime refuses task_for_pid to a non-root sampler), so
+        the sample shows the hang itself, over 5 s, not the state after it.
         """
         # Perl, not python3: a macOS 26 guest without the Command Line Tools has only the
         # /usr/bin/python3 stub, which opens an install dialog and fails.
         ms = int(timeout * 1000)
+        limit = max(1, int(timeout + 0.999))
+        sampler = ""
+        if sample_after_ms and app_pid and sample_file:
+            f = shlex.quote(sample_file)
+            # Started once, detached; the ping keeps its own deadline.
+            sampler = (" my $first = " + str(sample_after_ms / 1000) + ";"
+                       " my $done = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; Time::HiRes::alarm($first); waitpid($pid, 0); Time::HiRes::alarm(0); 1 };"
+                       " if (!$done) { if (!fork) { open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null';"
+                       " exec '/bin/sh', '-c', 'sudo -n /usr/bin/sample " + str(app_pid) + " 5 -file " + f +
+                       " || /usr/bin/sample " + str(app_pid) + " 5 -file " + f + "'; exit 127 } }"
+                       " else { print $? ? -1 : int((time - $t) * 1000); exit 0 }")
         perl = ("use Time::HiRes qw(time); my $t = time; my $pid = fork;"
                 " if (!$pid) { open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null'; exec @ARGV; exit 127 }"
-                " my $ok = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm " + str(max(1, int(timeout + 0.999))) + "; waitpid($pid, 0); alarm 0; 1 };"
+                + sampler +
+                " my $ok = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm " + str(limit) + "; waitpid($pid, 0); alarm 0; 1 };"
                 " if (!$ok) { kill 9, $pid; print " + str(ms) + " } else { print $? ? -1 : int((time - $t) * 1000) }")
         r = self.sh(f"/usr/bin/perl -e {shlex.quote(perl)} -- {self._cli(['app', 'ping'])}", timeout + 15)
         try:
@@ -498,6 +514,7 @@ def main() -> int:
             rec["screenshot_error"] = str(e)
 
     walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
+    app_pid = g.pid()
     for i, step in enumerate(steps):
         if walk_end is not None and time.time() >= walk_end:
             summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
@@ -510,7 +527,9 @@ def main() -> int:
         except (ConnectionError, OSError) as e:
             note = f"vnc error {e}"
             vnc = RFB(host, int(port), pw[0] if pw else None)
-        ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5))
+        live_sample = f"/tmp/fuzz-live-sample-{i}.txt"
+        ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5), sample_after_ms=o.hang_ms, app_pid=app_pid,
+                       sample_file=live_sample)
         log.write(json.dumps({"i": i, "step": step, "note": note, "ping_ms": ms,
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
@@ -521,10 +540,17 @@ def main() -> int:
             except Exception as e:  # best effort
                 print("screenshot failed:", e, flush=True)
         pid = g.pid()
+        if pid is not None:
+            app_pid = pid
         if ms is not None and ms > o.hang_ms and pid:
             summary["hangs"] += 1
+            # The live sample (taken during the hang) needs its 5 s to finish writing.
+            text = g.sh(f"for n in 1 2 3 4 5 6 7 8; do [ -s {live_sample} ] && sleep 1 && break; sleep 1; done; "
+                        f"cat {live_sample} 2>/dev/null", timeout=30).stdout
+            if text.strip():
+                open(os.path.join(o.out, f"hang-{i}.live-sample.txt"), "w").write(text)
             sample = os.path.join("/tmp", f"fuzz-sample-{i}.txt")
-            g.sh(f"sample {pid} 2 -file {sample} >/dev/null 2>&1", timeout=20)
+            g.sh(f"sudo -n /usr/bin/sample {pid} 2 -file {sample} >/dev/null 2>&1 || /usr/bin/sample {pid} 2 -file {sample} >/dev/null 2>&1", timeout=20)
             text = g.sh(f"cat {sample}").stdout
             open(os.path.join(o.out, f"hang-{i}.sample.txt"), "w").write(text)
             finding("hang", i, step, {"ping_ms": ms})
@@ -548,7 +574,8 @@ def main() -> int:
             if pid is not None:
                 # Alive but not answering: record where the main thread is; never start a second copy.
                 summary["unresponsive"] = summary.get("unresponsive", 0) + 1
-                g.sh(f"sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1", timeout=20)
+                g.sh(f"sudo -n /usr/bin/sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1 || "
+                     f"/usr/bin/sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1", timeout=20)
                 open(os.path.join(o.out, f"unresponsive-{i}.sample.txt"), "w").write(g.sh(f"cat /tmp/fuzz-unresp-{i}.txt").stdout)
                 finding("unresponsive", i, step, {})
                 continue

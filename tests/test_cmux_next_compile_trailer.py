@@ -84,7 +84,8 @@ class CompileTrailerTests(unittest.TestCase):
         head = self.commit("kit change")
         refused, lines = self.check(head)
         self.assertTrue(refused)
-        self.assertIn(f"cmux-ci compile-check --app --package CmuxNext --ref {head} --urgent", lines[0])
+        self.assertIn(f"cmux-ci compile-check --app --package CmuxNext --ref {head} (then add", lines[0])
+        self.assertNotIn("--urgent", lines[0])  # compile-check takes no --urgent or --reason flag
         self.assertIn("Compiled: <the job id it prints>", lines[0])
 
     def test_a_passing_job_of_the_same_commit_passes(self):
