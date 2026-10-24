@@ -6,7 +6,8 @@ import Testing
 /// arc: "why do these things not spin? Why have they not spun for a while?"). A row applies its
 /// plan only when its state changes, so an animation that was refused (loops off for a moment) or
 /// lost while the plan stayed the same used to stay gone: the row drew the still arc until its
-/// state changed. Applying the same plan again, or the app coming back to the front, restores it.
+/// state changed. Applying the same plan again, or the app coming back to the front, restores it
+/// (for the indicators on screen; per window, StatusIndicatorWindowResyncTests).
 @MainActor @Suite(.serialized) struct StatusIndicatorRepairTests {
     static let spin = StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
 
@@ -51,28 +52,39 @@ import Testing
 
     @Test(arguments: [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification,
                       NSWindow.didBecomeMainNotification])
-    func theAppComingBackResyncsEveryIndicator(_ name: Notification.Name) {
+    func theAppComingBackResyncsTheIndicatorsOnScreen(_ name: Notification.Name) {
         let app = NotificationCenter()
-        let appearance = StatusIndicatorAppearance(appCenter: app, workspaceCenter: NotificationCenter())
-        let client = ResyncCounter()
-        appearance.register(client)
-        app.post(name: name, object: nil)
+        let (window, client) = Self.shownClient(app: app, workspace: NotificationCenter())
+        defer { window.close() }
+        app.post(name: name, object: name == NSWindow.didBecomeMainNotification ? window : nil)
         #expect(client.resyncs == 1)
     }
 
     @Test(arguments: [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification])
-    func wakingFromSleepResyncsEveryIndicator(_ name: Notification.Name) {
+    func wakingFromSleepResyncsTheIndicatorsOnScreen(_ name: Notification.Name) {
         let workspace = NotificationCenter()
-        let appearance = StatusIndicatorAppearance(appCenter: NotificationCenter(), workspaceCenter: workspace)
-        let client = ResyncCounter()
-        appearance.register(client)
+        let (window, client) = Self.shownClient(app: NotificationCenter(), workspace: workspace)
+        defer { window.close() }
         workspace.post(name: name, object: nil)
         #expect(client.resyncs == 1)
     }
+
+    /// A resync host shown in a window that is on screen, its notices on `app` and `workspace`.
+    private static func shownClient(app: NotificationCenter, workspace: NotificationCenter) -> (NSWindow, ResyncCounter) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        _ = WindowKeyFamily.of(window, environment: WindowKeyEnvironment(
+            center: app, keyWindow: { nil }, isAppActive: { true }, nextTurn: { _ in },
+            workspaceCenter: workspace, isWindowVisible: { _ in true }))
+        let client = ResyncCounter()
+        client.placement.update(client, in: window, shown: true)
+        return (window, client)
+    }
 }
 
-@MainActor private final class ResyncCounter: StatusIndicatorConfigClient {
+@MainActor private final class ResyncCounter: StatusIndicatorResyncClient {
+    let placement = StatusIndicatorPlacement()
     var resyncs = 0
-    func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {}
     func statusIndicatorResync() { resyncs += 1 }
 }

@@ -13,12 +13,7 @@ import Testing
         let workspace = NotificationCenter()
         var visible: Set<ObjectIdentifier> = []
         var pending: [@MainActor () -> Void] = []
-        let appearance: StatusIndicatorAppearance
         var windows: [NSWindow] = []
-
-        init() {
-            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: workspace)
-        }
 
         var environment: WindowKeyEnvironment {
             WindowKeyEnvironment(center: center, keyWindow: { nil }, isAppActive: { true },
@@ -50,8 +45,6 @@ import Testing
             strip.frame = NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight)
             strip.isHidden = hidden
             window.contentView?.addSubview(strip)
-            // Busy cells are indicator clients (`TabCell.updateSpinner`).
-            for cell in strip.cells.values where cell.item.isBusy { appearance.register(cell) }
             return strip
         }
 

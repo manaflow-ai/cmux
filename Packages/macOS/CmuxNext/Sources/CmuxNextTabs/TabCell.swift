@@ -38,15 +38,6 @@ final class TabCell {
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
     var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
-    /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
-    /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
-    /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
-    /// came while hidden runs when the strip shows again.
-    var isStripShown = true {
-        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
-    }
-    /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
-    var owesIndicatorResync = false
     /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
     /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
     var fillsSelection: Bool { isSelected || isLifted }
