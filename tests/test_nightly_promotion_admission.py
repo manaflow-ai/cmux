@@ -853,9 +853,9 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
 
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     wait, move, decide_job = jobs["await-release-surface-ack"], jobs["promote-nightly-next-acked"], jobs["promote-nightly-next"]
-    # The waiter: one shared cancel-in-progress group (a per-run group when the
+    # The waiter: one shared non-cancelling group (a per-run group when the
     # scan failed), the approval environment only for needs-ack, no secrets.
-    assert wait["concurrency"]["cancel-in-progress"] is True
+    assert wait["concurrency"]["cancel-in-progress"] is False
     assert wait["concurrency"]["group"].startswith("nightly-next-promote-ack${{")
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
