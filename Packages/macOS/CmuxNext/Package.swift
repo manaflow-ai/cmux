@@ -11,6 +11,7 @@ import PackageDescription
 //   CmuxNextApp -> every feature module
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
+//   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
@@ -194,6 +195,7 @@ let uiLayerPreviewTargets: [Target] = [
 
 let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
+    .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
@@ -202,6 +204,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
+                "CmuxNextFavicons",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -1501,6 +1504,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Favicon state owned by the browser chrome. The App supplies the loader and keeps
+        // its AppServices extensions in CmuxNextApp; this leaf is also consumable by the
+        // read-only UI host without pulling in the app composition root.
+        .target(
+            name: "CmuxNextFavicons",
+            dependencies: ["CmuxNextBrowser", "CmuxNextTabs"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
