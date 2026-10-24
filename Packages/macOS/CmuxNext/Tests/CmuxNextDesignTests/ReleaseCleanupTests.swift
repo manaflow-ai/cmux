@@ -81,4 +81,31 @@ import Testing
         await releaseOffMain { PointerHover(view) }
         #expect(view.trackingAreas.isEmpty, "a hover released off main left a tracking area whose owner is freed on the view")
     }
+
+    /// A hover's tracking area is held by exact object, not by its identity: a view that removed
+    /// every area and added its own (a row's `updateTrackingAreas`) keeps that area when the hover
+    /// goes. Removal by `ObjectIdentifier` took the first area at the freed area's address, which
+    /// the next `NSTrackingArea` the view adds usually reuses.
+    @Test func aReleasedHoverLeavesAnotherOwnersAreaOnTheView() async {
+        let view = Self.view()
+        let other = NSObject()
+        func replaceAreas() {
+            autoreleasepool { for area in view.trackingAreas { view.removeTrackingArea(area) } }
+            view.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: other))
+        }
+        var hover: PointerHover? = PointerHover(view)
+        replaceAreas()
+        #expect(hover != nil && view.trackingAreas.count == 1)
+        hover = nil
+        #expect(view.trackingAreas.map { $0.owner === other } == [true],
+                "a hover released on main removed the area the view added after its own")
+
+        await releaseOffMain {
+            let hover = PointerHover(view)
+            replaceAreas()
+            return hover
+        }
+        #expect(view.trackingAreas.map { $0.owner === other } == [true],
+                "a hover released off main removed the area the view added after its own")
+    }
 }
