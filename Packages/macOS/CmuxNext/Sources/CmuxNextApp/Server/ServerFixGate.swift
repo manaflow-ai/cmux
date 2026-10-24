@@ -3,9 +3,9 @@ import Foundation
 /// One helper conversation at a time on this Mac: a Fix and Stop Serving's
 /// reverts take turns, in arrival order, so an apply can never land after
 /// the revert that should undo it. The holder runs in its caller's task, so
-/// a cancelled fix sees its own cancellation. The app's one gate is the
-/// server menu bar item's (`ServerMenuBarController.fixGate`), which hands it
-/// to every fixer it makes and to Stop Serving.
+/// a cancelled fix sees its own cancellation. The app's one gate is
+/// `ServerMenuBarController.fixGate`: the controller's sources and
+/// `ServerHandlers` (Stop Serving, headless Add Server) take turns on it.
 @MainActor
 final class ServerFixGate {
     private var busy = false
