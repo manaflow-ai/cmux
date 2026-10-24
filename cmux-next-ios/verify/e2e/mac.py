@@ -111,14 +111,21 @@ def refuse_other_rigs(own_bundle_id):
 RIG_MACHINE_ID_KEY = "CMUX_NEXT_MOBILE_MACHINE_ID"
 
 
+_HARDWARE_UUID = None
+
+
 def hardware_uuid():
     """This Mac's IOPlatformUUID (what cmux-mobile-host's own machine id uses):
     unlike the host name, it never changes with the network."""
+    global _HARDWARE_UUID
+    if _HARDWARE_UUID:
+        return _HARDWARE_UUID
     out = subprocess.run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], capture_output=True, text=True).stdout
     m = re.search(r'"IOPlatformUUID"\s*=\s*"([0-9A-Fa-f-]+)"', out)
     if not m:
         raise RuntimeError("no IOPlatformUUID in ioreg output")
-    return m.group(1).upper()
+    _HARDWARE_UUID = m.group(1).upper()
+    return _HARDWARE_UUID
 
 
 def rig_machine_id(bundle_id, host_uuid=None):
@@ -145,7 +152,9 @@ class Mac:
         self.pid = None
         self.launch_env = {}
         # Listed on the phone as its own Mac (rig_machine_id), not as another
-        # build of this computer. multimac's per-computer checks turn it off.
+        # build of this computer. multimac's per-computer checks turn it off
+        # here, and CMUX_RIG_SHARED_MACHINE_ID=1 turns it off for any rig (a
+        # rig folder still holding an older rig.py copy).
         self.own_machine_id = True
         self._bundle = None
         self._tag = None
@@ -240,7 +249,8 @@ class Mac:
             # Its own machine id, so the phone lists this rig apart from the
             # other hidden rig apps on this Mac (#24701); off for a harness
             # that tests one computer's builds (own_machine_id = False).
-            **({RIG_MACHINE_ID_KEY: rig_machine_id(self.bundle_id)} if self.own_machine_id else {}),
+            **({RIG_MACHINE_ID_KEY: rig_machine_id(self.bundle_id)}
+               if self.own_machine_id and os.environ.get("CMUX_RIG_SHARED_MACHINE_ID") != "1" else {}),
         }
 
     # ---- lifecycle ---------------------------------------------------------

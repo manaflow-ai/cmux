@@ -25,7 +25,8 @@ class RigMachineIDTests(unittest.TestCase):
 
     def test_hardware_uuid_reads_ioreg(self):
         out = '  "IOPlatformSerialNumber" = "X"\n  "IOPlatformUUID" = "%s"\n' % UUID.lower()
-        with mock.patch.object(mac.subprocess, "run", return_value=mock.Mock(stdout=out)):
+        with mock.patch.object(mac, "_HARDWARE_UUID", None), \
+                mock.patch.object(mac.subprocess, "run", return_value=mock.Mock(stdout=out)):
             self.assertEqual(mac.hardware_uuid(), UUID)
 
     def _mac(self, own):
@@ -39,6 +40,8 @@ class RigMachineIDTests(unittest.TestCase):
             self.assertEqual(self._mac(True).rig_env()[mac.RIG_MACHINE_ID_KEY],
                              mac.rig_machine_id("com.cmuxterm.app.debug.rig.a", host_uuid=UUID))
             self.assertNotIn(mac.RIG_MACHINE_ID_KEY, self._mac(False).rig_env())
+            with mock.patch.dict(mac.os.environ, {"CMUX_RIG_SHARED_MACHINE_ID": "1"}):
+                self.assertNotIn(mac.RIG_MACHINE_ID_KEY, self._mac(True).rig_env())
 
 
 if __name__ == "__main__":
