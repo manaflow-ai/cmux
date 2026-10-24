@@ -5265,6 +5265,17 @@ jobs:
               echo ""
               echo "\`$CHANNEL_RELEASE_TAG\` now points to \`$HEAD_SHA\`."
             } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TAG_MOVE_OUTCOME" != "failure" ]; then
+            # The tag move runs only after every publication step succeeded, so
+            # a skipped or cancelled move means the publication itself stopped
+            # (run 40076543798 said "are live" when no asset had uploaded).
+            echo "tag_status=unpublished" >> "$GITHUB_OUTPUT"
+            echo "::warning::Publication of $HEAD_SHA did not complete (an earlier publish step failed; see it above): assets and release metadata may be partial, the appcasts still serve the previous build, and $CHANNEL_RELEASE_TAG was not moved."
+            {
+              echo "### Not published"
+              echo ""
+              echo "Publication of \`$HEAD_SHA\` stopped before the release tag step. Assets may be partial, the appcasts are unchanged, and \`$CHANNEL_RELEASE_TAG\` was not advanced. Rerunning the failed jobs resumes the upload."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "tag_status=stale" >> "$GITHUB_OUTPUT"
             echo "::warning::Published assets, release metadata, and appcasts are live; the $CHANNEL_RELEASE_TAG tag marker is stale because its final update failed."

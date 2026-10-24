@@ -745,9 +745,12 @@ if ! awk '
   in_outcome && /tag_status=updated/ { saw_updated=1 }
   in_outcome && /tag_status=stale/ { saw_stale=1 }
   in_outcome && /Published, tag marker stale/ { saw_summary=1 }
-  END { exit !(saw_action && saw_contents && saw_workflows && saw_outcome_id && saw_updated && saw_stale && saw_summary) }
+  in_outcome && /"\$TAG_MOVE_OUTCOME" != "failure"/ { saw_unpublished_branch=1 }
+  in_outcome && /tag_status=unpublished/ { saw_unpublished=1 }
+  in_outcome && /### Not published/ { saw_unpublished_summary=1 }
+  END { exit !(saw_action && saw_contents && saw_workflows && saw_outcome_id && saw_updated && saw_stale && saw_summary && saw_unpublished_branch && saw_unpublished && saw_unpublished_summary) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly tag publication must mint contents/workflows app permissions and record updated/stale outcomes"
+  echo "FAIL: nightly tag publication must mint contents/workflows app permissions and record updated/stale/unpublished outcomes (a skipped tag move is never reported as live)"
   exit 1
 fi
 
