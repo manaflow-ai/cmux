@@ -34,18 +34,27 @@ if [[ -n "${FAKE_XCODEBUILD_PHASE_FAIL:-}" ]]; then
   echo "    export ACTION\\=build"
   echo "bundled acpmux"
   echo ""
+  echo "CpResource /build/a.txt /src/a.txt (in target 'App' from project 'App')"
+  echo "    builtin-copy /src/a.txt /build"
+  echo ""
   echo "PhaseScriptExecution Embed\\ CEF /build/Script-2.sh (in target 'App' from project 'App')"
   echo "    cd /src"
   for i in {1..50}; do echo "    export VAR_$i\\=x"; done
   echo "    /bin/sh -c /build/Script-2.sh"
-  echo "cmux Helper (GPU).app: replacing existing signature"
+  for i in {1..35}; do echo "cef-line-$i"; done
   echo "cmux Helper (Renderer).app: replacing existing signature"
+  echo "Command PhaseScriptExecution failed with a nonzero exit code"
+  echo ""
+  echo "PhaseScriptExecution Bundle\\ cmux-tui /build/Script-3.sh (in target 'App' from project 'App')"
+  echo "    cd /src"
+  echo "tui: missing tree"
   echo "Command PhaseScriptExecution failed with a nonzero exit code"
   echo ""
   echo "** BUILD FAILED **"
   echo "The following build commands failed:"
   echo "	PhaseScriptExecution Embed\\ CEF /build/Script-2.sh (in target 'App' from project 'App')"
-  echo "(1 failure)"
+  echo "	PhaseScriptExecution Bundle\\ cmux-tui /build/Script-3.sh (in target 'App' from project 'App')"
+  echo "(2 failures)"
 fi
 if [[ -n "${FAKE_XCODEBUILD_DELAY:-}" ]]; then
   python3 -c 'import os, time; time.sleep(float(os.environ["FAKE_XCODEBUILD_DELAY"]))'
@@ -197,12 +206,24 @@ if [[ "$status" -ne 65 ]]; then
   echo "FAIL: phase-failure fixture must preserve xcodebuild's exit 65, got $status" >&2
   exit 1
 fi
-phase_section="$(awk '/^--- failed run script phase:/ { show=1 } show && /^--- / && !/failed run script phase/ { exit } show { print }' "$TMP_DIR/phase.log")"
-grep -Fq 'Embed\ CEF' <<<"$phase_section"
-grep -Fq 'cmux Helper (Renderer).app: replacing existing signature' <<<"$phase_section"
-grep -Fxq '::error::run script phase failed: Embed CEF' <<<"$phase_section"
-if grep -Eq 'export VAR_|bundled acpmux|/bin/sh -c' <<<"$phase_section"; then
-  echo "FAIL: the failed phase report must hold only the failed phase's own output" >&2
+# One section per failed phase: header line through its annotation.
+phase_report() {
+  awk -v want="$1" '/^--- failed run script phase:/ { show = index($0, want) > 0 } show { print } /^::error::run script phase failed:/ { show = 0 }' "$TMP_DIR/phase.log"
+}
+cef_section="$(phase_report 'Embed\ CEF')"
+tui_section="$(phase_report 'Bundle\ cmux-tui')"
+grep -Fxq 'cef-line-35' <<<"$cef_section"
+grep -Fxq 'cef-line-7' <<<"$cef_section"
+grep -Fxq 'cmux Helper (Renderer).app: replacing existing signature' <<<"$cef_section"
+grep -Fxq '::error::run script phase failed: Embed CEF' <<<"$cef_section"
+if grep -Eq '^cef-line-6$|export VAR_|bundled acpmux|builtin-copy|/bin/sh -c' <<<"$cef_section"; then
+  echo "FAIL: a failed phase report holds only that phase's last 30 output lines" >&2
+  exit 1
+fi
+grep -Fxq 'tui: missing tree' <<<"$tui_section"
+grep -Fxq '::error::run script phase failed: Bundle cmux-tui' <<<"$tui_section"
+if grep -Fq 'cef-line' <<<"$tui_section"; then
+  echo "FAIL: each failed phase reports only its own output" >&2
   exit 1
 fi
 

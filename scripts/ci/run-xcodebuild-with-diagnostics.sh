@@ -150,8 +150,10 @@ report_compiler_crashes() {
 # A run script phase that exits nonzero prints no "error:" line unless the
 # script wrote one; xcodebuild only names the phase among the failed commands
 # (nightly-next's Embed CEF red, 2026-10-24, showed nothing else). Prints the
-# last lines each failed phase wrote, without the environment dump xcodebuild
-# puts before them, and annotates the phase.
+# last 30 lines each failed phase wrote, without the environment dump xcodebuild
+# puts before them, for the first 5 failed phases, and annotates every failed
+# phase. xcodebuild writes each task's output as one block after its header, so
+# any other task header ends the phase being read.
 report_failed_script_phases() {
   local log="$1"
   grep -q '^Command PhaseScriptExecution failed' "$log" 2>/dev/null || return 0
@@ -161,16 +163,19 @@ report_failed_script_phases() {
       if (phase == "") next
       name = phase
       sub(/^PhaseScriptExecution /, "", name); sub(/ \/.*$/, "", name); gsub(/\\ /, " ", name)
-      print "--- failed run script phase: " substr(phase, 1, 300) " ---"
-      start = n > 30 ? n - 30 : 0
-      for (i = start; i < n; i++) print substr(ring[i % 30], 1, 400)
+      if (++failed <= 5) {
+        print "--- failed run script phase: " substr(phase, 1, 300) " ---"
+        start = n > 30 ? n - 30 : 0
+        for (i = start; i < n; i++) print substr(ring[i % 30], 1, 400)
+      }
       print "::error::run script phase failed: " name
       phase = ""; next
     }
+    /^[A-Za-z].* \(in target .* from project .*\)$/ { phase = ""; next }
     phase == "" { next }
     /^    (export |cd |\/bin\/sh -c )/ { next }
     { ring[n % 30] = $0; n++ }
-  ' "$log" 2>/dev/null | head -n 140 || true
+  ' "$log" 2>/dev/null || true
 }
 
 # Prints each distinct compiler/build error once, as a GitHub annotation (file
