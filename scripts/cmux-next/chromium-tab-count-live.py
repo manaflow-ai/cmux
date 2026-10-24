@@ -29,6 +29,7 @@ import argparse, glob, json, os, re, shutil, subprocess, sys, tempfile, threadin
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
+from bench_launch import account_home  # noqa: E402
 from process_sample import exit_signal, regular_files, report_cap, report_dirs, resources  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -81,14 +82,39 @@ def process_stats(pid):
 def set_aside_old_reports():
     """Moves (never deletes) this account's older crash reports into a dated subfolder: osanalyticshelper writes no
     new report once 25 of a type are there ("the limit of 25 logs has been reached")."""
-    folder = report_dirs()[0]
-    aside = os.path.join(folder, "set-aside-" + time.strftime("%Y%m%d-%H%M%S"))
+    # The account's own folder, not the step's HOME: ReportCrash writes and counts reports there
+    # (cmux10s, 2026-10-24: 51 reports in /Users/cmux/Library/Logs/DiagnosticReports, 0 moved from the step's HOME).
     moved = 0
-    for path in glob.glob(os.path.join(folder, "*.ips")):
-        os.makedirs(aside, exist_ok=True)
-        shutil.move(path, aside)
-        moved += 1
+    for folder in dict.fromkeys([os.path.join(account_home(), "Library/Logs/DiagnosticReports"), report_dirs()[0]]):
+        aside = os.path.join(folder, "set-aside-" + time.strftime("%Y%m%d-%H%M%S"))
+        for path in glob.glob(os.path.join(folder, "*.ips")):
+            try:
+                os.makedirs(aside, exist_ok=True)
+                shutil.move(path, aside)
+                moved += 1
+            except OSError:
+                pass
     return moved
+
+
+def log_tails(lines=80):
+    """The app's stdout/stderr (a Swift fatal error prints its message there) and Chromium's own logs
+    (a CHECK prints [FATAL:...]): the death's cause when the crash reporter keeps no report."""
+    tails = {}
+    try:
+        tails[bench.log_path] = open(bench.log_path, errors="replace").read().splitlines()[-lines:]
+    except (OSError, TypeError):
+        pass
+    for home in dict.fromkeys([os.environ.get("HOME", ""), account_home()]):
+        for path in glob.glob(os.path.join(home, "Library/Application Support/*split*spring*/Chromium/*.log")) + \
+                glob.glob(os.path.join(home, "Library/Application Support/*/Chromium/cef*.log")):
+            try:
+                if os.path.getmtime(path) >= time.time() - 3600:
+                    tails[path] = open(path, errors="replace").read().splitlines()[-lines:]
+            except OSError:
+                pass
+    fatal = [l for t in tails.values() for l in t if "FATAL" in l or "Fatal error" in l or "precondition" in l.lower() or "Check failed" in l]
+    return {"files": {k: [l[:300] for l in v] for k, v in tails.items()}, "fatal": [l[:400] for l in fatal[-20:]]}
 
 
 def system_log(since, until):
@@ -99,7 +125,9 @@ def system_log(since, until):
     predicate = ('eventMessage CONTAINS[c] "memorystatus" OR eventMessage CONTAINS[c] "jetsam" OR '
                  'eventMessage CONTAINS[c] "Too many open files" OR eventMessage CONTAINS "No such process" OR '
                  'process == "loginwindow" OR (process == "WindowServer" AND messageType >= 16) OR '
-                 '(process == "launchd" AND (eventMessage CONTAINS[c] "cmux" OR eventMessage CONTAINS "gui/"))')
+                 '(process == "launchd" AND (eventMessage CONTAINS[c] "cmux" OR eventMessage CONTAINS "gui/")) OR '
+                 '(process == "kernel" AND (eventMessage CONTAINS[c] "port" OR eventMessage CONTAINS "EXC_RESOURCE")) OR '
+                 f'(processID == {bench.process.pid} AND messageType >= 16)')
     try:
         out = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start", start, "--end", end, "--predicate", predicate],
                              capture_output=True, text=True, timeout=300).stdout
@@ -191,11 +219,15 @@ def main():
     result = {"host": os.uname().nodename, "tabs": opts.tabs, "rows": rows, "failure": failure, "death": death,
               "crash_reports": crashes, "regular_files_before_tabs": files_before_tabs, "crash_report_wait": getattr(bench, "crash_report_wait", None),
               "report_cap_before": cap, "reports_set_aside": moved, "report_cap_after": report_cap("1h") if death else None,
-              "samples": sampler.rows, "last_samples": sampler.rows[-3:], "log": bench.log_path,
+              "samples": sampler.rows, "log_tails": log_tails() if death else None, "last_samples": sampler.rows[-3:], "log": bench.log_path,
               "system_log": system_log(started, time.time()) if death else None, "limits": opts.limits,
               "launch_limits": getattr(bench, "limits", None), "step": step_context(),
               "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)), "seconds": round(time.time() - started)}
-    print("RESULT " + json.dumps({k: v for k, v in result.items() if k not in ("rows", "samples")}), flush=True)
+    if result["log_tails"]:
+        print("FATAL-LINES " + json.dumps(result["log_tails"]["fatal"]), flush=True)
+        for path, tail in result["log_tails"]["files"].items():
+            print(f"LOG-TAIL {path}\n" + "\n".join(tail[-40:]), flush=True)
+    print("RESULT " + json.dumps({k: v for k, v in result.items() if k not in ("rows", "samples", "log_tails")}), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
     return failure is None
