@@ -521,7 +521,8 @@ struct ChiefInfoBackdrop: View {
 
 /// One of Messages' round quick actions (CommunicationDetails
 /// QuickActionView): a 48 pt circle in the tertiary fill with the filled
-/// glyph and its name under it; an action that cannot run now dims.
+/// glyph, unlabeled as in Messages (VoiceOver reads its name); an action
+/// that cannot run now dims its glyph.
 struct ChiefQuickAction: View {
     let symbol: String
     let title: String
@@ -531,23 +532,18 @@ struct ChiefQuickAction: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle().fill(Color(uiColor: .tertiarySystemFill))
-                    if busy {
-                        ProgressView()
-                    } else {
-                        Image(systemName: symbol)
-                            .font(.body)
-                            .foregroundStyle(enabled ? Color.primary : Color(uiColor: .tertiaryLabel))
-                    }
+            ZStack {
+                Circle().fill(Color(uiColor: .tertiarySystemFill))
+                if busy {
+                    ProgressView()
+                } else {
+                    Image(systemName: symbol)
+                        .font(.body)
+                        .foregroundStyle(enabled ? Color.primary : Color(uiColor: .tertiaryLabel))
                 }
-                .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(enabled ? Color.primary : Color.secondary)
             }
-            .contentShape(.rect)
+            .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
+            .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
