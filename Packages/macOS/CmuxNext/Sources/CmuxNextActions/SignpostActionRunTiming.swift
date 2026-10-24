@@ -15,9 +15,10 @@ public struct SignpostActionRunTiming: ActionRunTiming {
         wakes = RunLoopWakeWatch()
     }
 
-    /// A run whose handler opened a nested run loop that waited (the main run loop woke while the
-    /// handler ran) ends both intervals with `loop=nested`: they hold the person's dwell. A run
-    /// started inside that loop is timed on its own.
+    /// A run whose handler opened a person-driven nested run loop that waited (a menu's event
+    /// tracking or a modal panel woke while the handler ran; ``RunLoopWakeWatch``) ends both
+    /// intervals with `loop=nested`: they hold the person's dwell. A handler that waits in any other
+    /// mode stays in the latency rows (a stall). A run started inside that loop is timed on its own.
     public func time<T>(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double, _ body: () -> T) -> T {
         let signposter = Signposter.action
         guard signposter.isEnabled else { return body() }
