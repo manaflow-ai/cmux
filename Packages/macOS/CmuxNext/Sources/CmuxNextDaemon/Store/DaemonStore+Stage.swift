@@ -18,6 +18,11 @@ extension DaemonStore {
         return stage
     }
 
+    /// Commits the open stage when it holds an event at or below `sequence`.
+    public func commitStage(ifHolding sequence: UInt64?) {
+        if let stage, stage.holds(through: sequence) { stage.commit(all: true) }
+    }
+
     /// The workspaces an intent changes in place, by handle; nil for a kind a stage never holds
     /// (creates, splits, closes, sessions, groups, rows) or a target the records lack.
     func stageWorkspaces(of intent: Intent) -> Set<WorkspaceHandle>? {
