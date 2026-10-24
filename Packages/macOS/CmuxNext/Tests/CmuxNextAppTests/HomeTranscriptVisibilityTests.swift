@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxHomeCore
+@testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextHome
 import Foundation
@@ -10,8 +12,14 @@ import Testing
 /// key and on screen: a chat tab that is not selected, a parked workspace's chat and a pane scrolled
 /// out of the strip all reported reads nobody saw, and every one of them answered each key and
 /// occlusion notice of its window. Seen now means shown (no hidden flag of its own or an
-/// ancestor's), partly inside its ancestors' bounds, in a window a person can see; a hidden
-/// transcript hears no window notice.
+/// ancestor's), presented by a pane the layout reports on screen (a conversation tab), in a window
+/// a person can see; a hidden transcript hears no window notice.
+///
+/// Geometry cannot say "on screen": a view's `visibleRect` is what its ancestors show in its own
+/// coordinates, never empty for a pane moved out of the strip (no ancestor clips by default since
+/// the macOS 14 SDK), and blind to the strip's layer masks (a pane under a docked column, clipped by
+/// its nested area window) and to a pane faded to alpha 0. The layout's pane presence knows all of
+/// them, and reaches the content cache's rendering set.
 @MainActor @Suite(.serialized) struct HomeTranscriptVisibilityTests {
     private struct Fixture {
         let window: NSWindow
@@ -59,17 +67,43 @@ import Testing
         #expect(!fixture.view.isObservingWindow)
     }
 
-    @Test func aTranscriptScrolledOutOfItsAncestorsIsNotSeen() {
-        let fixture = Self.fixture()
-        defer { fixture.window.close() }
-        // A pane scrolled out of the strip: in the window and shown, but outside every ancestor.
-        fixture.pane.setFrameOrigin(NSPoint(x: 900, y: 0))
-        // AppKit asks a view to update its tracking areas when its visible rect changes.
-        fixture.view.updateTrackingAreas()
-        #expect(!fixture.view.transcript.isVisibleToUser, "a transcript out of sight reports reads")
-        fixture.pane.setFrameOrigin(.zero)
-        fixture.view.updateTrackingAreas()
-        #expect(fixture.view.transcript.isVisibleToUser)
+    @MainActor final class Pane: SurfacePresenter {
+        func surfaceWasDisplaced(_ key: String) {}
+    }
+
+    /// A conversation tab reports reads only while a pane the layout reports on screen presents it:
+    /// not before its pane presents it, not while that pane is scrolled out of the strip or covered
+    /// (keep-alive or hidden presence), not after another tab of the pane is selected.
+    @Test func aConversationTabIsSeenOnlyWhileAPaneOnScreenPresentsIt() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let key = "tab_seen"
+        let home = HomeHostView(services: services, conversation: "conv_seen")
+        home.transcript.isWindowSeen = { _ in true }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 500))
+        window.contentView = container
+        home.frame = container.bounds
+        services.home.tabViews[key] = home
+        defer { services.home.tabViews[key] = nil }
+        container.addSubview(home)
+        home.layoutSubtreeIfNeeded()
+        let seen = { home.transcript.transcript.isVisibleToUser }
+        #expect(!seen(), "a conversation tab no pane presents reports reads")
+
+        let pane = Pane()
+        services.cache.present(key, by: pane, presence: .visible)
+        #expect(seen(), "a conversation tab a pane on screen presents reports no reads")
+        services.cache.setPresence(.keepAlive, presenter: pane) // scrolled out of the strip, under a docked column
+        #expect(!seen(), "a conversation tab in a pane off screen reports reads")
+        services.cache.setPresence(.hidden, presenter: pane) // a parked workspace, an inactive screen
+        #expect(!seen())
+        services.cache.setPresence(.visible, presenter: pane)
+        #expect(seen())
+        services.cache.withdraw(key, by: pane) // another tab of the pane selected
+        #expect(!seen(), "a conversation tab its pane no longer shows reports reads")
     }
 
     @Test func aTranscriptInAWindowNobodySeesIsNotSeen() {
