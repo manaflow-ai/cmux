@@ -3689,6 +3689,23 @@ jobs:
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           scripts/cmux-next/check-release-compile.sh "$derived_data"
 
+      # Early advisory for a newly bundled binary. The signed nightly check
+      # remains authoritative, but this names an unmapped file during review.
+      - name: Warn on missing Release bundle notices
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          app="$(find "$derived_data/Build/Products/Release" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+          if [[ -z "$app" ]]; then
+            echo "::warning title=Release bundle notices::no Release .app product was found for the advisory notice scan"
+            exit 0
+          fi
+          if ! scripts/verify-app-bundle-licenses.sh "$app"; then
+            echo "::warning title=Release bundle notices::the advisory scan found a missing or unmapped bundled binary; the signed nightly check remains required"
+          fi
+
       - name: Upload Release compile timing
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
