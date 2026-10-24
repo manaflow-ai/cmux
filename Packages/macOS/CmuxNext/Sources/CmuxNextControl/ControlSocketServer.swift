@@ -91,7 +91,7 @@ public final class ControlSocketServer: Sendable {
 
     struct ServerState {
         var listener: (any DispatchSourceRead)?
-        var socketIdentity: (dev: dev_t, ino: ino_t)?
+        var socketIdentity: FileIdentity?
         var connections: [ControlConnectionID: ControlConnection] = [:]
         var nextConnection: UInt64 = 1
         /// Spacing of accept retries while descriptors are exhausted.
@@ -156,7 +156,7 @@ public final class ControlSocketServer: Sendable {
 
     /// A listening socket bound at the configured path, its read source not yet resumed, and the
     /// socket file's identity.
-    private func makeListener() throws -> (any DispatchSourceRead, (dev: dev_t, ino: ino_t)?) {
+    private func makeListener() throws -> (any DispatchSourceRead, FileIdentity?) {
         let path = configuration.path
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw StartError.system(call: "socket", errno: errno) }
@@ -174,8 +174,7 @@ public final class ControlSocketServer: Sendable {
         }
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
 
-        var info = stat()
-        let identity = lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
+        let identity = FileIdentity.at(path)
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: acceptQueue)
         source.setEventHandler { [weak self] in self?.acceptPending(listener: descriptor) }
         source.setCancelHandler { close(descriptor) }

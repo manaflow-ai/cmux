@@ -70,9 +70,8 @@ extension ControlSocketServer {
         unlink(link)
     }
 
-    static func unlinkIfOwn(_ path: String, _ identity: (dev: dev_t, ino: ino_t)?) {
-        var info = stat()
-        if let identity, lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
+    static func unlinkIfOwn(_ path: String, _ identity: FileIdentity?) {
+        if let identity, FileIdentity.at(path) == identity {
             unlink(path)
         }
     }
