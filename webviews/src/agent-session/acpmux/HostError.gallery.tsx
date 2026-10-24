@@ -10,10 +10,13 @@ type Props = {
   action?: string;
   initialRetrying: boolean;
   withRetry: boolean;
+  withRestart?: boolean;
+  restartStopped?: boolean;
 };
 
-function GalleryHostError({ message, hint, action, initialRetrying, withRetry }: Props) {
+function GalleryHostError({ message, hint, action, initialRetrying, withRetry, withRestart, restartStopped }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
+  const [restarting, setRestarting] = useState(false);
   return (
     <div className="acpmux-shell" data-host-error-fixture>
       <HostError
@@ -22,6 +25,9 @@ function GalleryHostError({ message, hint, action, initialRetrying, withRetry }:
         action={action}
         retrying={retrying}
         onRetry={withRetry ? () => setRetrying(true) : undefined}
+        restarting={restarting}
+        restartStopped={restartStopped}
+        onRestart={withRestart ? () => setRestarting(true) : undefined}
       />
     </div>
   );
@@ -30,6 +36,11 @@ function GalleryHostError({ message, hint, action, initialRetrying, withRetry }:
 const retry: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Retry" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Retrying…" }).getAttribute("disabled") !== null);
+};
+
+const restart: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Restart acpmux" });
+  await ctx.waitFor(() => ctx.find({ role: "button", name: "Restarting acpmux…" }).getAttribute("disabled") !== null);
 };
 
 const enable: Play = async (ctx) => {
@@ -82,6 +93,28 @@ export default componentEntry<Props>({
       },
       play: enable,
       note: "Folder harness setup uses the same error card with a concrete action label.",
+    },
+    restart: {
+      props: {
+        message:
+          "acpmux is running at /Users/me/.acpmux/acpmux.sock, but this build may not use it: the socket's peer is not signed by this app's team. It runs /Users/me/.local/bin/acpmux, which is not signed by any team.",
+        initialRetrying: false,
+        withRetry: true,
+        withRestart: true,
+      },
+      play: restart,
+      note: "Another binary's acpmux holds this app's socket: Restart acpmux replaces it with this app's own.",
+    },
+    restartStopped: {
+      props: {
+        message:
+          "acpmux is running at /Users/me/.acpmux/acpmux.sock, but this build may not use it: the socket's peer is not signed by this app's team. It runs /Users/me/.local/bin/acpmux, which is not signed by any team.",
+        initialRetrying: false,
+        withRetry: true,
+        withRestart: true,
+        restartStopped: true,
+      },
+      note: "After a few refusals the pane stops retrying on its own and says so.",
     },
   },
 });
