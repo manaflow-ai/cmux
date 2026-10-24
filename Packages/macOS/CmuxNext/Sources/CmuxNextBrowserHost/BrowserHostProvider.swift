@@ -170,9 +170,30 @@ public final class BrowserHostProvider {
         }
     }
 
-    /// Re-reads the tab list (for state that is not observable: visibility,
-    /// a page created or released).
-    public func refreshTabs() { observeTabs() }
+    /// Re-reads the tab list for state that is not observable (visibility, a page released, a
+    /// page's emulation) and sends what changed. The app calls it on every presentation change of
+    /// a browser tab, so when only visibility changed (a pane shown or hidden: the common case) the
+    /// armed tracking, which still covers everything it read, stays: arming another on every call
+    /// registered a tracking of every tab's state that lived until the next model change, and it
+    /// read every Chromium tab's extension access again (sweep 2026-10-23: 707 ms of main thread
+    /// in one STRESS New Chief, in the observation registrar; 230 ms in Open Conversation, in
+    /// `access(forTab:)`). The list is read untracked; access, which depends on the tab and its
+    /// URL only, is read again only with a new tracking.
+    public func refreshTabs() {
+        let tabs = tabSource?.providerTabs ?? []
+        guard Self.differOnlyInVisibility(tabs, latestTabs) else { return observeTabs() }
+        latestTabs = tabs
+        sendTabChanges()
+    }
+
+    /// Whether `a` and `b` list the same tabs in the same order with the same fields, `visible` aside.
+    static func differOnlyInVisibility(_ a: [ProviderTab], _ b: [ProviderTab]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { lhs, rhs in
+            var lhs = lhs
+            lhs.visible = rhs.visible
+            return lhs == rhs
+        }
+    }
 
     /// A person pressed a key or clicked in tab `targetID`: when the tab is
     /// leased, the host pauses the lease. Call only from the app's own event
