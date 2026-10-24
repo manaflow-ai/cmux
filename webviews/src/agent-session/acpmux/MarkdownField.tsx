@@ -689,14 +689,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               const oldMarks = previousDecorations.markCount;
               const newMarks = inlineMarkCount(next.doc);
               const historyUndo = isHistoryTransaction(transaction) && undoDepth(next) < undoDepth(previous);
-              if (historyUndo && removedInlineIds.length) {
+              if (historyUndo && (removedInlineIds.length || sameMarkReplacements.length)) {
                 const markDelta = newMarks - oldMarks;
                 const replacement = markDelta > 0 ? undefined : sameMarkReplacements.pop();
                 const count = Math.min(
                   markDelta > 0 ? markDelta : (replacement?.removed.length ?? sameMarkRemovalIds.size),
                   removedInlineIds.length,
                 );
-                if (count <= 0)
+                if (count <= 0) {
+                  if (replacement) queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
                   return {
                     decorations:
                       oldMarks === newMarks
@@ -704,10 +705,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                         : makeInlineDecorations(next.doc),
                     markCount: newMarks,
                   };
+                }
                 const restored = removedInlineIds.splice(removedInlineIds.length - count, count);
                 for (const id of restored) sameMarkRemovalIds.delete(id);
-                if (replacement && replacement.removed.length === count)
-                  queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
+                if (replacement) queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
                 queueMicrotask(() => inlineRestoreRef.current?.(restored));
               }
               return {
@@ -802,11 +803,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 removedInlineIds.push(...selectedIds);
                 for (const id of selectedIds) sameMarkRemovalIds.add(id);
                 for (const id of selectedIds) inlineRemoveRef.current?.(id);
-                if (selectedIds.length)
-                  sameMarkReplacements.push({
-                    removed: selectedIds,
-                    cloned: cloned.map((attachment) => attachment.id),
-                  });
+                sameMarkReplacements.push({
+                  removed: selectedIds,
+                  cloned: cloned.map((attachment) => attachment.id),
+                });
                 const index = positions.filter((position) => position < from).length;
                 insertPlain(editorView, text);
                 inlinePasteRef.current?.(cloned, index);
