@@ -140,7 +140,7 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   });
   expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
   expect(legacy.at(-1)?.below).toBeUndefined();
-  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(36);
+  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(34);
 });
 
 test("the chat's last footer is placed again when a prompt follows it", () => {

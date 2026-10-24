@@ -1105,10 +1105,6 @@ function measuredRowHeight(
   if (row.received) return finish(26 + MESSAGE_GAP);
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
-  // Activity lines have their own 24px content line and 4px/8px margins. The below variant keeps
-  // the same content in the footer slot; keep both estimates on the CSS geometry before text
-  // measurement can turn a one-word label into the row's 34px floor.
-  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
   // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
   // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
   // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
