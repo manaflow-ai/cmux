@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
@@ -141,6 +142,10 @@ final class QuitCoordinator {
         sheet.present(in: sheetWindow())
     }
 
+    /// How long quit waits for all queued background saves together (lead decision 2026-10-24: a
+    /// quit stays prompt even on a stalled disk; each save is a small atomic JSON write).
+    static let saveLimit: Duration = .milliseconds(250)
+
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
         let services = services
@@ -177,6 +182,11 @@ final class QuitCoordinator {
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
                 await services.sidebarSnapshots.flush()
+                // Last: the saves queued on the files lane land (in total at most saveLimit; a hung disk
+                // never holds quit, and a save cut off there leaves the last complete file).
+                if await !services.work.shutdown(within: Self.saveLimit) {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit").error("quit: background saves still running after \(Self.saveLimit); quitting without them")
+                }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
