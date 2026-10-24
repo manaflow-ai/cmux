@@ -492,6 +492,12 @@
         "697207923231265a321d075bd66591e377ba2b7c"
       ],
       "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "global_mutable_statics",
+      "allow": 3,
+      "why": "DyldImageUnloads: _dyld_register_func_for_remove_image takes a C function pointer with no context, so the process-wide removal time and its once-only install flags must be file-scope atomics (one store per unload, read by the hang report collector); there is no instance to inject into a dyld callback."
     }
   ],
   "observer_wrappers": [
