@@ -130,11 +130,8 @@ where
             let handler = handler.clone();
             handlers.spawn(async move {
                 if let Some(deadline) = notification_deadline(&notification_method) {
-                    let _ = tokio::time::timeout(
-                        deadline,
-                        handler(notification_method, params),
-                    )
-                    .await;
+                    let _ =
+                        tokio::time::timeout(deadline, handler(notification_method, params)).await;
                 } else {
                     // Cancellation must run to completion: Hub::cancel does
                     // cleanup before scheduling its forced turn end.
