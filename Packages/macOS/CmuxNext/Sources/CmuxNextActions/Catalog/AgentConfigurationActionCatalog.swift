@@ -3,31 +3,31 @@
 /// connected session; the values are still passed as stable ids so the same
 /// action is callable from the palette, CLI and MCP.
 nonisolated enum AgentConfigurationActionCatalog: ActionCatalogGroup {
-    private static func text(_ key: String, _ fallback: String) -> String {
+    private static func text(_ key: StaticString, _ fallback: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: fallback, table: "AgentConfigurationActions", bundle: .module)
     }
 
-    private static let modelArgument = ActionArgument(
+    private static var modelArgument: ActionArgument { ActionArgument(
         name: "model",
         title: text("argument.agentPane.model", "Model"),
         kind: .string,
         suggestions: ActionSuggestions(source: ActionSuggestions.agentModels, pinned: [],
                                        otherTitle: text("argument.agentPane.model.other", "Enter Model ID…"))
-    )
-    private static let effortArgument = ActionArgument(
+    ) }
+    private static var effortArgument: ActionArgument { ActionArgument(
         name: "effort",
         title: text("argument.agentPane.effort", "Effort"),
         kind: .string,
         suggestions: ActionSuggestions(source: ActionSuggestions.agentEfforts, pinned: [],
                                        otherTitle: text("argument.agentPane.effort.other", "Enter Effort…"))
-    )
-    private static let modeArgument = ActionArgument(
+    ) }
+    private static var modeArgument: ActionArgument { ActionArgument(
         name: "mode",
         title: text("argument.agentPane.mode", "Mode"),
         kind: .string,
         suggestions: ActionSuggestions(source: ActionSuggestions.agentModes, pinned: [],
                                        otherTitle: text("argument.agentPane.mode.other", "Enter Mode…"))
-    )
+    ) }
 
     static func descriptors() -> [ActionDescriptor] {
         [
