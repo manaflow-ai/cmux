@@ -182,6 +182,48 @@ import Testing
         await #expect(throws: CancellationError.self) { try await work.run(.userBlocking, mayBlock: .system) {} }
     }
 
+    @Test func quitWaitsForAQueuedSaveWithinItsBound() async throws {
+        let work = BackgroundWork(label: "test.quit")
+        let release = DispatchSemaphore(value: 0)
+        let blocked = Started()
+        let saved = OSAllocatedUnfairLock(initialState: false)
+        work.post(.bestEffort, mayBlock: .files) {
+            blocked.signal()
+            release.wait()
+        }
+        await blocked.wait()
+        // A save queued behind a held slot: quit's bounded shutdown waits for it.
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { saved.withLock { $0 = true } }
+        async let finished = work.shutdown(within: .seconds(30))
+        release.signal()
+        #expect(await finished)
+        #expect(saved.withLock { $0 })
+    }
+
+    @Test func aHungSaveDoesNotHoldQuitPastItsBound() async throws {
+        let work = BackgroundWork(label: "test.quit.hung")
+        let release = DispatchSemaphore(value: 0)
+        let blocked = Started()
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) {
+            blocked.signal()
+            release.wait()
+        }
+        await blocked.wait()
+        let started = ContinuousClock.now
+        #expect(await work.shutdown(within: .milliseconds(100)) == false)
+        #expect(ContinuousClock.now - started < .seconds(5))
+        release.signal()
+    }
+
+    @Test func aQuitWithNothingQueuedDoesNotWait() async {
+        let work = BackgroundWork(label: "test.quit.empty")
+        work.post(.bestEffort, mayBlock: .files, shutdown: .skipOnShutdown) {}
+        let started = ContinuousClock.now
+        // An hour's bound: any wait at all would fail the suite's one-minute limit.
+        #expect(await work.shutdown(within: .seconds(3600)))
+        #expect(ContinuousClock.now - started < .seconds(1))
+    }
+
     @Test(arguments: MainWorkClass.allCases)
     func everyMainWorkClassMapsToOneWorkPriority(workClass: MainWorkClass) {
         let expected: WorkPriority = switch workClass {

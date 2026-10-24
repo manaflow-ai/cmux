@@ -45,7 +45,7 @@ public final class BackgroundWork: Sendable {
     private struct DrainState {
         var nextID: UInt64 = 1
         var blocking = 0
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var waiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
     }
 
     /// Creates the lanes.
@@ -154,19 +154,52 @@ public final class BackgroundWork: Sendable {
 
     /// Starts shutdown: drops every item that has not started except ``ShutdownBehavior/blockShutdown``
     /// ones, refuses new ones the same way, and returns when every block-shutdown item has finished.
-    /// Quit awaits it after its own saves.
     public func shutdown() async {
+        close()
+        _ = await drained(within: nil, clock: ContinuousClock())
+    }
+
+    /// ``shutdown()`` with a total bound: returns true when every block-shutdown item finished within
+    /// `limit`, false when the bound passed first. A save still running then keeps running until the
+    /// process ends; saves write atomically (temp file and rename), so the next launch reads the last
+    /// complete file. With nothing queued it returns at once and starts no timer. Quit awaits it after
+    /// its own saves.
+    ///
+    /// - Parameters:
+    ///   - limit: how long quit waits for all block-shutdown items together.
+    ///   - clock: the clock of the bound; tests pass a manual one.
+    /// - Returns: whether every block-shutdown item finished in time.
+    public func shutdown(within limit: Duration, clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
+        close()
+        return await drained(within: limit, clock: clock)
+    }
+
+    private func close() {
         for lane in lanes {
             for job in lane.close() { job.abandon() }
         }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    }
+
+    /// True when no block-shutdown item is queued or running; false when `limit` passes first.
+    private func drained(within limit: Duration?, clock: any Clock<Duration>) async -> Bool {
+        let id = nextID()
+        var deadline: Task<Void, Never>?
+        let finished = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let now = state.withLock { state -> Bool in
                 if state.blocking == 0 { return true }
-                state.waiters.append(continuation)
+                state.waiters[id] = continuation
                 return false
             }
-            if now { continuation.resume() }
+            if now { return continuation.resume(returning: true) }
+            guard let limit else { return }
+            deadline = Task(priority: .high) { [self] in
+                // wakeup-allow: one bounded deadline for quit's wait on saves; cancelled when they finish
+                do { try await clock.sleep(for: limit) } catch { return }
+                state.withLock { $0.waiters.removeValue(forKey: id) }?.resume(returning: false)
+            }
         }
+        deadline?.cancel()
+        return finished
     }
 
     private func nextID() -> UInt64 {
@@ -182,13 +215,13 @@ public final class BackgroundWork: Sendable {
         if blocks { state.withLock { $0.blocking += 1 } }
         return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: { [self] in
             guard blocks else { return }
-            let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            let waiters = state.withLock { state -> [CheckedContinuation<Bool, Never>] in
                 state.blocking -= 1
                 guard state.blocking == 0 else { return [] }
-                defer { state.waiters = [] }
-                return state.waiters
+                defer { state.waiters = [:] }
+                return Array(state.waiters.values)
             }
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: true) }
         })
     }
 
