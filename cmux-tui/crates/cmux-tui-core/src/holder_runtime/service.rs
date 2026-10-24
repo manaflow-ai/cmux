@@ -8,7 +8,7 @@
 //! terminal this daemon left for the next one at its shutdown), or it is
 //! ended. A spawn or re-attach in flight finishes before a new link decides
 //! ([`HolderService::claimed_link`]), so what it claims is live by then,
-//! and a terminal that ends gives up its claim at one instant
+//! and a terminal that ends keeps its CLOSE until a link carried it
 //! ([`HolderService::end`]).
 
 use std::collections::{HashMap, HashSet};
@@ -31,11 +31,13 @@ use crate::panic_free::RecoverPoison;
 #[derive(Default)]
 struct LinkSlot {
     link: Option<Arc<HolderLink>>,
-    /// Every CLOSE asked for (`grace_ms` by channel), kept until the
-    /// terminal is untracked: each new link sends them again once it
-    /// re-adopted every terminal. A CLOSE written to a holder that was
-    /// already dying (killed, its link not yet seen closed) is lost, and a
-    /// new holder would otherwise keep the closed tab's shell running.
+    /// Every CLOSE asked for (`grace_ms` by channel): kept while its
+    /// terminal is live, and each new link sends them again once it
+    /// re-adopted every terminal (a CLOSE written to a holder that was
+    /// already dying, killed and its link not yet seen closed, is lost, and a
+    /// new holder would otherwise keep the closed tab's shell running). The
+    /// CLOSE of a terminal that ended stays until a link carried it
+    /// ([`HolderService::end`], [`HolderService::publish`]).
     pending_close: HashMap<u32, u32>,
 }
 
@@ -81,11 +83,9 @@ pub(crate) struct HolderService {
     next_chan: AtomicU32,
     owned: Mutex<Owned>,
     /// Held shared by a spawn or re-attach from the moment it takes the
-    /// link until the terminal it claims is live (or it failed), and by a
-    /// terminal's end while it gives up its claim; exclusively by a new
-    /// link's ownership pass: that pass never ends or misses a terminal an
-    /// operation in flight is about to claim, and never resumes one whose
-    /// CLOSE was just dropped.
+    /// link until the terminal it claims is live (or it failed), and
+    /// exclusively by a new link's ownership pass: that pass never ends or
+    /// misses a terminal an operation in flight is about to claim.
     claims: RwLock<()>,
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
@@ -334,7 +334,12 @@ impl HolderService {
     /// and the DETACH of every terminal left for the next daemon. The link
     /// is set before the left channels are read, and [`Self::leave`] marks
     /// its channel before it reads the link, so a leave meanwhile either is
-    /// in this list or sends its DETACH on this link itself.
+    /// in this list or sends its DETACH on this link itself. The link is
+    /// set and the waiting CLOSEs are read under one lock, so a
+    /// [`Self::close`] meanwhile is either among them or finds this link.
+    /// The CLOSE of a terminal that is no longer live is then forgotten:
+    /// this link carried it, and if this holder lost it a later link's pass
+    /// ends the terminal as nobody's.
     fn publish(&self, link: &Arc<HolderLink>) {
         let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
@@ -342,14 +347,21 @@ impl HolderService {
             slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
         };
         let left: Vec<u32> = self.owned.lock().recover_poison().left.iter().copied().collect();
-        for (chan, grace_ms) in pending {
-            if let Err(error) = link.close(chan, grace_ms) {
+        for (chan, grace_ms) in &pending {
+            if let Err(error) = link.close(*chan, *grace_ms) {
                 eprintln!("cmux-tui: end holder terminal {chan}: {error}");
             }
         }
         for chan in left {
             link.forget(chan);
             let _ = link.detach(chan);
+        }
+        let live: HashSet<u32> = self.owned.lock().recover_poison().live.keys().copied().collect();
+        let mut slot = self.link.lock().recover_poison();
+        for (chan, _) in pending {
+            if !live.contains(&chan) {
+                slot.pending_close.remove(&chan);
+            }
         }
     }
 
@@ -474,10 +486,10 @@ impl HolderService {
 
     /// Hang up `chan`'s terminal; SIGKILL its groups after `grace_ms`.
     /// Never connects or starts a holder, so a surface may call it under
-    /// its own locks. The CLOSE is kept until the terminal ends
-    /// ([`Self::end`]) and each new link (a holder restart) sends it again;
-    /// without an open link this returns an error, so the caller can signal
-    /// the shell itself.
+    /// its own locks. The CLOSE is kept while the terminal is live, and
+    /// each new link (a holder restart) sends it again ([`Self::publish`]);
+    /// without an open link, or when the write fails, this returns an
+    /// error, so the caller can signal the shell itself.
     pub(crate) fn close(&self, chan: u32, grace_ms: u32) -> io::Result<()> {
         let link = {
             let mut slot = self.link.lock().recover_poison();
@@ -543,24 +555,24 @@ impl HolderService {
     }
 
     /// This daemon is done with `chan`: its terminal ended, or its surface
-    /// never came to be. CLOSE it (now, or on the next link) and stop
-    /// tracking it, under a claim, so a new link's pass sees it either still
-    /// live (and the CLOSE goes to that link once it is published) or gone
-    /// (and the pass ends it as nobody's). Before, a pass could resume it
-    /// in between and its CLOSE was dropped: the ended terminal and its ring
-    /// stayed on the holder.
+    /// never came to be. It stops being live first, so no pass that starts
+    /// after this resumes or adopts it (that pass ends it as nobody's).
+    /// Then its CLOSE goes to the open link, or stays for the next one: a
+    /// pass that saw it live is followed by that link's publish, which
+    /// sends it ([`Self::publish`]). The CLOSE is forgotten only once a
+    /// link carried it. Never waits for a pass (before ec7cb640c6c the
+    /// CLOSE close() had left waiting was dropped here, so a pass running
+    /// meanwhile resumed the ended terminal and nobody CLOSEd it, leaving it
+    /// and its ring on the holder; ec7cb640c6c made this wait for the
+    /// pass's exclusive claim instead).
     pub(crate) fn end(&self, chan: u32) {
-        let _claim = self.claims.read().recover_poison();
-        let _ = self.close(chan, 0);
-        self.untrack(chan);
-    }
-
-    /// Stop tracking `chan` ([`Self::end`]).
-    fn untrack(&self, chan: u32) {
         self.owned.lock().recover_poison().live.remove(&chan);
+        let delivered = self.close(chan, 0).is_ok();
         let link = {
             let mut slot = self.link.lock().recover_poison();
-            slot.pending_close.remove(&chan);
+            if delivered {
+                slot.pending_close.remove(&chan);
+            }
             slot.link.clone()
         };
         if let Some(link) = link {
