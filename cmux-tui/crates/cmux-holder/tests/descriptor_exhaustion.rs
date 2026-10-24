@@ -21,6 +21,14 @@
 //! fork (the PTY pair, then the start-report pipe), drops the slave and the
 //! pipe's write end after it, makes its ring segment, and drops the pipe's
 //! read end once the child runs.
+//!
+//! Every holder here inherits only its stdio ([`inherit_only_stdio`]), so
+//! its table holds only what it opened. An inherited descriptor (one the
+//! test runner left open without close-on-exec, or one another test thread
+//! had not marked close-on-exec yet) counts in the table, but takes a slot
+//! under the limit only when its number is below the limit: numbered above
+//! it, it is in the probe's base and leaves the limited holder one more
+//! free slot than the test sets, so each step passes where it must fail.
 
 #![cfg(unix)]
 
@@ -33,7 +41,7 @@ use std::process::Child;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_holder::SpawnRequest;
-use cmux_holder::client::{Event, HolderClient, launch, launch_with};
+use cmux_holder::client::{Event, HolderClient, inherit_only_stdio, launch_with};
 use cmux_holder::holder::error_code;
 use cmux_holder::wire::{self, Kind, Out};
 
@@ -212,13 +220,15 @@ fn cpu_time(pid: i32) -> Duration {
     Duration::from_nanos(ticks * 1_000_000_000 / per_second)
 }
 
-/// A holder whose soft `RLIMIT_NOFILE` is `limit`.
+/// A holder whose soft `RLIMIT_NOFILE` is `limit`, inheriting only its
+/// stdio, as the probe in [`base_descriptors`].
 fn launch_limited(socket: &Path, limit: u64) -> Child {
     let mut current: libc::rlimit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: getrlimit fills one rlimit.
     assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut current) }, 0);
     let low = libc::rlimit { rlim_cur: limit as libc::rlim_t, rlim_max: current.rlim_max };
     launch_with(holder_binary(), socket, &TOKEN, move |command| {
+        inherit_only_stdio(command);
         // SAFETY: setrlimit is async-signal-safe; it runs in the forked
         // child before exec and touches nothing else.
         unsafe {
@@ -233,10 +243,11 @@ fn launch_limited(socket: &Path, limit: u64) -> Child {
     .unwrap()
 }
 
-/// Descriptors a holder has open with one daemon link and no terminal.
+/// Descriptors a holder has open with one daemon link and no terminal,
+/// inheriting only its stdio, as [`launch_limited`]'s holders do.
 fn base_descriptors(dir: &Path) -> usize {
     let socket = dir.join("probe.sock");
-    let probe = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let probe = launch_with(holder_binary(), &socket, &TOKEN, inherit_only_stdio).unwrap();
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     assert!(listed.is_empty());
     settle(&mut client, 0);
