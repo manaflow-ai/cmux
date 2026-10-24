@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import Darwin
 import Foundation
 import Testing

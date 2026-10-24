@@ -1,28 +1,27 @@
-import CmuxNextBrowser
-import Foundation
+package import Foundation
 import os
 
 /// The ended downloads of the Downloads list, in a small app-local file, so
 /// the list a relaunch shows keeps them, as Chrome's does (cx-d0d.72): each
 /// row's name, source, file, how it ended and its size. A download of an
 /// incognito tab is never written; one still running is not either.
-final class BrowserDownloadHistory {
+package final class BrowserDownloadHistory {
     private let storage: any BrowserDownloadHistoryStoring
     private var written: [Row]?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "downloads")
 
-    init(url: URL) {
+    package init(url: URL) {
         storage = BrowserDownloadHistoryStorage(url: url)
     }
 
-    init(storage: any BrowserDownloadHistoryStoring) {
+    package init(storage: any BrowserDownloadHistoryStoring) {
         self.storage = storage
     }
 
     /// `<Application Support>/<bundle id>/downloads.json`.
-    static func forApplication(bundleIdentifier: String?) -> BrowserDownloadHistory {
+    package static func forApplication(bundleIdentifier: String?) -> BrowserDownloadHistory {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
@@ -32,16 +31,28 @@ final class BrowserDownloadHistory {
     }
 
     /// One ended download.
-    nonisolated struct Row: Codable, Equatable, Sendable {
-        var filename: String
-        var source: String?
-        var destination: String?
+    nonisolated package struct Row: Codable, Equatable, Sendable {
+        package var filename: String
+        package var source: String?
+        package var destination: String?
         /// finished, failed, cancelled or blocked.
-        var status: String
+        package var status: String
         /// Why it failed or was blocked.
-        var reason: String?
-        var received: Int64
-        var total: Int64?
+        package var reason: String?
+        package var received: Int64
+        package var total: Int64?
+
+        /// Every field, as the synthesized memberwise initializer had them (optionals default to nil).
+        package init(filename: String, source: String? = nil, destination: String? = nil, status: String,
+                     reason: String? = nil, received: Int64, total: Int64? = nil) {
+            self.filename = filename
+            self.source = source
+            self.destination = destination
+            self.status = status
+            self.reason = reason
+            self.received = received
+            self.total = total
+        }
     }
 
     nonisolated private struct Document: Codable, Sendable {
@@ -49,7 +60,7 @@ final class BrowserDownloadHistory {
     }
 
     /// The rows the last run kept, oldest first (read off the main thread).
-    func load() async -> [Row] {
+    package func load() async -> [Row] {
         let storage = storage
         return await Task.detached(priority: .userInitiated) {
             // concurrency-allow: runs in a detached task, off the main actor
@@ -60,7 +71,7 @@ final class BrowserDownloadHistory {
     }
 
     /// Records `rows` when they changed (written off the main thread).
-    func record(_ rows: [Row]) {
+    package func record(_ rows: [Row]) {
         guard rows != written else { return }
         written = rows
         let storage = storage, logger = logger
@@ -81,42 +92,7 @@ final class BrowserDownloadHistory {
     }
 
     /// Waits until the latest queued persistence operation has finished.
-    func waitForPendingWrites() async {
+    package func waitForPendingWrites() async {
         await lastWrite?.value
-    }
-
-}
-
-extension BrowserDownloadHistory.Row {
-    /// `item` as kept; nil while it runs.
-    init?(_ item: BrowserDownload) {
-        let (status, reason): (String, String?) = switch item.status {
-        case .inProgress: ("", nil)
-        case .finished: ("finished", nil)
-        case .failed(let why): ("failed", why)
-        case .cancelled: ("cancelled", nil)
-        case .blocked(let why): ("blocked", why)
-        }
-        guard !status.isEmpty else { return nil }
-        // Only a web link is kept: a data: or blob: source can be megabytes.
-        let source = item.sourceURL.flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0.absoluteString : nil }
-        self.init(filename: item.filename, source: source,
-                  destination: item.destination?.path(percentEncoded: false), status: status, reason: reason,
-                  received: item.receivedBytes, total: item.totalBytes)
-    }
-
-    /// The list's row for this kept download; nil for one this build cannot read.
-    var download: BrowserDownload? {
-        let ended: BrowserDownload.Status
-        switch status {
-        case "finished": ended = .finished
-        case "failed": ended = .failed(reason ?? "")
-        case "cancelled": ended = .cancelled
-        case "blocked": ended = .blocked(reason ?? "")
-        default: return nil
-        }
-        return .ended(sourceURL: source.flatMap(URL.init(string:)), filename: filename,
-                      destination: destination.map { URL(filePath: $0) }, status: ended,
-                      receivedBytes: received, totalBytes: total)
     }
 }
