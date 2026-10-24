@@ -63,12 +63,16 @@ test("the Development category shows only in DEV builds", () => {
   const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
   expect(ids(false)).not.toContain("development");
   expect(ids(true)).toContain("development");
-  expect(ids(false)).not.toContain("devices");
+  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual(["development"]);
+});
+
+test("Devices shows in every build: NIGHTLY and Release use the built-in device hub", () => {
+  // Mac Screen's sharing switch, device permissions and relays live only in Settings > Devices.
+  const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
+  expect(ids(false)).toContain("devices");
   expect(ids(true)).toContain("devices");
-  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual([
-    "devices",
-    "development",
-  ]);
+  expect(shownSection("devices", false)).toBe("devices");
+  expect(shownSection(parseLocation("/settings/devices").section, false)).toBe("devices");
 });
 
 test("old section routes and focused keys open the category that holds the row", () => {
