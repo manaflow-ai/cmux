@@ -38,6 +38,9 @@ const USAGE_EVERY: Duration = Duration::from_secs(1);
 
 /// The longest prompt, result or error preview of a workflow agent sent.
 const PREVIEW_CHARS: usize = 240;
+/// The folded head a preview is masked from, and the most of its source read.
+const PREVIEW_HEAD: usize = PREVIEW_CHARS * 8;
+const PREVIEW_SCAN: usize = PREVIEW_CHARS * 64;
 
 /// One running Workflow tool call (`Translator::workflows`).
 #[derive(Debug, Default)]
@@ -412,24 +415,28 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
     out
 }
 
-/// A preview as sent: secrets masked, whitespace folded, at most
-/// `PREVIEW_CHARS` characters.
+/// A preview as sent: secrets masked, whitespace folded, at most `PREVIEW_CHARS` characters. At
+/// most `PREVIEW_SCAN` characters of `text` are read, folded as they come; a word the read
+/// stopped inside is left out, since part of a token could be part of a secret. The folded head
+/// (at most `PREVIEW_HEAD`) is masked and then cut, so a cut never leaves part of a secret
+/// unmasked (`hub/views.rs` `masked_line`).
 fn preview(text: &str) -> String {
-    // Folded first and then cut to a bounded head (past it nothing is shown), which is masked
-    // before the cut to `PREVIEW_CHARS`: a raw cut inside a token behind a blank run would leave
-    // the token's head unmasked once the run folds away (`hub/views.rs` `masked_line`).
-    let (mut head, mut chars) = (String::new(), 0);
-    for word in text.split_whitespace() {
-        if chars > 0 {
-            head.push(' ');
-            chars += 1;
+    let (mut head, mut word, mut chars) = (String::new(), String::new(), 0usize);
+    let mut rest = text.chars();
+    for _ in 0..PREVIEW_SCAN {
+        match rest.next() {
+            None => break,
+            Some(c) if c.is_whitespace() => {
+                fold_word(&mut head, &mut word, &mut chars);
+                if chars >= PREVIEW_HEAD {
+                    break;
+                }
+            }
+            Some(c) => word.push(c),
         }
-        let taken: String = word.chars().take((PREVIEW_CHARS * 8).saturating_sub(chars)).collect();
-        chars += taken.chars().count();
-        head.push_str(&taken);
-        if chars >= PREVIEW_CHARS * 8 {
-            break;
-        }
+    }
+    if rest.next().is_none() {
+        fold_word(&mut head, &mut word, &mut chars);
     }
     let text = crate::secret_scan::mask(&head);
     if text.chars().count() <= PREVIEW_CHARS {
@@ -438,6 +445,21 @@ fn preview(text: &str) -> String {
     let mut out: String = text.chars().take(PREVIEW_CHARS).collect();
     out.push('…');
     out
+}
+
+/// Moves `word` onto `head` after a space, up to `PREVIEW_HEAD` characters in all.
+fn fold_word(head: &mut String, word: &mut String, chars: &mut usize) {
+    if word.is_empty() {
+        return;
+    }
+    if *chars > 0 {
+        head.push(' ');
+        *chars += 1;
+    }
+    let taken: String = word.chars().take(PREVIEW_HEAD.saturating_sub(*chars)).collect();
+    *chars += taken.chars().count();
+    head.push_str(&taken);
+    word.clear();
 }
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.

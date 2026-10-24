@@ -345,6 +345,14 @@ async fn a_preview_never_shows_part_of_a_secret() {
     let shown = shown.as_str().unwrap();
     assert!(!shown.contains("Q7ZJ4XK2"), "{shown}");
     assert!(shown.starts_with("[GitHub Personal Access Token]"), "{shown}");
+
+    // Past what a preview reads, a word is left out whole, never shown in part.
+    let flood = format!("{}{token}", " ".repeat(1_000_000));
+    let items = json!([{"type": "workflow_agent", "index": 2, "label": "b", "state": "progress",
+        "startedAt": 1, "promptPreview": flood}]);
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let agent = &of_kind(&out, "subagent_progress")[0]["workflowAgents"][0];
+    assert!(agent.get("prompt").is_none_or(|p| !p.to_string().contains("Q7ZJ")), "{agent}");
 }
 
 /// The hub's subagent model carries the run's id, phases and agent changes.
