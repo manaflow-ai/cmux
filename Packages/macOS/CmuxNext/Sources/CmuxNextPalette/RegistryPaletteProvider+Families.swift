@@ -41,14 +41,16 @@ extension RegistryPaletteProvider {
             for index in present { items[index].hidesWhenQueryEmpty = true }
         }
         for (at, row) in familyRows.sorted(by: { $0.at > $1.at }) { items.insert(row, at: at) }
-        return items.enumerated()
-            .sorted { lhs, rhs in
-                if lhs.element.isEnabled != rhs.element.isEnabled { return lhs.element.isEnabled }
-                let left = tiers[lhs.element.id] ?? .standard
-                let right = tiers[rhs.element.id] ?? .standard
-                return left != right ? left < right : lhs.offset < rhs.offset
-            }
-            .map(\.element)
+        // One integer per row (disabled, then tier, then the row's place), sorted as integers: the
+        // rows (large values) are not moved by the sort, and no comparison hashes an id. Sorting the
+        // rows themselves by a closure that looked their tiers up by id was most of an open's
+        // arrangement (sweep 2026-10-23, palette.open: 46 ms of main thread per open).
+        let keys = items.indices.map { index -> Int in
+            let item = items[index]
+            let tier = (tiers[item.id] ?? .standard).rawValue
+            return ((item.isEnabled ? 0 : 1) << 40) | (tier << 32) | index
+        }
+        return keys.sorted().map { items[$0 & 0xFFFF_FFFF] }
     }
 
     /// The row that opens a page of the family's members, in their section. The page is built
