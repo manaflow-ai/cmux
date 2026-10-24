@@ -35,6 +35,9 @@ final class FeedPageService: InternalPageProvider {
     var symbol: String { "tray" }
     var icon: IconName? { .inbox }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)

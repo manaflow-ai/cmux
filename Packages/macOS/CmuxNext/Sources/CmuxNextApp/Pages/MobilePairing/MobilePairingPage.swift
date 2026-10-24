@@ -45,6 +45,9 @@ final class MobilePairingPageService: InternalPageProvider {
     var title: String { MobilePairingStrings.pageTitle }
     var symbol: String { "iphone.radiowaves.left.and.right" }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
         let provider = MobilePairingPageProvider(services: services)

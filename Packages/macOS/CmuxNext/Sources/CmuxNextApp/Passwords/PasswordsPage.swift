@@ -51,6 +51,9 @@ final class PasswordsPageService: InternalPageProvider {
     var symbol: String { "key" }
     var icon: IconName? { .securityLock }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = PasswordsPageProvider(
             store: store, profiles: { [weak services] in Self.profiles(services) },
