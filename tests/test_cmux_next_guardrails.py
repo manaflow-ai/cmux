@@ -1658,6 +1658,42 @@ class WarningTests(Fixture):
         self.assertEqual(len(calls), 3, calls)
 
 
+
+class LexCacheTests(Fixture):
+    """app-size's lexing (lead 2026-10-24: the guardrails took 2.4-2.8 s on the slowest real pushes): a plain file is
+    classified per line, a file with a block comment, a multi-line string or a regex literal is lexed by CI's lexer
+    once per blob and cached under the git common dir."""
+
+    def test_the_per_line_path_matches_cis_lexer_on_plain_files(self):
+        lexer = guardrails.swift_lexer()
+        for text in ("import Foundation\n\n// note\n   // indented note\nlet x = 1 // trailing\n}\n",
+                     'let url = "http://example.com"\n/// doc\n#if DEBUG\nfunc f() {}\n#endif\n', "", "\n\n"):
+            self.assertEqual(guardrails.source_flags(text), lexer(text), text)
+
+    def test_a_lexed_blob_is_cached_and_reused(self):
+        text = 'let a = 1\n/* a\n block */\nlet s = """\n  x\n  """\n'
+        blob = "ab" * 20
+        cache = self.root / "lex"
+        guardrails.LEX_CACHE["dir"] = cache
+        self.addCleanup(guardrails.LEX_CACHE.__setitem__, "dir", None)
+        want = guardrails.swift_lexer()(text)
+        self.assertEqual(guardrails.source_flags(text, blob), want)
+        self.assertEqual((cache / blob).read_text(), "".join("1" if f else "0" for f in want))
+        with mock.patch.object(guardrails, "swift_lexer", return_value=lambda t: self.fail("lexed again")):
+            self.assertEqual(guardrails.source_flags(text, blob), want, "the cache answers")
+        (cache / blob).write_text("1")  # a damaged entry (wrong length) is lexed again
+        self.assertEqual(guardrails.source_flags(text, blob), want)
+
+    def test_check_finds_the_cache_under_the_git_common_dir_and_fails_open(self):
+        found = guardrails.lex_cache_dir(self.repo)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.parent.parent, (self.repo / ".git").resolve())
+        tree = self.root / "worktree"
+        self.git("worktree", "add", "--quiet", "--detach", str(tree))
+        self.assertEqual(guardrails.lex_cache_dir(tree), found, "a linked worktree shares its repository's cache")
+        self.assertIsNone(guardrails.lex_cache_dir(self.root / "no-such-dir"))
+
+
 class HookTests(Fixture):
     """The installed pre-push hook runs the guardrails; CI (GITHUB_ACTIONS, --commits) never does."""
 

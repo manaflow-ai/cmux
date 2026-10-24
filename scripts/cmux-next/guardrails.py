@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import concurrent.futures
 import functools
 import importlib.util
 import itertools
@@ -506,6 +507,66 @@ def swift_lexer() -> Callable[[str], list[bool]]:
     return module.source_line_flags
 
 
+# A file with none of these has no block comment, multi-line string or extended regex literal, so a line's kind is its
+# own: a source line is one that is not blank and does not start with `//` (checked against CI's lexer on all 2738
+# App blobs of the 296 replayed pushes and the tip: identical; 2681 of them are plain, 98 % of the bytes).
+MULTILINE_MARKERS = ("/*", '"""', "#/")
+LEX_CACHE: dict = {"dir": None}  # check() sets the per-repository cache directory of lexed blobs (or None)
+LEX_CACHE_VERSION = "1"  # bump when count-swift-code-lines.py's line rules change
+
+
+def lex_cache_dir(repo: Path) -> Path | None:
+    """<git common dir>/cmux-guardrails/lex-<version>: CI's lexer's flags of a blob, keyed by its object id (a
+    rebase or a retried push reuses them), or None when the common dir is not found (no cache, fail open). Read from
+    the .git entry, not a git process (check() runs a fixed number of them)."""
+    try:
+        dot = repo / ".git"
+        if dot.is_dir():
+            common = dot
+        else:
+            gitdir = Path(dot.read_text().split("gitdir:", 1)[1].strip())
+            gitdir = gitdir if gitdir.is_absolute() else repo / gitdir
+            link = gitdir / "commondir"
+            common = (gitdir / link.read_text().strip()) if link.is_file() else gitdir
+        return common.resolve() / "cmux-guardrails" / f"lex-{LEX_CACHE_VERSION}"
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def in_diff_scope(path: str) -> bool:
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS), so its blobs are read
+    while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
+    return ((path.startswith((SOURCES, TESTS)) and path.endswith(".swift")) or path.startswith(".github/workflows/")
+            or path in ("scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
+            or path.endswith(".xcconfig") or path.split("/")[-1] == "project.pbxproj")
+
+
+def source_flags(text: str, blob: str | None = None) -> list[bool]:
+    """CI's lexer's source-line flags of TEXT: computed per line for a plain file (MULTILINE_MARKERS), else read from
+    the blob's cache entry or lexed and stored there. Any cache error only skips the cache."""
+    lexer = swift_lexer()  # loads CI's lexer even for a plain file: one that does not load turns the App rules off
+    if not any(marker in text for marker in MULTILINE_MARKERS):
+        return [bool(line.strip()) and not line.lstrip().startswith("//") for line in text.split("\n")]
+    entry = LEX_CACHE["dir"] / blob if LEX_CACHE["dir"] and blob and re.fullmatch(r"[0-9a-f]{40,64}", blob) else None
+    if entry is not None:
+        try:
+            cached = entry.read_text()
+            if len(cached) == text.count("\n") + 1 and set(cached) <= {"0", "1"}:
+                return [c == "1" for c in cached]
+        except OSError:
+            pass
+    flags = lexer(text)
+    if entry is not None:
+        try:
+            entry.parent.mkdir(parents=True, exist_ok=True)
+            tmp = entry.with_name(entry.name + f".{os.getpid()}.tmp")
+            tmp.write_text("".join("1" if f else "0" for f in flags))
+            os.replace(tmp, entry)
+        except OSError:
+            pass
+    return flags
+
+
 @dataclass
 class NetHit(Added):
     """A hit of a net-count rule: BUCKET names what grew (`root`, `other`, `total`, `new:<path>`), EXCESS how much.
@@ -570,8 +631,9 @@ def app_file(change: FileChange) -> AppFile:
                 if 0 < line.number <= len(flags) and flags[line.number - 1]]
 
     if "app_file" not in change.memo:  # app-size and app-type read the same AppFile: lex each file once
-        head_flags = swift_lexer()("\n".join(change.head_lines))
-        base_flags = swift_lexer()("\n".join(change.base_lines))
+        head_blob, base_blob = change.memo.get("blobs") or (None, None)
+        head_flags = source_flags("\n".join(change.head_lines), head_blob)
+        base_flags = source_flags("\n".join(change.base_lines), base_blob)
         change.memo["app_file"] = AppFile(change.path, change.is_new, is_root_file(change.path),
                                           source(head_flags, change.added), source(base_flags, change.removed),
                                           change.is_deleted, change.head_lines, change.base_lines, head_flags,
@@ -1563,8 +1625,9 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
     return changes
 
 
-def blobs(repo: Path, specs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
-    """{(rev, path): text} for SPECS in one `git cat-file --batch` (a path missing at its rev is left out)."""
+def blobs(repo: Path, specs: list[tuple[str, str]], ids: dict | None = None) -> dict[tuple[str, str], str]:
+    """{(rev, path): text} for SPECS in one `git cat-file --batch` (a path missing at its rev is left out); IDS, when
+    given, gets each found blob's object id (the lexer cache's key)."""
     if not specs:
         return {}
     request = "".join(f"{rev}:{p}\n" for rev, p in specs).encode()
@@ -1580,6 +1643,8 @@ def blobs(repo: Path, specs: list[tuple[str, str]]) -> dict[tuple[str, str], str
             continue
         size = int(header[2])
         found[path] = out[cursor:cursor + size].decode("utf-8", "replace")
+        if ids is not None:
+            ids[path] = header[0].decode()
         cursor += size + 1
     return found
 
@@ -1719,24 +1784,37 @@ def check_failure(name: str, error: Exception) -> str:
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
-    diff, names = run_both(repo, ["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/",
-                                  "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES, SWIFT_TESTS,
-                                  *SHIPPED_BUILD_SPECS],
-                           ["diff", "--name-only", "--no-renames", base, head])
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+    # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
+    # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
+    # the blobs are read while the content diff runs.
+    diff_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff",
+                                  "--src-prefix=a/", "--dst-prefix=b/", base, head, *specs],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+    names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
+    early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
+    blob_ids: dict[tuple[str, str], str] = {}
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)],
+                  blob_ids)
+    diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
     if diff.strip() and not changes:
         warnings.append(("guardrails", "could not read this push's diff, so no rule ran on it (fail open); tell the "
                          "Performance Lead (PL-guardrails) with the output of: git diff -U0 " + f"{base} {head} | head"))
     paths = sorted(changes)
-    texts = blobs(repo, [(head, p) for p in paths] + [(base, p) for p in paths]
-                  + [(head, BENCHES), (head, OWNERS)])
+    late = [p for p in paths if p not in set(early)]  # none unless git lists a path one way only
+    if late:
+        texts.update(blobs(repo, [(head, p) for p in late] + [(base, p) for p in late], blob_ids))
+    LEX_CACHE["dir"] = lex_cache_dir(repo)
     for path in paths:
         change = changes[path]
         text = texts.get((head, path), "")
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
+        change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
@@ -1783,8 +1861,11 @@ def check_push(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM):
         return check(repo, base, head)
     if is_ancestor(repo, base, upstream):
         return check(repo, upstream, head)
-    pushed, pushed_warnings = check(repo, base, head)
-    branch, warnings = check(repo, upstream, head)
+    # The two ranges share most of their objects and each check() waits on git most of the time: run them together
+    # (the slowest real merge push paid 2 x 1.3 s one after the other).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        pushed_future, branch_future = pool.submit(check, repo, base, head), pool.submit(check, repo, upstream, head)
+        (pushed, pushed_warnings), (branch, warnings) = pushed_future.result(), branch_future.result()
     # A rule that failed on the pushed range is off for this push even when it ran on the branch's own range.
     warnings += [w for w in pushed_warnings if w[0] == "guardrails" and w not in warnings]
     own = collections.Counter((rule.id, h.path, h.text.strip()) for rule, hits in branch for h in hits)
