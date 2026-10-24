@@ -37,8 +37,8 @@ import {
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
-/// `pending` is a waiting steer's clock and Send now (PendingSteer.tsx): it sits beside the bubble's
-/// left edge, on the bubble's own row, so it takes no line of its own (Leo, 2026-10-21).
+/// `pending` is a waiting steer's Send now (PendingSteer.tsx): it leads the prompt's action row,
+/// before the receipt, age and message buttons (Leo, 2026-10-24).
 export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
@@ -81,11 +81,11 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
           <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
-          {pending}
         </div>
       )}
-      {text && !row.failed && !row.queued && (
+      {!row.failed && !row.queued && (text || pending) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
+          {pending}
           {branch && branches && (
             <span className="cv-user__versions">
               <button

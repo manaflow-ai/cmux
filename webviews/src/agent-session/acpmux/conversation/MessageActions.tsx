@@ -4,7 +4,7 @@
 // prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
-import { useContext, useRef, useState } from "react";
+import { useContext, useRef, useState, type ReactNode } from "react";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -262,9 +262,10 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
 
 /// The row under a prompt the Chief sent (ChiefPromptBubble): its read receipt, its age, a dot,
 /// Copy and Retry, as under the person's own bubble.
-export function PromptActions({ row, text }: { row: AcpmuxRow; text: string }) {
+export function PromptActions({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
   return (
     <div className="cv-user__actions">
+      {pending}
       <ReadReceipt row={row} />
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageDot />
