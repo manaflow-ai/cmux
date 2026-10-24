@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
         services.windows.onFirstWindow = { [weak services] _ in
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
             // An App Store request made while no window existed shows in this window (S22).
@@ -164,10 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
+        // The system file picker made ahead at the first idle moment, so the first click is not cold.
+        services.openPanel.warmWhenIdle(after: launchSettle.whenSettled)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
-        services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in
-            let event = router?.syntheticKeyEvent ?? NSApp.currentEvent
+        services.palette.openingEventTimestamp = { [inputDispatch = services.inputDispatch] in
+            let event = inputDispatch.event
             return event?.type == .keyDown ? event?.timestamp : nil
         }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }

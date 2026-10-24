@@ -17,6 +17,9 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
+        // Chats feed only fills the history; a launch without one used to leave the action unbound).
+        SidebarChatHistoryFeed.bind(into: registry)
         FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         StashHandlers.bind(into: registry, context: context)
@@ -100,6 +103,8 @@ enum AppActions {
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
+        AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         AccountsHandlers.bind(into: registry, context: context)

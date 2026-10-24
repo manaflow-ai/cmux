@@ -15,6 +15,68 @@
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
 
+// Every cmux_shim_event_kind_t value is distinct and every enumerator is
+// listed: -Wswitch as an error refuses a duplicate case value (two events
+// given one number) and a missing enumerator (an event added to the header
+// but not here). Compile-time only; never called.
+#pragma clang diagnostic push
+#pragma clang diagnostic error "-Wswitch"
+[[maybe_unused]] static constexpr bool CmuxShimEventKindsAreDistinct(cmux_shim_event_kind_t kind) {
+  switch (kind) {
+    case CMUX_SHIM_CONTEXT_INITIALIZED:
+    case CMUX_SHIM_AFTER_CREATED:
+    case CMUX_SHIM_BEFORE_CLOSE:
+    case CMUX_SHIM_ADDRESS:
+    case CMUX_SHIM_TITLE:
+    case CMUX_SHIM_FAVICON:
+    case CMUX_SHIM_LOADING_STATE:
+    case CMUX_SHIM_LOAD_START:
+    case CMUX_SHIM_LOAD_END:
+    case CMUX_SHIM_LOAD_ERROR:
+    case CMUX_SHIM_PROGRESS:
+    case CMUX_SHIM_FULLSCREEN:
+    case CMUX_SHIM_DEVTOOLS_RESULT:
+    case CMUX_SHIM_FIND_RESULT:
+    case CMUX_SHIM_CLOSE_REQUESTED:
+    case CMUX_SHIM_TAB_EVENT:
+    case CMUX_SHIM_POPUP:
+    case CMUX_SHIM_REPLY:
+    case CMUX_SHIM_CONTEXT_MENU:
+    case CMUX_SHIM_DEVTOOLS_WILL_OPEN:
+    case CMUX_SHIM_DEVTOOLS_OPENED:
+    case CMUX_SHIM_DEVTOOLS_CLOSED:
+    case CMUX_SHIM_RENDER_TERMINATED:
+    case CMUX_SHIM_RENDER_UNRESPONSIVE:
+    case CMUX_SHIM_RENDER_RESPONSIVE:
+    case CMUX_SHIM_CHROME_COMMAND:
+    case CMUX_SHIM_NAVIGATION_REROUTE:
+    case CMUX_SHIM_KEY_UNHANDLED:
+    case CMUX_SHIM_INSTALL_PROMPT:
+    case CMUX_SHIM_OMNIBOX_SUGGESTIONS:
+    case CMUX_SHIM_TAKE_FOCUS:
+    case CMUX_SHIM_DEVTOOLS_EVENT:
+    case CMUX_SHIM_PREF_CHANGED:
+    case CMUX_SHIM_DOWNLOAD_STARTED:
+    case CMUX_SHIM_DOWNLOAD_PROGRESS:
+    case CMUX_SHIM_DOWNLOAD_DONE:
+    case CMUX_SHIM_AUTH_CALLBACK:
+    case CMUX_SHIM_LOCAL_FILE_HANDOFF:
+    case CMUX_SHIM_BOOKMARKS_EVENT:
+    case CMUX_SHIM_EXTERNAL_URL:
+    case CMUX_SHIM_PERMISSION_PROMPT:
+    case CMUX_SHIM_PERMISSION_DISMISSED:
+    case CMUX_SHIM_PASSWORD_PROMPT:
+    case CMUX_SHIM_BEFORE_UNLOAD_DIALOG:
+    case CMUX_SHIM_BEFORE_UNLOAD_DISMISSED:
+    case CMUX_SHIM_PAGE_RESOURCE:
+    case CMUX_SHIM_PAGE_DRAG_ENTER:
+    case CMUX_SHIM_FILE_DIALOG:
+      return true;
+  }
+  return false;
+}
+#pragma clang diagnostic pop
+
 namespace cmux_shim {
 
 namespace {
@@ -131,6 +193,8 @@ class Client : public CefClient,
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  // File choosers go to the host app (shim_file_dialog.mm).
+  CefRefPtr<CefDialogHandler> GetDialogHandler() override { return FileDialogHandlerInstance(); }
   // Every download waits for the host's path (shim_downloads.mm).
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
   // Location requests ask in the host's prompt bar (shim_permissions.mm).
@@ -304,6 +368,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     // A crash cancels dialogs without OnResetDialogState: the question goes too.
     if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
+    CancelFileDialogs(id);
     Emit(CMUX_SHIM_RENDER_TERMINATED, id, 0, status, error_code, error_string.ToString());
   }
 
@@ -470,6 +535,7 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
     DropBeforeUnload(id);
+    CancelFileDialogs(id);
     TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);

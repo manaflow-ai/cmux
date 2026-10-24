@@ -21,6 +21,8 @@ import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
+import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 
 const VIDEO = /\.(mp4|m4v|mov|webm)$/i;
 const AUDIO = /\.(mp3|m4a|aac|wav|flac)$/i;
@@ -238,17 +240,54 @@ export function MediaPlayer({
   );
 }
 
+function useMediaPreviewAllowed(): boolean {
+  const [allowed, setAllowed] = useState(() => mediaPreviewAllowed());
+  useEffect(() => {
+    const root = document.documentElement;
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const update = () => setAllowed(mediaPreviewAllowed(root));
+    update();
+    query?.addEventListener("change", update);
+    const observer = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(update);
+    observer?.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-agent-motion", "data-cmux-motion", "data-status-indicators"],
+    });
+    return () => {
+      query?.removeEventListener("change", update);
+      observer?.disconnect();
+    };
+  }, []);
+  return allowed;
+}
+
 /// A video before it plays: its poster frame (the frame just after the start, read with the
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
-/// it previews it muted, as before; a click plays it from the start with sound and the player's
-/// controls. Every part a click lands on shows the pointing hand.
+/// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
+/// sound and the player's controls. Every part a click lands on shows the pointing hand.
 export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [duration, setDuration] = useState<string | undefined>();
+  const previewAllowed = useMediaPreviewAllowed();
+  const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
+  const previewing = previewAllowed && shown === true;
+
+  useEffect(() => {
+    if (!previewAllowed) dismiss();
+  }, [dismiss, previewAllowed]);
+
+  useEffect(() => {
+    const element = video.current;
+    if (!element || started) return;
+    if (previewing) void element.play()?.catch(() => {});
+    else if (element.muted) element.pause();
+  }, [previewing, started]);
+
   const play = () => {
     const element = video.current;
+    dismiss();
     setStarted(true);
     if (!element) return;
     element.muted = false;
@@ -256,7 +295,10 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
     void element.play()?.catch(() => {});
   };
   return (
-    <span className={started ? "cv-media__frame is-playing" : "cv-media__frame"}>
+    <span
+      className={started ? "cv-media__frame is-playing" : "cv-media__frame"}
+      data-previewing={previewing ? "true" : undefined}
+    >
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
       <video
         ref={video}
@@ -282,12 +324,10 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
           onMouseEnter={() => {
-            const element = video.current;
-            if (element?.paused) void element.play()?.catch(() => {});
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
-            const element = video.current;
-            if (element?.muted) element.pause();
+            setHover(null);
           }}
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">

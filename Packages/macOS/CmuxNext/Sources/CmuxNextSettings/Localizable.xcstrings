@@ -136806,6 +136806,137 @@
         }
       }
     },
+    "settings.category.server": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخادم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនមេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serwer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซิร์ฟเวอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sunucu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "伺服器"
+          }
+        }
+      }
+    },
     "settings.category.mobile": {
       "extractionState": "manual",
       "localizations": {
@@ -151397,6 +151528,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "並排的窗格放不下時會橫向捲動而不是縮小，停靠欄中也一樣。"
+          }
+        }
+      }
+    },
+    "settings.layout.scrollModifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Columns and Rows With"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمرير الأعمدة والصفوف باستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomicanje kolona i redova pomoću"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul kolonner og rækker med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spalten und Zeilen scrollen mit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar columnas y filas con"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faire défiler colonnes et rangées avec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri colonne e righe con"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列と行をスクロールする方法"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលជួរឈរ និងជួរដេកដោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열과 행 스크롤 방법"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull kolonner og rader med"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewijanie kolumn i wierszy za pomocą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar colunas e linhas com"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутка столбцов и строк"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนคอลัมน์และแถวด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sütunları ve satırları kaydırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручування стовпців і рядків"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn cột và hàng bằng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滚动列和行的方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捲動欄與列的方式"
+          }
+        }
+      }
+    },
+    "settings.layout.scrollModifier.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + Scroll moves columns and rows"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + التمرير ينقل الأعمدة والصفوف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + pomicanje pomjera kolone i redove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + rul flytter kolonner og rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehl + Scrollen bewegt Spalten und Zeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando + desplazamiento mueve columnas y filas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande + défilement déplace colonnes et rangées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando + scorrimento sposta colonne e righe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + スクロールで列と行を動かす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + រំកិល ផ្លាស់ទីជួរឈរ និងជួរដេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 스크롤로 열과 행 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommando + rulling flytter kolonner og rader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + przewijanie przesuwa kolumny i wiersze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + rolagem move colunas e linhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + прокрутка двигает столбцы и строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + เลื่อน เพื่อย้ายคอลัมน์และแถว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + kaydırma sütunları ve satırları taşır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + прокручування рухає стовпці й рядки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + cuộn để di chuyển cột và hàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 滚动可移动列和行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 捲動可移動欄與列"
+          }
+        }
+      }
+    },
+    "settings.layout.scrollModifier.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + التمرير ينقل الأعمدة والصفوف من أي مكان، والتمرير العادي يمرر دائمًا الجزء الموجود تحت المؤشر. بدون مفتاح تعديل، ينقل التمرير الجانبي الأعمدة ما لم يكن الجزء نفسه يتمرر جانبيًا، ولا تتمرر الصفوف إلا فوق الفجوات بينها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + pomicanje pomjera kolone i redove s bilo kojeg mjesta, a obično pomicanje uvijek pomiče okno ispod pokazivača. Bez modifikatora, bočno pomicanje pomjera kolone osim ako se okno samo ne pomiče bočno, a redovi se pomiču samo iznad razmaka između njih."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + rul flytter kolonner og rækker overalt, og en almindelig rulning ruller altid ruden under markøren. Uden en ændringstast flytter en sidelæns rulning kolonnerne, medmindre ruden selv ruller sidelæns, og rækker ruller kun over mellemrummene mellem dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehl + Scrollen bewegt Spalten und Zeilen von überall, und einfaches Scrollen scrollt immer den Bereich unter dem Zeiger. Ohne Sondertaste bewegt seitliches Scrollen die Spalten, außer der Bereich scrollt selbst seitlich, und Zeilen scrollen nur über den Lücken zwischen ihnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando + desplazamiento mueve columnas y filas desde cualquier lugar, y un desplazamiento normal siempre desplaza el panel bajo el puntero. Sin modificador, un desplazamiento lateral mueve las columnas salvo que el panel se desplace de lado por sí mismo, y las filas solo se desplazan sobre los espacios entre ellas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande + défilement déplace colonnes et rangées depuis n’importe où, et un défilement simple fait toujours défiler la sous-fenêtre sous le pointeur. Sans touche de modification, un défilement latéral déplace les colonnes sauf si la sous-fenêtre défile elle-même latéralement, et les rangées ne défilent qu’au-dessus des espaces qui les séparent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando + scorrimento sposta colonne e righe da qualsiasi punto, e uno scorrimento semplice scorre sempre il riquadro sotto il puntatore. Senza modificatore, uno scorrimento laterale sposta le colonne a meno che il riquadro non scorra lateralmente da sé, e le righe scorrono solo sopra gli spazi tra di esse."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + スクロールで、どこからでも列と行を動かせます。修飾キーなしのスクロールは、常にポインタの下のペインをスクロールします。修飾キーを使わない設定では、ペイン自体が横にスクロールする場合を除き横スクロールで列が動き、行は行の間のすき間の上でだけスクロールします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + រំកិល ផ្លាស់ទីជួរឈរ និងជួរដេកពីគ្រប់ទីកន្លែង ហើយការរំកិលធម្មតាតែងតែរំកិលផ្ទាំងនៅក្រោមទ្រនិច។ បើគ្មានគ្រាប់ចុចកែប្រែ ការរំកិលទៅចំហៀងផ្លាស់ទីជួរឈរ លុះត្រាតែផ្ទាំងខ្លួនឯងរំកិលទៅចំហៀង ហើយជួរដេករំកិលតែនៅលើចន្លោះរវាងពួកវាប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 스크롤은 어디서든 열과 행을 이동하고, 일반 스크롤은 항상 포인터 아래의 패인을 스크롤합니다. 보조 키 없이 사용하면 패인 자체가 가로로 스크롤되지 않는 한 가로 스크롤이 열을 이동하고, 행은 행 사이의 간격 위에서만 스크롤됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommando + rulling flytter kolonner og rader fra hvor som helst, og vanlig rulling ruller alltid ruten under pekeren. Uten valgtast flytter sidelengs rulling kolonnene med mindre ruten selv ruller sidelengs, og rader ruller bare over mellomrommene mellom dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + przewijanie przesuwa kolumny i wiersze z dowolnego miejsca, a zwykłe przewijanie zawsze przewija panel pod wskaźnikiem. Bez modyfikatora przewijanie w bok przesuwa kolumny, chyba że panel sam przewija się w bok, a wiersze przewijają się tylko nad odstępami między nimi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + rolagem move colunas e linhas de qualquer lugar, e uma rolagem simples sempre rola o painel sob o ponteiro. Sem modificador, uma rolagem lateral move as colunas, a menos que o próprio painel role de lado, e as linhas só rolam sobre os espaços entre elas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + прокрутка двигает столбцы и строки из любого места, а обычная прокрутка всегда прокручивает панель под указателем. Без клавиши-модификатора прокрутка вбок двигает столбцы, если панель сама не прокручивается вбок, а строки прокручиваются только над промежутками между ними."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + เลื่อน ย้ายคอลัมน์และแถวได้จากทุกที่ และการเลื่อนปกติจะเลื่อนบานหน้าต่างใต้ตัวชี้เสมอ หากไม่ใช้ปุ่มปรับแต่ง การเลื่อนด้านข้างจะย้ายคอลัมน์ เว้นแต่บานหน้าต่างเลื่อนด้านข้างได้เอง และแถวจะเลื่อนเฉพาะเหนือช่องว่างระหว่างแถวเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + kaydırma sütunları ve satırları her yerden taşır; düz kaydırma her zaman işaretçinin altındaki bölmeyi kaydırır. Değiştirici tuş olmadan, bölme kendisi yana kaymıyorsa yana kaydırma sütunları taşır ve satırlar yalnızca aralarındaki boşlukların üzerinde kayar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + прокручування рухає стовпці й рядки з будь-якого місця, а звичайне прокручування завжди прокручує панель під вказівником. Без клавіші-модифікатора прокручування вбік рухає стовпці, якщо панель сама не прокручується вбік, а рядки прокручуються лише над проміжками між ними."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + cuộn di chuyển cột và hàng từ bất kỳ đâu, còn cuộn thường luôn cuộn ngăn dưới con trỏ. Khi không dùng phím bổ trợ, cuộn ngang di chuyển các cột trừ khi chính ngăn đó cuộn ngang, và hàng chỉ cuộn trên khoảng trống giữa chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 滚动可在任意位置移动列和行，普通滚动始终滚动指针下的窗格。不使用修饰键时，横向滚动会移动列（除非窗格本身可横向滚动），行只在行之间的间隙上滚动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 捲動可在任何位置移動欄與列，一般捲動一律捲動指標下方的窗格。不使用修飾鍵時，橫向捲動會移動欄（除非窗格本身可橫向捲動），列只在列之間的間隙上捲動。"
+          }
+        }
+      }
+    },
+    "settings.choice.scrollModifierCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + Scroll"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + pomicanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + rul"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehl + Scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando + desplazamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande + défilement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando + scorrimento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + スクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + រំកិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommando + rulling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + przewijanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + rolagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + прокрутка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + เลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + kaydırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + прокручування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + cuộn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Command + 捲動"
+          }
+        }
+      }
+    },
+    "settings.choice.scrollModifierNone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Without a Modifier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير دون مفتاح تعديل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomicanje bez modifikatora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul uden ændringstast"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scrollen ohne Sondertaste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazamiento sin modificador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défilement sans touche de modification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorrimento senza modificatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修飾キーなしでスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលដោយគ្មានគ្រាប់ចុចកែប្រែ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보조 키 없이 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rulling uten valgtast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewijanie bez modyfikatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolagem sem modificador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутка без модификатора"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนโดยไม่ใช้ปุ่มปรับแต่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değiştirici tuş olmadan kaydırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручування без модифікатора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn không cần phím bổ trợ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不用修饰键滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不用修飾鍵捲動"
           }
         }
       }
@@ -166783,13 +167569,144 @@
         }
       }
     },
+    "settings.diff.showBulkActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage All and Revert All Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「すべてステージ」と「すべて元に戻す」のバー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط «إضافة الكل للمرحلة» و«التراجع عن الكل»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka Pripremi sve i Vrati sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen Indeksér alle og Fortryd alle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste „Alle vormerken“ und „Alle zurücksetzen“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra Preparar todo y Revertir todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre Tout indexer et Tout annuler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra Metti tutto in stage e Ripristina tutto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារ ដាក់ទាំងអស់ជាដំណាក់កាល និង ត្រឡប់ទាំងអស់វិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 스테이지 및 모두 되돌리기 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen Indekser alle og Tilbakestill alle"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek Dodaj wszystko do poczekalni i Cofnij wszystko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra Preparar tudo e Reverter tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель «Проиндексировать все» и «Откатить все»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบ Stage ทั้งหมด และ ย้อนกลับทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tümünü hazırla ve Tümünü geri al çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель «Проіндексувати все» і «Відкотити все»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh Stage tất cả và Hoàn tác tất cả"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“全部暂存”和“全部还原”栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「全部暫存」與「全部還原」列"
+          }
+        }
+      }
+    },
     "settings.choice.diffAutoLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic"
+            "value": "Auto"
           }
         },
         "ja": {

@@ -311,7 +311,13 @@ extension SidebarListViewComponents {
                     details.unreadCount = true
                 }
             }
-            view.configure(group, row: row, details: details, animated: animated)
+            // Lawrence msg 11983: open or collapsed, the header rolls up its whole subtree's most urgent state.
+            // A collapsed header's group already holds its subgroups' members (above).
+            var subtree = group
+            if !row.isCollapsed {
+                subtree.workspaces += (groupSubtrees[id] ?? []).filter { $0 != id }.compactMap { groups[$0] }.flatMap(\.workspaces)
+            }
+            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed), animated: animated)
             view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):

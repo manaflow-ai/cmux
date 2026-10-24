@@ -407,7 +407,7 @@ fn assert_no_extra_forks(
     let (mut startup_min, mut typing_min) = (u32::MAX, u32::MAX);
     let mut verdict = "the PID counter wrapped in every rep".to_string();
     for _ in 0..MAX_REPS {
-        let Some(plain_shell) = count_forks(&[exe.clone()], &env, &base, &lines) else {
+        let Some(plain_shell) = count_forks(std::slice::from_ref(&exe), &env, &base, &lines) else {
             continue;
         };
         let Some(forks) = count_forks(&integrated.command, &integrated.env, &base, &lines) else {

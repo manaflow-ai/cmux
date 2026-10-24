@@ -30,7 +30,8 @@ public nonisolated enum FocusRingContrast: String, Hashable, Sendable, CaseItera
 /// `focusRing.*` in cmux.json. Drawn in the layout's overlay plane, so it
 /// never changes a pane frame or inset (plans/cmux-next/focus.md, ring).
 public nonisolated struct FocusRingSettings: Hashable, Sendable {
-    public var enabled = true
+    /// Focus outlines are opt-in; pointer-driven transcript responses stay quiet by default.
+    public var enabled = false
     public var style: FocusRingStyle = .ring
     /// nil takes the Ghostty theme's focus color (`Palette.focusRing`).
     public var color: ThemeRGB?

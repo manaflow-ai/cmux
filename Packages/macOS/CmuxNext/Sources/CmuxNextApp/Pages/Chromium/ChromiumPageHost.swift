@@ -44,7 +44,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
@@ -52,7 +52,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
         let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
         let made = try await cef.makeTab(configuration)

@@ -392,9 +392,24 @@ Side-by-side panes that do not fit scroll sideways instead of shrinking below **
 ```
 
 - `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
-- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Hold Command and swipe sideways with two fingers, or use Command and Shift with the mouse wheel, over the panes (with `layout.scrollModifier` set to `none`, no Command). Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
 
 Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
+
+## `layout.scrollModifier`
+
+Which scroll moves columns and rows, and which scrolls the pane under the pointer.
+
+```json
+{
+  "layout": { "scrollModifier": "command" }
+}
+```
+
+- `command` (default): a plain scroll, with the trackpad or the mouse wheel, in any direction, always scrolls the pane under the pointer (terminal scrollback, a web page, a wide table). Command + Scroll moves the layout from anywhere on the screen: sideways scrolls the columns, up and down scrolls the rows of the column under the pointer. In a column whose rows all fit, Command + Scroll up and down scrolls the columns. Over a scroll area, Command + Scroll sideways moves the area first. On a canvas, Command + Scroll pans the canvas. A plain scroll still moves the layout over the gaps between panes (also while a Chromium page shows) and over the columns scrollbar.
+- `none`: a sideways scroll moves the columns unless the pane under the pointer scrolls sideways itself, and rows scroll over the gaps between them or with Command held.
+
+The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. A Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward in a web page, Chromium or WebKit. Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
 
 ## `workspaces.newPlacement`
 

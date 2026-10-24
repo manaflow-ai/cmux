@@ -1,0 +1,176 @@
+import CmuxNextCompat
+import Darwin
+import Dispatch
+
+/// Runs work that may block off Swift's cooperative pool, on small lanes by kind, at a stated priority.
+///
+/// This is cmux's version of Chrome's task traits (`base/task/task_traits.h`): every item states its
+/// ``WorkPriority`` (TaskPriority), its ``BlockingLane`` (MayBlock, by kind) and its ``ShutdownBehavior``.
+/// The cooperative pool has one thread per core, so a file read, a process wait or a `getaddrinfo` there
+/// stalls every task behind it; here such work runs on a lane slot instead (a serial `DispatchQueue`
+/// at the item's QoS), and the pool stays free for the async work that typing and frames wait for.
+///
+/// Priority inversion: there is no synchronous wait in this API. Main-actor code either awaits
+/// ``run(_:mayBlock:shutdown:_:)`` (the main thread keeps running) or posts with
+/// ``post(_:mayBlock:shutdown:_:)``. A caller that awaits work below its own priority boosts it: at the
+/// call the item runs at the higher of its priority and the caller's (`Task.currentPriority`), and on
+/// macOS 26 and later a later escalation of the caller (another task awaits it) boosts the item too
+/// (a pending item moves up; a running one gets a GCD QoS override). Before macOS 26, only the
+/// boost at the call applies. To keep work low, post it, or await it from a task that is itself low
+/// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
+///
+/// One instance per app, built in the composition root (AppServices) and passed through `init`;
+/// tests build their own.
+///
+/// ```swift
+/// let data = try await work.run(.userVisible, mayBlock: .files) { try Data(contentsOf: url) }
+/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
+/// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
+/// ```
+public final class BackgroundWork: Sendable {
+    /// How many ``BlockingLane/cpu`` items run at once.
+    public let cpuWidth: Int
+    /// The label prefix of every lane slot's dispatch queue (`<label>.<lane>.<priority or slot>`).
+    public let label: String
+    private let lanes: [LaneScheduler]
+    // concurrency-allow: id counter and the shutdown count, read and written synchronously by submitters and lane threads (lock carve-out: a counter, no I/O under it).
+    private let state = Mutex(DrainState())
+
+    private struct DrainState {
+        var nextID: UInt64 = 1
+        var blocking = 0
+        var waiters: [CheckedContinuation<Void, Never>] = []
+    }
+
+    /// Creates the lanes.
+    ///
+    /// - Parameters:
+    ///   - cpuWidth: how many ``BlockingLane/cpu`` items run at once; default ``defaultCPUWidth``.
+    ///   - label: the dispatch queue label prefix, which shows in traces and crash reports.
+    public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work") {
+        self.cpuWidth = max(1, cpuWidth)
+        self.label = label
+        lanes = BlockingLane.allCases.map { lane in
+            switch lane {
+            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
+            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth))
+            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)))
+            }
+        }
+    }
+
+    /// How many ``BlockingLane/system`` items run at once: Chrome's limit for concurrent system DNS
+    /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
+    /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
+    public static let systemWidth = 6
+
+    /// The number of performance cores minus one (at least one), so CPU-bound background work always
+    /// leaves a performance core to the main thread and the render threads.
+    public static var defaultCPUWidth: Int {
+        var cores: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        if sysctlbyname("hw.perflevel0.logicalcpu", &cores, &size, nil, 0) != 0 || cores <= 0 {
+            cores = Int32(clamping: sysconf(_SC_NPROCESSORS_ONLN))
+        }
+        return max(1, Int(cores) - 1)
+    }
+
+    /// Runs `body` on `lane` at `priority` (boosted to the caller's priority) and returns its result.
+    ///
+    /// - Parameters:
+    ///   - priority: how much a person waits for it; the item runs at the higher of this and the caller's.
+    ///   - lane: the kind of blocking work `body` does.
+    ///   - shutdown: what ``shutdown()`` does with it; default ``ShutdownBehavior/skipOnShutdown``.
+    ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
+    /// - Returns: what `body` returns.
+    /// - Throws: what `body` throws; `CancellationError` when the caller's task is cancelled before the
+    ///   item starts (the item then never runs), or when shutdown dropped it. A started item runs to its end.
+    public func run<T: Sendable>(_ priority: WorkPriority, mayBlock lane: BlockingLane,
+                                 shutdown: ShutdownBehavior = .skipOnShutdown,
+                                 _ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try Task.checkCancellation()
+        let id = nextID()
+        let scheduler = lanes[lane.rawValue]
+        let start = max(priority, WorkPriority(Task.currentPriority))
+        if #available(macOS 26.0, *) {
+            defer { scheduler.forget(id) }
+            return try await withTaskPriorityEscalationHandler(operation: {
+                try await enqueue(id, on: scheduler, at: start, shutdown: shutdown, body)
+            }, onPriorityEscalated: { _, raised in
+                scheduler.boost(id, to: WorkPriority(raised))
+            })
+        }
+        return try await enqueue(id, on: scheduler, at: start, shutdown: shutdown, body)
+    }
+
+    private func enqueue<T: Sendable>(_ id: UInt64, on scheduler: LaneScheduler, at priority: WorkPriority,
+                                      shutdown: ShutdownBehavior,
+                                      _ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+                let job = makeJob(id: id, shutdown: shutdown,
+                                  work: { continuation.resume(with: Result { try body() }) },
+                                  abandoned: { continuation.resume(throwing: CancellationError()) })
+                // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
+                if !scheduler.submit(job, at: priority, unless: { Task.isCancelled }) { job.abandon() }
+            }
+        } onCancel: {
+            scheduler.remove(id)?.abandon()
+        }
+    }
+
+    /// Queues `body` on `lane` at `priority` and returns at once; nothing awaits it, so nothing boosts it.
+    ///
+    /// - Parameters:
+    ///   - priority: how much a person waits for it.
+    ///   - lane: the kind of blocking work `body` does.
+    ///   - shutdown: what ``shutdown()`` does with it; a save whose loss loses data is
+    ///     ``ShutdownBehavior/blockShutdown``.
+    ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
+    public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
+                     shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
+        let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
+        if !lanes[lane.rawValue].submit(job, at: priority, unless: { false }) { job.abandon() }
+    }
+
+    /// Starts shutdown: drops every item that has not started except ``ShutdownBehavior/blockShutdown``
+    /// ones, refuses new ones the same way, and returns when every block-shutdown item has finished.
+    /// Quit awaits it after its own saves.
+    public func shutdown() async {
+        for lane in lanes {
+            for job in lane.close() { job.abandon() }
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now = state.withLock { state -> Bool in
+                if state.blocking == 0 { return true }
+                state.waiters.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    private func nextID() -> UInt64 {
+        state.withLock { state in
+            defer { state.nextID += 1 }
+            return state.nextID
+        }
+    }
+
+    private func makeJob(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable () -> Void,
+                         abandoned: @escaping @Sendable () -> Void) -> LaneJob {
+        let blocks = shutdown == .blockShutdown
+        if blocks { state.withLock { $0.blocking += 1 } }
+        return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: { [self] in
+            guard blocks else { return }
+            let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+                state.blocking -= 1
+                guard state.blocking == 0 else { return [] }
+                defer { state.waiters = [] }
+                return state.waiters
+            }
+            for waiter in waiters { waiter.resume() }
+        })
+    }
+
+}

@@ -20,32 +20,12 @@ nonisolated struct ProcessMarkdownGitRunner: MarkdownGitRunning {
 
     func run(_ arguments: [String], in folder: String) async -> MarkdownGitOutput? {
         guard folder.hasPrefix("/"), !folder.contains("\0") else { return nil }
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", folder] + arguments
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-        process.environment = ProcessInfo.processInfo.environment.merging(
+        let environment = ProcessInfo.processInfo.environment.merging(
             ["GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"]) { _, ours in ours }
-        do { try process.run() } catch { return nil }
-        let running = process
-        // The raw descriptor crosses into the reading task (a FileHandle is not Sendable); the
-        // pipe stays open while `running` holds it as its output.
-        let descriptor = output.fileHandleForReading.fileDescriptor
-        // A one-shot deadline for this git run, cancelled as soon as the run returns.
-        let deadline = DemandTimer(owner: "markdown-omnibar.git")
-        deadline.schedule(after: timeout) { if running.isRunning { running.terminate() } }
-        defer { deadline.cancel() }
-        return await Task.detached(priority: .utility) {
-            // concurrency-allow: blocking read and wait inside this detached utility task; git's
-            // output for one file is small, and the deadline above ends a hung run.
-            let data = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).readDataToEndOfFile()
-            // concurrency-allow: git closed its output (EOF above), so it has exited or is exiting.
-            running.waitUntilExit()
-            guard running.terminationReason == .exit else { return nil }
-            return MarkdownGitOutput(status: running.terminationStatus, output: String(decoding: data, as: UTF8.self))
-        }.value
+        // Awaited without a thread (AsyncProcess); the timeout ends a hung run.
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/git"), ["-C", folder] + arguments,
+                                     environment: environment, timeout: timeout)
+        guard let outcome = try? await AsyncProcess().run(request), outcome.exited else { return nil }
+        return MarkdownGitOutput(status: outcome.status, output: outcome.text)
     }
 }

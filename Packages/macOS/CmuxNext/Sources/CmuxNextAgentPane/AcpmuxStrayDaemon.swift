@@ -106,19 +106,9 @@ nonisolated enum AcpmuxStrayDaemon {
     }
 
     private static func launchctl(_ arguments: [String]) async -> (status: Int32, output: String) {
-        await Task.detached { () -> (status: Int32, output: String) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return (-1, "") }
-            // concurrency-allow: a detached task off the main thread; launchctl prints a little and exits
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            // concurrency-allow: same detached task; the process has closed its output
-            process.waitUntilExit()
-            return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-        }.value
+        // Awaited without a thread: a launchctl wait never holds a cooperative-pool thread.
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/bin/launchctl"), arguments))
+        else { return (-1, "") }
+        return (outcome.status, outcome.text)
     }
 }

@@ -163,7 +163,7 @@ public final class DaemonService {
         if let socket = launcher.configuration.rememberedSocket {
             retryWake.watch(file: socket, companions: [socket + ".websocket.json"])
         }
-        pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.wsListen, identity: $1, using: $0) }
+        pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
@@ -438,7 +438,7 @@ public final class DaemonService {
         await failure(label, ticket: openTicket(label), body)
     }
 
-    private func failure(_ label: String, ticket: CommandTicket?,
+    func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")

@@ -39,12 +39,20 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.toggleInspector",
-                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
-                keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
+                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Session Info", bundle: .module),
+                keywords: ["agent", "chat", "session", "session info", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     ContextMenuPlacement(.agentChat, .inspect, 0, folder: .tools),
                 ])
+            ),
+            ActionDescriptor(
+                id: "agentPane.stopTurn",
+                title: String(localized: "action.agentPane.stopTurn", defaultValue: "Stop Agent Turn", bundle: .module),
+                keywords: ["agent", "chat", "stop", "cancel", "interrupt", "turn", "working", "generation"],
+                category: .agents, symbol: "stop.circle", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent stop-turn",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.togglePointerInspector",

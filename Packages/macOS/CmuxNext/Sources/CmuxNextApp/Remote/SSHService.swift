@@ -259,7 +259,7 @@ final class SSHService {
         // A connect to the same machine while the toast showed took it back.
         guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
         forgetSavedHost(pending.machineID)
-        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapabilities.profiles),
+        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
               let home = machines.local.connection else { return }
         do {
             try await home.forgetSession(sessionID, force: true)

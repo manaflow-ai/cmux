@@ -2212,7 +2212,7 @@
       "type" : "string"
     },
     "focusRing.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "focusRing.enabled",
       "title" : "Show Focus Ring",
       "type" : "boolean"

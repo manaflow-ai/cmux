@@ -155,7 +155,7 @@ extension PaneController {
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
-    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?,
+    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
                                    keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
@@ -299,8 +299,8 @@ extension PaneController {
         let surface = tab.surface
         // `tab.pin`/`tab.unpin` on a daemon with state resources.
         let resource = daemon.store.servesStateResources ? tab.resourceID : nil
-        guard resource != nil || daemon.supports(DaemonCapabilities.tabMetadata) else {
-            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.tabMetadata))
+        guard resource != nil || daemon.supports(DaemonCapability.tabMetadata.rawValue) else {
+            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapability.tabMetadata.rawValue))
             return
         }
         services.registry.track(Task { [services] in

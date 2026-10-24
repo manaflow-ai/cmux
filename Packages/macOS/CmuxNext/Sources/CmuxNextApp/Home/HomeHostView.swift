@@ -310,18 +310,19 @@ final class HomeHostView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181): the observation
+    // Tasks are Sendable and end here. Two stops are main-actor work with no Sendable handle, so they run on the
+    // main actor: the settings popover's window, and the transcript's stop, which releases its dictation claim in
+    // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
+    // returned off main skipped all of it.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            availability?.cancel()
-            engineWatch?.cancel()
-            avatarsWatch?.cancel()
-            hostWatch?.cancel()
-            agentsWatch?.cancel()
-            shortcutsWatch?.cancel()
-            headerPanelsWatch?.cancel()
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, headerPanelsWatch, firstPage] {
+            task?.cancel()
+        }
+        let settings = settings, transcript = transcript
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
             settings.close()
-            firstPage?.cancel()
             transcript.stop()
         }
     }
@@ -430,7 +431,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).

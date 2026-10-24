@@ -186,6 +186,9 @@ public final class DesignSettings {
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
+    /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
+    /// pane under the pointer (`command`, default), or the rule before it (`none`).
+    public var layoutScrollModifier: LayoutScrollModifier = .command
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

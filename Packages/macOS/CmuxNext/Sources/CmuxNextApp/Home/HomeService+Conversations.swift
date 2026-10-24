@@ -161,7 +161,8 @@ extension HomeService {
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
             defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
-            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
+            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
+            chiefNames: { [weak self] in self?.chiefNames ?? [:] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
         source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
@@ -193,6 +194,16 @@ extension HomeService {
             guard let self, directory.chiefAvatars != avatars else { return }
             directory.chiefAvatars = avatars
         }
+    }
+
+    /// Each cloud Chief's own name by its main conversation (`chief.list`, kept current by a rename),
+    /// for the list's tiles; a Chief with no name set is left out and reads "Chief".
+    var chiefNames: [ConversationID: String] {
+        Dictionary(directory.chiefs.compactMap { chief in
+            chief.mainConversation.flatMap { conversation in
+                chief.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (ConversationID(conversation), chief.name)
+            }
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or

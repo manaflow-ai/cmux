@@ -240,6 +240,30 @@ fn fs_is_sandboxed_to_the_session_root() {
     assert_eq!(lines(&out), vec![r#"["aGk=",["a.txt:file"],true,"EACCES","EACCES"]"#]);
 }
 
+/// fs errors read like Node's (`CODE: description, syscall 'path'`), as in
+/// classic cmux and the reference host, so agent code that matches
+/// "permission denied" or "no such file" on `e.message` works.
+#[test]
+fn fs_errors_read_like_node() {
+    let (vm, _) = session(0);
+    let out = vm.eval(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a))).error.message;\n\
+         return [fs('readFile', {path: '/etc/hosts'}), fs('readFile', {path: 'missing.txt'}),\n\
+           fs('readdir', {path: 'missing'}), fs('writeFile', {path: '/etc/escape.txt', base64: ''})];",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None, "{out:?}");
+    assert_eq!(
+        lines(&out),
+        vec![concat!(
+            r#"["EACCES: permission denied, open '/etc/hosts' (outside the session's files)","#,
+            r#""ENOENT: no such file or directory, open 'missing.txt'","#,
+            r#""ENOENT: no such file or directory, scandir 'missing'","#,
+            r#""EACCES: permission denied, open '/etc/escape.txt' (outside the session's files)"]"#
+        )]
+    );
+}
+
 /// A file the driver reported through `download.finished` is readable
 /// (driver-protocol.md, native fs contract); its neighbours and writes to it
 /// stay outside the session's files.

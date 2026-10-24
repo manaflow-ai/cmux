@@ -9,7 +9,7 @@
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
-#     [--arg=budgets=scripts/perf-bench/budgets.json]
+#     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench]
 # tabswitch= (default on; tabswitch=off skips it) also builds a tagged Debug app at this checkout and
 # runs scripts/cmux-next/tab-switch-matrix.py: real-window tab switch end to end (input event to
 # commit) per tab kind at each count, as a "Tab switch" section of BENCH.md and gate rows.
@@ -21,11 +21,12 @@
 # than 15 % (and the unit's floor). Output: BENCH.md in the log,
 # artifacts/perf-bench/{results.json,BENCH.md}.
 set -euo pipefail
-rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4
+rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
+    bench_config=*) bench_config="${arg#bench_config=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
     launches=*) launches="${arg#launches=}" ;;
     idle=*) idle="${arg#idle=}" ;;
@@ -77,7 +78,7 @@ fi
 apps=()
 case "$cmux" in
   build)
-    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --release > "$work/reload.log" 2>&1 \
+    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release > "$work/reload.log" 2>&1 \
       || { tail -n 80 "$work/reload.log"; exit 1; }
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
     [[ -n "$app" && -d "$app" ]] || { echo "perf-bench: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
@@ -108,7 +109,9 @@ switch_json=""
 if [ "$debug" = 1 ]; then
   # The matrix and the palette timing drive debug.key / debug.tab_switch / debug.timings, which only a
   # tagged Debug build answers. One build serves both.
-  if CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag pbswitch > "$work/reload-switch.log" 2>&1; then
+  # The tab switch and palette rows drive debug.* commands: bench_config=bench (default debug) builds that
+  # app optimized with the commands kept (reload.sh --config bench).
+  if CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag pbswitch --config "$bench_config" > "$work/reload-switch.log" 2>&1; then
     switch_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload-switch.log" | tail -n 1)"
     if [ "$tabswitch" != off ]; then
       mkdir -p "$work/switch"

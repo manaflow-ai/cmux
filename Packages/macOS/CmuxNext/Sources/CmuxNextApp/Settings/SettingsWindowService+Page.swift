@@ -51,6 +51,8 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
+            // Settings > Server: status, version line, Restart Recommended, socket and tailnet address.
+            "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).

@@ -31,7 +31,7 @@ import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
-import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
+import { type AppendBody, type AppendResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -361,7 +361,13 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** One batch of the memory copy; after the last one the view is folded again from the copied nodes. */
-  memoryImport(body: ImportBody, brainOn: boolean): ImportStatus | ImportFail {
+  async memoryImport(body: ImportBody | AppendBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true })> {
+    if ("mode" in body) {
+      if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
+      const r = await appendBatch(this.sql, this.ctx.storage, body, (text) => void this.memory.append("note", text))
+      if (r.ok && r.added > 0) this.compactor.pump()
+      return r
+    }
     if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
     const r = importBatch(this.sql, this.ctx.storage, body, brainOn)
     if (!("ok" in r) && body.done) {

@@ -2591,6 +2591,11 @@ jobs:
           # Preserve Chief lockfile repairs too: run 37724899486 selected an
           # older published revision and failed cargo build --locked.
           CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
+          # A commit other than the tip also needs a green Release compile:
+          # run 40070613185 fell back 32 commits to dee35e3f, whose app did not
+          # compile. No such commit in the window fails, listing what it skipped.
+          CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN: "1"
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
@@ -5070,6 +5075,7 @@ jobs:
       # such a commit. nightly-next therefore publishes its release metadata
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
+        id: publish_metadata
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
@@ -5109,6 +5115,7 @@ jobs:
             --prerelease true --make-latest false "${expect[@]}"
 
       - name: Upload nightly appcasts to R2
+        id: upload_appcasts
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -5156,6 +5163,7 @@ jobs:
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
 
       - name: Upload nightly-next appcasts to R2
+        id: upload_next_appcasts
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
@@ -5254,6 +5262,10 @@ jobs:
         if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           TAG_MOVE_OUTCOME: ${{ steps.move-channel-release-tag.outcome }}
+          ASSETS_OUTCOME: ${{ steps.publish_assets.outcome }}
+          METADATA_OUTCOME: ${{ steps.publish_metadata.outcome }}
+          APPCASTS_OUTCOME: ${{ steps.upload_appcasts.outcome }}
+          NEXT_APPCASTS_OUTCOME: ${{ steps.upload_next_appcasts.outcome }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
@@ -5264,6 +5276,33 @@ jobs:
               echo "### Channel release tag updated"
               echo ""
               echo "\`$CHANNEL_RELEASE_TAG\` now points to \`$HEAD_SHA\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TAG_MOVE_OUTCOME" != "failure" ]; then
+            # The tag move runs only after every publication step succeeded, so
+            # a skipped or cancelled move means the publication itself stopped
+            # (run 40076543798 said "are live" when no asset had uploaded).
+            # Name what each part did instead of claiming any of it is live.
+            appcasts="$APPCASTS_OUTCOME"
+            if [ -z "$appcasts" ] || [ "$appcasts" = "skipped" ]; then
+              appcasts="$NEXT_APPCASTS_OUTCOME"
+            fi
+            case "$appcasts" in
+              success) appcast_state="updated" ;;
+              skipped|"") appcast_state="not uploaded, still serving the previous build" ;;
+              *) appcast_state="$appcasts, may be partly updated" ;;
+            esac
+            parts="release assets: ${ASSETS_OUTCOME:-not run}; release metadata: ${METADATA_OUTCOME:-not run}; appcasts: $appcast_state; $CHANNEL_RELEASE_TAG tag: not moved"
+            if [ "$ASSETS_OUTCOME" != "success" ] && [ "${METADATA_OUTCOME:-skipped}" = "skipped" ] && [ "$appcast_state" = "not uploaded, still serving the previous build" ]; then
+              headline="Nothing is live for $HEAD_SHA"
+            else
+              headline="Publication of $HEAD_SHA did not complete"
+            fi
+            echo "tag_status=unpublished" >> "$GITHUB_OUTPUT"
+            echo "::warning::$headline ($parts). See the first failed step above."
+            {
+              echo "### Not published"
+              echo ""
+              echo "$headline ($parts)."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "tag_status=stale" >> "$GITHUB_OUTPUT"

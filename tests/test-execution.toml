@@ -12,7 +12,7 @@ version = 1
 
 [[test]]
 path = "tests/test_stress_cli_socket_api.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_cua_mcp_smoke.py"
@@ -28,7 +28,7 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cmux_cua_helper_identity.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_cua_drag_cursor_harness.py"
@@ -46,7 +46,7 @@ reason = "Requires an isolated tagged cmux app and helper, two prepared split wo
 
 [[test]]
 path = "tests/test_issue_7028_claude_shim_persistence.py"
-lane = "macos-cli-no-socket-post-fish"
+lane = "linux-guard"
 requirements = ["fish"]
 
 [[test]]
@@ -55,7 +55,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_2448_shell_claude_wrapper_dispatch.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_8093_ghostty_ssh_binary_path.py"
@@ -63,11 +63,11 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_issue_6714_zsh_shim_noclobber.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_9356_bash_shim_noclobber.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
@@ -101,19 +101,19 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_shell_git_branch_stale_cwd.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_git_config_remote_url_parsing.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_first_prompt_spawns.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_no_git_watch.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_cli_shim_private_dir.py"
@@ -121,7 +121,7 @@ lane = "macos-shell"
 
 [[test]]
 path = "tests/test_shell_pr_watch_private_state.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_9075_shell_socket_reports.py"
@@ -854,7 +854,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_shell_welcome_banner_startup.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_zdotdir_user_override.py"
@@ -1049,9 +1049,19 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_arch_layers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_guardrails.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_compile_trailer.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. The compile trailer rule runs only in the local pre-push hook; run python3 -I tests/test_cmux_next_compile_trailer.py yourself (about 6 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_codebase_health.py"
@@ -1061,6 +1071,11 @@ reason = "Lawrence 2026-10-23: no new CI tests; run python3 tests/test_cmux_next
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_perf_gate_summary.py"
+lane = "manual"
+reason = "Run the portable summary regression locally; no new CI tests."
 
 [[test]]
 path = "tests/test_app_store_rules.py"

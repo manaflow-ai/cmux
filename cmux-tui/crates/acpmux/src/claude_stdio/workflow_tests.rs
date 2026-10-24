@@ -33,7 +33,8 @@ fn launched(id: &str, transcript_dir: &str) -> Value {
     json!({"type": "user",
         "message": {"content": [{"type": "tool_result", "tool_use_id": id, "content": "Workflow launched in background. Task ID: wx2"}]},
         "tool_use_result": {"status": "async_launched", "taskId": "wx2", "taskType": "local_workflow",
-            "workflowName": "probe", "runId": "wf_4fe", "summary": "Two tiny agents", "transcriptDir": transcript_dir}})
+            "workflowName": "probe", "runId": "wf_4fe", "summary": "Two tiny agents", "transcriptDir": transcript_dir,
+            "scriptPath": "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"}})
 }
 
 /// A run's transcript dir whose journal says `started` agents started and `done` returned.
@@ -68,6 +69,7 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     assert_eq!(named.len(), 1, "{out:?}");
     assert_eq!(named[0]["name"], "probe");
     assert_eq!(named[0]["task"], "Two tiny agents");
+    assert_eq!(named[0]["runId"], "wf_4fe");
 
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "wx2", "tool_use_id": "toolu_w",
         "description": "Two tiny agents", "task_type": "local_workflow"});
@@ -93,6 +95,283 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     assert_eq!(ended.len(), 1, "{out:?}");
     assert_eq!(ended[0]["state"], "completed");
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A `task_progress` line whose snapshot (`workflow_progress`) holds `items`,
+/// trimmed from a Claude Code 2.1.309 run.
+fn snapshot(items: Value) -> Value {
+    json!({"type": "system", "subtype": "task_progress", "task_id": "wx2", "tool_use_id": "toolu_w",
+        "description": "Review: review:#1", "usage": {"total_tokens": 4000, "tool_uses": 3, "duration_ms": 5000},
+        "last_tool_name": "review:#1", "summary": "Review two PRs", "workflow_progress": items})
+}
+
+fn phase(index: u64, title: &str) -> Value {
+    json!({"type": "workflow_phase", "index": index, "title": title})
+}
+
+/// Each snapshot repeats the whole run; the update sends the phases once and
+/// then, of each agent, only what changed, with the counts the snapshot gives.
+#[tokio::test]
+async fn a_workflow_sends_its_phases_and_agents_then_only_what_changed() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    // A journal that disagrees: once a snapshot came, its counts are the run's.
+    let dir = journal(9, 9);
+    t.inbound(&launched("toolu_w", dir.to_str().unwrap())).await;
+    let running = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "progress",
+        "phaseIndex": 1, "phaseTitle": "Review", "agentId": "a01", "agentType": "workflow-subagent",
+        "model": "claude-opus-5-5", "tokens": 1200, "toolCalls": 2, "durationMs": 4000.4,
+        "queuedAt": 1000, "startedAt": 1100, "lastProgressAt": 5000, "attempt": 1,
+        "lastToolName": "Bash", "lastToolSummary": "gh pr view 1",
+        "promptPreview": "You are an independent   reviewer\nfor PR #1"});
+    let queued = json!({"type": "workflow_agent", "index": 2, "label": "review:#2", "state": "start",
+        "phaseIndex": 1, "phaseTitle": "Review", "queuedAt": 1000});
+    let out = updates(
+        &t.inbound(&snapshot(json!([phase(1, "Review"), phase(2, "Land"), running, queued]))).await,
+    );
+    let first = of_kind(&out, "subagent_progress");
+    assert_eq!(first.len(), 1, "{out:?}");
+    assert_eq!(
+        first[0]["phases"],
+        json!([{"index": 1, "title": "Review"}, {"index": 2, "title": "Land"}])
+    );
+    assert_eq!(first[0]["agents"], json!({"done": 0, "started": 1, "queued": 1}));
+    assert_eq!(
+        first[0]["workflowAgents"],
+        json!([
+            {"index": 1, "label": "review:#1", "state": "running", "phase": "Review", "phaseIndex": 1,
+             "agentId": "a01", "kind": "workflow-subagent", "model": "claude-opus-5-5", "tokens": 1200,
+             "toolUses": 2, "elapsedMs": 4000, "queuedAt": 1000, "startedAt": 1100, "lastProgressAt": 5000,
+             "attempt": 1, "action": "gh pr view 1", "prompt": "You are an independent reviewer for PR #1"},
+            {"index": 2, "label": "review:#2", "state": "queued", "phase": "Review", "phaseIndex": 1,
+             "queuedAt": 1000},
+        ])
+    );
+
+    // The first agent returns and the second starts: only those fields go out.
+    let returned = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "done",
+        "phaseIndex": 1, "phaseTitle": "Review", "agentId": "a01", "agentType": "workflow-subagent",
+        "model": "claude-opus-5-5", "tokens": 1500, "toolCalls": 2, "durationMs": 4000.4,
+        "queuedAt": 1000, "startedAt": 1100, "lastProgressAt": 5000, "attempt": 1,
+        "lastToolName": "Bash", "lastToolSummary": "gh pr view 1",
+        "promptPreview": "You are an independent   reviewer\nfor PR #1", "resultPreview": "Verdict: SHIP"});
+    let started = json!({"type": "workflow_agent", "index": 2, "label": "review:#2", "state": "progress",
+        "phaseIndex": 1, "phaseTitle": "Review", "queuedAt": 1000, "startedAt": 5100});
+    let items = json!([phase(1, "Review"), phase(2, "Land"), returned, started]);
+    let out = updates(&t.inbound(&snapshot(items.clone())).await);
+    let second = of_kind(&out, "subagent_progress");
+    assert!(second[0].get("phases").is_none(), "unchanged phases went out again: {out:?}");
+    assert_eq!(second[0]["agents"], json!({"done": 1, "started": 2}));
+    assert_eq!(
+        second[0]["workflowAgents"],
+        json!([
+            {"index": 1, "state": "completed", "tokens": 1500, "result": "Verdict: SHIP"},
+            {"index": 2, "state": "running", "startedAt": 5100},
+        ])
+    );
+
+    // The same run again changes nothing.
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let third = of_kind(&out, "subagent_progress");
+    assert!(third[0].get("workflowAgents").is_none(), "{out:?}");
+    assert_eq!(third[0]["agents"], json!({"done": 1, "started": 2}));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// An agent that failed, one the person skipped and one served from a resumed
+/// run's journal each say so.
+#[tokio::test]
+async fn a_workflow_agent_says_how_it_ended() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    let agent = |index: u64, extra: Value| {
+        let mut item = json!({"type": "workflow_agent", "index": index, "label": format!("fix:{index}"),
+            "startedAt": 10});
+        for (key, value) in extra.as_object().unwrap() {
+            item[key] = value.clone();
+        }
+        item
+    };
+    let items = json!([
+        agent(1, json!({"state": "error", "error": "503 no non-exhausted claude accounts"})),
+        agent(2, json!({"state": "error", "skipped": true})),
+        agent(3, json!({"state": "done", "cached": true})),
+        agent(4, json!({"state": "progress", "attempt": 2, "lastAttemptReason": "stalled"})),
+    ]);
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let update = of_kind(&out, "subagent_progress");
+    let rows = update[0]["workflowAgents"].as_array().unwrap();
+    let field = |i: usize, key: &str| rows[i][key].clone();
+    assert_eq!(field(0, "state"), "failed");
+    assert_eq!(field(0, "error"), "503 no non-exhausted claude accounts");
+    assert_eq!(field(1, "state"), "skipped");
+    assert_eq!((field(2, "state"), field(2, "cached")), (json!("completed"), json!(true)));
+    assert_eq!((field(3, "attempt"), field(3, "retryReason")), (json!(2), json!("stalled")));
+    assert_eq!(update[0]["agents"], json!({"done": 1, "started": 4, "failed": 2}));
+}
+
+/// Claude sends a workflow's usage every 16 ms while its agents stream: a line
+/// with no snapshot sends nothing within a second of the last update, and one
+/// with a snapshot always sends.
+#[tokio::test]
+async fn a_workflow_sends_usage_alone_at_most_once_a_second() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    let usage = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2", "tool_use_id": "toolu_w",
+        "description": "Review: review:#1", "usage": {"total_tokens": 4100, "tool_uses": 3, "duration_ms": 5016}});
+    assert_eq!(of_kind(&updates(&t.inbound(&usage).await), "subagent_progress").len(), 1);
+    assert!(of_kind(&updates(&t.inbound(&usage).await), "subagent_progress").is_empty());
+    let items = json!([phase(1, "Review")]);
+    assert_eq!(of_kind(&updates(&t.inbound(&snapshot(items)).await), "subagent_progress").len(), 1);
+}
+
+/// An agent that failed before it started did not start, as the journal
+/// counts it; a state this acpmux does not know goes out as Claude names it.
+#[tokio::test]
+async fn a_workflow_counts_only_agents_that_started() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    let items = json!([
+        {"type": "workflow_agent", "index": 1, "label": "fix:1", "state": "error", "blocked": true, "queuedAt": 5},
+        {"type": "workflow_agent", "index": 2, "label": "fix:2", "state": "cancelled", "startedAt": 9},
+    ]);
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let update = of_kind(&out, "subagent_progress");
+    assert_eq!(update[0]["agents"], json!({"done": 0, "started": 1, "failed": 1}));
+    let rows = update[0]["workflowAgents"].as_array().unwrap();
+    assert_eq!(
+        (rows[0]["state"].clone(), rows[1]["state"].clone()),
+        (json!("blocked"), json!("cancelled"))
+    );
+}
+
+/// A workflow's end sends its final usage and every agent whole before the
+/// end itself, so a reader of recent history alone still has each agent.
+#[tokio::test]
+async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    let agent = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "done",
+        "phaseTitle": "Review", "startedAt": 10, "resultPreview": "SHIP"});
+    t.inbound(&snapshot(json!([phase(1, "Review"), agent]))).await;
+    let done = json!({"type": "system", "subtype": "task_notification", "task_id": "wx2", "tool_use_id": "toolu_w",
+        "status": "completed", "usage": {"total_tokens": 52000, "tool_uses": 9, "duration_ms": 61000}});
+    let out = updates(&t.inbound(&done).await);
+    let kinds: Vec<&str> = out.iter().filter_map(|(_, u)| u["sessionUpdate"].as_str()).collect();
+    assert_eq!(kinds, vec!["subagent_progress", "subagent_state_update"], "{out:?}");
+    let last = &out[0].1;
+    assert_eq!((last["tokens"].clone(), last["toolUses"].clone()), (json!(52000), json!(9)));
+    assert_eq!(last["workflowAgentsFull"], json!(true));
+    assert_eq!(last["phases"], json!([{"index": 1, "title": "Review"}]));
+    assert_eq!(
+        last["workflowAgents"],
+        json!([{"index": 1, "label": "review:#1", "state": "completed", "phase": "Review",
+            "startedAt": 10, "result": "SHIP"}])
+    );
+}
+
+/// Claude Code sends no notification after it pauses a workflow (its agents
+/// stop; a resume is a new task with the same run id): the pause ends the
+/// subagent, saying so, and nothing of the run is kept.
+#[tokio::test]
+async fn a_paused_workflow_ends_as_paused() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    t.inbound(&launched("toolu_w", "/nonexistent")).await;
+    let paused = json!({"type": "system", "subtype": "task_updated", "task_id": "wx2",
+        "patch": {"status": "paused"}});
+    let out = updates(&t.inbound(&paused).await);
+    let ended = of_kind(&out, "subagent_state_update");
+    assert_eq!(ended.len(), 1, "{out:?}");
+    assert_eq!(
+        (ended[0]["state"].clone(), ended[0]["reason"].clone()),
+        (json!("cancelled"), json!("paused"))
+    );
+    // The run is gone: a late progress line and a late notification send nothing.
+    assert!(updates(&t.inbound(&snapshot(json!([phase(1, "Review")]))).await).is_empty());
+    let late = json!({"type": "system", "subtype": "task_notification", "task_id": "wx2", "status": "stopped"});
+    assert!(updates(&t.inbound(&late).await).is_empty());
+
+    // A notification that names no status still ends its task, as completed.
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    let bare = json!({"type": "system", "subtype": "task_notification", "tool_use_id": "toolu_w"});
+    let out = updates(&t.inbound(&bare).await);
+    assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
+
+    let mut tree = SubagentTree::default();
+    let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
+        "subagentSessionId": "acp-1/toolu_w", "name": "Workflow"}});
+    tree.annotate(&mut spawn);
+    let mut end = json!({"sessionId": "acp-1", "update": ended[0].clone()});
+    tree.annotate(&mut end);
+    assert_eq!(end["_meta"]["acpmux"]["subagents"][0]["reason"], json!("paused"));
+}
+
+/// A plain background agent ends only with its notification, which carries its result: a
+/// task_updated saying it completed does not end it first.
+#[tokio::test]
+async fn a_plain_background_agent_ends_only_with_its_notification() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let call = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a", "name": "Agent",
+        "input": {"description": "Watch the build", "prompt": "Watch it", "run_in_background": true}}]}});
+    t.inbound(&call).await;
+    t.inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "a1", "tool_use_id": "toolu_a",
+        "is_backgrounded": true}))
+        .await;
+    for status in ["completed", "failed", "killed", "paused"] {
+        let updated = json!({"type": "system", "subtype": "task_updated", "task_id": "a1", "patch": {"status": status}});
+        let out = updates(&t.inbound(&updated).await);
+        assert!(of_kind(&out, "subagent_state_update").is_empty(), "{status}: {out:?}");
+    }
+    let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a1", "status": "completed"});
+    let out = updates(&t.inbound(&done).await);
+    assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
+}
+
+/// A secret behind a long blank run is masked whole: the preview folds the blanks before it cuts
+/// and masks, so no part of the token reaches the preview.
+#[tokio::test]
+async fn a_preview_never_shows_part_of_a_secret() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    // Built here, not written out, so the repository holds no token-shaped string.
+    let token = format!("gh{}_{}", "p", "Q7ZJ4XK2MD5P3WRT8N6C1VBH9YLFGSA0TEUI");
+    let prompt = format!("{}{token} and more", " ".repeat(5000));
+    let items = json!([{"type": "workflow_agent", "index": 1, "label": "a", "state": "progress",
+        "startedAt": 1, "promptPreview": prompt}]);
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let shown = of_kind(&out, "subagent_progress")[0]["workflowAgents"][0]["prompt"].clone();
+    let shown = shown.as_str().unwrap();
+    assert!(!shown.contains("Q7ZJ4XK2"), "{shown}");
+    assert!(shown.starts_with("[GitHub Personal Access Token]"), "{shown}");
+
+    // Past what a preview reads, a word is left out whole, never shown in part.
+    let flood = format!("{}{token}", " ".repeat(1_000_000));
+    let items = json!([{"type": "workflow_agent", "index": 2, "label": "b", "state": "progress",
+        "startedAt": 1, "promptPreview": flood}]);
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let agent = &of_kind(&out, "subagent_progress")[0]["workflowAgents"][0];
+    assert!(agent.get("prompt").is_none_or(|p| !p.to_string().contains("Q7ZJ")), "{agent}");
+}
+
+/// The hub's subagent model carries the run's id, phases and agent changes.
+#[test]
+fn workflow_agents_reach_clients_in_the_subagent_model() {
+    let mut tree = SubagentTree::default();
+    let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
+        "subagentSessionId": "acp-1/toolu_w", "name": "Workflow", "task": "Workflow"}});
+    tree.annotate(&mut spawn);
+    let mut progress = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_progress",
+        "subagentSessionId": "acp-1/toolu_w", "runId": "wf_4fe", "phases": [{"index": 1, "title": "Review"}],
+        "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}});
+    tree.annotate(&mut progress);
+    assert_eq!(
+        progress["_meta"]["acpmux"]["subagents"],
+        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "runId": "wf_4fe",
+            "phases": [{"index": 1, "title": "Review"}],
+            "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
+    );
 }
 
 #[tokio::test]

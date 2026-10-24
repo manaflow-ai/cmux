@@ -487,6 +487,16 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Server: Restart… opens the host's confirm for one server; nothing restarts without it. */
+  async restartServer(kind: string, host: string | null): Promise<void> {
+    await this.request("cmux.settings.server.restart", { kind, host });
+  }
+
+  /** Settings > Server: Pair opens the Server panel's pairing card. */
+  async pairServer(): Promise<void> {
+    await this.request("cmux.settings.server.pair", {});
+  }
+
   /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */
   async allowPhonesAgain(): Promise<void> {
     await this.request("cmux.settings.mobile.allow_again", {});

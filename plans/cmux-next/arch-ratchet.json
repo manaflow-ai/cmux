@@ -1,9 +1,9 @@
 {
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
-  "method_version": 3,
-  "measured_sha": "25f625c2105f9a6dc9b448bbc938969684e01a15",
-  "measured_date": "2026-10-23",
+  "method_version": 5,
+  "measured_sha": "98b020961a613c685cf7016ff7b295838102b89a",
+  "measured_date": "2026-10-24",
   "rows": {
     "layer_hard": {
       "title": "hard layer edges (core/service/domain -> ui/app)",
@@ -51,19 +51,36 @@
     }
   },
   "totals": {
-    "layer_hard": 31,
+    "layer_hard": 33,
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 177,
-    "global_mutable_statics": 281,
-    "assume_isolated_outside_adapters": 189,
-    "assume_isolated_total": 238,
-    "app_broadcast_names": 12,
-    "observer_sites": 188,
-    "app_lines": 142413
+    "stateful_singletons": 204,
+    "global_mutable_statics": 478,
+    "assume_isolated_outside_adapters": 152,
+    "assume_isolated_total": 202,
+    "app_broadcast_names": 13,
+    "observer_sites": 336,
+    "app_lines": 143341
   },
   "packages": {
+    "CmuxAuthRuntime": {
+      "stateful_singletons": 1
+    },
+    "CmuxHomeRender": {
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 2
+    },
+    "CmuxMobileRPC": {
+      "layer_hard": 1
+    },
+    "CmuxMobileSupport": {
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 4
+    },
     "CmuxNextActions": {
       "global_mutable_statics": 2,
       "assume_isolated_total": 1,
@@ -96,7 +113,7 @@
       "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 4,
       "app_broadcast_names": 1,
-      "observer_sites": 6
+      "observer_sites": 7
     },
     "CmuxNextAgentUpdates": {
       "layer_hard": 1,
@@ -104,11 +121,11 @@
     },
     "CmuxNextApp": {
       "stateful_singletons": 33,
-      "global_mutable_statics": 76,
-      "assume_isolated_outside_adapters": 49,
-      "assume_isolated_total": 60,
-      "observer_sites": 59,
-      "app_lines": 142413
+      "global_mutable_statics": 74,
+      "assume_isolated_outside_adapters": 22,
+      "assume_isolated_total": 33,
+      "observer_sites": 104,
+      "app_lines": 143341
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -118,17 +135,17 @@
       "stateful_singletons": 1
     },
     "CmuxNextBridge": {
-      "layer_hard": 4,
+      "layer_hard": 5,
       "stateful_singletons": 5,
       "global_mutable_statics": 1
     },
     "CmuxNextBrowser": {
-      "stateful_singletons": 19,
+      "stateful_singletons": 15,
       "global_mutable_statics": 21,
-      "assume_isolated_outside_adapters": 24,
-      "assume_isolated_total": 29,
-      "app_broadcast_names": 2,
-      "observer_sites": 13
+      "assume_isolated_outside_adapters": 19,
+      "assume_isolated_total": 22,
+      "app_broadcast_names": 1,
+      "observer_sites": 15
     },
     "CmuxNextBrowserAutomation": {
       "layer_hard": 1,
@@ -136,6 +153,10 @@
       "assume_isolated_outside_adapters": 1,
       "assume_isolated_total": 1,
       "observer_sites": 2
+    },
+    "CmuxNextBrowserCore": {
+      "stateful_singletons": 4,
+      "app_broadcast_names": 1
     },
     "CmuxNextBrowserHistory": {
       "layer_hard": 1,
@@ -163,9 +184,8 @@
     "CmuxNextCompat": {
       "stateful_singletons": 1,
       "global_mutable_statics": 3,
-      "assume_isolated_outside_adapters": 3,
-      "assume_isolated_total": 3,
-      "observer_sites": 2
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 6
     },
     "CmuxNextComputerUse": {
       "layer_hard": 1,
@@ -178,7 +198,7 @@
       "assume_isolated_total": 1
     },
     "CmuxNextCookieImport": {
-      "observer_sites": 2
+      "observer_sites": 3
     },
     "CmuxNextCrashReporting": {
       "global_mutable_statics": 11
@@ -197,15 +217,13 @@
     "CmuxNextDesign": {
       "stateful_singletons": 26,
       "global_mutable_statics": 66,
-      "assume_isolated_outside_adapters": 32,
-      "assume_isolated_total": 40,
-      "app_broadcast_names": 5,
-      "observer_sites": 42
+      "assume_isolated_outside_adapters": 26,
+      "assume_isolated_total": 33,
+      "app_broadcast_names": 4,
+      "observer_sites": 78
     },
     "CmuxNextDesignTokens": {
       "stateful_singletons": 2,
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2,
       "observer_sites": 1
     },
     "CmuxNextDevices": {
@@ -228,7 +246,7 @@
       "assume_isolated_total": 2
     },
     "CmuxNextFloating": {
-      "observer_sites": 2
+      "observer_sites": 3
     },
     "CmuxNextFocusUI": {
       "stateful_singletons": 2,
@@ -237,9 +255,7 @@
     "CmuxNextHome": {
       "stateful_singletons": 1,
       "global_mutable_statics": 2,
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2,
-      "observer_sites": 2
+      "observer_sites": 4
     },
     "CmuxNextHomeEngine": {
       "global_mutable_statics": 1
@@ -252,7 +268,6 @@
     },
     "CmuxNextImportCards": {
       "stateful_singletons": 1,
-      "global_mutable_statics": 1,
       "observer_sites": 1
     },
     "CmuxNextKeepAwake": {
@@ -263,17 +278,17 @@
       "global_mutable_statics": 3,
       "assume_isolated_outside_adapters": 5,
       "assume_isolated_total": 5,
-      "observer_sites": 1
+      "observer_sites": 2
     },
     "CmuxNextMacScreen": {
       "assume_isolated_outside_adapters": 4,
       "assume_isolated_total": 4,
-      "observer_sites": 4
+      "observer_sites": 6
     },
     "CmuxNextMobileHost": {
       "layer_hard": 4,
       "layer_soft": 1,
-      "observer_sites": 1
+      "observer_sites": 2
     },
     "CmuxNextNowPlaying": {
       "layer_hard": 3,
@@ -290,8 +305,8 @@
     "CmuxNextPalette": {
       "stateful_singletons": 1,
       "global_mutable_statics": 2,
-      "assume_isolated_outside_adapters": 3,
-      "assume_isolated_total": 4,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 2,
       "observer_sites": 1
     },
     "CmuxNextPhone": {
@@ -302,7 +317,7 @@
       "layer_soft": 1
     },
     "CmuxNextPopups": {
-      "observer_sites": 1
+      "observer_sites": 2
     },
     "CmuxNextProcessEnvironment": {
       "stateful_singletons": 1
@@ -311,9 +326,7 @@
       "stateful_singletons": 1
     },
     "CmuxNextRemoteBrowser": {
-      "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1,
-      "observer_sites": 2
+      "observer_sites": 8
     },
     "CmuxNextRemoteLocalhostService": {
       "layer_hard": 1,
@@ -321,7 +334,7 @@
     },
     "CmuxNextRemoteView": {
       "assume_isolated_total": 1,
-      "observer_sites": 1
+      "observer_sites": 2
     },
     "CmuxNextRemoteViewSessions": {
       "global_mutable_statics": 1,
@@ -348,7 +361,7 @@
       "assume_isolated_outside_adapters": 20,
       "assume_isolated_total": 24,
       "app_broadcast_names": 3,
-      "observer_sites": 11
+      "observer_sites": 15
     },
     "CmuxNextSignposts": {
       "stateful_singletons": 9,
@@ -360,9 +373,9 @@
     "CmuxNextTabs": {
       "stateful_singletons": 5,
       "global_mutable_statics": 2,
-      "assume_isolated_outside_adapters": 5,
-      "assume_isolated_total": 12,
-      "observer_sites": 3
+      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_total": 10,
+      "observer_sites": 4
     },
     "CmuxNextTasks": {
       "assume_isolated_outside_adapters": 2,
@@ -374,7 +387,7 @@
       "assume_isolated_outside_adapters": 20,
       "assume_isolated_total": 20,
       "app_broadcast_names": 1,
-      "observer_sites": 8
+      "observer_sites": 11
     },
     "CmuxNextUpdater": {
       "observer_sites": 2
@@ -382,7 +395,7 @@
     "CmuxNextWakeups": {
       "stateful_singletons": 6,
       "global_mutable_statics": 1,
-      "assume_isolated_total": 2,
+      "assume_isolated_total": 3,
       "observer_sites": 1
     },
     "CmuxNextWebUpdates": {
@@ -397,13 +410,48 @@
     "CmuxNextWorkspaceRepair": {
       "assume_isolated_outside_adapters": 1,
       "assume_isolated_total": 1
+    },
+    "CmuxScreenKitUI": {
+      "stateful_singletons": 1
+    },
+    "CmuxUpdater": {
+      "global_mutable_statics": 1,
+      "observer_sites": 1
+    },
+    "CmuxVNCWebRTC": {
+      "stateful_singletons": 1
+    },
+    "MessagesLabHome": {
+      "stateful_singletons": 21,
+      "global_mutable_statics": 180,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "app_broadcast_names": 1,
+      "observer_sites": 29
+    },
+    "MessagesLabSidebar": {
+      "global_mutable_statics": 13,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "app_broadcast_names": 1,
+      "observer_sites": 6
+    },
+    "StackAuth": {
+      "stateful_singletons": 2,
+      "global_mutable_statics": 2
+    },
+    "cmux-vnc-host": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2
     }
   },
   "layer_edges": {
     "hard": [
+      "CmuxMobileRPC (domain) -> CmuxMobileSupport (ui)",
       "CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)",
       "CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)",
       "CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextBridge (domain) -> CmuxAgentBrands (ui)",
       "CmuxNextBridge (domain) -> CmuxNextIcons (ui)",
       "CmuxNextBridge (domain) -> CmuxNextLayout (ui)",
       "CmuxNextBridge (domain) -> CmuxNextSidebar (ui)",
@@ -494,6 +542,32 @@
         "697207923231265a321d075bd66591e377ba2b7c"
       ],
       "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "layer_hard",
+      "allow": 2,
+      "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override",
+      "applied_sha": "98b020961a613c685cf7016ff7b295838102b89a"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8."
     }
+  ],
+  "observer_wrappers": [
+    "AgentSubagentPanes",
+    "HomeProjection",
+    "HomeVideo",
+    "LowPowerMode",
+    "MainActorObservation",
+    "PageHostPool",
+    "VideoPlayback",
+    "start",
+    "toggle",
+    "toggleVideo",
+    "watchUser"
   ]
 }

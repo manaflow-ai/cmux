@@ -145,7 +145,7 @@ final class WindowShortcutHints {
         refresh()
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
     func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
         guard let monitor, let window = controller?.window else { return false }

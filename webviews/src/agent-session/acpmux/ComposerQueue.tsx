@@ -178,6 +178,9 @@ export function ComposerQueue({
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
+  // A successful Send now is reflected by acpmux's next snapshot, but the action must disappear
+  // immediately after the queue_edit reply so a second click cannot resend it.
+  const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
   const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
   // The images the open edit drops from its prompt.
@@ -213,6 +216,15 @@ export function ComposerQueue({
   // A press in the list, until its release: the focus it gives a row does not scroll the list.
   const pressing = useRef(false);
   useEffect(() => {
+    setSentNow((current) => {
+      const next = new Set(
+        [...current].filter((id) => {
+          const entry = queue.find((candidate) => candidate.id === id);
+          return entry !== undefined && !entry.next;
+        }),
+      );
+      return next.size === current.size ? current : next;
+    });
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
@@ -365,7 +377,17 @@ export function ComposerQueue({
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
   // 2026-10-14).
   const sendNow =
-    onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
+    onChange &&
+    ((entry: QueuedEntry) => {
+      if (entry.next || sentNow.has(entry.id)) return;
+      void onChange(entry.id, { op: "send_now" })
+        .then((ok) => {
+          if (!ok) return;
+          setSentNow((current) => new Set(current).add(entry.id));
+        })
+        .catch(() => undefined);
+    });
+  const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !sentNow.has(entry.id));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -457,13 +479,13 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow
+    ...(canSendNow(entry)
       ? [
           {
             id: "steer",
             ariaLabel: t("composer.queueSteer"),
             label: t("composer.queueSteer"),
-            onSelect: () => sendNow(entry),
+            onSelect: () => sendNow?.(entry),
           },
         ]
       : []),
@@ -497,13 +519,13 @@ export function ComposerQueue({
     const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions">
-        {sendNow && (
+        {canSendNow(entry) && (
           <button
             type="button"
             className="acpmux-queued-action acpmux-queued-steer"
             data-action="steer"
             aria-label={t("composer.queueSteer")}
-            onClick={() => sendNow(entry)}
+            onClick={() => sendNow?.(entry)}
           >
             <Icon name="composer.steer" size={14} />
             <span>{t("composer.queueSteer")}</span>

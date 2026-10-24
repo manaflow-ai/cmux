@@ -1,7 +1,11 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxNextTerminal
+import CmuxNextSignposts
+import CmuxNextFocusUI
 import os
 
 /// Chromium's application protocols (base/message_loop/message_pump_apple.h,
@@ -66,15 +70,24 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(isHandlingSendEvent)
     func isHandlingSendEvent() -> Bool { handlingSendEvent }
 
-    /// The event `sendEvent` is dispatching now, or nil between dispatches. `currentEvent` alone
-    /// keeps the last event after its dispatch ended, so a socket action run later would read a
-    /// stale key press (`ActionRegistry.dispatchingInputEvent`, the action signposts' input age).
-    var dispatchingEvent: NSEvent? { handlingSendEvent ? currentEvent : nil }
+    /// Set once by `AppServices`: every event `sendEvent` gets is dispatched inside it, so the
+    /// router, the menu gate and the action signposts read the event given to `sendEvent`, not
+    /// `currentEvent` (the last dequeued one, kept after its dispatch).
+    var inputDispatch: InputDispatchContext?
 
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
+        guard let inputDispatch else { return route(event) }
+        inputDispatch.dispatching(event) { route(event) }
+    }
+
+    private func route(_ event: NSEvent) {
+        if event.type == .keyDown {
+            let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
+            KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+        }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
@@ -105,6 +118,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
+        if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else {

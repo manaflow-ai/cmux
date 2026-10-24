@@ -118,6 +118,30 @@ import Testing
         #expect(readyBox.choice == nil)
     }
 
+    /// Lawrence 2026-10-23 ("dyt we can just remove this"): a nightly's idle install held for
+    /// 9 busy agents and 5 commands showed a "Waiting to Relaunch" card. The hold now shows as the
+    /// staged update, so the person's click on it is an install they asked for: it relaunches at
+    /// once instead of failing as "install clicked with no staged update".
+    @Test func aClickOnAnIdleInstallHeldForBusyWorkRelaunchesNow() {
+        let harness = Harness()
+        let host = HeldBlockersHost()
+        harness.controller.driver.actionDelegate = host
+        let installs = CallCounterBox()
+        harness.controller.driver.relaunchIsAutomatic = true
+        #expect(harness.controller.driver.handleShouldPostponeRelaunch(item: item, installHandler: { installs.count += 1 }))
+        #expect(harness.controller.driver.relaunchGate.isWaiting)
+        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17",
+                "the held update has no version, so the rail hides it and nothing can relaunch it")
+
+        harness.controller.installStagedUpdate()
+
+        #expect(installs.count == 1, "the click did not relaunch the held install")
+        #expect(!harness.controller.driver.relaunchGate.isWaiting)
+        if case .error = harness.model.state {
+            Issue.record("the click on a held install became an error: \(harness.model.state)")
+        }
+    }
+
     @Test func aClickDuringTheDownloadInstallsAsSoonAsItIsReady() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
@@ -287,4 +311,19 @@ import Testing
         find(harness, into: newer)
         #expect(newer.choice == .install)
     }
+}
+
+/// Host that reports busy agents and running commands, as the nightly did when the card showed.
+@MainActor
+private final class HeldBlockersHost: UpdateActionDelegate {
+    func updaterRequestsRetryCheckForUpdates() {}
+    func updaterPrepareAutomaticInstall() -> Bool { true }
+    func updaterWillRelaunchApplication() {}
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+        UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 5)
+    }
+}
+
+private final class CallCounterBox: @unchecked Sendable {
+    var count = 0
 }

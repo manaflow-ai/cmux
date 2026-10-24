@@ -1609,15 +1609,31 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
-      - name: Validate bash watcher retirement and shell PR refresh
+      - name: Validate portable shell and no-socket regressions
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
-          if ! command -v zsh >/dev/null 2>&1; then
+          if ! command -v zsh >/dev/null 2>&1 || ! command -v fish >/dev/null 2>&1; then
             sudo apt-get -o DPkg::Lock::Timeout=300 update
-            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh fish
           fi
+          # The shim tests create private homes; group-writable fixture
+          # directories are intentionally rejected by the integrations.
+          umask 022
           python3 tests/test_issue_15067_bash_watcher_churn.py
           python3 tests/test_issue_1138_sidebar_pr_polling.py
+          # These use fake sockets/helpers and need no app or compile artifact.
+          python3 tests/test_stress_cli_socket_api.py
+          python3 tests/test_cmux_cua_helper_identity.py
+          python3 tests/test_issue_7028_claude_shim_persistence.py
+          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_issue_9356_bash_shim_noclobber.py
+          python3 tests/test_shell_git_branch_stale_cwd.py
+          python3 tests/test_shell_git_config_remote_url_parsing.py
+          python3 tests/test_shell_first_prompt_spawns.py
+          python3 tests/test_shell_no_git_watch.py
+          python3 tests/test_shell_pr_watch_private_state.py
+          python3 tests/test_shell_welcome_banner_startup.py
 
       - name: Validate shell surface-scoped environment keys
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}

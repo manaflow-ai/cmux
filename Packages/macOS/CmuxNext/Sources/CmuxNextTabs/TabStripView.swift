@@ -81,6 +81,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
+    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
+    var modelChangedWhileHidden = false
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -343,7 +345,8 @@ public final class TabStripView: NSView {
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
     /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
     /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
-    /// the window's state; its model observation never stopped, so its cells are current.
+    /// the window's state and applies, without motion, the model changes that came while hidden
+    /// (``syncFromModel()`` lays nothing out out of sight).
     func syncShown(_ shown: Bool? = nil) {
         let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
         guard shown != isShownInWindow else { return }
@@ -355,6 +358,11 @@ public final class TabStripView: NSView {
         guard shown else {
             if window != nil { endPointerState() }
             return
+        }
+        // What changed while out of sight lands at once in its final place: nobody saw it move.
+        if modelChangedWhileHidden {
+            modelChangedWhileHidden = false
+            sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
         applyMultiSelection()

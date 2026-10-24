@@ -34,7 +34,7 @@ extension AppControl {
         ])
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             // Starts this Mac's cmux link the way a connect does and reports
             // the ensure and the apps-link-changed answer (cx-rtipa S3).

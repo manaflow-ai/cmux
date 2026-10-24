@@ -76,7 +76,7 @@ def copy_crash_reports(since):
 
 def main():
     started = time.time()
-    bench.launch(settle=2)
+    bench.launch()
     rows, failure, opened = [], None, 0
     per_workspace = max(1, opts.tabs // max(1, opts.workspaces))
     while opened < opts.tabs and failure is None:

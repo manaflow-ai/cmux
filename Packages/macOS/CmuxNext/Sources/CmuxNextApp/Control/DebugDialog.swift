@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.dialog`: every open cmux dialog for automation (R96), through the
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,

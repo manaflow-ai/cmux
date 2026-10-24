@@ -8,6 +8,13 @@ publish.workspace = true
 description = "cmux browser host: engine-neutral agent browser runtime, driver protocol and CDP driver"
 build = "build.rs"
 
+# A Linux release of the host alone (cmux-browser-host-v<version>-r<revision>,
+# scripts/cmux-next/browser-host-release.py): the binary keeps the one cmux-next
+# version that the macOS app's bundled copy must print. Raise it for the next
+# host release; drop it when the workspace version moves.
+[package.metadata.cmux-release]
+revision = 1
+
 [lints]
 workspace = true
 

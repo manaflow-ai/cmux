@@ -21,6 +21,9 @@ public final class ControlRouter: Sendable {
         /// (``ControlMethod/Deadline/terminalStart``).
         public var terminalStartDeadline: Duration
         public var queueLimits: MainActorWorkQueue.Limits
+        /// Most ops one `action.batch` transaction takes (ControlRouter+ActionBatch): the batch
+        /// applies in one main-actor work item, so its length bounds that item.
+        public var batchOpLimit: Int
         /// Whether `debug.*` methods may be registered: only in DEBUG builds
         /// (``ControlRouter/debugMethodsAllowed``). A release router drops
         /// every `debug.*` registration, so no release build serves one.
@@ -28,17 +31,19 @@ public final class ControlRouter: Sendable {
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
                     queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits(),
+                    batchOpLimit: Int = ControlRouter.batchOpLimit,
                     allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed) {
             self.requestDeadline = requestDeadline
             self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
+            self.batchOpLimit = batchOpLimit
             self.allowsDebugMethods = allowsDebugMethods
         }
     }
 
     /// True in DEBUG builds only: release builds serve no `debug.*` method.
     public static var debugMethodsAllowed: Bool {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         true
         #else
         false
@@ -53,6 +58,12 @@ public final class ControlRouter: Sendable {
     /// plus 1 s for the work queue and the compat layer's tree diff, so the
     /// daemon command answers or fails before the request does.
     public static let terminalStartDeadline: Duration = TerminalStartDeadline.request
+
+    /// Default ``Configuration/batchOpLimit``: one `action.batch` transaction applies in one
+    /// main-actor work item, which must fit the automation budget of the main-thread scheduler
+    /// (plans/cmux-next/main-thread-budget.md). Set from the per-op apply cost measured in STRESS
+    /// on the slowest fleet host (scripts/cmux-next/script-storm-bench.py, `batch_apply_us_per_op`).
+    public static let batchOpLimit = 64
 
     /// Wire protocol version reported by `system.ping` and `system.identify`.
     public static let protocolVersion = 1
@@ -241,7 +252,9 @@ public final class ControlRouter: Sendable {
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
             return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
-        var snapshot = snapshots.current
+        // The snapshot as of now: built first when a work-queue frame changed main-actor state since the last
+        // publish (a lazy publish: frames with no reader build nothing).
+        var snapshot = await snapshots.fresh()
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)

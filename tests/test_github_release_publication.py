@@ -327,6 +327,8 @@ class TransportTests(unittest.TestCase):
         self.stored = {}
         self.drop_response = False
         self.status = 201
+        # Queued (code, headers, body) answers for uploads, before the normal 201.
+        self.responses = []
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -344,6 +346,16 @@ class TransportTests(unittest.TestCase):
                 name = parse_qs(urlsplit(self.path).query)["name"][0]
                 data = self.rfile.read(int(self.headers["Content-Length"]))
                 owner.uploads.append((name, data, dict(self.headers)))
+                if owner.responses:
+                    code, headers, body = owner.responses.pop(0)
+                    encoded = json.dumps(body).encode()
+                    self.send_response(code)
+                    for header, value in headers.items():
+                        self.send_header(header, value)
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                    return
                 if owner.status != 201:
                     self.answer(owner.status, {"message": "failure"})
                     return
@@ -396,6 +408,73 @@ class TransportTests(unittest.TestCase):
             publisher.publish(self.client, 42, [[self.file()], [], [self.file("appcast.xml")]])
         self.assertEqual(raised.exception.status, 401)
         self.assertEqual(len(self.uploads), 1)
+
+    def rate_limited_publish(self, *responses):
+        """Publish one file after the queued answers; returns the waits slept."""
+        self.responses = list(responses)
+        publisher._rate_limit_deadline = None
+        self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+        waits = []
+        with patch.object(publisher, "_sleep", side_effect=waits.append):
+            publisher.publish(self.client, 42, [[self.file()], [], []])
+        return waits
+
+    def test_rate_limit_403_with_no_remaining_waits_until_the_reset(self):
+        reset = int(publisher.time.time()) + 120
+        waits = self.rate_limited_publish(
+            (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset), "x-ratelimit-limit": "5000"},
+             {"message": "API rate limit exceeded for installation."}))
+        self.assertEqual(len(self.uploads), 2)
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 100)
+        self.assertLessEqual(waits[0], 125)
+
+    def test_rate_limit_403_with_retry_after_waits_that_long(self):
+        waits = self.rate_limited_publish((403, {"retry-after": "30"}, {"message": "You have exceeded a secondary rate limit."}))
+        self.assertEqual(waits, [30.0])
+        self.assertEqual(len(self.uploads), 2)
+
+    def test_rate_limit_403_named_only_in_the_body_is_retried(self):
+        waits = self.rate_limited_publish((403, {}, {"message": "API rate limit exceeded for installation ID 1."}))
+        self.assertEqual(waits, [60.0])
+        self.assertEqual(len(self.uploads), 2)
+
+    def test_rate_limit_wait_is_capped_by_the_budget(self):
+        reset = int(publisher.time.time()) + 3600
+        waits = self.rate_limited_publish(
+            (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)}, {"message": "API rate limit exceeded"}))
+        self.assertEqual(len(waits), 1)
+        self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
+
+    def test_rate_limit_that_outlasts_the_budget_fails(self):
+        publisher._rate_limit_deadline = publisher.time.monotonic() - 1
+        self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+        self.responses = [(403, {"x-ratelimit-remaining": "0"}, {"message": "API rate limit exceeded"})]
+        with patch.object(publisher, "_sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertEqual(len(self.uploads), 1)
+
+    def test_permission_403_fails_at_once_and_names_github_s_message(self):
+        self.responses = [(403, {"x-ratelimit-remaining": "4999", "x-github-request-id": "ABC:1"},
+                           {"message": "Resource not accessible by integration"})]
+        with patch.object(publisher, "_sleep") as sleep:
+            with self.assertRaises(publisher.RequestError) as raised:
+                publisher.publish(self.client, 42, [[self.file()], [], [self.file("appcast.xml")]])
+        sleep.assert_not_called()
+        self.assertEqual(len(self.uploads), 1)
+        error = raised.exception
+        self.assertEqual(error.status, 403)
+        self.assertFalse(error.rate_limited)
+        self.assertIn("Resource not accessible by integration", str(error))
+        self.assertIn("x-ratelimit-remaining=4999", str(error))
+        self.assertIn("x-github-request-id=ABC:1", str(error))
+
+    def test_error_text_never_contains_the_token(self):
+        self.responses = [(403, {}, {"message": "bad token fake-test-token"})]
+        with self.assertRaises(publisher.RequestError) as raised:
+            publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertNotIn("fake-test-token", str(raised.exception))
 
     def test_token_is_only_in_stdin_and_request_deadlines_are_bounded(self):
         asset = self.file()

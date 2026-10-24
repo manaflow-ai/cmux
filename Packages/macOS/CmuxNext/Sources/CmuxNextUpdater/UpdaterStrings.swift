@@ -133,11 +133,6 @@ nonisolated enum UpdaterStrings {
                "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
                seconds)
     }
-    static var waitingToRelaunch: String { text("updater.notice.waitingTitle", "Waiting to Relaunch") }
-    static func waitingDetail(agents: Int, commands: Int) -> String {
-        format("updater.notice.waitingDetail", "Busy agents: %1$lld. Running commands: %2$lld. cmux relaunches when they finish, or now with Relaunch.",
-               agents, commands)
-    }
     static var installStalled: String { text("updater.notice.stalledTitle", "Update Did Not Relaunch") }
     static func installStalledDetail(minutes: Int) -> String {
         format("updater.notice.stalledDetail", "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.", minutes)

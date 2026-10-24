@@ -248,6 +248,14 @@
   background: transparent;
   cursor: pointer;
 }
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__poster {
+    transition: opacity var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+  }
+}
+.cv-media__frame[data-previewing="true"] .cv-media__poster {
+  opacity: 0.78;
+}
 .cv-media__poster:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;

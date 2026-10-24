@@ -55,6 +55,12 @@ final class DebugSettingsService: InternalPageProvider {
     unowned let services: AppServices
     private var controller: DebugSettingsWindowController?
     private var sharedModel: DebugSettingsModel?
+    /// The React page of the window and of each tab (by key), closed (``PageWebView/close()``)
+    /// with its window or tab. Only that close ends the page's subscriptions: the router's event
+    /// handler holds the ``DebugSettingsPageProvider``, so a page left open keeps following the
+    /// hang files and rebuilding its state for a page nobody shows.
+    private var windowPage: PageWebView?
+    private var tabPages: [String: PageWebView] = [:]
     /// Where overrides persist (nil before launch or without dev tools).
     private(set) var fileURL: URL?
 
@@ -128,11 +134,15 @@ final class DebugSettingsService: InternalPageProvider {
         }
         if controller == nil {
             let page = webPage(model: model)
+            windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
                                                            onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
             controller.onClose = { [weak self] in
-                self?.controller = nil
-                self?.dropModelWhenUnused()
+                guard let self else { return }
+                windowPage?.close()
+                windowPage = nil
+                self.controller = nil
+                dropModelWhenUnused()
             }
             self.controller = controller
         }
@@ -164,6 +174,7 @@ final class DebugSettingsService: InternalPageProvider {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
         if let page = webPage(model: model) {
+            tabPages.updateValue(page, forKey: key)?.close() // called once per tab; a replaced page is no tab's view
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
@@ -184,6 +195,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        tabPages.removeValue(forKey: key)?.close()
         dropModelWhenUnused()
     }
 }

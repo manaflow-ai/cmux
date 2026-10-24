@@ -6,6 +6,10 @@
 pub(crate) struct AppControlMessages {
     pub action_describe_usage: &'static str,
     pub action_run_usage: &'static str,
+    pub action_batch_stdin: &'static str,
+    pub action_batch_line: &'static str,
+    pub action_batch_empty: &'static str,
+    pub action_batch_not_object: &'static str,
     pub agent_open_usage: &'static str,
     pub agent_open_tab_usage: &'static str,
     pub settings_usage: &'static str,
@@ -72,7 +76,11 @@ pub(crate) struct VersionLabels {
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
-    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
+    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (stdin: a JSON array, or one JSON object per line, of action.run params:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}; they run in order as ONE transaction:\n         every op is checked before any runs, and the app applies them in one frame.\n         At most 64 ops per transaction; --no-atomic applies more as consecutive transactions)",
+    action_batch_stdin: "action run -: cannot read stdin: {error}",
+    action_batch_line: "action run -: op {line} of stdin is not a JSON object of action.run params ({error}); nothing ran",
+    action_batch_empty: "action run -: stdin has no op; nothing ran",
+    action_batch_not_object: "not an object",
     agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP]",
     agent_open_tab_usage: "usage: cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]",
     settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--confirm] | reset PATH [--confirm] | unset PATH [--confirm] | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)",
@@ -132,7 +140,11 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
-    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
+    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (標準入力: action.run のパラメーターの JSON 配列、または 1 行に 1 つの JSON オブジェクト:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}。1 つのトランザクションとして順に実行します。\n         実行前にすべての操作を検査し、アプリは 1 フレームで適用します。\n         1 トランザクションは最大 64 操作です。--no-atomic はそれを超える分を連続したトランザクションで適用します)",
+    action_batch_stdin: "action run -: 標準入力を読めません: {error}",
+    action_batch_line: "action run -: 標準入力の操作 {line} は action.run パラメーターの JSON オブジェクトではありません ({error})。何も実行していません",
+    action_batch_empty: "action run -: 標準入力に操作がありません。何も実行していません",
+    action_batch_not_object: "オブジェクトではありません",
     agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト] [--group グループ]",
     agent_open_tab_usage: "使い方: cmux agent open-tab <セッション ID> [--target ペインまたはタブ] [--host ホスト] [--focus]",
     settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--confirm] | reset パス [--confirm] | unset パス [--confirm] | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)",

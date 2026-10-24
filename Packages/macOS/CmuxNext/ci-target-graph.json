@@ -48,7 +48,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextActions",
       "targets": [
-        "CmuxNextSignposts"
+        "CmuxNextSignposts",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -247,6 +248,7 @@
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
+        "CmuxNextBrowserTabs",
         "CmuxNextCLIInstall",
         "CmuxNextChiefMemory",
         "CmuxNextChiefPetWiring",
@@ -274,6 +276,7 @@
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHangReports",
+        "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -356,6 +359,7 @@
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
+        "CmuxNextBrowserTabs",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCompat",
@@ -376,6 +380,7 @@
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHangReports",
+        "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -479,6 +484,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
@@ -505,6 +511,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextBrowserCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextBrowserHistory": {
       "kind": "regular",
@@ -533,6 +548,16 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserTabs": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextDaemon",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -985,7 +1010,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
       "targets": [
         "CmuxNextActions",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextSignposts"
       ],
       "packages": []
     },
@@ -1006,6 +1032,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextHibernation": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextSettings"
+      ],
+      "packages": []
     },
     "CmuxNextHistory": {
       "kind": "regular",
@@ -1294,6 +1329,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",

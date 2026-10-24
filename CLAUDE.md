@@ -47,6 +47,9 @@ Read the matching skill before changing an area, then only the references needed
 - The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
+- No fleet Mac runs macOS 14 or 15 (aws-m4pro-1..4 run 27, aws-m4pro-5..9 run 26). Check an
+  OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
+  --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
 ## Web lint before push
 
@@ -100,6 +103,14 @@ Swift/Rust builds and tests stay on the fleet.
   "Ghostty-default keys" check enforce it, and `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip
   it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
   Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
+
+- A new or rewritten action handler is `registry.bindEffect(id, effect:)` and returns an `ActionEffect`:
+  `.done`, `daemon.intentEffect(...)` (a store intent shows in the input's turn; the registry sends,
+  rolls back and reports), `.applied(...)` with a rollback, or `.waiting(reason, work)` only when nothing
+  can show first. Never await in a handler, never start its remote work yourself, no disk I/O, waiting
+  lock or whole-session walk on its turn. The guardrail `action-wait` refuses new untyped binds and
+  waits; the budget is < 10 ms to the commit, watched by `ActionBudgetMonitor` and the Debug menu's
+  latency HUD ([zero-latency.md](plans/cmux-next/zero-latency.md), "Native actions: the budget contract").
 
 ## Before you touch hot paths
 

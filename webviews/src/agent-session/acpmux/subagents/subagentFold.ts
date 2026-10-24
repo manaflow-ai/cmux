@@ -1,6 +1,7 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
+import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -27,8 +28,20 @@ export type Subagent = {
   /// Tokens it has used and tool calls it has made so far (Claude's task progress).
   tokens?: number;
   toolUses?: number;
-  /// A Claude workflow's agents: how many returned of how many started.
-  agents?: { done: number; started: number };
+  /// A Claude workflow's agents: how many returned of how many started, and how many failed or wait
+  /// for a slot when any do.
+  agents?: { done: number; started: number; failed?: number; queued?: number };
+  /// A Claude workflow's run (`wf_…`), which a resume of it names again; its phases and its agents
+  /// by index (workflowAgents.ts), from acpmux's `workflow-agents-v1` updates.
+  runId?: string;
+  /// What a resume of it names again (`Workflow({scriptPath, resumeFromRunId, args})`): the script
+  /// path Claude Code returned and the call's args, when acpmux sent them (its launch).
+  scriptPath?: string;
+  args?: unknown;
+  phases?: WorkflowPhase[];
+  workflowAgents?: ReadonlyMap<number, WorkflowAgent>;
+  /// A Claude workflow Claude Code paused: its agents stopped, and a resume by `runId` runs it again.
+  paused?: boolean;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
@@ -290,7 +303,21 @@ export class SubagentFold {
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
-    if (done !== undefined && started !== undefined) agent.agents = { done, started };
+    if (done !== undefined && started !== undefined) {
+      const failed = count(change.agents?.failed);
+      const queued = count(change.agents?.queued);
+      agent.agents = { done, started, ...(failed ? { failed } : {}), ...(queued ? { queued } : {}) };
+    }
+    agent.runId = text(change.runId) ?? agent.runId;
+    agent.scriptPath = text(change.scriptPath) ?? agent.scriptPath;
+    if (change.args !== undefined && change.args !== null) agent.args = change.args;
+    agent.phases = workflowPhases(change.phases) ?? agent.phases;
+    agent.workflowAgents = mergeWorkflowAgents(
+      agent.workflowAgents,
+      change.workflowAgents,
+      change.workflowAgentsFull === true,
+    );
+    if (change.reason === "paused") agent.paused = true;
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.

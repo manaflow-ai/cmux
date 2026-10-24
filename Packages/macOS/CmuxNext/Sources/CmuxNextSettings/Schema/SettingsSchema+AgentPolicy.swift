@@ -85,6 +85,7 @@ extension SettingsSchema {
         "layout.rows",
         "layout.focusFollowsMouse",
         "layout.scrollAreas",
+        "layout.scrollModifier",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",

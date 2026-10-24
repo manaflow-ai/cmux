@@ -127,4 +127,51 @@ struct HomeAttachmentPasteTests {
         let board = Board(types: [.rtfd: rtfd, .png: Self.png], text: "Just words")
         #expect(HomeAttachmentIntake.inputs(from: board).isEmpty)
     }
+
+    // MARK: A file link beside the picture
+
+    /// A pasteboard with file links (a `.fileURL` type) and, optionally, the picture's bytes and its name as text.
+    private func fileBoard(_ urls: [URL], picture: Bool, text: String? = nil) -> Board {
+        var types: [NSPasteboard.PasteboardType: Data] = [.fileURL: Data()]
+        if picture { types[.png] = Self.png }
+        return Board(types: types, text: text, fileURLs: urls)
+    }
+
+    private static func missingShot() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("NSIRD_screencaptureui_\(UUID().uuidString)/Screenshot 2026-10-23 at 7.24.20 PM.png")
+    }
+
+    /// Lawrence 2026-10-23: "paste images with cmd v doesnt work in chief UI". The app's log at
+    /// his paste shows three reads of the clipboard's file link and none of its picture: a copied
+    /// screenshot carries a link to a file the screenshot tool has already removed, beside the
+    /// picture's bytes. The link won, its file was gone, and the picture was never tried.
+    @Test func aPictureWhoseFileIsGoneAttachesItsBytes() {
+        let shot = Self.missingShot()
+        for text: String? in [nil, "Screenshot 2026-10-23 at 7.24.20 PM.png", shot.path, shot.absoluteString] {
+            let board = fileBoard([shot], picture: true, text: text)
+            #expect(HomeAttachmentIntake.offers(board), "text: \(text ?? "none")")
+            #expect(pictureType(HomeAttachmentIntake.inputs(from: board)) == NSPasteboard.PasteboardType.png.rawValue,
+                    "text: \(text ?? "none")")
+        }
+    }
+
+    /// A file that is there still attaches as the file (its name, its own bytes), not the picture.
+    @Test func aFileThatIsThereStillAttachesAsTheFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("paste-\(UUID().uuidString).png")
+        try Self.png.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let board = fileBoard([url], picture: true, text: url.lastPathComponent)
+        #expect(HomeAttachmentIntake.offers(board))
+        let inputs = HomeAttachmentIntake.inputs(from: board)
+        guard inputs.count == 1, case let .file(file) = inputs[0] else { Issue.record("not the file: \(inputs)"); return }
+        #expect(file == url)
+    }
+
+    /// A link to a gone file with no picture: still the file, so the notice says it could not be attached.
+    @Test func aGoneFileWithNoPictureStaysTheFile() {
+        let board = fileBoard([Self.missingShot()], picture: false)
+        let inputs = HomeAttachmentIntake.inputs(from: board)
+        guard inputs.count == 1, case .file = inputs[0] else { Issue.record("not the file: \(inputs)"); return }
+    }
 }

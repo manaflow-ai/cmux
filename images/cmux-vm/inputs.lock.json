@@ -527,28 +527,28 @@
     },
     {
       "name": "cmux-browser-host",
-      "version": "1.0.0",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0/cmux-browser-host-1.0.0-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "64044ff088ac0745db437764b3b6c1a2a69d41ebc7edc15176befecd6aed99cd",
-      "size": 2474402,
+      "version": "1.0.0-r1",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1/cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "756021355332841537aad2ec102b1b9703950c9f90504c3b082b3b18e8af4fbb",
+      "size": 2474679,
       "format": "tar.gz",
       "bin": { "cmux-browser-host": "bin/cmux-browser-host" },
       "versionArgs": ["version"],
-      "expect": "cmux-browser-host 1.0.0 (715b953ad21fc4cbe65bed029ad704097e951c43)",
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0/SHA256SUMS",
-      "checksumsName": "./cmux-browser-host-1.0.0-x86_64-unknown-linux-gnu.tar.gz",
+      "expect": "cmux-browser-host 1.0.0 (4cf5c4ccc7c5c93bf90ebdb910b31b90f075ac72)",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1/SHA256SUMS",
+      "checksumsName": "./cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
       "roles": ["browser"],
       "firstUse": true,
       "notices": ["LICENSE", "THIRD_PARTY_LICENSES.md"],
       "otherArches": {
         "aarch64": {
-          "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0/cmux-browser-host-1.0.0-aarch64-unknown-linux-gnu.tar.gz",
-          "sha256": "a38a1d5307b7b6eab45fc20b49847bf2dae098f69198606585ca9ea59a7e6b29",
-          "size": 2286360,
-          "checksumsName": "./cmux-browser-host-1.0.0-aarch64-unknown-linux-gnu.tar.gz"
+          "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1/cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "2a74586ca8cb215180a56b4d0b89478b2479a02b0f4b01163ba46d0b0a3afecc",
+          "size": 2286591,
+          "checksumsName": "./cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz"
         }
       },
-      "source": "manaflow-ai/cmux release cmux-browser-host-v1.0.0 (2026-10-24; tag on 715b953ad21f, a feat-cmux-next commit; tag run 40068043754). Replaces 0.1.0, which refuses the --history-fd the pinned cmux-tui daemon passes, so no agent browser call worked. sha256 and size of both archives from the run's build artifacts, checked against the release SHA256SUMS. Archive: LICENSE, THIRD_PARTY_LICENSES.md, bin/cmux-browser-host (glibc floor 2.31)."
+      "source": "manaflow-ai/cmux release cmux-browser-host-v1.0.0-r1 (2026-10-24; tag on 4cf5c4ccc7c5, a feat-cmux-next commit; tag run 40082002418). A host-only release ([package.metadata.cmux-release] revision 1): the binary prints the one cmux-next version, 1.0.0. Adds to 1.0.0: goto after a router hash change, new-document snapshot diffs, the host world at once, headless clicks without the human pointer path. sha256 and size of both archives from the release SHA256SUMS and downloads. Archive: LICENSE, THIRD_PARTY_LICENSES.md, bin/cmux-browser-host (glibc floor 2.31)."
     }
   ],
   "roles": {

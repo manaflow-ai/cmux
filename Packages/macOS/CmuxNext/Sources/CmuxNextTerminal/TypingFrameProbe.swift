@@ -33,7 +33,7 @@ enum TypingFrameProbe {
         { layer, contents in
             original(layer, selector, contents)
             TypingLatencyProbe.shared.mark(.contents)
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }
             #endif
         }

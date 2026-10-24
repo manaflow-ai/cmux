@@ -46,7 +46,7 @@ final class InternalPageTabStore {
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
-        daemon.supports(DaemonCapabilities.pageTabRoute)
+        daemon.supports(DaemonCapability.pageTabRoute.rawValue)
     }
 
     /// The `origin` of the app's `new-conversation-tab` requests for page tabs.
@@ -199,14 +199,14 @@ final class InternalPageTabStore {
         let daemon = pane.daemon, store = daemon.store
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
         let onCreated = onCreated ?? HomeDockOpens.placing(pane.pane, services: pane.services, focus: focus, then: nil)
-        guard let provider = providers[page], daemon.supports(DaemonCapabilities.pageTabs),
+        guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else { return nil }
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
                                    kind: .conversation, title: provider.title(for: key), browserRenderer: "frontend")
         // The route goes only to a daemon that keeps it; an older one would drop it.
-        let route = daemon.supports(DaemonCapabilities.pageTabRoute) ? provider.route(for: key) : nil
+        let route = daemon.supports(DaemonCapability.pageTabRoute.rawValue) ? provider.route(for: key) : nil
         snapshot.conversation = ConversationTabRef(page: page.rawValue, route: route)
         track(provisional.id, key: key, in: store, window: window)
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window), topBar: provider.makeTopBar(for: key))
@@ -277,9 +277,9 @@ final class InternalPageTabStore {
     /// Lets the view of every store page tab `store` listed and lists no
     /// longer go (closed here or on another client).
     func closeGoneStoreTabs(in store: DaemonStore) {
-        guard let live = Self.liveTabs(store) else { return }
+        guard store.liveTabListRevision != nil else { return }
         for (id, owner) in storeTabStores where owner === store {
-            if live.contains(id) {
+            if store.liveTreeLists(tab: id) == true {
                 seenLive.insert(id)
             } else if seenLive.contains(id) {
                 seenLive.remove(id)
@@ -316,10 +316,9 @@ final class InternalPageTabStore {
     /// Closes the page tabs of every pane `store` no longer lists, once it
     /// is connected with a live tree.
     func closeGonePanes(in store: DaemonStore) {
-        guard let live = Self.livePanes(store) else { return }
-        for (paneKey, owner) in paneStores where owner === store && !live.contains(paneKey) {
-            closePane(paneKey)
-        }
+        // The panes this store tracks, each by lookup: never the session's pane set.
+        let gone = paneStores.filter { $0.value === store && store.liveTreeLists(pane: $0.key) == false }.map(\.key)
+        for paneKey in gone { closePane(paneKey) }
     }
 
     private func forget(_ key: String) {
@@ -328,22 +327,13 @@ final class InternalPageTabStore {
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 
-    private static func liveTabs(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-    }
-
-    private static func livePanes(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.id))
-    }
-
     private func watch(_ store: DaemonStore) {
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
+            // One observed value: the tab-list revision changes when a tab or a pane comes, goes or moves.
+            for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)

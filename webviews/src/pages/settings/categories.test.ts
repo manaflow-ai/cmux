@@ -42,6 +42,7 @@ test("the categories are the approved ones, in order", () => {
     "privacy",
     "accounts",
     "mobile",
+    "server",
     "devices",
     "advanced",
     "experimental",

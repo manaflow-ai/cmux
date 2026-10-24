@@ -117,6 +117,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.scrollAreas`: splits that cannot fit scroll instead of squashing (default off;
     /// plans/cmux-next/scroll-areas-DESIGN.md).
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
+    /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
+    public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).

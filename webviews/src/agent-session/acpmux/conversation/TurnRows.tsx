@@ -78,6 +78,7 @@ function groupNode(
   group: ToolGroup,
   index: number,
   rowId: string,
+  rowAt: number,
   live: boolean,
   folded = false,
   thoughts = 0,
@@ -103,7 +104,14 @@ function groupNode(
         />
       );
     case "message":
-      return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+      return (
+        <MessageCard
+          key={group.item.tool!.id || index}
+          item={group.item}
+          message={group.message}
+          messageAt={group.item.tool!.startedAt ?? rowAt}
+        />
+      );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "subsession":
@@ -208,6 +216,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         group,
         at,
         row.id,
+        row.at,
         row.live === true && at === groups.length - 1,
         row.foldRun === true && !stretch.fold,
         thoughts[at],

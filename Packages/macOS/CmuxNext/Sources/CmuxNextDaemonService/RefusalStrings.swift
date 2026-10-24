@@ -87,12 +87,12 @@ public nonisolated enum RefusalStrings {
     static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
-    /// `DaemonCapabilities.required` and `optional` (check-daemon-capabilities.sh),
+    /// `DaemonCapability.required` and `optional` (check-daemon-capabilities.sh),
     /// so a running daemon without one is an older build: restarting cmux
     /// updates it. Any other capability has no daemon half in this build yet.
     /// The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapabilities.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapability.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
     }
     /// The running local daemon is older than the app.
     public static var restartToUpdateDaemon: String {

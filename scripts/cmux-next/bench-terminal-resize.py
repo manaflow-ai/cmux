@@ -40,6 +40,8 @@ parser.add_argument("--step-pt", type=float, default=4.0)
 parser.add_argument("--scrollback", type=int, default=20000, help="history lines printed in each light terminal")
 parser.add_argument("--rounds", type=int, default=2)
 parser.add_argument("--idle-s", type=float, default=5.0)
+parser.add_argument("--tag", help="the app's tag (split-spring.sh passes it)")
+parser.add_argument("--json", help="also write the report here (split-spring.sh's artifact)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -48,7 +50,7 @@ if not APP or not os.path.isdir(APP):
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     info = plistlib.load(f)
 BINARY = os.path.join(APP, "Contents/MacOS", info["CFBundleExecutable"])
-TAG = os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
+TAG = opts.tag or os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 
@@ -94,7 +96,7 @@ def vertical_dividers():
 
 
 def surfaces():
-    """Visible terminal panes: dicts with frame x, fit/drawn/owner grid and render counters."""
+    """Visible terminal panes: dicts with an id (pane + shown tab), frame x, fit/drawn/owner grid and render counters."""
     result = rpc("debug.surfaces") or {}
     rows = []
     for win in result.get("windows") or []:
@@ -102,7 +104,8 @@ def surfaces():
             surface, grid = pane.get("surface") or {}, pane.get("grid") or {}
             if not surface.get("fit_grid") or surface.get("hidden") or not surface.get("drawing", True):
                 continue
-            rows.append({"x": grid.get("frame_x", 0), "fit": surface.get("fit_grid"), "drawn": surface.get("drawn_grid"),
+            ident = "%s/%s" % (pane.get("pane"), pane.get("shown_tab") or pane.get("selected_tab"))
+            rows.append({"id": ident, "x": grid.get("frame_x", 0), "fit": surface.get("fit_grid"), "drawn": surface.get("drawn_grid"),
                          "grid": surface.get("grid"), "counters": surface.get("render_counters") or {}})
     return sorted(rows, key=lambda r: r["x"])
 
@@ -114,10 +117,16 @@ def write(text):
 
 
 def counter_delta(before, after):
-    keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_main_draws", "host_fresh_presents",
+    """Sums counter deltas of the terminals present before and after, paired by id (not by x order:
+    a pane that appears, closes or moves between the two reads must not pair with another's counters).
+    `unpaired` counts the terminals present in only one of the two reads."""
+    keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_present_calls", "host_main_draws", "host_fresh_presents",
             "host_late_presents")
     total = {k: 0 for k in keys}
-    for b, a in zip(before, after):
+    by_id = {b["id"]: b for b in before}
+    paired = [(by_id[a["id"]], a) for a in after if a["id"] in by_id]
+    total["unpaired"] = len(before) + len(after) - 2 * len(paired)
+    for b, a in paired:
         for k in keys:
             if k in a.get("counters", {}):
                 total[k] += int(a["counters"][k]) - int(b["counters"].get(k, 0))
@@ -141,11 +150,23 @@ def drag(x0, y0, refresh_s):
     rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
 
 
+def column_divider(dividers, middle):
+    """The divider to drag. Light: the only one. STRESS (`middle`): the column divider between
+    columns 2 and 3 of the 4x3 grid. Column dividers span the whole grid's height; a nested split's
+    divider spans one row, so the tallest ones are the column dividers, and the middle of those (by x)
+    resizes every pane of the first two columns."""
+    if not middle:
+        return dividers[0]
+    tallest = max(h for _, _, h in dividers)
+    columns = sorted(d for d in dividers if d[2] >= 0.9 * tallest)
+    return columns[len(columns) // 2 - 1] if len(columns) >= 2 else columns[0]
+
+
 def measure(name):
     dividers = vertical_dividers()
     if not dividers:
         return {"layout": name, "error": "no vertical divider"}
-    x0, y0, _ = dividers[0]
+    x0, y0, height = column_divider(dividers, middle=(name == "stress"))
     rpc("debug.frames", {"action": "start"})
     time.sleep(1.0)  # bench script: idle frames give the refresh period
     idle = rpc("debug.frames", {"action": "stop"}) or {}
@@ -161,8 +182,14 @@ def measure(name):
         time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
         after = surfaces()
         settled = [s for s in after if not (s["fit"] == s["drawn"] == s["grid"])]
+        # Resized in the drag: a full rebuild for a new grid, or a fitted grid that differs midway (the
+        # drag ends where it began, so start and end grids match).
+        by_id = {b["id"]: b for b in before}
+        resized = sum(1 for a in after if a["id"] in by_id and
+                      int(a["counters"].get("full_resize", 0)) > int(by_id[a["id"]]["counters"].get("full_resize", 0)))
         rounds.append({
             "terminals": len(after),
+            "resized_terminals": resized,
             "frames": {k: frames.get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed",
                                                   "main_p50_ms", "main_p95_ms", "main_max_ms", "main_total_ms",
                                                   "main_over_8_3_ms")},
@@ -170,7 +197,8 @@ def measure(name):
             "counters": counter_delta(before, after),
             "unsettled_after": [{"fit": s["fit"], "drawn": s["drawn"], "grid": s["grid"]} for s in settled],
         })
-    return {"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "rounds": rounds}
+    return {"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "rounds": rounds,
+            "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}}
 
 
 def light():
@@ -192,12 +220,33 @@ def idle_cursor():
     wait(lambda: surfaces(), 30)
     write("clear; printf '\\033[?25l'; sleep 600\r")
     time.sleep(1.5)  # bench script: the command runs and the screen settles
-    focused = [s for s in surfaces()]
-    before = focused[0]["counters"].get("frames", 0) if focused else 0
+    def focused_frames():
+        rows = surfaces()
+        # The phase's own new workspace shows one terminal: the one it wrote to.
+        row = rows[0] if len(rows) == 1 else None
+        return (int(row["counters"].get("frames", 0)) if row else None), len(rows)
+    # At rest first: the counter unchanged for 3 s in a row (at most 20 s), so the frames of the command's
+    # own output (clear, the cursor hide) are not counted as idle frames.
+    settle_start, (last, _) = time.monotonic(), focused_frames()
+    stable_since = time.monotonic()
+    while time.monotonic() - settle_start < 20 and time.monotonic() - stable_since < 3:
+        time.sleep(0.5)  # bench script: polls the counter for the settle, not an app synchronization
+        now, _ = focused_frames()
+        if now != last:
+            last, stable_since = now, time.monotonic()
+    settled_s = round(time.monotonic() - settle_start, 1)
+    before, shown = focused_frames()
     time.sleep(opts.idle_s)  # bench script: the measured idle window
-    after_rows = surfaces()
-    after = after_rows[0]["counters"].get("frames", 0) if after_rows else 0
-    return {"layout": "idle-cursor", "idle_s": opts.idle_s, "frames": int(after) - int(before)}
+    after, shown_after = focused_frames()
+    result = {"layout": "idle-cursor", "idle_s": opts.idle_s, "terminals_shown": [shown, shown_after],
+              "settled_s": settled_s, "frames_before": before, "frames_after": after,
+              "note": "the bench window is never key (no activation): Ghostty's blink timer runs only when focused"}
+    # No count without exactly one shown terminal with render counters: an error, never a 0.
+    if before is None or after is None or before == 0:
+        result["error"] = "no render counter for one shown terminal (or it never drew): no idle count"
+    else:
+        result["frames"] = after - before
+    return result
 
 
 def stress():
@@ -222,17 +271,19 @@ with open(config, "w") as f:
 ghostty = os.path.join(scratch, "ghostty")
 open(ghostty, "w").close()
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1600,1000"}
+       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
+       "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
+# The measure entry (split-spring.sh) runs on an exclusive worker: same environment as its own bench.
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 report = {"pid": app.pid, "app": APP, "layouts": []}
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 120):
-        sys.exit("app did not come up")
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+        log.flush()
+        tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
+        sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
     for name in [n for n in opts.layouts.split(",") if n]:
         result = {"idle-cursor": idle_cursor, "light": light, "stress": stress}[name]()
         report["layouts"].append(result)
@@ -246,5 +297,6 @@ finally:
             app.kill()
             app.wait()
     teardown.end()
-    with open(os.path.join(opts.out, "terminal-resize.json"), "w") as f:
-        json.dump(report, f, indent=1)
+    for path in [os.path.join(opts.out, "terminal-resize.json")] + ([opts.json] if opts.json else []):
+        with open(path, "w") as f:
+            json.dump(report, f, indent=1)

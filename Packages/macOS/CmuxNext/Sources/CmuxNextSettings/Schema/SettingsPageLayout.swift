@@ -23,6 +23,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
+        /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
+        case server
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -245,6 +248,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
             groups: [group("settings.group.mobile")], trail: [.mobile]),
+        // The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.
+        CategorySpec(
+            id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
+            groups: [], lead: [.server]),
         // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
         // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
         CategorySpec(

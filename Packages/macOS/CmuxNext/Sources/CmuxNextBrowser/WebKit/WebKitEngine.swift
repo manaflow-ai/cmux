@@ -59,14 +59,23 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
+    /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
+    /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
+    /// and its dead-panel guard.
+    public let fileInput: any WebFileInputAnswering
 
+    /// - Parameter fileInput: answers every tab's file input (the App's made-ahead panel; a test
+    ///   passes a stand-in, since a test host cannot make an `NSOpenPanel`).
     public init(
+        fileInput: any WebFileInputAnswering,
         profileStore: WebKitProfileStore = WebKitProfileStore(),
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
         lowPowerMode: LowPowerMode = .system
     ) {
+        self.fileInput = fileInput
         self.profileStore = profileStore
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory

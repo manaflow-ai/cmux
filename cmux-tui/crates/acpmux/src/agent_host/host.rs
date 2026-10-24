@@ -182,6 +182,36 @@ enum Event {
     /// A quiet drain period (its generation) ended: output pipes still open
     /// belong to processes that left the harness group (setsid).
     DrainOver(u64),
+    /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
+    OwnerWaitOver,
+}
+
+/// How long a pooled host waits for its first controller. A daemon that
+/// started it attaches within its pool start budget (90 s, `hub/pool`) or
+/// ends it; one that died before it attached (SIGKILL right after the
+/// spawn) never will, and a pooled host never waits for a next daemon, so it
+/// ends. It never relied on the daemon's systemd unit for that: the host may
+/// be in its own scope (`scope.rs`).
+pub(crate) const POOLED_OWNER_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Debug builds only: [`POOLED_OWNER_WAIT`] in milliseconds, for the
+/// lifetime test; passed on by the host launch (`link.rs`). Release builds
+/// have no seam.
+#[cfg(debug_assertions)]
+pub(super) const POOLED_OWNER_WAIT_ENV: &str = "ACPMUX_TEST_POOLED_OWNER_WAIT_MS";
+
+fn pooled_owner_wait() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(POOLED_OWNER_WAIT_ENV).ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        return std::time::Duration::from_millis(ms);
+    }
+    POOLED_OWNER_WAIT
+}
+
+/// A pooled host whose wait for its first controller ended with none.
+fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
+    pooled && last_owner.is_none()
 }
 
 /// After the harness leader exited and its group was killed: how long the
@@ -409,6 +439,15 @@ impl Started {
         // Generation of the armed quiet period, if one is armed.
         let mut drain_gen = 0u64;
         let mut drain_armed = false;
+        if still_pooled(&state.spec) {
+            let tx = events_tx.clone();
+            let wait = pooled_owner_wait();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                let _ = tx.send(Event::OwnerWaitOver).await;
+            });
+        }
 
         while let Some(event) = events.recv().await {
             match event {
@@ -458,6 +497,12 @@ impl Started {
                         state.stdout_done = true;
                         state.stderr_done = true;
                         state.maybe_push_exit();
+                    }
+                }
+                Event::OwnerWaitOver => {
+                    if pooled_without_owner(still_pooled(&state.spec), state.last_owner) {
+                        tracing::warn!("no daemon attached to this pooled host; ending it");
+                        state.unadoptable = true;
                     }
                 }
                 Event::Term => {
@@ -1006,6 +1051,15 @@ fn watch_record(
 
 #[cfg(test)]
 mod tests {
+    /// A pooled host ends at the end of its wait only when no controller
+    /// ever said `Hello`; a session's host never ends this way.
+    #[test]
+    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
+        assert!(super::pooled_without_owner(true, None));
+        assert!(!super::pooled_without_owner(true, Some(1)));
+        assert!(!super::pooled_without_owner(false, None));
+    }
+
     /// The leader is waited for without being reaped: while it is a zombie
     /// its process group id cannot be reused, so ending the group then can
     /// never signal another process group.

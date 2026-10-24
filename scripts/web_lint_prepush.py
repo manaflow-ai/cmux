@@ -19,6 +19,15 @@ What runs, per area touched by the change:
 * web/: ESLint, errors only, on the changed files, with a cache. web/ as a whole
   is not lint-clean, so only the files a change touches are held to it.
 
+Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
+cmux-next gate, guardrails and arch ratchet share), so a branch rebased onto
+origin/feat-cmux-next and force pushed lints its own commits' files, never the
+web files of the upstream commits the rebase brought in; a merge of
+origin/feat-cmux-next lints the files it changes over both the merged upstream
+and the branch's last pushed head. The hook reads the installed copy
+(--trusted-scripts-dir); a push whose own commits nothing bounds is refused
+with what to fetch.
+
 A push, or --head SHA, is linted as that commit: when the checkout is not exactly
 that commit (another branch is checked out, or it has uncommitted or untracked
 files), the checks run in a temporary worktree of it, reusing the checkout's
@@ -31,7 +40,7 @@ per error (scripts/ci/fast_gate_webviews_checks.py compares them); the rest
 are the base's red and print as warnings. A red base hid #23763's TS2339.
 
 Usage:
-    scripts/web-lint.sh                 # lint what differs from origin/feat-cmux-next
+    scripts/web-lint.sh                 # lint what HEAD's own commits and the working tree change
     scripts/web-lint.sh --fix           # autofix (Oxfmt, Oxlint --fix, ESLint --fix), then re-check
     scripts/web-lint.sh --base REF --head SHA   # a commit range (CI)
     git push                            # the hook runs it on the pushed range
@@ -55,8 +64,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ZERO_SHA = "0" * 40
-DEFAULT_BASE_REFS = ("origin/feat-cmux-next", "origin/main")
 ESLINT_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
@@ -158,36 +165,41 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return result.stdout
 
 
-def ref_exists(repo: Path, ref: str) -> bool:
-    return subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-                          capture_output=True).returncode == 0
+PUSH_RANGE = "push_range.py"
 
 
-def default_base(repo: Path, head: str) -> str:
-    for ref in DEFAULT_BASE_REFS:
-        if ref_exists(repo, ref):
-            base = git(repo, "merge-base", head, ref, check=False).strip()
-            if base:
-                return base
-    return f"{head}~1" if ref_exists(repo, f"{head}~1") else head
+def load_push_range(trusted_scripts: Path | None):
+    """scripts/cmux-next/push_range.py: which commits a push owns, the one definition the cmux-next gate,
+    guardrails and arch ratchet use too. The hook passes the installed reviewed copy (--trusted-scripts-dir,
+    the cmux-next-checks snapshot); a manual or CI run reads the one next to this file. Exits with what to do
+    when it is missing (the hook then refuses the push)."""
+    import importlib.util  # noqa: PLC0415
+
+    name = "cmux_next_push_range"  # the gate's name too: one copy per process
+    if name in sys.modules:
+        return sys.modules[name]
+    path = (trusted_scripts or Path(__file__).resolve().parent / "cmux-next") / PUSH_RANGE
+    if not path.is_file():
+        raise SystemExit(f"web-lint: {path} is missing; rerun scripts/install-git-hooks.sh")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses look their module up
+    writes, sys.dont_write_bytecode = sys.dont_write_bytecode, True  # no __pycache__ left in the checkout
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = writes
+    return module
 
 
-def pushed_ranges(repo: Path, lines: list[str]) -> list[tuple[str, str]]:
-    """Read pre-push stdin (`<local ref> <local sha> <remote ref> <remote sha>`)."""
-    ranges = []
-    for line in lines:
-        parts = line.split()
-        if len(parts) != 4:
-            continue
-        _local_ref, local_sha, _remote_ref, remote_sha = parts
-        if local_sha == ZERO_SHA:
-            continue  # a branch deletion pushes no files
-        if remote_sha != ZERO_SHA and ref_exists(repo, remote_sha):
-            base = git(repo, "merge-base", local_sha, remote_sha, check=False).strip() or remote_sha
-        else:
-            base = default_base(repo, local_sha)
-        ranges.append((base, local_sha))
-    return ranges
+def own_files(repo: Path, own, head: str | None) -> list[str]:
+    """The files the own range OWN (push_range.OwnRange) changes at HEAD (a commit, or None: the working tree):
+    over its base, and for a merge also since the head of every range it does not own (a file only upstream
+    changed is the merged upstream's; a file only the branch's earlier push changed is that push's)."""
+    files = set(changed_files(repo, own.base, head))
+    for _, already in own.before:
+        files &= set(changed_files(repo, already, head))
+    return sorted(files)
 
 
 def changed_files(repo: Path, base: str, head: str | None) -> list[str]:
@@ -549,10 +561,13 @@ def report(results: list[Result], seconds: float, mode: str, timings: bool = Fal
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, help="checkout root (default: the current one)")
-    parser.add_argument("--base", help="base ref (default: merge-base with origin/feat-cmux-next)")
+    parser.add_argument("--base", help="base ref (default: the push's own range, scripts/cmux-next/push_range.py)")
     parser.add_argument("--head", help="head ref (default: the working tree, uncommitted edits included)")
     parser.add_argument("--fix", action="store_true", help="autofix what the tools can, then re-check")
     parser.add_argument("--pre-push", action="store_true", help="read pre-push stdin (used by the hook)")
+    parser.add_argument("--remote", default="origin", help="the pushed remote (the hook's first argument)")
+    parser.add_argument("--trusted-scripts-dir", type=Path,
+                        help="the installed cmux-next-checks snapshot that holds push_range.py (the hook passes it)")
     parser.add_argument("--dry-run", action="store_true", help="print what would run, run nothing")
     parser.add_argument("--timings", action="store_true", help="print each check's time")
     parser.add_argument("--all", action="store_true",
@@ -575,15 +590,28 @@ def main(argv: list[str] | None = None) -> int:
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.new_only and (not args.base or args.pre_push or args.fix):
         parser.error("--new-only needs --base and no --pre-push or --fix")
-    if args.pre_push:
-        ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
-    else:
-        base = args.base or default_base(repo, args.head or "HEAD")
-        ranges = [(base, args.head)]
     # One lint per pushed commit, in a tree holding exactly that commit. --fix edits the working tree itself.
     heads: dict[str | None, list[str]] = {}
-    for base, head in ranges:
-        heads.setdefault(None if args.fix else head, []).extend(changed_files(repo, base, head))
+    if args.base:
+        heads[None if args.fix else args.head] = changed_files(repo, args.base, args.head)
+    else:
+        push_range = load_push_range(args.trusted_scripts_dir.resolve() if args.trusted_scripts_dir else None)
+        try:
+            if args.pre_push:
+                ranges, errors = push_range.pushed_ranges(repo, sys.stdin.read().splitlines(), args.remote)
+            else:
+                # The working tree (no --head) is linted over the own range of HEAD.
+                ranges, errors = [push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
+        except ValueError as error:  # a git call failed (a commit gone between two reads)
+            ranges, errors = [], [str(error)]
+        if errors:
+            for error in errors:
+                print(f"{mode}: cannot tell which commits are this push's own: {error}", file=sys.stderr)
+            print(f"{mode}: refused; nothing was linted. Fix the clone as said above and push again.", file=sys.stderr)
+            return 1
+        for own in ranges:
+            head = own.head if args.pre_push else args.head
+            heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 
     started = time.monotonic()
     results: list[Result] = []

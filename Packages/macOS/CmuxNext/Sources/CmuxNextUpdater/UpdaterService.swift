@@ -155,7 +155,7 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
     #endif
@@ -237,7 +237,7 @@ public final class UpdaterService {
             controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             controller = enableSparkle ? UpdateHarness.current?.controller(identity: identity, log: log, defaults: defaults, policy: policy) : nil
             #else
             controller = nil
@@ -278,7 +278,7 @@ public final class UpdaterService {
         controller.actionDelegate = self
         pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if UpdateHarness.current?.backgroundCheck == true {
             UpdateHarness.mark("background_check")
             controller.checkInBackground()
@@ -375,7 +375,7 @@ public final class UpdaterService {
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         if needsSheet { presentUpdateUI?() }

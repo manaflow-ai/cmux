@@ -63,16 +63,14 @@ final class TopHomePageView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            rowsObservation?.cancel()
-            selectionObservation?.cancel()
-            chiefObservation?.cancel()
-            accountObservation?.cancel()
-            requestsObservation?.cancel()
-            unreadColorObservation?.cancel()
-        }
+        rowsObservation?.cancel()
+        selectionObservation?.cancel()
+        chiefObservation?.cancel()
+        accountObservation?.cancel()
+        requestsObservation?.cancel()
+        unreadColorObservation?.cancel()
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).
@@ -186,9 +184,13 @@ final class TopHomePageView: NSView {
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
             // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
-            for await (all, archived, _, _, _, _, owned, _, _, _) in ObservationStream({
+            for await (all, archived, _, _, _, _, owned, _, _, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
-                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot)
+                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot,
+                 // The team is read after the page opens: its teammates are rows once it lands.
+                 home.directory.teamMembers,
+                 // A rename of a Chief redraws its tile.
+                 home.chiefNames)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })

@@ -118,6 +118,14 @@ test("a host that refuses the native menu leaves the page's own", async () => {
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();
 });
 
+test("an older host that answers without a native pick leaves the page's own", async () => {
+  // Legacy bridge shims answer unknown methods with `{ok: true, value: null}`. Treat the
+  // missing `{picked}` envelope as an unsupported host, rather than swallowing the menu.
+  installNativeMenu(() => Promise.resolve(null));
+  await rightClick(render(items([])));
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+});
+
 test("without a host the page draws its menu", async () => {
   await rightClick(render(items([])));
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();

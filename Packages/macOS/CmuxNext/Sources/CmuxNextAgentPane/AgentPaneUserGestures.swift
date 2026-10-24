@@ -141,7 +141,7 @@ import CmuxNextCompat
     public func issueSeedTicket() -> (promptId: String, ticket: String) {
         let issued = SeedTicket(ticket: UUID().uuidString, promptId: UUID().uuidString.lowercased(), at: now())
         seedTicket = issued
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         lastSeed = (issued.promptId, issued.ticket)
         #endif
         return (issued.promptId, issued.ticket)
@@ -165,7 +165,7 @@ import CmuxNextCompat
             && pick?.method == "session/prompt" && pick?.params == ["promptId": .string(seed.promptId)]
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The last seed ticket issued, for the DEBUG replay check (`gesture_state replay_seed`).
     private var lastSeed: (promptId: String, ticket: String)?
 

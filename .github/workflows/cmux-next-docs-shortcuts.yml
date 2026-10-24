@@ -34,3 +34,15 @@ jobs:
       - name: Keyboard shortcuts docs match the action catalog
         working-directory: web
         run: bun test tests/docs-shortcuts.test.ts
+
+      # The cmux-next CLI and settings reference pages are generated from the
+      # same catalog and the settings schema (plans/cmux-next/docs-DESIGN.md).
+      # The test imports docs-channel and the nav list, which pull in next-intl,
+      # so this step needs the install.
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: cmux-next docs reference pages are fresh
+        working-directory: web
+        run: bun test tests/next-docs.test.ts

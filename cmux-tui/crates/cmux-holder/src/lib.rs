@@ -210,12 +210,20 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         return stdout.flush();
     }
     hold_copy_in_use();
+    // Key-press flow marks start here, before the first terminal (`CMUX_TRACE_FLOWS`).
+    cmux_flow_trace::init();
     let mut args = args.iter().cloned();
     let mut socket = None;
     let mut idle_exit = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--socket" => socket = args.next().map(PathBuf::from),
+            // `<bundle>:<tag>@<daemon pid>`, as a terminal host's: only a
+            // mark in the command line, so a teardown finds this tag's
+            // holder after its daemon is gone (tag_teardown.py).
+            "--owner" => {
+                args.next().ok_or_else(|| invalid("--owner takes a value"))?;
+            }
             "--idle-exit-ms" => {
                 let millis = args.next().and_then(|value| value.parse::<u64>().ok());
                 let millis = millis.ok_or_else(|| invalid("--idle-exit-ms takes milliseconds"))?;

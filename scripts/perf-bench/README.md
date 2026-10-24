@@ -28,6 +28,11 @@ cmux-ci run --class exclusive --measurement --label measure \
   `baseline/<chip>-macos<major>.json` by more than 15 % and the unit's floor
   (5 ms, 15 MB, 2 mW, 0.1 %, 2 wakeups/s). The nightly job
   (`.github/workflows/cmux-next-perf-bench.yml`) runs it.
+- The gate also fails with `PERF-BENCH-GATE INCOMPLETE` when an expected row or
+  browser cell is missing. The checked-in baseline defines expected rows, so a
+  newly emitted row becomes expected after it is recorded in a baseline. An
+  intentional unsupported surface may be listed as `"row|browser"` in an
+  `unsupported` array in either JSON document.
 
 Quick iteration for one area (about 10 minutes):
 `--arg=rounds=1 --arg=launches=1 --arg=idle=20 --arg=active=15 --arg=browsers=cmux-chromium,helium`.

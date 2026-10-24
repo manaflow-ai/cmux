@@ -21,24 +21,83 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 from urllib.parse import quote, urlencode
 
 
+# A rate-limited 403/429 (GitHub rejects it before processing) is retried
+# until the limit resets, but one process waits at most this long in total:
+# the publish job has its own timeout (2026-10-24: the Actions installation
+# quota ran out and the nightly failed on "POST HTTP 403" with nothing retried).
+RATE_LIMIT_BUDGET_SECONDS = 600
+_sleep = time.sleep  # tests replace this, never the shared time module
+_rate_limit_lock = threading.Lock()
+_rate_limit_deadline: float | None = None
+
+
 class RequestError(RuntimeError):
-    def __init__(self, message: str, *, status: int = 0):
+    def __init__(self, message: str, *, status: int = 0, rate_limited: bool = False,
+                 wait: float | None = None):
         super().__init__(message)
         self.status = status
+        self.rate_limited = rate_limited
+        self.wait = wait
 
     @property
     def retryable(self) -> bool:
-        return self.status in (0, 408, 429) or self.status >= 500
+        return self.status in (0, 408, 429) or self.status >= 500 or self.rate_limited
 
 
-def backoff(attempt: int) -> None:
-    time.sleep(2 ** (attempt + 1))
+def rate_limit(status: int, headers: dict[str, str], body: str, now: float) -> tuple[bool, float | None]:
+    """Whether a 403/429 is GitHub's rate limit, and how long until it resets.
+
+    A permission 403 has none of retry-after, x-ratelimit-remaining: 0 or a
+    "rate limit" message, and is not retried.
+    """
+    if status not in (403, 429):
+        return False, None
+    retry_after = headers.get("retry-after", "").strip()
+    remaining = headers.get("x-ratelimit-remaining", "").strip()
+    limited = bool(retry_after) or remaining == "0" or "rate limit" in body.lower()
+    if not limited:
+        return False, None
+    if retry_after.isdigit():
+        return True, float(retry_after)
+    reset = headers.get("x-ratelimit-reset", "").strip()
+    if reset.isdigit():
+        return True, max(float(reset) - now, 0.0) + 1
+    return True, None
+
+
+def parse_headers(text: str) -> dict[str, str]:
+    """The last response's headers from curl --dump-header (lowercased names)."""
+    blocks = [block for block in re.split(r"\r?\n\r?\n", text) if block.strip()]
+    headers = {}
+    for line in (blocks[-1].splitlines()[1:] if blocks else []):
+        name, sep, value = line.partition(":")
+        if sep:
+            headers[name.strip().lower()] = value.strip()
+    return headers
+
+
+def backoff(attempt: int, error: RequestError | None = None) -> None:
+    if error is None or not error.rate_limited:
+        _sleep(2 ** (attempt + 1))
+        return
+    global _rate_limit_deadline
+    with _rate_limit_lock:
+        now = time.monotonic()
+        if _rate_limit_deadline is None:
+            _rate_limit_deadline = now + RATE_LIMIT_BUDGET_SECONDS
+        left = _rate_limit_deadline - now
+    if left < 1:
+        raise RuntimeError(f"GitHub rate limit did not reset within {RATE_LIMIT_BUDGET_SECONDS} s: {error}") from error
+    wait = min(max(error.wait if error.wait is not None else 60.0, 1.0), left)
+    print(f"GitHub rate limit ({error}); waiting {wait:.0f} s", file=sys.stderr, flush=True)
+    _sleep(wait)
 
 
 @dataclass(frozen=True)
@@ -84,14 +143,17 @@ class GitHub:
         """
         if file is not None and body is not None:
             raise ValueError("file and body are mutually exclusive")
-        attempts = 1 if file or method in {"POST", "PATCH"} else 3
+        # A POST or PATCH is retried here only when rate-limited: GitHub
+        # rejected it unprocessed. Uploads reconcile in _upload_verified.
+        single = bool(file) or method in {"POST", "PATCH"}
+        attempts = 3
         for attempt in range(attempts):
             try:
                 return self._request(method, url, file=file, body=body, content_type=content_type)
             except RequestError as error:
-                if not error.retryable or attempt + 1 == attempts:
+                if (single and not error.rate_limited) or not error.retryable or attempt + 1 == attempts:
                     raise
-                backoff(attempt)
+                backoff(attempt, error)
 
     def _request(self, method: str, url: str, *, file: Path | None = None,
                  body: bytes | None = None, content_type: str | None = None):
@@ -102,6 +164,7 @@ class GitHub:
                   'header = "X-GitHub-Api-Version: 2022-11-28"\n')
         with tempfile.TemporaryDirectory(prefix="cmux-release-upload-") as directory:
             output = Path(directory) / "response.json"
+            header_path = Path(directory) / "headers.txt"
             body_path = None
             if body is not None:
                 body_path = Path(directory) / "request-body"
@@ -110,6 +173,7 @@ class GitHub:
                        "--request", method, "--connect-timeout", "30", "--max-time", str(timeout),
                        "--speed-limit", "1024", "--speed-time", "60", "--retry", "0",
                        "--header", f"Content-Type: {content_type}", "--output", str(output),
+                       "--dump-header", str(header_path),
                        "--write-out", "%{http_code}", url]
             if file:
                 command += ["--data-binary", "@" + str(file)]
@@ -126,7 +190,7 @@ class GitHub:
                 raise RequestError(f"{method} curl exit {result.returncode}: {detail}")
             status = int(result.stdout)
             if not 200 <= status < 300:
-                raise RequestError(f"{method} HTTP {status}", status=status)
+                raise self._http_error(method, status, output, header_path)
             body = output.read_text()
             if not body:
                 return None
@@ -134,6 +198,26 @@ class GitHub:
                 return json.loads(body)
             except json.JSONDecodeError as error:
                 raise RequestError(f"{method} returned invalid JSON") from error
+
+    def _http_error(self, method: str, status: int, output: Path, header_path: Path) -> RequestError:
+        """GitHub's own message and rate-limit headers, so a red names its cause."""
+        body = output.read_text(errors="replace") if output.exists() else ""
+        headers = parse_headers(header_path.read_text(errors="replace")) if header_path.exists() else {}
+        limited, wait = rate_limit(status, headers, body, time.time())
+        try:
+            message = str(json.loads(body).get("message", "")) if body else ""
+        except (json.JSONDecodeError, AttributeError):
+            message = ""
+        detail = (message or " ".join(body.split()))[:300].replace(self.token, "***")
+        shown = ", ".join(f"{name}={headers[name]}" for name in
+                          ("retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
+                           "x-ratelimit-resource", "x-github-request-id") if name in headers)
+        text = f"{method} HTTP {status}"
+        if detail:
+            text += f": {detail}"
+        if shown:
+            text += f" ({shown})"
+        return RequestError(text, status=status, rate_limited=limited, wait=wait)
 
     def release_id(self, tag: str) -> int:
         url = f"{self.api_url}/repos/{self.repo}/releases/tags/{quote(tag, safe='')}"
@@ -285,7 +369,7 @@ def _upload_verified(client: GitHub, release_id: int, asset: Asset, existing: di
                 return existing
             if attempt == 2:
                 raise
-            backoff(attempt)
+            backoff(attempt, error)
             continue
         if not _asset_matches(client, asset, uploaded):
             raise RuntimeError(f"Upload verification failed (state/size/SHA-256): {name}")

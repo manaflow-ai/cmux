@@ -78,6 +78,9 @@ public final class ResizeCoordinator {
         if !isHeld { frames.activate() }
     }
 
+    /// Whether no grid waits to go to its PTY: none submitted and unsent, none held (`debug.burst status`).
+    public var isIdle: Bool { settle.isIdle && !isHeld }
+
     /// Whether a holder holds the grids now (``setHeld(_:by:)``).
     public var isHeld: Bool {
         holders = holders.filter { $0.value.object != nil }

@@ -62,8 +62,9 @@ final class CEFFirstPaintBridge {
     /// raw protocol messages still sees every lifecycle event.
     func handle(_ json: String) -> Bool {
         if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) {
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
+            if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
             #endif
             tab?.documentDidSettle()
         }

@@ -87,6 +87,9 @@ final class NotificationCenterService {
     @ObservationIgnored let approvals = AgentApprovalBanners()
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// Workspace statuses `followStatusRuns` examined since start: what a status change costs it
+    /// (tests read it; it must follow the workspaces whose status changed, not the session).
+    @ObservationIgnored var statusRunVisits = 0
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
     /// Showcase captures seed the real daemon ledger without showing banners

@@ -379,30 +379,30 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
   });
 });
 
-describe("cmux-browser-host 1.0.0 in the browser role (release cmux-browser-host-v1.0.0, browser-host.md 6d; the host the daemon starts must accept --history-fd)", () => {
+describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-host-v1.0.0-r1, browser-host.md 6d; the host the daemon starts must accept --history-fd)", () => {
   const lock = readInputsLock();
-  const X64 = "64044ff088ac0745db437764b3b6c1a2a69d41ebc7edc15176befecd6aed99cd";
-  const ARM64 = "a38a1d5307b7b6eab45fc20b49847bf2dae098f69198606585ca9ea59a7e6b29";
-  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0";
+  const X64 = "756021355332841537aad2ec102b1b9703950c9f90504c3b082b3b18e8af4fbb";
+  const ARM64 = "2a74586ca8cb215180a56b4d0b89478b2479a02b0f4b01163ba46d0b0a3afecc";
+  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1";
   const hostIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "cmux-browser-host");
 
   test("pinned for both arches by release URL, sha256, size and SHA256SUMS; first use, role browser; notices ship with the binary", () => {
     const host = lock.programs.find((p) => p.name === "cmux-browser-host")!;
     expect(host).toMatchObject({
-      version: "1.0.0",
-      url: `${base}/cmux-browser-host-1.0.0-x86_64-unknown-linux-gnu.tar.gz`,
+      version: "1.0.0-r1",
+      url: `${base}/cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz`,
       sha256: X64,
-      size: 2474402,
+      size: 2474679,
       format: "tar.gz",
       bin: { "cmux-browser-host": "bin/cmux-browser-host" },
       versionArgs: ["version"],
-      expect: "cmux-browser-host 1.0.0 (715b953ad21fc4cbe65bed029ad704097e951c43)",
+      expect: "cmux-browser-host 1.0.0 (4cf5c4ccc7c5c93bf90ebdb910b31b90f075ac72)",
       checksumsUrl: `${base}/SHA256SUMS`,
-      checksumsName: "./cmux-browser-host-1.0.0-x86_64-unknown-linux-gnu.tar.gz",
+      checksumsName: "./cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
       roles: ["browser"],
       firstUse: true,
       notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
-      otherArches: { aarch64: { url: `${base}/cmux-browser-host-1.0.0-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2286360, checksumsName: "./cmux-browser-host-1.0.0-aarch64-unknown-linux-gnu.tar.gz" } },
+      otherArches: { aarch64: { url: `${base}/cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2286591, checksumsName: "./cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz" } },
     });
   });
 
@@ -415,7 +415,7 @@ describe("cmux-browser-host 1.0.0 in the browser role (release cmux-browser-host
 
   test("roles.json lists the host with its other arch for aarch64 hosts", () => {
     const host = rolesManifest(lock).roles.browser.programs.find((p) => p.name === "cmux-browser-host")!;
-    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2286360 } } });
+    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2286591 } } });
     expect(rolesManifest(lock).roles.browser.programs.map((p) => p.name).sort()).toEqual(["chrome-for-testing", "cmux-browser-host"]);
   });
 

@@ -48,7 +48,7 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarnessProbe.install(updater: self)
         #endif
     }

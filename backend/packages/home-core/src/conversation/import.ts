@@ -145,6 +145,7 @@ const searchItems = (before: ConversationHead | null, head: ConversationHead, me
 const fillChief = (state: ConversationHead | null, source: ImportSource | null, params: Params, ctx: ReduceContext, actor: string, now: string): Result => {
   if (!state) return refuse("unknown_conversation")
   const me = findParticipant(state, actor)
+  if (!me) return refuse("unknown_conversation")
   if (state.kind !== "chief" || me?.kind !== "human" || me.role !== "owner" || me.left_at !== undefined) return refuse("forbidden")
   if (!source) return bad()
   if (state.import) {
@@ -171,7 +172,8 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
   const now = formatRfc3339Millis(ctx.now)
   try {
     if (op === "conversation.import.commit") {
-      if (!state || state.import?.by !== actor) return refuse(state ? "forbidden" : "unknown_conversation")
+      // A caller who never belonged gets the answer of an id that does not exist (tenant-isolation-DESIGN.md 5.1).
+      if (!state || state.import?.by !== actor) return refuse(state && findParticipant(state, actor) ? "forbidden" : "unknown_conversation")
       if (state.state !== "importing") return { ok: true, state, value: { conversation: summary(state, null) }, changed: false }
       if (params.last_seq !== state.last_seq) return refuse("import_out_of_order")
       const cursors = Object.fromEntries(Object.entries(state.read_cursors).map(([p, seq]) => [p, Math.min(seq, state.last_seq)]))

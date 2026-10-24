@@ -58,6 +58,10 @@ pub async fn spawn_within(
     if let Some(dir) = std::env::var_os(super::host::HELLO_STALL_DIR_ENV) {
         cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
     }
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
+        cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
@@ -73,8 +77,15 @@ pub async fn spawn_within(
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
+    // The host moves into its own scope before the spec: it starts its
+    // harness only once it has it, so the harness starts there too
+    // (`scope.rs`).
+    let pid = child.id();
     // A host that never reports ready must not hold the session's spawn.
     let bootstrap = within("start", budget, async {
+        if let Some(pid) = pid {
+            super::scope::place(pid).await;
+        }
         write_frame(&mut stdin, spec).await?;
         read_frame::<_, BootstrapReply>(&mut stdout).await
     })

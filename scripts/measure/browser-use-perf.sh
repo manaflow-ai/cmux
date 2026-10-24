@@ -5,6 +5,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/browser-use-perf.sh \
 #     --ref SHA [--arg=runs=20] [--arg=cold=20] [--arg=youtube=10] [--arg=tools=cmux,...] \
 #     --artifact browser-use-perf.json --timeout 7200
+# build=only: only the release cmux-browser-host at this ref, returned as an artifact for a run on
+# another Mac (--class isolated --arg=build=only --artifact cmux-browser-host-release).
 # Builds cmux-browser-host at this ref (release, as the app bundles it), installs the competitors at pinned
 # versions under the step (tests/automation-bench/perf/setup.sh), and uses /Applications/Google Chrome.app
 # when present, else Chrome for Testing through playwright-core. Output: BROWSER-USE-PERF lines (one per
@@ -14,8 +16,10 @@ runs=20
 cold=20
 youtube=10
 tools="cmux,cmux-cli,cmux-tuned,browser-use,pwmcp,stagehand"
+build_only=false
 for arg in "$@"; do
   case "$arg" in
+    build=only) build_only=true ;;
     runs=*) runs="${arg#runs=}" ;;
     cold=*) cold="${arg#cold=}" ;;
     youtube=*) youtube="${arg#youtube=}" ;;
@@ -39,6 +43,13 @@ export CI=1
 git submodule update --init --depth 1 ghostty-next
 (cd cmux-tui && CARGO_TARGET_DIR="$work/target" cargo build --release --locked -p cmux-browser-host)
 cp "$work/target/release/cmux-browser-host" "$work/bin/cmux-browser-host"
+if [[ "$build_only" == true ]]; then
+  # The release host at this ref for a bench run elsewhere (cmux-ci artifact STEP OUTPUT);
+  # no Cargo on the developer Mac. Nothing is measured here.
+  cp "$work/bin/cmux-browser-host" "$root/cmux-browser-host-release"
+  echo "BROWSER-USE-PERF-BUILD $(shasum -a 256 "$root/cmux-browser-host-release" | awk '{print $1}')"
+  exit 0
+fi
 
 tests/automation-bench/perf/setup.sh "$work/deps"
 

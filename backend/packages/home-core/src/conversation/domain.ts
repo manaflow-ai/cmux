@@ -10,7 +10,7 @@ import { formatRfc3339Millis } from "./ids.ts"
 import { IMPORT_OPS, reduceImport } from "./import.ts"
 import { mentionsOf, type UnreadCounts } from "./fanout.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
-import { focusOf, isLarge, namedBy, needsPromotion, promote, settle, viewHead } from "./large.ts"
+import { focusOf, isLarge, namedBy, needsPromotion, promote, recordOf, settle, viewHead } from "./large.ts"
 import { closedGrant, closeLostGrants, grantExpired, TABLE_GRANT, TABLE_GRANTHASH } from "./grants.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
 import type { Commit, OpRequest } from "./request.ts"
@@ -275,6 +275,9 @@ const focusCounts = (before: ConversationHead, after: ConversationHead, request:
   return counts
 }
 
+/** Ops a person who is not (yet) a participant may send: an invite redeemed, a delivery report or rename from the system, a request dismissed, the retention sweep. */
+const STRANGER_OPS: ReadonlySet<string> = new Set(["invite.accept", "invite.accept_verified", "invite.delivery.report", "chief.rename", "request.dismiss", SWEEP_OP])
+
 const reduceConversation = (
   options: ConversationDomainOptions,
   state: ConversationState,
@@ -287,6 +290,9 @@ const reduceConversation = (
   if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (!state) return refuse("unknown_conversation")
+  // A caller who never belonged learns nothing: the answer of an id that does not exist (tenant-isolation-DESIGN.md 5.1).
+  // Someone who left keeps `not_participant`; the ops below are the ones a stranger may legitimately send.
+  if (!recordOf(state, rowsOf(ctx), actor) && !STRANGER_OPS.has(op)) return refuse("unknown_conversation")
   // Inside the wrapped reduce: a retention batch that deletes msgkey rows leaves the DM's consent markers (consent.ts).
   if (op === SWEEP_OP) return reduceSweep(state, ctx, actor)
   const prepared = prepare(state, op, params, ctx, actor, options)

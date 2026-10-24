@@ -77,6 +77,33 @@ import Testing
         #expect(gesture.phase == .declined)
     }
 
+    /// The layout took the gesture (Command at the touch, released before it began: the layout
+    /// owns it, the modifier keys say nothing). Even at the scroll edge, ready to track, it never
+    /// becomes a swipe, so `trackSwipeEvent` never eats the layout's events and its end
+    /// (review 1 of pl-scroll). The next gesture swipes again.
+    @Test func aGestureTheLayoutTookNeverSwipes() {
+        var (gesture, _) = gesture(dx: 3)
+        gesture.probeAnswered(Self.atEdges, generation: gesture.generation)
+        #expect(gesture.phase == .ready(.back))
+        #expect(gesture.scroll(.changed, deltaX: 3, deltaY: 0, takenByLayout: true) == .none)
+        #expect(gesture.phase == .declined)
+        #expect(gesture.scroll(.changed, deltaX: 3, deltaY: 0) == .none, "declined until the gesture ends")
+        _ = gesture.scroll(.ended, deltaX: 0, deltaY: 0)
+        #expect(gesture.scroll(.began, deltaX: 0, deltaY: 0) == .probe)
+        gesture.probeAnswered(Self.atEdges, generation: gesture.generation)
+        for _ in 0..<2 { _ = gesture.scroll(.changed, deltaX: 4, deltaY: 0) }
+        gesture.probeAnswered(Self.atEdges, generation: gesture.generation)
+        #expect(gesture.scroll(.changed, deltaX: 3, deltaY: 0) == .track(.back))
+    }
+
+    @Test func aGestureTheLayoutTakesBeforeItMovesNeverProbesAgain() {
+        var gesture = BrowserSwipeGesture()
+        #expect(gesture.scroll(.began, deltaX: 0, deltaY: 0, takenByLayout: true) == .probe,
+                "a began is not asked: the layout's monitor may not have seen it yet")
+        for _ in 0..<4 { #expect(gesture.scroll(.changed, deltaX: 4, deltaY: 0, takenByLayout: true) == .none) }
+        #expect(gesture.phase == .declined)
+    }
+
     @Test func aLateAnswerOfAnEarlierGestureIsIgnored() {
         var (gesture, _) = gesture(dx: 3)
         let stale = gesture.generation

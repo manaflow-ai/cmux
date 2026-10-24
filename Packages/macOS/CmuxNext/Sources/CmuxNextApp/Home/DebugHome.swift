@@ -53,9 +53,9 @@ enum DebugHome {
             "workspace": workspace.map { .string($0.id) } ?? .null,
             "kind": workspace?.kind.map(CmuxNextSettings.JSONValue.string) ?? .null,
             "tab_kinds": .array(tabs.map { .string(String(describing: $0.kind)) }),
-            "workspace_kind": .bool(local.supports(DaemonCapabilities.workspaceKind)),
-            "conversation_tabs": .bool(local.supports(DaemonCapabilities.conversationTabs)),
-            "local_conversations": .bool(home.chief.supports(DaemonCapabilities.localConversations)),
+            "workspace_kind": .bool(local.supports(DaemonCapability.workspaceKind.rawValue)),
+            "conversation_tabs": .bool(local.supports(DaemonCapability.conversationTabs.rawValue)),
+            "local_conversations": .bool(home.chief.supports(DaemonCapability.localConversations.rawValue)),
         ])
         let chief = home.chief
         let owner: CmuxNextSettings.JSONValue = .object([

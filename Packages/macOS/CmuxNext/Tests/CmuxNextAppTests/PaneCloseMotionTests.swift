@@ -197,20 +197,16 @@ struct PaneCloseMotionTests {
 
     // MARK: Terminals
 
-    /// The neighbours' grids wait while they spring into the closed pane's space and go at rest.
-    @Test func aCloseHoldsTheTerminalGridsUntilItsPanesLand() throws {
+    /// The neighbours' terminals resize at the start of the close (Lawrence 2026-10-23): no grid is held while
+    /// they spring into the closed pane's space.
+    @Test func aCloseHoldsNoTerminalGrid() throws {
         let screen = Screen(.splits(Self.row))
         _ = try #require(screen.close("p2"))
-        #expect(screen.root.holdsTerminalGrids, "the close's first frame does not hold the grids")
-        var heldFrames = 0
         for _ in 1...240 {
-            let moving = screen.step()
-            if screen.root.holdsTerminalGrids { heldFrames += 1 }
-            if !moving { break }
+            #expect(!screen.root.holdsTerminalGrids, "the close holds the grids")
+            if !screen.step() { break }
         }
-        #expect(!screen.root.holdsTerminalGrids, "the grids are still held at rest")
-        #expect(heldFrames > 5, "the grids were held for \(heldFrames) frames only")
-        #expect(screen.holds == [true, false], "hold changes: \(screen.holds)")
+        #expect(screen.holds.isEmpty, "hold changes: \(screen.holds)")
     }
 
     /// While held, a terminal's PTY gets nothing; once let go, its newest grid goes once.

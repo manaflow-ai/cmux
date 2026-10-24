@@ -123,7 +123,7 @@ final class ScreenBarController {
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
             // A daemon without move-screen keeps the daemon's order.
-            guard daemon.supports(DaemonCapabilities.screenMetadata), let screen = screen(id) else {
+            guard daemon.supports(DaemonCapability.screenMetadata.rawValue), let screen = screen(id) else {
                 return view.discardPendingReorder()
             }
             ScreenCommands.move(screen, to: to, daemon: daemon)
@@ -131,11 +131,11 @@ final class ScreenBarController {
             ScreenCommands.create(in: workspace, daemon: daemon, content: content)
         case .pin(let id), .unpin(let id):
             let pin = if case .pin = intent { true } else { false }
-            if let screen = screen(id) { ScreenCommands.setPinned(screen, pin, daemon: daemon) }
+            if let screen = screen(id) { services.registry.settle(ScreenCommands.setPinned(screen, pin, daemon: daemon), of: "screen.togglePin", ActionInvocation()) }
         case .rename(let id):
             view.beginInlineRename(id)
         case .renameCommitted(let id, let name):
-            if let screen = screen(id) { ScreenCommands.rename(screen, to: name, daemon: daemon) }
+            if let screen = screen(id) { services.registry.settle(ScreenCommands.rename(screen, to: name, daemon: daemon), of: "screen.rename", ActionInvocation()) }
         case .duplicate(let id):
             if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):

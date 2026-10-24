@@ -149,6 +149,25 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
+    public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
+    #endif
+
+    /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
+    /// spare costs). The next take-free idle moment does not make another; a warm start or a
+    /// take does.
+    public func dropSpareWindow() {
+        CEFSpareWindow.shared.drop(runtime: .shared)
+    }
+
+    /// Runs when no spare Chromium window is ready (a pane took it, or a tab's own window came
+    /// up first), so the caller can make one at an idle moment (`prepareSpareWindow`). Nil: none.
+    public var onSpareWindowNeeded: (@MainActor () -> Void)? {
+        get { CEFSpareWindow.shared.onNeeded }
+        set { CEFSpareWindow.shared.onNeeded = newValue }
+    }
+
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {
@@ -190,12 +209,11 @@ public final class CEFEngine: BrowserEngine {
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
     public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
-    /// The extensions of `profile`, once Chromium runs (nil before).
+    /// The extensions of `profile`, once Chromium runs (nil before). Filled once; Chromium's events
+    /// keep it current, so a read costs no Chromium call (``CEFExtensionStores/readyStore(for:)``).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
         guard isRunning else { return nil }
-        let store = CEFRuntime.shared.extensionStores.store(for: profile)
-        store.refresh()
-        return store
+        return CEFRuntime.shared.extensionStores.readyStore(for: profile)
     }
 
     /// Sets `profile`'s proxy (nil: direct, #24432). A page made later uses it from its

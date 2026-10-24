@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// A two-finger horizontal swipe over a Chromium page goes Back or Forward, as in Safari and
 /// Chrome (plans/cmux-next/history.md 4.2). A local monitor sees each scroll event before
@@ -11,7 +12,11 @@ import AppKit
 ///
 /// It runs only while the system's "Swipe between pages" is on
 /// (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`) and Debug Settings
-/// `browser.swipeNavigation` is on (the default).
+/// `browser.swipeNavigation` is on (the default). A gesture the layout took (Command + scroll
+/// moves the columns and rows, decided once at the gesture's first event) is never a swipe: the
+/// page's host view asks the layout around it (`isScrollGestureTakenByEnclosingView`, the one
+/// owner decision) instead of testing the modifier keys here. A gesture the layout passes to the
+/// page swipes like any other, as a WebKit page does with the same gesture.
 @MainActor
 final class CEFSwipeNavigation {
     private weak var runtime: CEFRuntime?
@@ -57,7 +62,9 @@ final class CEFSwipeNavigation {
         } else if tab == nil {
             return event
         }
-        switch gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY) {
+        // Asked on moving events only (`BrowserSwipeGesture.scroll`): a superview walk, no allocation.
+        let takenByLayout = phase == .changed && hostView?.isScrollGestureTakenByEnclosingView == true
+        switch gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, takenByLayout: takenByLayout) {
         case .none:
             return event
         case .probe:

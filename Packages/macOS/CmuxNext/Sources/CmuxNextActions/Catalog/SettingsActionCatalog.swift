@@ -450,6 +450,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
+            // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.actionLatencyHUD",
+                title: String(localized: "action.debug.actionLatencyHUD", defaultValue: "Toggle Action Latency HUD", bundle: .module),
+                keywords: ["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "appearance.customize",
                 title: String(localized: "action.appearance.customize", defaultValue: "Customize Appearance…", bundle: .module),

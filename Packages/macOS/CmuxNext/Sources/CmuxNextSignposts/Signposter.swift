@@ -124,6 +124,24 @@ public nonisolated struct Signposter: Sendable {
         }
     }
 
+    /// ``end(_:_:_:)`` with a public end message (fields known only after the begin, such as who took an
+    /// input event): `message` on a committed end, `commit=missed <message>` on a missed one.
+    ///
+    /// - Parameters:
+    ///   - name: The name the interval began with.
+    ///   - interval: The state ``begin(_:_:)`` returned.
+    ///   - outcome: How the ``CommitBoundary`` fired.
+    ///   - message: Public text (ids and kinds, never user content).
+    public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome, message: String) {
+        switch outcome {
+        case .committed:
+            signposter.endInterval(name.staticName, interval.state, "\(message, privacy: .public)")
+            if let id = interval.metricKitID { mirror.end(name, id: id) }
+        case .missed:
+            signposter.endInterval(name.staticName, interval.state, "commit=missed \(message, privacy: .public)")
+        }
+    }
+
     /// Ends an interval whose synchronous work ran a nested run loop that waited for the person
     /// (an `NSMenu` pop-up, a modal panel): the end carries `loop=nested`, so readers keep it out
     /// of latency rows instead of counting the person's dwell time. Like a missed commit, it is not
@@ -153,5 +171,18 @@ public nonisolated struct Signposter: Sendable {
     /// Records a point event named `name`.
     public func event(_ name: SignpostName, _ message: String = "") {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
+    }
+
+    /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
+    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`).
+    ///
+    /// - Parameters:
+    ///   - hop: The hop's name (`app.key.dispatch`, `app.io_write`, ...).
+    ///   - flow: The key press's flow id.
+    ///   - ageMicroseconds: The key event's age at this hop, or -1.
+    public func flowHop(_ hop: String, flow: UInt64, ageMicroseconds: Int64 = -1) {
+        assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
+        signposter.emitEvent(SignpostName.keyFlow.staticName,
+                             "hop=\(hop, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
     }
 }

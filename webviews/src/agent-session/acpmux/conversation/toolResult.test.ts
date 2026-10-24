@@ -285,12 +285,10 @@ test("an envelope whose images cannot all go to the strip keeps every one as JSO
   }
 });
 
-test("only a plain envelope, as it came, gives its images to the strip", () => {
+test("host context and unsafe numbers keep their images in the text", () => {
   const plain = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
   const outputs = [
-    // Inside a JSON-RPC result, inside text, after a host's context, or holding a number a double changes.
-    JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "Shot" }, shot(0)] } }),
-    JSON.stringify([{ type: "text", text: plain }]),
+    // After a host's context, or holding a number a double changes.
     `${plain}\n<system-reminder>internal</system-reminder>`,
     JSON.stringify({ content: [{ type: "text", text: "Shot" }, shot(0)], _meta: { n: 1 } }).replace(
       '"n":1',
@@ -308,15 +306,82 @@ test("only a plain envelope, as it came, gives its images to the strip", () => {
   }
 });
 
+test("nested, JSON-RPC, and Codex envelopes give their images to the strip", () => {
+  const inner = JSON.stringify([{ type: "text", text: "Nested shot" }, shot(0)]);
+  const outputs = [
+    JSON.stringify({ jsonrpc: "2.0", id: 1, result: JSON.parse(inner) }),
+    JSON.stringify({ jsonrpc: "2.0", id: 1, result: inner }),
+    JSON.stringify({ output: inner, metadata: { exit_code: 0 } }),
+    JSON.stringify([{ type: "text", text: inner }]),
+  ];
+  for (const output of outputs) expect(shown(output)).toEqual({ row: "Nested shot", strip: [url(0)] });
+  const withStructured = JSON.stringify({
+    content: [{ type: "text", text: inner }],
+    structuredContent: { ok: true },
+  });
+  expect(shown(withStructured)).toEqual({ row: 'Nested shot\n\n{\n  "ok": true\n}', strip: [url(0)] });
+});
+
+test("nested images share the duplicate and all-or-nothing cap", () => {
+  const inner = JSON.stringify([{ type: "text", text: "Nested shots" }, shot(0), shot(1), shot(2), shot(3)]);
+  const four = JSON.stringify([{ type: "text", text: inner }, shot(3)]);
+  expect(shown(four)).toEqual({ row: "Nested shots", strip: [url(0), url(1), url(2), url(3)] });
+  const five = JSON.stringify([{ type: "text", text: inner }, shot(4)]);
+  expect(envelopeImages(five)).toEqual([]);
+  expect(toolImages(call(five))).toEqual([]);
+  expect(toolResult(five, cleanText, true).text).toContain(`${PNG}4`);
+});
+
+test("nested image strip order follows the envelope block order", () => {
+  const inner = JSON.stringify([{ type: "text", text: "Inner" }, shot(1)]);
+  const outerFirst = JSON.stringify([
+    { type: "image", data: `${PNG}0`, mimeType: "image/png" },
+    { type: "text", text: inner },
+  ]);
+  const textFirst = JSON.stringify([
+    { type: "text", text: inner },
+    { type: "image", data: `${PNG}0`, mimeType: "image/png" },
+  ]);
+  expect(envelopeImages(outerFirst)).toEqual([url(0), url(1)]);
+  expect(envelopeImages(textFirst)).toEqual([url(1), url(0)]);
+});
+
+test("Unicode-escaped image metadata still reaches the strip", () => {
+  const output = '[{"\\u0074ype":"\\u0069mage","data":"' + PNG + '0","mimeType":"\\u0069mage/\\u0070ng"}]';
+  expect(output).not.toContain("image");
+  expect(envelopeImages(output)).toEqual([url(0)]);
+  expect(toolImages(call(output))).toEqual([url(0)]);
+  expect(toolResult(output, cleanText, true).text).toBe("");
+});
+
+test("a JSON-RPC error leaves an image in its result data", () => {
+  const output = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    error: { code: -32000, message: "Failed", data: { result: [{ type: "image", data: PNG, mimeType: "image/png" }] } },
+    result: { content: [{ type: "image", data: `${PNG}result`, mimeType: "image/png" }] },
+  });
+  expect(envelopeImages(output)).toEqual([]);
+  expect(toolResult(output, cleanText, true).text).toContain(PNG);
+});
+
 test("a running call or a shell keeps its envelope's images in its text", () => {
   const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
   const shell = { ...call(output), kind: "execute", command: "cat shot.json" };
-  for (const tool of [call(output, "in_progress"), call(output, "pending"), shell]) {
+  for (const tool of [shell]) {
     expect(stripsEnvelopeImages(tool)).toBe(false);
     expect(toolImages(tool)).toEqual([]);
   }
   expect(stripsEnvelopeImages(call(output, "failed"))).toBe(true);
   expect(imageJSON(toolResult(output, cleanText).text)).toBe(1);
+});
+
+test("a running call shows its envelope images in the strip", () => {
+  const output = JSON.stringify([{ type: "text", text: "Still running" }, shot(0)]);
+  const running = call(output, "in_progress");
+  expect(stripsEnvelopeImages(running)).toBe(true);
+  expect(toolImages(running)).toEqual([url(0)]);
+  expect(toolResult(output, cleanText, true).text).toBe("Still running");
 });
 
 test("the strip shows an envelope's images, then the call's own as before, each once", () => {
@@ -326,7 +391,7 @@ test("the strip shows an envelope's images, then the call's own as before, each 
   expect(images).toEqual([...[0, 1, 2, 3].map(url), own]);
 });
 
-test("Find in Chat reads a finished call's text without the images in its strip", () => {
+test("Find in Chat reads a call's text without the images in its strip", () => {
   const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
   const row = (tool: ReturnType<typeof call> & { kind?: string }): AcpmuxRow => ({
     id: "work",
@@ -338,6 +403,6 @@ test("Find in Chat reads a finished call's text without the images in its strip"
   });
   for (const title of ["Lookup", "mcp__shots__take"]) {
     expect(findMatches([row({ ...call(output), title })], "iVBORw0KGgo")).toHaveLength(0);
-    expect(findMatches([row({ ...call(output, "in_progress"), title })], "iVBORw0KGgo").length).toBeGreaterThan(0);
+    expect(findMatches([row({ ...call(output, "in_progress"), title })], "iVBORw0KGgo")).toHaveLength(0);
   }
 });

@@ -15,7 +15,7 @@
     },
     "session": {
       "required": true,
-      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,200}$",
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._:-]{1,256}$",
       "comment": "The harness's own session id."
     },
     "machine": {

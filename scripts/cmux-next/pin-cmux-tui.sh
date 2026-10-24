@@ -112,7 +112,9 @@
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
 #          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
-#          paths, skips a commit whose copy of any of them differs from the tip's)
+#          paths, skips a commit whose copy of any of them differs from the tip's;
+#          CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 skips a commit other than the tip
+#          whose feat-cmux-next push has no green "cmux-next Release compile (Xcode 26)")
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
 #        | fallback-key (fleet suites: when HEAD has the tree of its base,
 #          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
@@ -1219,6 +1221,39 @@ resolve_exact_tree() {
   fi
 }
 
+# release_compile_green <sha>: exit 0 when a cmux-next.yml push run on
+# feat-cmux-next at <sha> has a completed, successful "cmux-next Release
+# compile (Xcode 26)" job (the rule of admitted() in
+# scripts/ci/promote-nightly-next.mjs), 1 when none has, 2 when GitHub could
+# not be read. Prints nothing.
+release_compile_green() {
+  local sha="$1" runs run_id page jobs found=1
+  runs="$(github_api GET "actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&head_sha=$sha&per_page=20" 2>/dev/null)" || return 2
+  while read -r run_id; do
+    [[ "$run_id" =~ ^[0-9]+$ ]] || continue
+    for page in 1 2 3; do
+      jobs="$(github_api GET "actions/runs/$run_id/jobs?filter=latest&per_page=100&page=$page" 2>/dev/null)" || return 2
+      found="$(python3 -c '
+import json, sys
+jobs = json.loads(sys.stdin.read()).get("jobs") or []
+green = any(j.get("name") == "cmux-next Release compile (Xcode 26)" and j.get("status") == "completed"
+            and j.get("conclusion") == "success" for j in jobs)
+print("green" if green else ("more" if len(jobs) >= 100 else "none"))
+' <<<"$jobs" 2>/dev/null)" || return 2
+      [[ "$found" == green ]] && return 0
+      [[ "$found" == more ]] || break
+    done
+  done < <(python3 -c '
+import json, sys
+sha = sys.argv[1]
+for run in json.loads(sys.stdin.read()).get("workflow_runs") or []:
+    if (run.get("head_sha") == sha and run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push"
+            and run.get("path") == ".github/workflows/cmux-next.yml"):
+        print(run["id"])
+' "$sha" <<<"$runs" 2>/dev/null)
+  return 1
+}
+
 # The nightly's resolver: the newest commit within the last
 # CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
 # published and whose publishing commit's attested manifest carries the same
@@ -1230,8 +1265,14 @@ resolve_exact_tree() {
 # to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and
 # daemon come from one commit. A tree more than CMUX_TUI_TREE_MAX_AGE_HOURS
 # (default 24) behind the tip, or none in the window, fails: never ship stale.
+# With CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 (the nightly) a commit other than
+# the tip also needs a green Release compile (release_compile_green): nightly-next
+# run 40070613185 fell back from dfe61743 32 commits to dee35e3f, whose app did
+# not compile in Release. An older commit with the same published tree can
+# still qualify. Every skipped commit and its reason is listed on a miss.
 resolve_newest_published_tree() {
-  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 distinct=0
+  local bad_keys=" " good_keys=" " skips="" gate_rc
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
@@ -1273,6 +1314,7 @@ resolve_newest_published_tree() {
     (( behind_hours < 0 )) && behind_hours=0
     if (( tip_time - rev_time > max_age * 3600 )); then
       echo "error: no published cmux-tui tree within ${max_age} h of the tip ${tip:0:12}: the newest candidate left, ${rev:0:12}, is ${behind_hours} h behind the tip (bound ${max_age} h, ${behind} commits). The nightly does not ship a stale build; publish a newer cmux-tui tree (pin-cmux-tui.sh --help)." >&2
+      [[ -z "$skips" ]] || printf 'skipped commits, newest first:\n%s' "$skips" >&2
       exit 1
     fi
     skewed=""
@@ -1283,27 +1325,52 @@ resolve_newest_published_tree() {
     done
     if [[ -n "$skewed" ]]; then
       echo "commit ${rev:0:12}: $skewed differs from the tip ${tip:0:12}; the tip's workflow cannot build it, skipping" >&2
+      skips+="  ${rev:0:12}: $skewed differs from the tip"$'\n'
       skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
-    key="$(tree_key "$rev" 2>/dev/null)" || { behind=$((behind + 1)); continue; }
-    if [[ "$seen" == *" $key "* ]]; then behind=$((behind + 1)); continue; fi
-    seen+="$key "; distinct=$((distinct + 1))
-    if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256" "$temp_dir/sha256" 2>/dev/null; then
-      echo "tree $key (${rev:0:12}): not published" >&2; behind=$((behind + 1)); continue
+    key="$(tree_key "$rev" 2>/dev/null)" || { skips+="  ${rev:0:12}: no tree key"$'\n'; behind=$((behind + 1)); continue; }
+    if [[ "$bad_keys" == *" $key "* ]]; then
+      skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
     fi
-    published_sha="$(awk 'NR==1{print $1}' "$temp_dir/sha256")"
-    commit=""
-    if [[ "$published_sha" =~ ^[0-9a-f]{64}$ ]] \
-      && download "$BASE/tree/$key/source.json" "$temp_dir/source.json" 2>/dev/null; then
-      commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+    # A verified tree is checked once; a newer commit with it may be skipped
+    # for its Release compile while an older one qualifies.
+    commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
+    if [[ -z "$commit" ]]; then
+      distinct=$((distinct + 1))
+      if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256" "$temp_dir/sha256" 2>/dev/null; then
+        echo "tree $key (${rev:0:12}): not published" >&2
+        skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
+        bad_keys+="$key "; behind=$((behind + 1)); continue
+      fi
+      published_sha="$(awk 'NR==1{print $1}' "$temp_dir/sha256")"
+      commit=""
+      if [[ "$published_sha" =~ ^[0-9a-f]{64}$ ]] \
+        && download "$BASE/tree/$key/source.json" "$temp_dir/source.json" 2>/dev/null; then
+        commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+      fi
+      manifest_sha=""
+      if [[ "$commit" =~ ^[0-9a-f]{40}$ ]] && download "$BASE/$commit/manifest.json" "$temp_dir/manifest.json" 2>/dev/null; then
+        manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$temp_dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
+      fi
+      if [[ -z "$manifest_sha" || "$manifest_sha" != "$published_sha" ]]; then
+        echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${commit:0:12} does not carry its sha256 ${published_sha:0:12} (manifest: ${manifest_sha:-none}); skipping" >&2
+        skips+="  ${rev:0:12}: tree ${key:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
+        bad_keys+="$key "; behind=$((behind + 1)); continue
+      fi
+      good_keys+="$key=$commit "
     fi
-    manifest_sha=""
-    if [[ "$commit" =~ ^[0-9a-f]{40}$ ]] && download "$BASE/$commit/manifest.json" "$temp_dir/manifest.json" 2>/dev/null; then
-      manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$temp_dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
-    fi
-    if [[ -z "$manifest_sha" || "$manifest_sha" != "$published_sha" ]]; then
-      echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${commit:0:12} does not carry its sha256 ${published_sha:0:12} (manifest: ${manifest_sha:-none}); skipping" >&2
-      behind=$((behind + 1)); continue
+    if [[ "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" == 1 && "$rev" != "$tip" ]]; then
+      gate_rc=0; release_compile_green "$rev" || gate_rc=$?
+      if (( gate_rc != 0 )); then
+        if (( gate_rc == 2 )); then
+          echo "commit ${rev:0:12}: its Release compile could not be read from GitHub; skipping" >&2
+          skips+="  ${rev:0:12}: Release compile unreadable (GitHub API)"$'\n'
+        else
+          echo "commit ${rev:0:12}: tree $key is published, but its feat-cmux-next push has no green \"cmux-next Release compile (Xcode 26)\"; skipping" >&2
+          skips+="  ${rev:0:12}: Release compile not green"$'\n'
+        fi
+        behind=$((behind + 1)); continue
+      fi
     fi
     echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
     printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"
@@ -1317,7 +1384,8 @@ resolve_newest_published_tree() {
     fi
     return 0
   done < <(git rev-list --date-order --max-count="$limit" HEAD)
-  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
+  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:+ and a green Release compile}. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
+  [[ -z "$skips" ]] || printf 'skipped commits, newest first:\n%s' "$skips" >&2
   exit 1
 }
 

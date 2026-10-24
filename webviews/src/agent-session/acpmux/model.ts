@@ -473,7 +473,9 @@ export type QueueEdit =
   | { op: "send_now" }
   | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
-  | { op: "resume" };
+  | { op: "resume" }
+  /** Takes back a steer the agent has not read yet (the X beside it); false once it was read. */
+  | { op: "withdraw" };
 
 /// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
 export type AcpmuxContextBreakdown = {
@@ -949,8 +951,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(META_ROW + TURN_GAP);
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(35);
-  // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
-  if (row.kind === ACTIVITY_LINE) return finish(36);
+  // The activity line under a plan is the live footer. It reserves the finished footer's 24px
+  // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
+  if (row.kind === ACTIVITY_LINE) return row.below ? finish(META_ROW + TURN_GAP) : finish(36);
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(36);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
@@ -1016,10 +1019,34 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
     .join("");
 }
 
-function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
+/// The prepared text cache is per row, so its key is the text revision (and the font that measured
+/// it). Keep enough entries for the current blocks plus a bounded tail of older streaming revisions.
+const PREPARED_CACHE_MIN = 64;
+const PREPARED_CACHE_PER_BLOCK = 4;
+
+function trimPreparedCache(
+  prepared: Map<string, PreparedText | null>,
+  blockCount: number,
+  used: ReadonlySet<string>,
+): void {
+  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount, used.size);
+  if (prepared.size <= limit) return;
+  for (const key of prepared.keys()) {
+    if (prepared.size <= limit) break;
+    if (!used.has(key)) prepared.delete(key);
+  }
+}
+
+function textHeight(
+  text: string,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+  used?: Set<string>,
+): number {
   const { measureFont, lineHeight } = metrics();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
+  used?.add(key);
   let measured = prepared.get(key);
   if (measured === undefined) {
     try {
@@ -1027,8 +1054,11 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
     } catch {
       measured = null;
     }
-    prepared.set(key, measured);
   }
+  // Refresh the entry's recency on every hit. This keeps the live block revisions in the cache while
+  // allowing older streaming tails to be evicted by trimPreparedCache.
+  prepared.delete(key);
+  prepared.set(key, measured);
   if (measured) return layout(measured, width, lineHeight).height;
   const perLine = Math.max(24, Math.floor(width / FALLBACK_CHAR_WIDTH));
   return (
@@ -1037,7 +1067,12 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
 }
 
 /// Each item's text at the list's indent, then any list nested in it a further indent in.
-function listHeight(list: Tokens.List, width: number, prepared: Map<string, PreparedText | null>): number {
+function listHeight(
+  list: Tokens.List,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+  used?: Set<string>,
+): number {
   const inner = width - LIST_INDENT;
   return list.items.reduce((sum, item) => {
     const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
@@ -1046,27 +1081,33 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
       nested.length ? "" : item.text,
     );
     // An empty item (or one still streaming in) still draws its bullet's line.
-    const own = text ? textHeight(text, inner, prepared) : 0;
+    const own = text ? textHeight(text, inner, prepared, used) : 0;
     return (
       sum +
       Math.max(
         metrics().lineHeight,
-        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared), 0),
+        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
       )
     );
   }, 0);
 }
 
-function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
+function blockHeight(
+  block: Token,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+  used?: Set<string>,
+): number {
   switch (block.type) {
     // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared);
+      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared, used);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
         Math.min(width, chatColumn().prose) - QUOTE_INDENT,
         prepared,
+        used,
       );
     case "hr":
       return 2;
@@ -1085,10 +1126,11 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
         Math.min(width, chatColumn().prose),
         prepared,
+        used,
       );
     // Anything else is estimated as its source; the drawn height replaces it once mounted.
     default:
-      return textHeight(block.raw, width, prepared);
+      return textHeight(block.raw, width, prepared, used);
   }
 }
 
@@ -1135,6 +1177,8 @@ function measuredRowHeight(
   if (row.received) return finish(26 + MESSAGE_GAP);
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
+  // The live activity line under a plan has a label, but its row still reserves the footer slot.
+  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
   // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
   // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
   // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
@@ -1164,10 +1208,9 @@ function measuredRowHeight(
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
-    // A streaming row prepares a new last block on every version; keep the cache bounded.
-    if (entry.prepared.size > 64) entry.prepared.clear();
   }
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  const usedPrepared = new Set<string>();
   let contentHeight: number;
   if (pasted) {
     // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
@@ -1178,12 +1221,16 @@ function measuredRowHeight(
       contentHeight +=
         part.kind === "paste"
           ? PASTE_CHIP_HEIGHT
-          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
   } else {
     if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
     contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
   }
+  // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
+  // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
+  // includes list items, whose text count can be much larger than the block count.
+  trimPreparedCache(entry.prepared, entry.blocks.length, usedPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))

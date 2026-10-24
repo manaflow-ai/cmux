@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextWakeups
 import os
 import CmuxNextCompat
 
@@ -70,20 +71,8 @@ nonisolated enum AcpmuxVersionHandoff {
 
     /// The bundled acpmux's build (`<executable> --version`).
     static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = environment.executable
-            process.arguments = ["--version"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return nil }
-            // concurrency-allow: a detached task off the main thread; `--version` prints one line and exits
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            // concurrency-allow: same detached task; the process has closed its output
-            process.waitUntilExit()
-            return build(fromVersion: String(decoding: data, as: UTF8.self))
-        }.value
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(environment.executable, ["--version"])) else { return nil }
+        return build(fromVersion: outcome.text)
     }
 
     /// Hands the daemon described by `status` off when it runs another build or

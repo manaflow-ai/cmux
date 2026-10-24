@@ -99,7 +99,8 @@ public final class RecoveryDraftStore {
 }
 
 /// The draft files, all IO off the main actor.
-package nonisolated enum RecoveryDraftFiles {
+package nonisolated struct RecoveryDraftFiles {
+    package nonisolated init() {}
     package static var defaultDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")

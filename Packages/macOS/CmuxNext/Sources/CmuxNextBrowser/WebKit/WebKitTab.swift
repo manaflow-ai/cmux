@@ -26,7 +26,11 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The web view's container (`WebKitPageContainer`): WebKit places an
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
-    @ObservationIgnored private let container: WebKitPageContainer
+    @ObservationIgnored let container: WebKitPageContainer
+    /// A woken tab's last frame over the page until it paints (`WebKitTab+WakeStandIn`).
+    @ObservationIgnored var standIn: NSView?
+    /// The stand-in's cap (`showStandIn`).
+    @ObservationIgnored var standInCap: DemandTimer?
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
@@ -105,6 +109,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitDesignModeHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
+        WebKitFirstPaintHandler.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
@@ -139,6 +144,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         // Whatever committed keeps the page area from now on, so WebKit draws
         // its background again even if no `didFail` follows the stop.
         pageDidFinish()
+        removeStandIn()
         apply(.stopped)
     }
 
@@ -255,6 +261,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        removeStandIn()
         faviconTask?.cancel()
         titleTimer.cancel()
         rateReshow?.cancel()

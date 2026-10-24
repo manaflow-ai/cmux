@@ -18,8 +18,17 @@ import { useFindReveal } from "./chatFind";
 import { Envelope, Spinner } from "./icons";
 import { SentActions } from "./MessageActions";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { Markdown } from "./Markdown";
 
-export function MessageCard({ item, message }: { item: AcpmuxActivity; message: AgentMessage }) {
+export function MessageCard({
+  item,
+  message,
+  messageAt,
+}: {
+  item: AcpmuxActivity;
+  message: AgentMessage;
+  messageAt?: number;
+}) {
   const t = useT();
   const tool = item.tool!;
   const names = useContext(AgentNamesContext);
@@ -57,7 +66,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         status ? <span className="cv-command__meta cv-agentmsg__status cv-message__status">{status}</span> : undefined
       }
       actions={message.text ? <SentActions text={message.text} /> : undefined}
-      body={<MessageText text={message.text || t("message.noText")} />}
+      body={<MessageText text={message.text || t("message.noText")} messageAt={messageAt} />}
     />
   );
 }
@@ -93,7 +102,7 @@ function deliveryWord(
 
 /// The opened message: its text, capped near eight lines, scrolling past them under a fade that
 /// lifts at the end.
-function MessageText({ text }: { text: string }) {
+function MessageText({ text, messageAt }: { text: string; messageAt?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
   const measure = () => {
@@ -112,7 +121,7 @@ function MessageText({ text }: { text: string }) {
   }, [text]);
   return (
     <div ref={ref} className={`cv-message__text${more ? " has-more" : ""}`} onScroll={measure}>
-      {text}
+      <Markdown messageAt={messageAt}>{text}</Markdown>
     </div>
   );
 }

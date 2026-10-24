@@ -93,6 +93,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.onTerminalGridHold = { [weak layoutView] held in
             if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
         }
+        // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
+        layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
         layoutView.linkDropHandler = { [weak self] url, target, perform in
             guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
@@ -202,7 +204,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
-        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.edgeDocks), rows: daemon.supports(DaemonCapabilities.rows)) || force else {
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapability.edgeDocks.rawValue), rows: daemon.supports(DaemonCapability.rows.rawValue)) || force else {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.

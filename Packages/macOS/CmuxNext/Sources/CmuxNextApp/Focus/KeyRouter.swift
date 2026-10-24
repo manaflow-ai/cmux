@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextFocusUI
+import CmuxNextCompat
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -40,22 +42,18 @@ final class KeyRouter: BrowserKeyRouting {
     /// A key that is not a Command or Control chord goes on to `window`'s
     /// focused view: the user types into that pane (notification dismissal).
     var onTyping: ((NSWindow?) -> Void)?
-    /// The key-down `debug.key` dispatches (``dispatchingSynthetic(_:_:)``),
-    /// which `NSApp.currentEvent` does not report.
-    var syntheticKeyEvent: NSEvent?
+    /// The input event being dispatched now (``InputDispatchContext``), `sendEvent`'s and this router's own.
+    let inputDispatch: InputDispatchContext
     /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
-    private var resignObserver: (any NSObjectProtocol)?
-    init(registry: ActionRegistry) {
+    /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
+    private var resignObserver: MainActorObservation?
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
         self.registry = registry
-        // Leaving the app ends a waiting chord (the overlay hides with it).
-        resignObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cancelChord() } // main-proof: observer on queue: .main
-        }
+        self.inputDispatch = inputDispatch
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
     }
     // MARK: Tiers
     /// Whether an action of `tier` may take a key from the current focus.
@@ -178,6 +176,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
+        // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
+        // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
+        if decided.contains(event) { return false }
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
@@ -262,7 +263,12 @@ final class KeyRouter: BrowserKeyRouting {
         case .consume:
             return true
         case .offerToPage(let candidate):
-            offerToPage(event, candidate: candidate, context: context, window: controller.state.id)
+            // The tab the page key goes to: only its report runs the action (focus can move before Chromium reports).
+            guard let tab = focusedBrowserTab(in: controller) else {
+                run(candidate, context: context, window: controller.state.id)
+                return true
+            }
+            offerToPage(event, candidate: candidate, context: context, window: controller.state.id, tab: ObjectIdentifier(tab))
             return false
         case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
@@ -282,8 +288,6 @@ final class KeyRouter: BrowserKeyRouting {
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {
         lastInterception = (candidate.id, window, true)
-        // A New Tab key predicts a browser tab: warm Chromium before its tab opens (ChromiumWarmup).
-        if candidate.id.rawValue.hasPrefix("newTab") { services?.chromiumWarmup.tabSignal(.newTabKey) }
         let ran: Bool
         switch candidate.source {
         case .registry(let argument):
@@ -409,16 +413,31 @@ final class KeyRouter: BrowserKeyRouting {
         switch step {
         case .pass:
             return nil
-        case .armed, .dismissed:
+        case .armed:
             return true
+        case .dismissed:
+            // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
+            // and Escape are consumed, as before.
+            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
             lastInterception = (id, controller.state.id, ran)
             return true
         case .mismatch:
+            // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
+            // armed chord prefix went to the page (or terminal) instead of closing the tab.
+            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
+    }
+
+    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
+    /// ``routeChord``): a Command or Control chord bound to a system or navigation action, other than the leader
+    /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
+    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
+        guard isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
+        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
     }
 }

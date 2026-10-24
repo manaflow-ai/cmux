@@ -867,12 +867,24 @@ pub fn scopes_of(header: &str) -> Vec<String> {
     s
 }
 
+/// `url` as a Markdown link named by its address without the scheme
+/// (`[github.com/login/device](https://github.com/login/device)`): a bare or
+/// bold URL does not open in every chat (Lawrence 2026-10-23).
+pub fn page_link(url: &str) -> String {
+    let name = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    format!("[{name}]({url})")
+}
+
 /// The message the Chief posts: the code (one tap copies it) and the page
-/// alone on its line (its link preview is the card).
+/// alone on its line, as a Markdown link (``page_link``).
 pub fn card(pack: &Pack, user_code: &str, uri: &str) -> String {
     format!(
-        "Sign in to {} for this Chief: copy the code `{user_code}`, open the page below and approve.\n{uri}",
-        pack.title
+        "Sign in to {} for this Chief: copy the code `{user_code}`, open the page below and approve.\n{}",
+        pack.title,
+        page_link(uri)
     )
 }
 
@@ -1237,7 +1249,8 @@ fn logout(home: &Path, pack: &Pack) -> Result<Value, String> {
                 ..
             }),
         ) => format!(
-            "Forgotten here; {fall}. The token still works until you revoke it at {url}{}.",
+            "Forgotten here; {fall}. The token still works until you revoke it at {}{}.",
+            page_link(url),
             revoke_name
                 .as_deref()
                 .map_or(String::new(), |n| format!(" (\"{n}\")"))
@@ -1249,7 +1262,10 @@ fn logout(home: &Path, pack: &Pack) -> Result<Value, String> {
                 ..
             }),
         ) => {
-            format!("Forgotten here; {fall}. Delete the token at {url} if nothing else uses it.")
+            format!(
+                "Forgotten here; {fall}. Delete the token at {} if nothing else uses it.",
+                page_link(url)
+            )
         }
         (Some(_), _) => format!("Forgotten here; {fall}."),
         (None, _) => match &pack.share {
@@ -1747,6 +1763,15 @@ mod tests {
         assert_eq!(env[2], ("GIT_CONFIG_VALUE_0".into(), String::new()));
         assert_eq!(env[4].1, "/h/optchat/bin/git-credential-chief-github");
         assert!(git_env(&[builtin("cmux").unwrap()], Path::new("/b")).is_empty());
+    }
+
+    #[test]
+    fn card_has_the_code_and_the_page_as_a_markdown_link_on_its_own_line() {
+        let c = card(&gh(), "ABCD-1234", "https://github.com/login/device");
+        assert!(c.contains("`ABCD-1234`"));
+        // A Markdown link with a short name (Lawrence 2026-10-23: a bare or bold URL did not open).
+        assert!(c.ends_with("\n[github.com/login/device](https://github.com/login/device)"));
+        assert_eq!(page_link("http://x.dev/a"), "[x.dev/a](http://x.dev/a)");
     }
 
     #[test]
