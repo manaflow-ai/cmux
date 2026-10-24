@@ -214,9 +214,18 @@ import UniformTypeIdentifiers
     /// environment and home directory, so every `AppServices` a test built read the developer's or
     /// the CI runner's Home cache and Home list. Only the real app process names the launch's Chief
     /// home (`AppEnvironment.launchChiefHome`, set in `main`); then the reads are that home's.
-    @Test func aServicesGraphBuiltOutsideTheLaunchReadsNoHomeFile() {
+    @Test func aServicesGraphBuiltOutsideTheLaunchReadsNoHomeFile() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         #expect(services.launchFiles.home == nil, "a graph built outside the launch read the real Chief home's Home files")
+
+        let root = FileManager.default.temporaryDirectory.appending(path: "launch-chief-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chief = ChiefHome(root: root, isolated: false, buildID: ChiefHome.nightlyBundleID)
+        var environment = AppEnvironment.current([:])
+        environment.launchChiefHome = chief
+        let reads = try #require(AppServices(environment: environment).launchFiles.home)
+        #expect(reads.cacheURL == HomeCache.standard(owner: chief.session).url)
+        #expect(reads.listURL == HomeSidebarLaunchCache.standard(owner: chief.session).url)
     }
 
     @Test func noRowMovesOrPopsInWhileTheLiveAnswersLand() throws {

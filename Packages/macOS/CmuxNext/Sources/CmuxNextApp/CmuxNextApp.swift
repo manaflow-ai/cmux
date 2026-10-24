@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -40,6 +41,7 @@ public struct CmuxNextApp {
         environment.marksRun = true
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
+        environment.launchChiefHome = ChiefHome.resolve(tag: environment.tag)
         // What the launch draws or keeps (the panes' last frames, the chats' drafts and composer states,
         // the Home caches) is read and decoded off the main thread while AppKit starts (#17587).
         let launchFiles = environment.startLaunchFiles()
