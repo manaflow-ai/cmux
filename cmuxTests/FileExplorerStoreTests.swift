@@ -954,6 +954,53 @@ struct FileExplorerStoreTests {
     // MARK: - Outline refresh
 
     @Test
+    func testExternalNestedFileChangesRefreshOutlineWithoutReload() async throws {
+        let containerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-files-watch-\(UUID().uuidString)", isDirectory: true)
+        let rootURL = containerURL.appendingPathComponent("root", isDirectory: true)
+        let sourceURL = rootURL.appendingPathComponent("Sources/Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: containerURL) }
+        let keepURL = sourceURL.appendingPathComponent("Keep.swift")
+        try Data().write(to: keepURL)
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.setRootPath(rootURL.path)
+        defer { store.setRootPath("") }
+        try await waitFor("root loaded") { store.rootNodes.count == 1 }
+        store.expand(node: try #require(store.rootNodes.first))
+        try await waitFor("Sources loaded") { store.rootNodes.first?.children?.count == 1 }
+        store.expand(node: try #require(store.rootNodes.first?.children?.first))
+        try await waitFor("nested directory loaded") {
+            store.rootNodes.first?.children?.first?.children?.map(\.name) == ["Keep.swift"]
+        }
+        store.select(node: try #require(store.rootNodes.first?.children?.first?.children?.first))
+
+        let defaultsName = "cmux-files-watch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store, state: FileExplorerState(defaults: defaults), onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outline = try #require(coordinator.outlineView)
+        let addedURL = sourceURL.appendingPathComponent("Added.swift")
+        try Data().write(to: addedURL)
+
+        let refreshed = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            (0..<outline.numberOfRows).compactMap {
+                (outline.item(atRow: $0) as? FileExplorerNode)?.name
+            } == ["Sources", "Nested", "Added.swift", "Keep.swift"]
+        }
+        #expect(refreshed, "External creation must update the expanded tree without switching sidebar modes")
+        #expect(store.selectedPath == keepURL.path)
+        #expect((outline.item(atRow: outline.selectedRow) as? FileExplorerNode)?.path == keepURL.path)
+        withExtendedLifetime(container) {}
+    }
+
+    @Test
     func testOutlineReplacesNestedRowsWhenContentRevisionChangesWithoutCountChanges() async throws {
         let rootPath = "/home/user/project"
         let sourcePath = "\(rootPath)/Sources"
