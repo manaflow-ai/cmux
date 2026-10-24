@@ -249,6 +249,7 @@ impl Hub {
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
+            display_parts: opts.display_parts.as_ref(),
             client,
             prompt_id: &prompt_id,
             control,
@@ -279,6 +280,7 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
@@ -317,6 +319,7 @@ impl Hub {
             provenance = Some(super::digest::digest_provenance(&parts));
             let blocks = super::digest::digest_blocks(&parts);
             let text = prompt_text(&blocks);
+            display_parts = None;
             (blocks, text)
         };
         let mut blocks = blocks;
@@ -339,7 +342,7 @@ impl Hub {
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
-        self.append_prompt(session, msg, &blocks);
+        self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.
             if let Some(key) = supersede.as_deref() {

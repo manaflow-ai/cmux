@@ -56,6 +56,9 @@ pub struct QueuedPrompt {
 #[derive(Debug)]
 pub(super) struct PromptRun {
     pub(super) blocks: Vec<Value>,
+    /// Sanitized app display metadata, keyed by ACP block index. It is persisted with queued
+    /// records and used only to rebuild the transcript; it never crosses the agent boundary.
+    pub(super) display_parts: Option<Value>,
     pub(super) control: Control,
     pub(super) trust_gate: bool,
     /// Who sent it (`prompt_provenance.rs`); an edit drops it.
@@ -71,6 +74,7 @@ pub(super) struct PromptRun {
 pub(super) struct Slot<'a> {
     pub(super) text: &'a str,
     pub(super) blocks: &'a [Value],
+    pub(super) display_parts: Option<&'a Value>,
     pub(super) client: &'a str,
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
@@ -184,6 +188,7 @@ impl Hub {
                     Ok(slot) => {
                         let run = PromptRun {
                             blocks: p.blocks.to_vec(),
+                            display_parts: p.display_parts.cloned(),
                             control: p.control,
                             trust_gate: p.trust_gate,
                             provenance: p.provenance.cloned(),
@@ -267,6 +272,7 @@ impl Hub {
             interrupt: true,
             provenance,
             agent: run.agent.clone(),
+            display_parts: run.display_parts.clone(),
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -320,6 +326,7 @@ impl Hub {
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
                     blocks: p.blocks.to_vec(),
+                    display_parts: p.display_parts.cloned(),
                     control: p.control,
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
@@ -357,6 +364,17 @@ impl Hub {
         let images = super::prompt_images::keep(p.blocks);
         if !images.is_empty() {
             queued["images"] = Value::Array(images);
+        }
+        let inline_parts = super::prompt_images::inline_parts(
+            p.blocks,
+            queued.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            p.display_parts,
+        );
+        if !inline_parts.is_empty() {
+            queued["inlineParts"] = Value::Array(inline_parts);
+        }
+        if let Some(display_parts) = p.display_parts {
+            queued["displayParts"] = display_parts.clone();
         }
         super::session::mark_pasted(&mut queued, p.blocks);
         self.append(
@@ -725,8 +743,21 @@ impl Hub {
                     "queue_updated" => {
                         if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
                         {
-                            for k in ["text", "prompt", "control", "trustGate"] {
-                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                            for k in [
+                                "text",
+                                "prompt",
+                                "control",
+                                "trustGate",
+                                "inlineParts",
+                                "displayParts",
+                                "images",
+                                "pasted",
+                            ] {
+                                if let Some(value) = e.msg.get(k) {
+                                    q.msg[k] = value.clone();
+                                } else if let Some(fields) = q.msg.as_object_mut() {
+                                    fields.remove(k);
+                                }
                             }
                             if let Some(meta) =
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
@@ -809,6 +840,7 @@ impl Hub {
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(PromptRun {
                     blocks,
+                    display_parts: e.msg.get("displayParts").cloned(),
                     control,
                     trust_gate,
                     provenance,
@@ -856,6 +888,7 @@ impl Hub {
                         control: q.run.control,
                         trust_gate: q.run.trust_gate,
                         agent: q.run.agent.clone(),
+                        display_parts: q.run.display_parts.clone(),
                         ..PromptOptions::default()
                     };
                     let blocks = q.run.blocks.clone();
