@@ -2,7 +2,7 @@
 // pictures in the new tab area but it works in the existing chats"): a chat's composer (Composer.tsx)
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
-import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -72,6 +72,8 @@ export type AttachmentIntakeOptions = {
   /// resolved attachments belong in the ordered attachment list; undefined keeps legacy append
   /// behavior for surfaces that still use the tray.
   reserveInline?(ids: readonly string[]): number | undefined;
+  /// Returns an attachment id's current mark index. This follows caret moves while a file reads.
+  inlineIndex?(id: string): number | undefined;
   /// Removes marks for files that were refused during intake.
   releaseInline?(ids: readonly string[]): void;
 };
@@ -104,6 +106,44 @@ export function appendAttachments(
     result.push(attachment);
   }
   return result;
+}
+
+/** Insert resolved payloads by their live replacement-mark order. Pending decoders can finish in
+ * either order after the caret moves; a stale reserve index is only a fallback for tray callers. */
+export function insertResolvedAttachments(
+  current: readonly ComposerAttachment[],
+  added: readonly ComposerAttachment[],
+  fallbackIndex: number | undefined,
+  inlineIndex?: (id: string) => number | undefined,
+): ComposerAttachment[] {
+  if (fallbackIndex === undefined || !inlineIndex) return appendAttachmentsAt(current, added, fallbackIndex);
+  const ordered = added
+    .map((attachment, order) => ({ attachment, order, mark: inlineIndex(attachment.id) }))
+    // A pending mark can be removed before its decoder resolves. Do not resurrect that payload as
+    // an unmarked trailing chip when the user explicitly deleted it.
+    .filter(
+      (entry): entry is { attachment: ComposerAttachment; order: number; mark: number } => entry.mark !== undefined,
+    )
+    .sort((left, right) => left.mark - right.mark || left.order - right.order);
+  const next = [...current];
+  for (const { attachment, mark } of ordered) {
+    const at = next.findIndex((existing) => {
+      const existingMark = inlineIndex(existing.id);
+      return existingMark !== undefined && existingMark > mark;
+    });
+    next.splice(at < 0 ? next.length : at, 0, attachment);
+  }
+  return next;
+}
+
+function appendAttachmentsAt(
+  current: readonly ComposerAttachment[],
+  added: readonly ComposerAttachment[],
+  insertionIndex: number | undefined,
+): ComposerAttachment[] {
+  if (insertionIndex === undefined) return appendAttachments(current, added);
+  const at = Math.min(Math.max(insertionIndex, 0), current.length);
+  return [...current.slice(0, at), ...added, ...current.slice(at)];
 }
 
 /// A chip shown the moment a file is pasted, dropped or chosen, while the composer reads, scales or
@@ -163,10 +203,23 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const ids = new Set(shown.map((chip) => chip.id));
     const insertionIndex = current.reserveInline?.(shown.map((chip) => chip.id));
     if (insertionIndex !== undefined) {
-      for (const chip of shown) chip.insertionIndex = insertionIndex;
+      for (const [offset, chip] of shown.entries())
+        chip.insertionIndex = current.inlineIndex?.(chip.id) ?? insertionIndex + offset;
     }
     batches.current.add(batch);
-    if (shown.length) setPending((chips) => [...chips, ...shown]);
+    if (shown.length)
+      setPending((chips) => {
+        const next = [...chips, ...shown];
+        const scopeChips = next.filter((chip) => chip.scope === batch.scope);
+        if (!scopeChips.some((chip) => chip.insertionIndex !== undefined)) return next;
+        scopeChips.sort((left, right) => {
+          const leftIndex = left.insertionIndex ?? Number.MAX_SAFE_INTEGER;
+          const rightIndex = right.insertionIndex ?? Number.MAX_SAFE_INTEGER;
+          return leftIndex - rightIndex;
+        });
+        let index = 0;
+        return next.map((chip) => (chip.scope === batch.scope ? scopeChips[index++]! : chip));
+      });
     const paths = current.localPaths;
     // Their placeholders go in the same render as what they became (or when the read fails).
     const read = () => {
@@ -198,13 +251,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const delivered = new Set(taken.attachments.map((attachment) => attachment.id));
     const refused = shown.map((chip) => chip.id).filter((id) => !delivered.has(id));
     if (refused.length) current.releaseInline?.(refused);
-    // Keep pending ids visible to `removeInlineAttachment` until refused marks are removed.
+    // Resolve while pending ids are still in the field's inline list; then remove their placeholders.
+    // This ordering also stays correct on hosts that do not batch promise callbacks.
+    setAttachments((staged) => insertResolvedAttachments(staged, taken.attachments, insertionIndex, now.inlineIndex));
     read();
-    setAttachments((staged) => {
-      if (insertionIndex === undefined) return appendAttachments(staged, taken.attachments);
-      const at = Math.min(Math.max(insertionIndex, 0), staged.length);
-      return [...staged.slice(0, at), ...taken.attachments, ...staged.slice(at)];
-    });
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
@@ -243,6 +293,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
+  const discardPending = useCallback((ids: readonly string[]) => {
+    if (!ids.length) return;
+    const removed = new Set(ids);
+    setPending((chips) => chips.filter((chip) => !removed.has(chip.id)));
+  }, []);
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {
@@ -255,6 +310,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     drop,
     dropLanded,
     attach,
+    discardPending,
   };
 }
 

@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { INLINE_ATTACHMENT_MARK, type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  INLINE_ATTACHMENT_MARK,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -468,7 +474,7 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
-  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach } =
+  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach, discardPending } =
     useAttachmentIntake({
       allowImages,
       dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -495,7 +501,9 @@ export function Composer({
       },
       carries: () => carryPrompt.current || Boolean(switching),
       reserveInline: (ids) => field.current?.insertInlineAttachments(ids),
+      inlineIndex: (id) => field.current?.inlineAttachmentIndex(id),
       releaseInline: (ids) => {
+        discardPending(ids);
         for (const id of ids) field.current?.removeInlineAttachment(id);
       },
     });
@@ -507,22 +515,38 @@ export function Composer({
     (id: string) => {
       const current = attachmentsRef.current;
       const index = current.findIndex((attachment) => attachment.id === id);
+      discardPending([id]);
       if (index >= 0) removedInline.current.push({ attachment: current[index]!, index });
       setAttachments((items) => items.filter((item) => item.id !== id));
       field.current?.focus();
     },
-    [setAttachments],
+    [discardPending, setAttachments],
   );
   const restoreAttachment = useCallback(
-    (id: string) => {
-      const restored = removedInline.current.find((entry) => entry.attachment.id === id);
-      if (!restored) return;
-      removedInline.current = removedInline.current.filter((entry) => entry.attachment.id !== id);
+    (ids: readonly string[]) => {
+      const restored = ids
+        .map((id) => removedInline.current.find((entry) => entry.attachment.id === id))
+        .filter((entry): entry is { attachment: ComposerAttachment; index: number } => Boolean(entry))
+        .sort((left, right) => left.index - right.index);
+      if (!restored.length) return;
+      const restoredIds = new Set(restored.map((entry) => entry.attachment.id));
+      removedInline.current = removedInline.current.filter((entry) => !restoredIds.has(entry.attachment.id));
       setAttachments((items) => {
-        if (items.some((item) => item.id === id)) return items;
-        const at = Math.min(Math.max(restored.index, 0), items.length);
-        return [...items.slice(0, at), restored.attachment, ...items.slice(at)];
+        const next = [...items];
+        for (const entry of restored) {
+          if (next.some((item) => item.id === entry.attachment.id)) continue;
+          const at = Math.min(Math.max(entry.index, 0), next.length);
+          next.splice(at, 0, entry.attachment);
+        }
+        return next;
       });
+    },
+    [setAttachments],
+  );
+  const discardAttachments = useCallback(
+    (ids: readonly string[]) => {
+      if (!ids.length) return;
+      setAttachments((items) => items.filter((item) => !ids.includes(item.id)));
     },
     [setAttachments],
   );
@@ -580,9 +604,14 @@ export function Composer({
     handle,
     () => ({
       restore(restoredText, restoredAttachments) {
+        // Legacy callers supplied a tray list without replacement marks. Give those payloads an
+        // inline position at the front so restoring a failed prompt never leaves hidden chips.
+        const restoredMarks = restoredText.split(INLINE_ATTACHMENT_MARK).length - 1;
+        const missingRestored = Math.max(0, restoredAttachments.length - restoredMarks);
+        const markedRestored = `${INLINE_ATTACHMENT_MARK.repeat(missingRestored)}${restoredText}`;
         // What comes back goes first; what was typed or attached since stays after it.
         const typed = field.current?.value() ?? "";
-        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        const next = typed.trim() ? `${markedRestored}\n\n${typed}` : markedRestored;
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
         if (!field.current?.type(next)) {
@@ -612,6 +641,9 @@ export function Composer({
         });
       },
       detach(ids) {
+        // Design selection removes the payload and its replacement mark together. Removing only
+        // the payload would shift every later mark onto the wrong thumbnail.
+        for (const id of ids) field.current?.removeInlineAttachment(id);
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
       },
       send: () => submitNow.current(true),
@@ -633,11 +665,22 @@ export function Composer({
       }),
       wake(state) {
         const back = state.attachments ?? [];
-        if (back.length)
+        if (back.length) {
+          const currentText = field.current?.value() ?? textRef.current;
+          const existingMarks = currentText.split(INLINE_ATTACHMENT_MARK).length - 1;
+          const missing = Math.max(0, back.length - existingMarks);
+          if (missing) {
+            const next = `${INLINE_ATTACHMENT_MARK.repeat(missing)}${currentText}`;
+            if (!field.current?.type(next)) {
+              setText(next);
+              setCaret(next.length);
+            }
+          }
           setAttachments((current) => [
             ...back,
             ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
           ]);
+        }
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");
@@ -645,7 +688,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments, setAttachError],
+    [setAttachments],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -1596,6 +1639,7 @@ export function Composer({
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={removeAttachment}
         onRestoreAttachment={restoreAttachment}
+        onDiscardAttachment={discardAttachments}
         onPasteAttachments={pasteAttachments}
         onPasteFiles={pasteFiles}
         fieldMenu={fieldMenu}

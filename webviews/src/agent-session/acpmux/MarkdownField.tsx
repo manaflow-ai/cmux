@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
-import { pasteIsOnlyFileNames, thumbnail, type ComposerAttachment } from "./attachments";
+import { pasteIsOnlyFileNames, type ComposerAttachment } from "./attachments";
+import { thumbnailOffMain } from "./inlineThumbnailWorker";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
@@ -22,10 +23,10 @@ import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { baseKeymap, chainCommands, selectAll } from "@milkdown/kit/prose/commands";
-import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
+import { isHistoryTransaction, redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
-import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
+import { type EditorState, Plugin, PluginKey, Selection, TextSelection } from "@milkdown/kit/prose/state";
 import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
@@ -84,6 +85,8 @@ export type MarkdownFieldHandle = {
   insertInlineAttachments(ids: readonly string[]): number;
   /// Removes the mark associated with `id`, preserving the edit in the field's undo history.
   removeInlineAttachment(id: string): boolean;
+  /// Returns the current mark index for an attachment id, including pending placeholders.
+  inlineAttachmentIndex(id: string): number | undefined;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -133,7 +136,9 @@ export type MarkdownFieldProps = {
   /// Called after a mark is removed by its hover button or Backspace/Delete.
   onInlineAttachmentRemove?(id: string): void;
   /// Called when undo restores a previously removed attachment mark.
-  onInlineAttachmentRestore?(id: string): void;
+  onInlineAttachmentRestore?(ids: readonly string[]): void;
+  /// Discards payloads introduced by a same-mark clipboard replacement when that replacement is undone.
+  onInlineAttachmentDiscard?(ids: readonly string[]): void;
   /// Receives attachments copied from this field, together with their insertion mark index.
   onInlineAttachmentPaste?(attachments: ComposerAttachment[], index: number): void;
   /// Starts intake for files before the paste's caption text is inserted, preserving image-then-text order.
@@ -177,6 +182,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.inlineAttachments === next.inlineAttachments &&
     previous.onInlineAttachmentRemove === next.onInlineAttachmentRemove &&
     previous.onInlineAttachmentRestore === next.onInlineAttachmentRestore &&
+    previous.onInlineAttachmentDiscard === next.onInlineAttachmentDiscard &&
     previous.onInlineAttachmentPaste === next.onInlineAttachmentPaste &&
     previous.onInlinePasteFiles === next.onInlinePasteFiles &&
     previous.onInlineAttachmentExpand === next.onInlineAttachmentExpand &&
@@ -381,11 +387,15 @@ function inlineWidget(
     image.alt = attachment.name;
     root.classList.add("is-pending");
     root.append(image);
-    // Decode and downsample before handing bytes to the DOM. `thumbnail` uses createImageBitmap and
-    // OffscreenCanvas, so the expensive work stays outside the editor's main-thread layout pass.
-    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }, 144).then((preview) => {
+    // Decode and downsample before handing bytes to the DOM. The worker/fallback returns only a
+    // bounded preview; never put the full pasted base64 in an <img> while the thumbnail is pending.
+    void thumbnailOffMain({ mimeType: attachment.mimeType, data: attachment.data }, 144).then((preview) => {
       if (!root.isConnected) return;
-      image.src = preview?.url ?? `data:${attachment.mimeType};base64,${attachment.data}`;
+      if (preview) image.src = preview.url;
+      else {
+        root.classList.add("is-error");
+        image.alt = `${attachment.name || "Image"} preview unavailable`;
+      }
       root.classList.remove("is-pending");
     });
   } else if (attachment.kind === "audio" && attachment.data) {
@@ -474,6 +484,18 @@ function inlineMarkPositions(doc: ProseNode): number[] {
   return positions;
 }
 
+function inlineMarkCount(doc: ProseNode): number {
+  let count = 0;
+  doc.descendants((node) => {
+    if (!node.isText || !node.text) return;
+    for (let offset = 0; offset < node.text.length; offset += 1)
+      if (node.text.charCodeAt(offset) === 0xfffc) count += 1;
+  });
+  return count;
+}
+
+type InlineDecorationState = { decorations: DecorationSet; markCount: number };
+
 /// The composer's prompt, edited inline as formatted markdown (spec S5, Milkdown): typing
 /// `**bold**`, a backtick span, `- ` or a fence turns into the formatted node, with no toolbar
 /// and no syntax reveal. Enter is the composer's (send or pick a command); Shift-Enter starts a
@@ -500,6 +522,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     inlineAttachments = [],
     onInlineAttachmentRemove,
     onInlineAttachmentRestore,
+    onInlineAttachmentDiscard,
     onInlineAttachmentPaste,
     onInlinePasteFiles,
     onInlineAttachmentExpand,
@@ -533,10 +556,26 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   };
   const inlineAttachmentsRef = useRef<readonly ComposerAttachment[]>(inlineAttachments);
   inlineAttachmentsRef.current = inlineAttachments;
+  // Pending placeholders reserve marks before React has rendered their payloads. Keep their IDs in
+  // the same order synchronously so a second paste can query its live mark index immediately.
+  const inlineAttachmentIdsRef = useRef<readonly string[]>(inlineAttachments.map((attachment) => attachment.id));
+  useLayoutEffect(() => {
+    inlineAttachmentIdsRef.current = inlineAttachments.map((attachment) => attachment.id);
+  }, [inlineAttachments]);
+  const currentInlineAttachmentIDs = () =>
+    inlineAttachmentIdsRef.current.length
+      ? inlineAttachmentIdsRef.current
+      : inlineAttachmentsRef.current.map((attachment) => attachment.id);
+  const inlineAttachmentAt = (index: number) => {
+    const id = currentInlineAttachmentIDs()[index];
+    return id === undefined ? undefined : inlineAttachmentsRef.current.find((attachment) => attachment.id === id);
+  };
   const inlineRemoveRef = useRef(onInlineAttachmentRemove);
   inlineRemoveRef.current = onInlineAttachmentRemove;
   const inlineRestoreRef = useRef(onInlineAttachmentRestore);
   inlineRestoreRef.current = onInlineAttachmentRestore;
+  const inlineDiscardRef = useRef(onInlineAttachmentDiscard);
+  inlineDiscardRef.current = onInlineAttachmentDiscard;
   const inlinePasteRef = useRef(onInlineAttachmentPaste);
   inlinePasteRef.current = onInlineAttachmentPaste;
   const inlineFilesRef = useRef(onInlinePasteFiles);
@@ -603,12 +642,17 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // ProseMirror history restores the mark; keep the id briefly so the owner can restore its
     // attachment payload alongside that undoable document change.
     const removedInlineIds: string[] = [];
+    // A custom inline clipboard replacement can keep the same number of marks. Remember which
+    // removed payloads need the same-mark history undo path.
+    const sameMarkRemovalIds = new Set<string>();
+    const sameMarkReplacements: { removed: string[]; cloned: string[]; undoDepth?: number }[] = [];
     const deleteInlineAttachment = (editorView: EditorView, id: string): boolean => {
-      const index = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+      const index = currentInlineAttachmentIDs().indexOf(id);
       if (index < 0) return false;
       const at = inlineMarkPositions(editorView.state.doc)[index];
       if (at === undefined) return false;
       removedInlineIds.push(id);
+      inlineAttachmentIdsRef.current = currentInlineAttachmentIDs().filter((attachmentID) => attachmentID !== id);
       editorView.dispatch(editorView.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
       inlineRemoveRef.current?.(id);
       return true;
@@ -623,39 +667,77 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         },
         (id) => inlineExpandRef.current?.(id),
       );
+    const inlineAttachmentKey = new PluginKey<InlineDecorationState>("cmux-inline-attachments");
     const inlineAttachmentPlugin = $prose(
       () =>
         new Plugin({
+          key: inlineAttachmentKey,
           state: {
-            init: (_config, state) => makeInlineDecorations(state.doc),
-            apply: (transaction, decorations, previous, next) => {
+            init: (_config, state): InlineDecorationState => ({
+              decorations: makeInlineDecorations(state.doc),
+              markCount: inlineMarkCount(state.doc),
+            }),
+            apply: (transaction, previousDecorations, previous, next): InlineDecorationState => {
               if (transaction.getMeta(INLINE_DECORATION_REFRESH) === true) {
-                return makeInlineDecorations(next.doc);
+                return { decorations: makeInlineDecorations(next.doc), markCount: inlineMarkCount(next.doc) };
               }
-              if (!transaction.docChanged) return decorations;
+              if (!transaction.docChanged) return previousDecorations;
               // Mapping is cheap for ordinary keystrokes and avoids rebuilding every attachment on
               // each character. Rebuild only when an object-replacement mark was inserted/deleted.
-              const oldMarks = inlineMarkPositions(previous.doc).length;
-              const newMarks = inlineMarkPositions(next.doc).length;
-              if (newMarks > oldMarks && removedInlineIds.length) {
-                const count = Math.min(newMarks - oldMarks, removedInlineIds.length);
-                for (let index = 0; index < count; index += 1) {
-                  const restored = removedInlineIds.pop();
-                  if (restored) queueMicrotask(() => inlineRestoreRef.current?.(restored));
+              // Keep the count in plugin state so callers that only need mark cardinality never
+              // allocate a position array on every keystroke.
+              const oldMarks = previousDecorations.markCount;
+              const newMarks = inlineMarkCount(next.doc);
+              const historyUndo = isHistoryTransaction(transaction) && undoDepth(next) < undoDepth(previous);
+              let replacementIndex = -1;
+              if (historyUndo) {
+                for (let index = sameMarkReplacements.length - 1; index >= 0; index -= 1) {
+                  if (sameMarkReplacements[index]?.undoDepth === undoDepth(previous)) {
+                    replacementIndex = index;
+                    break;
+                  }
                 }
               }
-              return oldMarks === newMarks
-                ? decorations.map(transaction.mapping, next.doc)
-                : makeInlineDecorations(next.doc);
+              if (historyUndo && (removedInlineIds.length || replacementIndex >= 0)) {
+                const markDelta = newMarks - oldMarks;
+                const replacement =
+                  replacementIndex >= 0 ? sameMarkReplacements.splice(replacementIndex, 1)[0] : undefined;
+                const count = Math.min(
+                  replacement ? replacement.removed.length : markDelta > 0 ? markDelta : sameMarkRemovalIds.size,
+                  removedInlineIds.length,
+                );
+                if (count <= 0) {
+                  if (replacement) queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
+                  return {
+                    decorations:
+                      oldMarks === newMarks
+                        ? previousDecorations.decorations.map(transaction.mapping, next.doc)
+                        : makeInlineDecorations(next.doc),
+                    markCount: newMarks,
+                  };
+                }
+                const restored = removedInlineIds.splice(removedInlineIds.length - count, count);
+                for (const id of restored) sameMarkRemovalIds.delete(id);
+                if (replacement) queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
+                queueMicrotask(() => inlineRestoreRef.current?.(restored));
+              }
+              return {
+                decorations:
+                  oldMarks === newMarks
+                    ? previousDecorations.decorations.map(transaction.mapping, next.doc)
+                    : makeInlineDecorations(next.doc),
+                markCount: newMarks,
+              };
             },
           },
           props: {
+            decorations: (state) => inlineAttachmentKey.getState(state)?.decorations ?? DecorationSet.empty,
             handleTextInput: (editorView, from, to) => {
               if (from === to) return false;
               const positions = inlineMarkPositions(editorView.state.doc);
               const ids = positions
                 .map((position, index) =>
-                  position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                  position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                 )
                 .filter((id): id is string => Boolean(id));
               if (!ids.length) return false;
@@ -670,9 +752,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (!data || from === to) return false;
                 const positions = inlineMarkPositions(editorView.state.doc);
                 const attachments = positions
-                  .map((position, index) =>
-                    position >= from && position < to ? inlineAttachmentsRef.current[index] : undefined,
-                  )
+                  .map((position, index) => (position >= from && position < to ? inlineAttachmentAt(index) : undefined))
                   .filter((attachment): attachment is ComposerAttachment => Boolean(attachment));
                 if (!attachments.length) return false;
                 const text = editorView.state.doc.textBetween(from, to, "\n", "\n");
@@ -684,6 +764,22 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 }
                 event.preventDefault();
                 return true;
+              },
+              cut: (editorView) => {
+                const { from, to } = editorView.state.selection;
+                if (from === to) return false;
+                const positions = inlineMarkPositions(editorView.state.doc);
+                const ids = positions
+                  .map((position, index) =>
+                    position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
+                  )
+                  .filter((id): id is string => Boolean(id));
+                if (!ids.length) return false;
+                // The browser performs the actual cut after this event. Record the payloads now so
+                // its replacement transaction and the later history undo restore the same IDs.
+                removedInlineIds.push(...ids);
+                for (const id of ids) inlineRemoveRef.current?.(id);
+                return false;
               },
               paste: (editorView, event) => {
                 const data = event.clipboardData;
@@ -705,12 +801,26 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 );
                 if (!copied.length) return false;
                 const cloned = copied.map((attachment) => ({ ...attachment, id: crypto.randomUUID() }));
-                const index = inlineMarkPositions(editorView.state.doc).filter(
-                  (position) => position < editorView.state.selection.from,
-                ).length;
                 const text = payload.text;
                 if (beforeInput(editorView, text, true)) return true;
+                const { from, to } = editorView.state.selection;
+                const positions = inlineMarkPositions(editorView.state.doc);
+                const selectedIds = positions
+                  .map((position, positionIndex) =>
+                    position >= from && position < to ? currentInlineAttachmentIDs()[positionIndex] : undefined,
+                  )
+                  .filter((id): id is string => Boolean(id));
+                removedInlineIds.push(...selectedIds);
+                for (const id of selectedIds) sameMarkRemovalIds.add(id);
+                for (const id of selectedIds) inlineRemoveRef.current?.(id);
+                const replacement: { removed: string[]; cloned: string[]; undoDepth?: number } = {
+                  removed: selectedIds,
+                  cloned: cloned.map((attachment) => attachment.id),
+                };
+                sameMarkReplacements.push(replacement);
+                const index = positions.filter((position) => position < from).length;
                 insertPlain(editorView, text);
+                replacement.undoDepth = undoDepth(editorView.state);
                 inlinePasteRef.current?.(cloned, index);
                 showPastedEnd(editorView.state);
                 event.preventDefault();
@@ -725,7 +835,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (from !== to) {
                   const ids = positions
                     .map((position, index) =>
-                      position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                      position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                     )
                     .filter((id): id is string => Boolean(id));
                   if (!ids.length) return false;
@@ -737,7 +847,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 }
                 const mark = event.key === "Backspace" ? from - 1 : from;
                 const index = positions.indexOf(mark);
-                const id = index >= 0 ? inlineAttachmentsRef.current[index]?.id : undefined;
+                const id = index >= 0 ? currentInlineAttachmentIDs()[index] : undefined;
                 if (!id || !deleteInlineAttachment(editorView, id)) return false;
                 event.preventDefault();
                 return true;
@@ -825,7 +935,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   const positions = inlineMarkPositions(editorView.state.doc);
                   const ids = positions
                     .map((position, index) =>
-                      position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                      position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                     )
                     .filter((id): id is string => Boolean(id));
                   if (ids.length) {
@@ -1225,16 +1335,27 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           const current = view.current;
           if (!current || ids.length === 0) return 0;
           const { from, to } = current.state.selection;
-          const index = inlineMarkPositions(current.state.doc).filter((position) => position < from).length;
+          const marks = inlineMarkPositions(current.state.doc);
+          const index = marks.filter((position) => position < from).length;
+          const currentIDs = currentInlineAttachmentIDs();
+          inlineAttachmentIdsRef.current = [...currentIDs.slice(0, index), ...ids, ...currentIDs.slice(index)];
           current.dispatch(current.state.tr.insertText(INLINE_ATTACHMENT_MARK.repeat(ids.length), from, to));
           return index;
+        },
+        inlineAttachmentIndex: (id) => {
+          const current = view.current;
+          if (!current) return undefined;
+          const attachmentIndex = currentInlineAttachmentIDs().indexOf(id);
+          if (attachmentIndex < 0) return undefined;
+          return attachmentIndex < inlineMarkCount(current.state.doc) ? attachmentIndex : undefined;
         },
         removeInlineAttachment: (id) => {
           const current = view.current;
           if (!current) return false;
-          const index = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+          const index = currentInlineAttachmentIDs().indexOf(id);
           const at = index < 0 ? undefined : inlineMarkPositions(current.state.doc)[index];
           if (at === undefined) return false;
+          inlineAttachmentIdsRef.current = currentInlineAttachmentIDs().filter((attachmentID) => attachmentID !== id);
           current.dispatch(current.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
           inlineRemoveRef.current?.(id);
           return true;

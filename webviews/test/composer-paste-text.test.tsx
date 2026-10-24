@@ -204,6 +204,117 @@ test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typ
   expect(chip.textContent).toContain("25 lines");
 });
 
+test("a large paste inserts its payload at the caret mark index", async () => {
+  const composer = await openComposer();
+  await typeDraft("before after");
+  await act(async () => markdownField().setCaret("before ".length));
+  await paste(LOG);
+  expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
+  expect(markdownField().value().indexOf("\uFFFC")).toBe("before ".length);
+});
+
+test("inline payloads return only from history undo, in their original order", async () => {
+  const composer = await openComposer();
+  await paste(LOG);
+  await paste(SPACED);
+  const original = chips(composer).map((chip) => chip.id);
+  const remove = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-md-inline-remove")];
+  expect(remove).toHaveLength(2);
+  await act(async () => {
+    remove[1]!.click();
+    remove[0]!.click();
+  });
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  // Typing after an explicit removal must not resurrect a payload.
+  await typeDraft("still removed");
+  expect(chips(composer)).toEqual([]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual(original);
+});
+
+test("custom inline clipboard replacement removes selected payloads even with the same mark count", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  const original = chips(composer)[0]!;
+  const replacement = { ...original, id: "replacement-inline-payload" };
+  await act(async () => markdownField().selectAll());
+  const data = {
+    getData: (type: string) =>
+      type === "application/x-cmux-inline-attachments"
+        ? JSON.stringify({ text: "\uFFFC", attachments: [replacement] })
+        : "",
+  };
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  await act(async () => field().dispatchEvent(event));
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([replacement.id]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+});
+
+test("undoing a custom inline paste at an empty caret drops its cloned payload", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  const original = chips(composer)[0]!;
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  const data = {
+    getData: (type: string) =>
+      type === "application/x-cmux-inline-attachments"
+        ? JSON.stringify({ text: "\uFFFC", attachments: [{ ...original, id: "copied-inline-payload" }] })
+        : "",
+  };
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  await act(async () => field().dispatchEvent(event));
+  await settle();
+  expect(chips(composer)).toHaveLength(2);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+});
+
+test("reverse decoder completion follows live mark order after the caret moves", async () => {
+  const { insertResolvedAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const attachment = (id: string): ComposerAttachment => ({
+    id,
+    kind: "image",
+    name: id,
+    mimeType: "image/png",
+    size: 1,
+    data: "AQ==",
+  });
+  // A was reserved at the original caret; after moving before it, B owns the earlier mark. B
+  // resolves first, then A. A stale insertionIndex of zero would incorrectly produce [A, B].
+  const marks = new Map([
+    ["A", 1],
+    ["B", 0],
+  ]);
+  let staged = insertResolvedAttachments([], [attachment("B")], 0, (id) => marks.get(id));
+  staged = insertResolvedAttachments(staged, [attachment("A")], 0, (id) => marks.get(id));
+  expect(staged.map((item) => item.id)).toEqual(["B", "A"]);
+});
+
+test("cut selection removes inline payloads and history undo restores them", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  const original = chips(composer)[0]!;
+  await act(async () => markdownField().selectAll());
+  const cut = new dom.window.Event("cut", { bubbles: true, cancelable: true });
+  Object.defineProperty(cut, "clipboardData", { value: { setData() {} } });
+  await act(async () => field().dispatchEvent(cut));
+  // jsdom does not perform the browser's default cut; apply the same replacement transaction.
+  await act(async () => markdownField().writeText("", 0, 0));
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+});
+
 test("a paste over 2,000 characters on one line is a chip too", async () => {
   const composer = await openComposer();
   const long = "word ".repeat(450);
