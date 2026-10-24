@@ -96,8 +96,19 @@ public final class DividerMouseCatchers {
     /// A panel no area needs now stays a child window where it is and lets the mouse through, for
     /// the next area to take: ordering a window out and back in, or making one, is a window server
     /// round trip (85 to 100 ms in STRESS under a dialog or a workspace switch, every-action sweep).
+    /// At most this many parked panels stay: the window's other child windows are re-added above
+    /// page windows with every catcher (`WindowOverlayHost.reassertOrder`), so a pool that only grew
+    /// would make each of those reorders longer. Past it a panel is ordered out as before.
+    static let spareLimit = 8
+
     private func park(_ panel: DividerMousePanel) {
         panel.areaID = nil
+        guard spare.count < Self.spareLimit else {
+            if panel.parent === window { window.removeChildWindow(panel) }
+            panel.orderOut(nil)
+            windowOrderings += 2
+            return
+        }
         if !panel.ignoresMouseEvents { panel.ignoresMouseEvents = true }
         spare.append(panel)
     }
