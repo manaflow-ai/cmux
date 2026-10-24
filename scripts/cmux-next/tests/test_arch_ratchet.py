@@ -570,6 +570,300 @@ class SignalTests(Repo):
         refusals, _ = self.check()
         self.assertEqual(self.rows(refusals), ["observer_sites"])
 
+    OBSERVATION = ("public final class Observation {\n    private let token: any NSObjectProtocol\n"
+                   "    public init(_ name: Notification.Name, object: AnyObject? = nil,\n"
+                   "                center: NotificationCenter = .default, _ handler: @escaping () -> Void) {\n"
+                   "        token = center.addObserver(forName: name, object: object, queue: .main) { _ in handler() }\n"
+                   "    }\n}\n")
+    # CmuxNextCompat's wrapper shape: an observer by what its init does, never by its name.
+    MAO = (f"{SRC}/CmuxNextCompat/MainActorObservation.swift",
+           "public final class MainActorObservation {\n    private let token: any NSObjectProtocol\n"
+           "    public init(_ name: Notification.Name, object: AnyObject? = nil,\n"
+           "                center: NotificationCenter = .default, _ handler: @escaping @MainActor () -> Void) {\n"
+           "        token = center.addObserver(forName: name, object: object, queue: .main) { _ in\n"
+           "            MainActor.assumeIsolated { handler() }\n        }\n    }\n}\n")
+    AO = "NotificationCenter.default.addObserver(forName: {}, object: nil, queue: nil) {{ _ in }}"
+    OBS = (f"{SRC}/CmuxNextCompat/Obs.swift",
+           "public final class Obs {\n    private let token: any NSObjectProtocol\n"
+           "    public init(_ name: Notification.Name) {\n"
+           "        token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in }\n"
+           "    }\n}\n")
+    WATCH = f"{SRC}/CmuxNextDomain/Watch.swift"
+
+    def observers(self, rev="HEAD"):
+        return counts.full_count(self.repo, rev)[1].totals()["observer_sites"]
+
+    def raw_base(self, names=("n0", "n1", "n2")):
+        """A base with one raw registration per name in Watch.swift (and no Obs wrapper); returns its sha."""
+        if (self.repo / self.OBS[0]).exists():
+            self.remove(self.OBS[0])
+        self.write(self.WATCH, "final class Watch {\n    func start() {\n"
+                   + "".join(f"        {self.AO.format('.' + n)}\n" for n in names) + "    }\n}\n")
+        return self.commit("raw observers")
+
+    def assert_same_count(self, base, head_text, expected, files=()):
+        """HEAD_TEXT replaces Watch.swift (and FILES, (path, text) pairs, are added): it registers EXPECTED
+        observers (a full count), the delta over BASE is 0, and the push is neither refused nor told to lower
+        the record."""
+        for path, text in files:
+            self.write(path, text)
+        self.write(self.WATCH, head_text)
+        self.commit("the same observers in another shape")
+        self.assertEqual(self.observers(), expected, head_text)
+        self.assertEqual(counts.delta_count(self.repo, base, "HEAD").total("observer_sites"), 0, head_text)
+        self.assert_matches_full(base, "HEAD")
+        refused, out = self.run_push(base=base)
+        self.assertFalse(refused, out)
+        self.assertNotIn(ratchet.UPDATE_HINT, out)
+
+    def test_observers_behind_a_helper_count_once_per_registration(self):
+        # The review's case (FeedService.swift's shape): a helper that forwards its name parameter to an observer
+        # counts each call, not its own one site, and a wrapper type counts each construction, not its addObserver.
+        self.write(f"{SRC}/CmuxNextCompat/Observation.swift", self.OBSERVATION)
+        self.write(f"{SRC}/CmuxNextDomain/Presence.swift",
+                   "final class Presence {\n    var observers: [Observation] = []\n    func start() {\n"
+                   "        func on(_ center: NotificationCenter, _ name: Notification.Name) -> Observation {\n"
+                   "            Observation(name, center: center) { print(1) }\n        }\n"
+                   "        observers = [\n            on(.default, NSApplication.didBecomeActiveNotification),\n"
+                   "            on(.default, NSApplication.didResignActiveNotification),\n"
+                   "            on(.default, NSWorkspace.didWakeNotification),\n        ]\n    }\n}\n")
+        base = self.commit("three observers behind a local helper and a wrapper type")
+        _, full, _ = counts.full_count(self.repo, base)
+        self.assertEqual(full.rows["observer_sites"], {"CmuxNextDomain": 3})
+        # Six NotificationCenter observers replaced by one module helper and six calls in another file: same count.
+        self.write(self.WATCH, "final class Watch {\n    func start() {\n"
+                   + "".join(f"        {self.AO.format(f'.n{i}')}\n" for i in range(6)) + "    }\n}\n")
+        before = self.commit("six raw observers")
+        self.write(self.WATCH, "final class Watch {\n    func start() {\n"
+                   + "".join(f"        watch(.n{i})\n" for i in range(6)) + "    }\n}\n")
+        self.write(f"{SRC}/CmuxNextDomain/Watching.swift",
+                   "func watch(_ name: Notification.Name, center: NotificationCenter = .default) {\n"
+                   "    _ = center.addObserver(forName: name, object: nil, queue: nil) { _ in }\n}\n")
+        self.commit("behind a helper")
+        self.assertEqual(counts.delta_count(self.repo, before, "HEAD").total("observer_sites"), 0)
+        self.assert_matches_full(before, "HEAD")
+        # A seventh call through the helper, in a file that does not name the helper's file, is a new observer.
+        self.write(f"{SRC}/CmuxNextDomain/More.swift", "final class More {\n    func go() {\n        watch(.n7)\n    }\n}\n")
+        head = self.commit("one more")
+        refusals, _ = self.check(base=self.git("rev-parse", "HEAD~1"), head=head)
+        self.assertEqual(self.rows(refusals), ["observer_sites"])
+        self.assertIn("More.swift:3: watch(.n7)", refusals[0][1])
+
+    def test_a_named_closure_or_a_captured_parameter_is_a_helper_too(self):
+        # A closure bound to a name is the same helper as a func (its own `in` list or `$0`), and a registration
+        # that reads a parameter of an outer function makes that function the wrapper.
+        self.write(f"{SRC}/CmuxNextCompat/Observation.swift", self.OBSERVATION)
+        self.write(f"{SRC}/CmuxNextDomain/Closures.swift",
+                   "final class Closures {\n    var keep: [Observation] = []\n    func start() {\n"
+                   "        let on = { (name: Notification.Name) in Observation(name) { print(1) } }\n"
+                   "        let short: (Notification.Name) -> Observation = { Observation($0) { print(2) } }\n"
+                   "        keep = [on(.a), on(.b), short(.c), short(.d), short(.e)]\n    }\n"
+                   "    func watch(_ name: Notification.Name) {\n"
+                   "        let later = {\n            NotificationCenter.default.addObserver(forName: name, object: nil,"
+                   " queue: nil) { _ in }\n        }\n        _ = later\n    }\n"
+                   "    func use() {\n        watch(.f)\n        watch(.g)\n    }\n}\n")
+        base = self.commit("closure helpers and a captured parameter")
+        _, full, _ = counts.full_count(self.repo, base)
+        self.assertEqual(full.rows["observer_sites"], {"CmuxNextDomain": 7})
+
+    def test_a_wrapper_used_as_a_value_counts_its_registrations(self):
+        # A wrapper used by reference (`forEach(on)`, `map(T.init)`, `let f = on`) or built with `let a: T =
+        # .init(...)` counts the registrations each use makes, as the raw calls it replaced did.
+        base = self.raw_base()
+        self.assert_same_count(base, "final class Watch {\n    func start() {\n"
+                               "        [Notification.Name.n0, .n1, .n2].forEach(on)\n    }\n"
+                               "    private func on(_ name: Notification.Name) {\n"
+                               f"        {self.AO.format('name')}\n    }}\n}}\n", 3)
+        helper = "    private func on(_ name: Notification.Name) -> Obs {\n        Obs(name)\n    }\n"
+        cases = {"map(T.init)": ("let all = [Notification.Name.n0, .n1, .n2].map(Obs.init)\n        _ = all", ""),
+                 ": T = .init(": ("let a: Obs = .init(.n0)\n        let b: Obs = .init(.n1)\n"
+                                  "        let c: Obs = .init(.n2)\n        _ = (a, b, c)", ""),
+                 "let f = on": ("let f = on\n        _ = f(.n0)\n        _ = on(.n1)\n        _ = on(.n2)", helper)}
+        for name, (body, extra) in cases.items():
+            with self.subTest(name):
+                before = self.raw_base()
+                self.assert_same_count(before, "final class Watch {\n    func start() {\n        " + body
+                                       + "\n    }\n" + extra + "}\n", 3, [self.OBS])
+
+    def test_a_helper_the_caller_configures_counts_once_per_call(self):
+        # A function is a wrapper by what a call of it decides, not by the literal form of the name argument: a
+        # caller's handler, a name built from the parameter, `k.name`, a loop over a parameter list.
+        heads = {
+            "caller's handler": "        onWake {}\n        onWake {}\n        onWake {}\n    }\n"
+                                "    private func onWake(_ h: @escaping () -> Void) {\n"
+                                "        NotificationCenter.default.addObserver(forName: .n0, object: nil, queue: nil)"
+                                " { _ in h() }\n",
+            "(name)": "        on(.n0); on(.n1); on(.n2)\n    }\n    private func on(_ name: Notification.Name) {\n"
+                      f"        {self.AO.format('(name)')}\n",
+            "built from it": "        on(\"a\"); on(\"b\"); on(\"c\")\n    }\n    private func on(_ key: String) {\n"
+                             "        let name = names[key] ?? .n0\n"
+                             f"        {self.AO.format('name')}\n",
+            "k.name": "        on(K()); on(K()); on(K())\n    }\n    private func on(_ k: K) {\n"
+                      f"        {self.AO.format('k.name')}\n",
+            "loop": "        on([.n0, .n1, .n2])\n    }\n    private func on(_ names: [Notification.Name]) {\n"
+                    f"        for n in names {{\n            {self.AO.format('n')}\n        }}\n",
+            "forEach $0": "        on([.n0, .n1, .n2])\n    }\n    private func on(_ names: [Notification.Name]) {\n"
+                          f"        names.forEach {{ {self.AO.format('$0')} }}\n",
+        }
+        for name, body in heads.items():
+            with self.subTest(name):
+                base = self.raw_base()
+                self.assert_same_count(base, "final class Watch {\n    func start() {\n" + body + "    }\n}\n", 3)
+
+    def test_a_configured_wrapper_counts_through_any_depth(self):
+        # a(n) -> b(n) -> c(n) -> addObserver(forName: n): each call of a registers once, however deep the chain.
+        base = self.raw_base()
+        self.assert_same_count(base, "final class Watch {\n    func start() {\n        a(.n0); a(.n1); a(.n2)\n    }\n"
+                               "    private func a(_ n: Notification.Name) { b(n) }\n"
+                               "    private func b(_ n: Notification.Name) { c(n) }\n"
+                               "    private func c(_ n: Notification.Name) {\n"
+                               f"        {self.AO.format('n')}\n    }}\n}}\n", 3)
+
+    def test_a_fixed_registration_counts_once_at_its_statement_in_every_shape(self):
+        # The review's cases: a fixed-name helper with three callers counted 3 as a raw unbranched addObserver, but
+        # 1 through MainActorObservation, through `Task { for await _ in notifications(named:) }` or inside an `if`,
+        # and 3 again after a `guard`. Nothing a caller supplies decides a fixed registration, so it counts once at
+        # its statement in each shape, and a fourth caller adds nothing in any of them.
+        shapes = {
+            "raw": f"        {self.AO.format('.n0')}\n",
+            "MainActorObservation": "        token = MainActorObservation(NSWindow.didChangeOcclusionStateNotification,"
+                                    " object: window) {}\n",
+            "Task + notifications": "        Task {\n            for await _ in NotificationCenter.default.notifications("
+                                    "named: .n0) {}\n        }\n",
+            "inside if": f"        if on {{\n            {self.AO.format('.n0')}\n        }}\n",
+            "after guard": f"        guard on else {{ return }}\n        {self.AO.format('.n0')}\n",
+        }
+        # Another file uses the wrapper, as the tree does: a wrapper nothing references counts its own body once.
+        self.write(*self.MAO)
+        self.write(f"{SRC}/CmuxNextDomain/Other.swift",
+                   "final class Other {\n    var token: AnyObject?\n    func go() {\n"
+                   "        token = MainActorObservation(.n9) {}\n    }\n}\n")
+        for name, body in shapes.items():
+            with self.subTest(name):
+                for callers in (3, 4):
+                    self.write(self.WATCH, "final class Watch {\n    var on = true\n    var token: AnyObject?\n"
+                               "    let window = NSWindow()\n    func start() {\n"
+                               + "        observe()\n" * callers + "    }\n    func observe() {\n" + body + "    }\n}\n")
+                    self.commit(f"{name} with {callers} callers")
+                    self.assertEqual(self.observers(), 2, (name, callers))  # Other.swift's and observe()'s
+                self.assert_matches_full(self.git("rev-parse", "HEAD~1"), "HEAD")
+
+    def test_extract_inline_and_branch_keep_a_fixed_count(self):
+        # The review's cases: moving a fixed registration one level down (a() calls b(), b registers) read 3 -> 1
+        # and inlining it back 1 -> 3, wrapping it in a trivial `if` read 3 -> 1. Each is a refactor: delta 0.
+        def watch(body: str, extra: str = "") -> str:
+            return ("final class W {\n    var on = true\n    func go() {\n        a()\n        a()\n        a()\n    }\n"
+                    "    func a() {\n" + body + "    }\n" + extra + "}\n")
+        raw = f"        {self.AO.format('.n0')}\n"
+        self.write(self.WATCH, watch(raw))
+        base = self.commit("a fixed registration in a()")
+        self.assertEqual(self.observers(), 1)
+        for name, text in {"extract": watch("        b()\n", "    func b() {\n" + raw + "    }\n"),
+                           "if": watch(f"        if on {{\n    {raw}        }}\n"),
+                           "guard": watch("        guard on else { return }\n" + raw),
+                           "inline": watch(raw)}.items():
+            with self.subTest(name):
+                self.write(self.WATCH, text)
+                self.commit(name)
+                self.assertEqual(counts.delta_count(self.repo, base, "HEAD").total("observer_sites"), 0, name)
+                self.assert_matches_full(base, "HEAD")
+                refused, out = self.run_push(base=base)
+                self.assertFalse(refused, out)
+                self.assertNotIn(ratchet.UPDATE_HINT, out)
+
+    def test_raw_observers_moved_behind_main_actor_observation_keep_their_count(self):
+        # e2b6fc74a78's shape: raw addObserver calls replaced by MainActorObservation, no registration removed. A
+        # helper whose caller names the notification (`on(.n0)`) counts per call, a fixed one (`occlusion()`, or
+        # FrameScheduler.forWindow(window): the caller gives only the `object:`) once: the same before and after.
+        # Another file already uses the wrapper (as the tree does), so the wrapper's own body counts at neither end.
+        self.write(*self.MAO)
+        self.write(f"{SRC}/CmuxNextDomain/Other.swift",
+                   "final class Other {\n    var token: AnyObject?\n    func go() {\n"
+                   "        token = MainActorObservation(.n9) {}\n    }\n}\n")
+
+        def watch(on: str, occlusion: str, window: str) -> str:
+            return ("final class Watch {\n    var tokens: [Any] = []\n    func start(_ a: NSWindow, _ b: NSWindow) {\n"
+                    "        on(.n0)\n        on(.n1)\n        occlusion()\n        occlusion()\n"
+                    "        forWindow(a)\n        forWindow(b)\n    }\n"
+                    f"    func on(_ name: Notification.Name) {{\n        tokens.append({on})\n    }}\n"
+                    f"    func occlusion() {{\n        tokens.append({occlusion})\n    }}\n"
+                    f"    func forWindow(_ w: NSWindow) {{\n        tokens.append({window})\n    }}\n}}\n")
+        raw = "NotificationCenter.default.addObserver(forName: {}, object: {}, queue: .main) {{ _ in }}"
+        self.write(self.WATCH, watch(raw.format("name", "nil"), raw.format(".n5", "nil"),
+                                     raw.format("NSWindow.didMoveNotification", "w")))
+        base = self.commit("raw")
+        self.assertEqual(self.observers(), 5)  # on() per call (2), occlusion() once, forWindow() once, Other.swift
+        self.write(self.WATCH, watch("MainActorObservation(name) {}", "MainActorObservation(.n5) {}",
+                                     "MainActorObservation(NSWindow.didMoveNotification, object: w) {}"))
+        self.commit("behind MainActorObservation")
+        self.assertEqual(counts.delta_count(self.repo, base, "HEAD").total("observer_sites"), 0)
+        self.assert_matches_full(base, "HEAD")
+        self.write(self.WATCH, (self.repo / self.WATCH).read_text().replace("on(.n1)\n", "on(.n1)\n        on(.n2)\n"))
+        head = self.commit("a third named call")
+        refusals, _ = self.check(base=self.git("rev-parse", "HEAD~1"), head=head)
+        self.assertEqual(self.rows(refusals), ["observer_sites"])
+
+    def test_a_wrapper_type_that_stores_the_name_from_its_init_counts_per_construction(self):
+        # The review's case: _origins followed only parameters, so a type that stores the observed name from its init
+        # and registers in a method counted once however many times it is built.
+        base = self.raw_base()
+        self.assert_same_count(base, "final class Watch {\n    func start() {\n"
+                               "        _ = Watcher(name: .n0)\n        _ = Watcher(name: .n1)\n        _ = Watcher(name: .n2)\n"
+                               "    }\n}\n", 3,
+                               [(f"{SRC}/CmuxNextDomain/Watcher.swift",
+                                 "final class Watcher {\n    let name: Notification.Name\n"
+                                 "    init(name: Notification.Name) {\n        self.name = name\n    }\n"
+                                 "    func start() {\n"
+                                 f"        {self.AO.format('name')}\n    }}\n}}\n")])
+
+    def test_a_method_call_resolves_to_its_own_types_method(self):
+        # The review's case: matching by bare name counted B's own `observe(Int)` calls as A's wrapper.
+        self.write(f"{SRC}/CmuxNextDomain/A.swift",
+                   "final class A {\n    func observe(_ name: Notification.Name) {\n"
+                   f"        {self.AO.format('name')}\n    }}\n}}\n")
+        self.write(f"{SRC}/CmuxNextDomain/B.swift",
+                   "final class B {\n    func observe(_ x: Int) {}\n    func go() {\n"
+                   "        observe(1); observe(2); observe(3); self.observe(4)\n    }\n}\n")
+        base = self.commit("two observe methods")
+        _, full, _ = counts.full_count(self.repo, base)
+        self.assertEqual(full.rows["observer_sites"], {"CmuxNextDomain": 1})  # A's own, never called
+        self.write(f"{SRC}/CmuxNextDomain/B.swift",
+                   "final class B {\n    func observe(_ x: Int) {}\n    func go() {\n"
+                   "        observe(1); observe(2); observe(3); self.observe(4); observe(5)\n    }\n}\n")
+        head = self.commit("one more B.observe call")
+        refusals, _ = self.check(base=base, head=head)
+        self.assertEqual(refusals, [])
+        self.write(f"{SRC}/CmuxNextDomain/C.swift",
+                   "final class C {\n    let a = A()\n    func go() {\n        a.observe(.n0)\n        a.observe(.n1)\n"
+                   "    }\n}\n")
+        self.commit("two calls of A.observe through a typed property")
+        delta = counts.delta_count(self.repo, head, "HEAD")
+        self.assertEqual(delta.total("observer_sites"), 1)  # 2 calls replace A's uncalled body (1)
+        self.assert_matches_full(head, "HEAD")
+
+    def test_a_helper_that_becomes_an_observer_wrapper_counts_its_unchanged_callers(self):
+        # The push changes only the helper's file: its callers elsewhere start registering observers.
+        self.write(f"{SRC}/CmuxNextDomain/Watching.swift", "func watch(_ name: Notification.Name) {\n    print(name)\n}\n")
+        self.write(f"{SRC}/CmuxNextOther/Users.swift",
+                   "func users() {\n    watch(.a)\n    watch(.b)\n    self.watch(\n        .c\n    )\n}\n")
+        base = self.commit("a plain helper and its callers")
+        self.write(f"{SRC}/CmuxNextDomain/Watching.swift",
+                   "func watch(_ name: Notification.Name) {\n"
+                   "    _ = NotificationCenter.default.notifications(named: name)\n}\n")
+        self.commit("the helper now observes")
+        delta = counts.delta_count(self.repo, base, "HEAD")
+        # Another module cannot see an internal `watch`: no call resolves, so its own registration counts (it
+        # never disappears because its callers cannot be resolved).
+        self.assertEqual(delta.by_package("observer_sites"), {"CmuxNextDomain": 1})
+        self.assert_matches_full(base, "HEAD")
+        self.write(f"{SRC}/CmuxNextDomain/Watching.swift",
+                   "public func watch(_ name: Notification.Name) {\n"
+                   "    _ = NotificationCenter.default.notifications(named: name)\n}\n")
+        self.commit("public")
+        delta = counts.delta_count(self.repo, base, "HEAD")
+        self.assertEqual(delta.by_package("observer_sites"), {"CmuxNextOther": 3})
+        self.assert_matches_full(base, "HEAD")
+
     def test_assume_isolated_in_a_deinit_is_refused_even_with_main_proof(self):
         self.write(f"{SRC}/CmuxNextDomain/Holder.swift",
                    "final class Holder {\n    deinit {\n        // main-proof: released on main\n"
