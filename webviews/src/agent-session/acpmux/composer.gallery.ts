@@ -527,7 +527,7 @@ export default agentPaneEntry({
       }),
     },
     "side-session": {
-      note: "A side session (/btw): the empty prompt reads Reply in this session…, and /btw is not offered in it.",
+      note: "A side session (/btw) is available by default: the empty prompt reads Reply in this session…, and /btw is not offered in it.",
       snapshot: sideSession,
     },
     // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab

@@ -6465,7 +6465,8 @@ function AcpmuxPane() {
   );
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
-  // `/btw` opens a side session beside the chat, behind its gate; the Quick Composer has none.
+  // `/btw` opens a read-only side session beside the chat; the Debug toggle is an explicit
+  // kill switch, and the Quick Composer has none.
   const sideSessions = useSideSessions();
   const opensSideSessions = !quick && sideSessions;
   const opensSideSessionsRef = useRef(opensSideSessions);
