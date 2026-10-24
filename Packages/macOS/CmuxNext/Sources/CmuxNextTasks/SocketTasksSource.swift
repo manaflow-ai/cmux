@@ -19,7 +19,7 @@ public final class SocketTasksSource: TasksSource {
     private var sink: (@MainActor (TasksSourceEvent) -> Void)?
     /// Whether a connection is open (its descriptor belongs to `connection`).
     private var connected = false
-    private var directoryWatch: (any DispatchSourceFileSystemObject)?
+    private var directoryWatch: MainDirectoryWatch?
     private let retryTimer = DemandTimer(owner: "tasks.reconnect")
     private var backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))
     /// Owns the descriptor: reads, framing, JSON decoding and writes run on
@@ -54,7 +54,6 @@ public final class SocketTasksSource: TasksSource {
     public func stop() {
         sink = nil
         retryTimer.cancel()
-        directoryWatch?.cancel()
         directoryWatch = nil
         closeConnection()
     }
@@ -75,16 +74,14 @@ public final class SocketTasksSource: TasksSource {
         connected = true
         generation += 1
         let generation = generation
-        // The main actor gets each read's decoded lines in one hop.
+        // The main actor gets each read's decoded lines in one hop: the connection's queue is never
+        // main, so MainDelivery enqueues them on the main queue, one block per read, in read order.
         let connection = TasksSocketConnection(fd: socket)
         connection.start { [weak self] batch in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.deliver(batch, generation: generation) } // main-proof: DispatchQueue.main.async
-            }
+            MainDelivery().run { self?.deliver(batch, generation: generation) }
         }
         self.connection = connection
         backoff.reset()
-        directoryWatch?.cancel()
         directoryWatch = nil
         enqueue(["id": .int(Int(nextID)), "op": .string("task.subscribe")], params: [:])
         nextID += 1
@@ -141,14 +138,7 @@ public final class SocketTasksSource: TasksSource {
     private func waitForOwner() {
         if directoryWatch == nil {
             let directory = (path as NSString).deletingLastPathComponent
-            let dirFD = Darwin.open(directory, O_EVTONLY)
-            if dirFD >= 0 {
-                let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: dirFD, eventMask: [.write, .rename, .delete], queue: .main)
-                watch.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scheduleAttempt() } } // main-proof: dispatch source on queue: .main
-                watch.setCancelHandler { close(dirFD) }
-                watch.resume()
-                directoryWatch = watch
-            }
+            directoryWatch = MainDirectoryWatch(directory) { [weak self] in self?.scheduleAttempt() }
         }
         scheduleAttempt()
     }
