@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -35,29 +36,20 @@ final class PageWKWebView: WKWebView {
         super.init(frame: frame, configuration: configuration)
         allowsMagnification = false
         // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
-        // queue: .main runs the block inline for AppKit's post on main, before the action is
-        // sent; a selector into this main-actor view trapped on a post off main.
-        menuActionObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.willSendActionNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            // The menu's identity crosses into the main-actor block (an NSMenu is not Sendable).
-            let sender = (note.object as? NSMenu).map(ObjectIdentifier.init)
-            MainActor.assumeIsolated { self?.menuWillSendAction(from: sender) } // main-proof: observer on queue: .main
+        // MainActorObservation observes on queue .main: AppKit's post on main runs the handler
+        // inline, before the action is sent; a selector into this main-actor view trapped on a
+        // post off main. The token removes the observer when the view is released, on any thread.
+        menuActionObserver = MainActorObservation(NSMenu.willSendActionNotification, read: {
+            ($0.object as? NSMenu).map(ObjectIdentifier.init)
+        }) { [weak self] sender in
+            self?.menuWillSendAction(from: sender)
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    private var menuActionObserver: (any NSObjectProtocol)?
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
-        }
-    }
+    private var menuActionObserver: MainActorObservation?
 
     /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
     /// after it is backed by the person's gesture (``hasRecentUserGesture(within:)``). Page script
