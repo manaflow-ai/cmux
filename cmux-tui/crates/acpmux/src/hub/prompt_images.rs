@@ -379,7 +379,7 @@ impl Hub {
         }
         let ordered = inline_parts(
             blocks,
-            msg.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
         if !ordered.is_empty() {

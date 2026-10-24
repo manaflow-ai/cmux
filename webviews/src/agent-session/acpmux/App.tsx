@@ -4192,7 +4192,12 @@ function AcpmuxPane() {
   const forkSeq = latestForkSeq(snapshot.rows);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
-  const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
+  // A running chat still permits editing an earlier completed prompt: editResend forks through that
+  // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
+  // Keep the same served/connected gate as ordinary forks, but do not use `forkable`, which excludes
+  // a working chat (Leo, 2026-10-24).
+  const editsServed = snapshot.canFork && connected && !snapshot.summary?.peer;
+  const editSeqs = editableTurns(editsServed ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
@@ -5026,6 +5031,15 @@ function AcpmuxPane() {
     ),
   );
   const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
+  const runningBranchSessions = useMemo(
+    () =>
+      new Set(
+        snapshot.sessions
+          .filter((entry) => entry.lane === "working" || entry.indicator === "working" || entry.status === "running")
+          .map((entry) => entry.sessionId),
+      ),
+    [snapshot.sessions],
+  );
   const restartChat = restartOwner({
     connected,
     sessionId: snapshot.sessionId,
@@ -5038,6 +5052,7 @@ function AcpmuxPane() {
       ...(stableBranches.size > 0 && {
         branches: {
           of: stableBranches,
+          running: runningBranchSessions,
           open: (sessionId: string) => void callNative("chat.select", { sessionId }).catch(() => undefined),
         },
       }),
@@ -5123,6 +5138,7 @@ function AcpmuxPane() {
       chatAccounts,
       snapshot.sessionId,
       stableBranches,
+      runningBranchSessions,
       forkable,
       forkSeq,
       forkAny,
@@ -8362,6 +8378,13 @@ function AcpmuxPane() {
             onQueueRemove={(promptId) =>
               startingSends.owns(promptId) ? Promise.resolve(startingSends.remove(promptId)) : removeQueued(promptId)
             }
+            onQueueCancelEdit={async (promptId, text, attachments) => {
+              const removed = startingSends.owns(promptId)
+                ? startingSends.remove(promptId)
+                : await removeQueued(promptId);
+              if (removed) composerHandle.current?.restore(text, attachments);
+              return removed;
+            }}
             onQueueChange={(promptId, edit) =>
               startingSends.owns(promptId)
                 ? Promise.resolve(edit.op === "update" && startingSends.edit(promptId, edit.text))

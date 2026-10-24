@@ -1048,6 +1048,27 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
       },
     },
+    "queued-cancel-edit": {
+      note: "Play: the x on an unread queued prompt withdraws it from the queue and restores its text in the composer; it is a real cancel-and-edit, so the queued row disappears.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+      native: { "chat.queue.remove": { removed: true } },
+      play: async (ctx) => {
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-action="cancel-edit"]' });
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector('.acpmux-queued[data-prompt-id="q1"]') &&
+            ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ===
+              "Then add a test for the 429 path",
+        );
+      },
+    },
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
