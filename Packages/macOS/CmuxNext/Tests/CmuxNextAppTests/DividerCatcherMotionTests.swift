@@ -180,5 +180,46 @@ import Testing
             #expect(abs(frame.minX - rect.minX) < 1 && abs(frame.width - rect.width) < 1, "\(id): catcher \(frame), area \(rect)")
         }
     }
+
+    /// A borderless window over `window`, as the fork shows a Chromium page.
+    static func pageWindow(over window: NSWindow) -> NSWindow {
+        // The layout window is deferred: its frame can still be null here, so a fixed rect is used.
+        let page = NSWindow(contentRect: CGRect(x: 40, y: 40, width: 1100, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        return page
+    }
+
+    /// PL-burst (session cmux-1c), closePane and keybindings.open: presenting a Chromium pane adds its page window, whose
+    /// addChildWindow re-entered the overlay evaluate and re-added every catcher panel (82 ms of window
+    /// server IPC; keybindings.open 49 to 88 ms the same way). With the catcher set unchanged, a page window going and coming back adds no child
+    /// window and makes no panel.
+    @Test func aPageWindowComingBackAddsNoCatcherWindow() throws {
+        let layout = Layout()
+        defer { layout.window.close() }
+        layout.window.orderFront(nil)
+        let first = Self.pageWindow(over: layout.window)
+        layout.window.addChildWindow(first, ordered: .above)
+        first.orderFront(nil)
+        layout.window.overlayLayer.evaluate()
+        let catchers = layout.window.overlayLayer.catchers
+        try #require(!catchers.coveredAreaIDs.isEmpty, "the divider has its catcher over the page")
+        let (orders, made) = (catchers.windowOrderings, catchers.panelsMade)
+        // The pane's page window goes (a tab switch or close) and a page window comes back (present).
+        layout.window.removeChildWindow(first)
+        first.orderOut(nil)
+        layout.window.overlayLayer.evaluate()
+        let second = Self.pageWindow(over: layout.window)
+        layout.window.addChildWindow(second, ordered: .above)
+        second.orderFront(nil)
+        layout.window.overlayLayer.evaluate()
+        defer {
+            layout.window.removeChildWindow(second)
+            second.close()
+            first.close()
+        }
+        #expect(!catchers.coveredAreaIDs.isEmpty, "the catcher takes the mouse again over the new page")
+        #expect(catchers.windowOrderings == orders, "no catcher window ordered: \(catchers.windowOrderings - orders)")
+        #expect(catchers.panelsMade == made, "no catcher window made: \(catchers.panelsMade - made)")
+    }
 }
 
