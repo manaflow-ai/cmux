@@ -50,6 +50,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case agentChanged(AgentStatus)
     /// What a surface's agent is touching now (`agent-presence-v1`).
     case agentPresenceChanged(AgentPresence)
+    /// A terminal's foreground program changed (`terminal-foreground-v1`).
+    case terminalForegroundChanged(TerminalForeground)
 
     /// A `session.events` item: the state resources the daemon owns
     /// (state-ownership.md 2), which `DaemonStore.session` mirrors.
@@ -108,6 +110,8 @@ extension DaemonEvent {
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on
         // "working" (cx-ag5.6.8). Each event carries the whole state of one surface.
         case .agentChanged, .agentPresenceChanged: true
+        // Foreground programs are not in the tree snapshot either; each event is one surface's whole state.
+        case .terminalForegroundChanged: true
         // A notification's text is in its event alone; the snapshot has only the tab's unread
         // marker. The daemon follows each notification with `tree-changed`, so a second one often
         // lands while that resync's snapshot is in flight, under its barrier.

@@ -268,6 +268,9 @@ public struct DaemonCapabilities: Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     public static let agentSessionTabs = "agent-session-tabs-v1"
+    /// Each PTY surface's foreground program, pushed on change (`terminal-foreground-changed`) and
+    /// listed at connect (`list-terminal-foregrounds`): a close asks or not in the key's turn.
+    public static let terminalForeground = "terminal-foreground-v1"
     /// Agent chat tabs of another machine's store: attach, replay, prompt and answer
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").

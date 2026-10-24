@@ -134,8 +134,9 @@ extension DaemonStore {
         case .connected, .disconnected, .daemonShutdown, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
              .frontendProjectionChanged, .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged,
              .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
-             .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown:
-            // No confirmed tree record changes (a resync, a connection change, side state).
+             .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown,
+             .terminalForegroundChanged:
+            // No confirmed tree record changes (a resync, a connection change, side state; a foreground program is not a tree record).
             break
         }
     }

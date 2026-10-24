@@ -130,6 +130,7 @@ enum DestructiveConfirmation {
     /// or nil when it runs none (or did not answer). One gesture asks once and
     /// passes this on (a close's question, then its undo toast decision).
     static func runningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
+        if let local = localRunningPrograms(bySurface: tabs, on: daemon) { return local }
         let surfaces = tabs.filter { $0.kind == .pty && !$0.dead }.map(\.surface)
         guard let connection = daemon.connection, !surfaces.isEmpty else { return [:] }
         return await withTaskGroup(of: (SurfaceID, String?).self) { group in
@@ -142,6 +143,17 @@ enum DestructiveConfirmation {
             for await (surface, program) in group { programs[surface] = .some(program) }
             return programs
         }
+    }
+
+    /// The same from what the daemon pushed (`terminal-foreground-v1`, ``TerminalForegrounds``):
+    /// no read, so a close decides in the key's turn. Nil when `daemon` does not push it (an
+    /// older or remote daemon): the caller asks each terminal.
+    static func localRunningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) -> RunningPrograms? {
+        guard daemon.supports(DaemonCapabilities.terminalForeground) else { return nil }
+        let foregrounds = daemon.store.foregrounds
+        var programs: RunningPrograms = [:]
+        for tab in tabs where tab.kind == .pty && !tab.dead { programs[tab.surface] = .some(foregrounds.runningProgram(tab.surface)) }
+        return programs
     }
 
     /// The targeted (or focused tab's) open tab group's tabs and their
