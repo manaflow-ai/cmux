@@ -51,11 +51,14 @@ a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing 
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
-refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecked Sendable /
-nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
-ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp
-composition-root growth beyond its wiring budget or a new App file that is not a move (`app-size`, a net
-count) and a new type that is not a move in an existing App file or a moved one (`app-type`); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
+refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
+its per-module count cannot see before a push), DispatchQueue.main.async, ObservableObject/@Published, store
+references in list rows, generic classes with an implicit deinit, waiting action binds, detached tasks without a
+priority and bench hooks in shipped builds, in lines the push adds, and CmuxNextApp composition-root growth beyond
+its wiring budget or a new App file that is not a move (`app-size`, a net count) and a new type that is not a move
+in an existing App file or a moved one (`app-type`); sleeps and assumeIsolated are the scanners' rules above
+(check-concurrency.sh, crash_ratchet.py), never repeated here. Warns on CmuxNextApp source growth, `// perf-hot:`
+functions and OWNERS.md areas. Skip one push with
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); the guardrails get the
 gate's own ranges (above), so lines a push only brings in from origin/feat-cmux-next (a merge or rebase onto
 it) never count; --no-guardrails turns it off for a manual run.

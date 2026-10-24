@@ -81,13 +81,11 @@ struct WorkspaceRow: View {
 
 # rule id -> (file text that adds it, the same with its reviewed escape or the right pattern). Singletons,
 # assumeIsolated and Notification.Name have no line rule: the arch ratchet holds them
-# (scripts/cmux-next/tests/test_arch_ratchet.py).
+# (scripts/cmux-next/tests/test_arch_ratchet.py); sleeps are check-concurrency.sh's (SleepRuleTests).
 CASES = {
     "unchecked-sendable": ("final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
                            "// crash-allow: x is written once in init, then only read\n"
                            "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"),
-    "sleep-poll": ("func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
-                   "func wait() async throws {\n    try await Task.sleep(for: .seconds(2)) // a minimum display time\n}\n"),
     "main-async": ("func f() {\n    DispatchQueue.main.async { print(1) }\n}\n",
                    "@MainActor func f() {\n    print(1)\n}\n"),
     "combine-state": ("import Combine\nfinal class Model: ObservableObject {\n    @Published var x = 0\n}\n",
@@ -200,15 +198,11 @@ class RuleTests(Fixture):
     def test_editing_a_line_that_already_has_debt_adds_none(self):
         before = {
             f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
-            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
-                                 "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
         }
         self.rebase_on(before)
         after = {
             f"{KIT}/Old.swift": OLD.replace("print(0)", "print(1)"),
             f"{KIT}/Box.swift": "final class Box: Equatable, @unchecked Sendable {\n    var x = 0\n}\n",
-            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
-                                "        try await Task.sleep(for: .milliseconds(50))\n    }\n}\n",
         }
         for relative, text in after.items():
             self.write(relative, text)
@@ -223,45 +217,13 @@ class RuleTests(Fixture):
         refusals, _ = self.check()
         self.assertEqual([(r.id, len(hits)) for r, hits in refusals], [("main-async", 1)])
 
-    def test_a_one_line_poll_is_refused_and_wakeup_allow_is_its_escape(self):
-        poll = "func wait() async throws {\n    while !ready() { try await Task.sleep(for: .milliseconds(5)) }\n}\n"
-        self.write(f"{KIT}/Added.swift", poll)
-        self.commit("one-line poll")
-        self.assertIn("sleep-poll", [r.id for r, _ in self.check()[0]])
-        self.git("reset", "--quiet", "--hard", self.base)
-        self.write(f"{KIT}/Added.swift", poll.replace("    while", "    // wakeup-allow: the device has no change event\n    while"))
-        self.commit("reviewed poll")
-        self.assertEqual(self.check()[0], [])
-
-    def test_a_removed_one_shot_delay_does_not_pay_for_a_new_poll(self):
-        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"})
-        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
-                                        "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
-        self.commit("delay -> poll")
-        self.assertEqual(self.refused(), [("sleep-poll", ["Wait.swift: try await Task.sleep(for: .milliseconds(5))"])])
-
-    def test_wrapping_an_old_sleep_in_a_new_loop_is_refused(self):
-        delay = "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"
-        start = self.base
-        for name, wrapped in (
-            ("re-indented", "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .seconds(2))\n"
-                            "    }\n}\n"),
-            ("same indent", "func wait() async throws {\n    while !ready() {\n    try await Task.sleep(for: .seconds(2))\n"
-                            "    }\n}\n"),
-        ):
-            with self.subTest(name):
-                self.git("reset", "--quiet", "--hard", start)
-                self.rebase_on({f"{KIT}/Wait.swift": delay})
-                self.write(f"{KIT}/Wait.swift", wrapped)
-                self.commit("wraps the delay in a loop")
-                self.assertEqual([rule for rule, _ in self.refused()], ["sleep-poll"])
-
     def test_an_edit_of_the_opener_around_old_debt_adds_none(self):
-        poll = "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
-        self.rebase_on({f"{KIT}/Wait.swift": poll})
+        row = ("import SwiftUI\nstruct EntryRow: View {\n    @Environment(SidebarStore.self) private var store\n"
+               "    var body: some View { Text(\"x\") }\n}\n")
+        self.rebase_on({f"{KIT}/Entry.swift": row})
         self.write(f"{KIT}/Old.swift", OLD.replace("final class Old {", "final class Old: Sendable {"))
-        self.write(f"{KIT}/Wait.swift", poll.replace("!ready()", "!isReady()"))
-        self.commit("edits the class and loop lines around old debt")
+        self.write(f"{KIT}/Entry.swift", row.replace("struct EntryRow: View {", "struct EntryRow: View, Equatable {"))
+        self.commit("edits the class and row lines around old debt")
         self.assertEqual(self.refused(), [])
 
     def test_a_view_renamed_to_a_row_around_a_store_is_refused(self):
@@ -508,12 +470,12 @@ class RuleTests(Fixture):
         self.assertEqual(self.refused(), [])
 
     def test_deleting_a_line_next_to_the_opener_of_old_debt_adds_none(self):
-        # A deletion marks the lines around it on both sides, so an old sleep in the loop around it pairs.
-        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n        tick()\n"
-                                             "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"})
-        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
-                   "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
-        self.commit("a line in the loop goes")
+        # A deletion marks the lines around it on both sides, so an old store in the row around it pairs.
+        self.rebase_on({f"{KIT}/Entry.swift": "import SwiftUI\nstruct EntryRow: View {\n    let id = 0\n"
+                                              "    @Environment(SidebarStore.self) private var store\n}\n"})
+        self.write(f"{KIT}/Entry.swift", "import SwiftUI\nstruct EntryRow: View {\n"
+                   "    @Environment(SidebarStore.self) private var store\n}\n")
+        self.commit("a line in the row goes")
         self.assertEqual(self.refused(), [])
 
     def test_the_generic_class_rule_reads_the_target_isolation_like_check_concurrency(self):
@@ -1948,27 +1910,6 @@ class SharedRuleTests(Fixture):
                 self.write(f"{KIT}/Added.swift", text)
                 self.commit("an unchecked box")
                 self.assertEqual("unchecked-sendable" in [rule for rule, _ in self.refused()], counted)
-
-    def test_the_new_app_file_limit_is_check_no_godfiles_budget(self):
-        # One budget: a copy of the checks whose check-no-godfiles.sh says 300 refuses a new 350-line App file.
-        checks = self.root / "checks"
-        source = SOURCE / "scripts/cmux-next"
-        checks.mkdir()
-        for path in source.iterdir():
-            if path.is_file():
-                shutil.copy2(path, checks / path.name)
-        godfiles = checks / "check-no-godfiles.sh"
-        text = godfiles.read_text()
-        self.assertIn("\nswift_file_limit=400\n", text)
-        godfiles.write_text(text.replace("\nswift_file_limit=400\n", "\nswift_file_limit=300\n"))
-        spec = importlib.util.spec_from_file_location("cmux_next_guardrails_300", checks / "guardrails.py")
-        copy = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = copy
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(copy)
-        self.write(f"{APP}/Feature.swift", "".join(f"let value{n} = {n}\n" for n in range(350)))
-        self.commit("a new 350-line App file")
-        self.assertIn("app-big-file", [rule.id for rule, _ in self.check(copy.check)[0]])
 
 
 class SleepRuleTests(unittest.TestCase):

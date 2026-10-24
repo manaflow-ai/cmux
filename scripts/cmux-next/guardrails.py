@@ -4,18 +4,21 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (a new `while` around a sleep, `struct` -> `class` around a static, an
+line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
 edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
 extensions, read in every Sources and Tests file that extends it: generic_signature_context).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
-has debt adds none, and a removed one-shot delay does not pay for a new poll), and an added line whose
+has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
 text another file removes as debt is a move. Only the push's own commits count (push_range.py, the same
 range the gate's scanners and the arch ratchet judge): lines a push only brings in from origin/feat-cmux-next
 (a merge or rebase onto it) never count. A merge is judged over the upstream it merged, less what the branch's
 old remote head already had over the upstream it started from (check_own), so an upstream removal of debt never
 pays for the branch's own. Base debt never blocks a push
-(plans/cmux-next/codebase-health.md has the counts).
+(plans/cmux-next/codebase-health.md has the counts). A rule another check already refuses before the push is
+not repeated here (sleeps: check-concurrency.sh; assumeIsolated: crash_ratchet.py's ban); a rule shared with
+a CI check reads that check's own definition (unchecked-sendable: crash_ratchet.py's class and escape;
+app-size: count-swift-code-lines.py's lexer).
 
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
@@ -116,6 +119,8 @@ def load_sibling(name: str, filename: str):
 
 
 git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
+# The crash ratchet's own Swift classifier, escape and bans: the unchecked-sendable rule reads them, never a copy.
+ratchet = load_sibling("cmux_next_crash_ratchet", "crash_ratchet.py")
 
 
 def git_env() -> dict[str, str]:
@@ -213,7 +218,11 @@ Keep = Callable[[Version, int], tuple]
 class Matcher:
     pattern: re.Pattern
     escape: re.Pattern | None
-    keep: Keep | None = None  # context: a sleep inside a loop, a static of a class, a store in a row
+    keep: Keep | None = None  # context: a static of a class, a store in a row, a generic class without a deinit
+    code: Callable[[str], str] = code_of  # the code PATTERN reads (comments dropped, string contents blanked)
+    # The 0-based lines whose comment can carry ESCAPE; None: swift_scope.escaped's window (the line, the comment
+    # and attribute block above it, or the previous code line's trailing comment).
+    window: Callable[[list[str], int], list[int]] | None = None
 
 
 def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Added]:
@@ -221,29 +230,29 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
 
     A line counts when MATCHER's pattern matches its code, KEEP holds for it in VERSION's text and it carries
     no escape there. For a context rule, an unchanged line also counts when a line that makes it debt (an
-    opener KEEP returns) is touched (Version.touched): a new `while` around an old sleep, `struct` ->
-    `final class` around an old static, a view renamed to `...Row` around an old store reference, an edit or a
-    deletion inside a generic class's body (head side); on the base side the same lines are the debt the push
-    takes away, so `while a {` -> `while b {` around a sleep pairs with itself.
+    opener KEEP returns) is touched (Version.touched): `struct` -> `final class` around an old static, a view
+    renamed to `...Row` around an old store reference, an edit or a deletion inside a generic class's body (head
+    side); on the base side the same lines are the debt the push takes away, so an edit of the opener that keeps
+    the context (`final class A {` -> `final class A: Sendable {`) pairs with itself.
     """
     out = []
     lines = version.lines
 
     def is_debt(index: int) -> tuple[bool, list[int]]:
         kept, openers = matcher.keep(version, index) if matcher.keep is not None else (True, [])
-        if not kept or (matcher.escape is not None and escaped(lines, index, matcher.escape)):
+        if not kept or (matcher.escape is not None and escaped_in(lines, index, matcher)):
             return False, openers
         return True, openers
 
     for line in changed:
-        if matcher.pattern.search(code_of(line.text)) and is_debt(line.number - 1)[0]:
+        if matcher.pattern.search(matcher.code(line.text)) and is_debt(line.number - 1)[0]:
             out.append(line)
     if matcher.keep is None or not version.touched:
         return out
     for index, text in enumerate(lines):
         if index + 1 in version.changed or not matcher.pattern.search(text):
             continue
-        if not matcher.pattern.search(code_of(text)):
+        if not matcher.pattern.search(matcher.code(text)):
             continue
         debt, openers = is_debt(index)
         if debt and any(o in version.touched for o in openers):
@@ -300,6 +309,13 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     return hits
 
 
+def escaped_in(lines: list[str], index: int, matcher: Matcher) -> bool:
+    """MATCHER's escape in a comment of its window around LINES[INDEX]."""
+    if matcher.window is None:
+        return escaped(lines, index, matcher.escape)
+    return any(matcher.escape.search(lines[j]) for j in matcher.window(lines, index))
+
+
 def matcher_rule(matcher: Matcher) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
     def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
         return resolve([(debt_in(c.head, c.added, matcher), debt_in(c.base, c.removed, matcher)) for c in changes])
@@ -309,21 +325,6 @@ def matcher_rule(matcher: Matcher) -> Callable[[list[FileChange], collections.Co
 def line_rule(pattern: str, escape: str | None) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
     marker = re.compile(r"//\s*" + re.escape(escape) + r"\s*\S") if escape else None
     return matcher_rule(Matcher(re.compile(pattern), marker))
-
-
-SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b")
-LOOP = re.compile(r"^\s*(\}\s*)?(while\b|repeat\b|for\b)|\b(while|repeat)\s*[{(!]")
-FUNC_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{|\b(Task|Task\.detached)\s*(\([^)]*\))?\s*\{")
-# check-concurrency.sh's reviewed `// wakeup-allow:` covers it too; `poll-allow:` is the older name.
-POLL_ALLOW = re.compile(r"//\s*(wakeup|poll)-allow:\s*\S")
-
-
-def in_loop(version: Version, index: int) -> tuple[bool, list[int]]:
-    code = code_of(version.lines[index])
-    match = SLEEP.search(code)
-    prefix = code[:match.start()] if match else ""
-    loops = [n for opener, n in enclosing_openers(version.lines, index, FUNC_STOP, prefix) if LOOP.search(opener)]
-    return bool(loops), loops
 
 
 ROW_STRUCT = re.compile(r"\bstruct\s+(\w*(Row|Cell|Tile|Gap|Item)(View)?)\b[^{]*:\s*[^{]*\bView\b")
@@ -1531,8 +1532,30 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, judged.context + list(range(first, last + 1))
 
 
-sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
+
+
+def ratchet_code(line: str) -> str:
+    """LINE as crash_ratchet.py reads it: a comment line is no code, else swift_code()."""
+    return "" if line.lstrip().startswith("//") else ratchet.swift_code(line)
+
+
+# crash_ratchet.py's `unchecked` class, judged per added line. The ratchet itself counts per module against
+# its full-tree baseline, which the pre-push trees (only the changed files) never reach, so before a push only
+# this rule sees a new one. A class the ratchet bans (per file, crash-allowlist.json) it refuses itself.
+UNCHECKED = Matcher(ratchet.SWIFT["unchecked"], ratchet.ALLOW, code=ratchet_code, window=ratchet.allow_lines)
+
+
+def unchecked_sendable(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    banned_everywhere = "unchecked" in ratchet.banned_kinds("swift")
+    banned_modules = {module for kind, module in ratchet.banned_in("swift") if kind == "unchecked"}
+    judged = [c for c in changes if not banned_everywhere and module_of(c.path) not in banned_modules]
+    return matcher_rule(UNCHECKED)(judged, moved)
+
+
+def module_of(path: str) -> str:
+    """The Swift module of a path under Sources/ (its first folder there)."""
+    return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
 
 
 # ---- task-priority (PL-qos)
@@ -1573,15 +1596,11 @@ RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
-         "say why on the declaration: `// crash-allow: <the safety argument>` (crash_ratchet.py counts it as a waived hit: record it with crash_ratchet.py --record-waivers)",
+         "say why on the declaration line or the line directly above: `// crash-allow: <the safety argument>` "
+         "(crash_ratchet.py's class and escape: CI's ratchet reads the same two lines; it counts the line as a "
+         "waived hit: record it with crash_ratchet.py --record-waivers)",
          "// crash-allow: <the safety argument>",
-         line_rule(r"@unchecked\s+Sendable\b|\bnonisolated\(unsafe\)", "crash-allow:")),
-    Rule("sleep-poll", "A sleep inside a loop (polling)",
-         "a sleep that waits for a condition wakes forever, adds up to one period of latency and hides the real signal",
-         "await the event (AsyncStream, a continuation, observation); one deadline: DemandTimer; a retry after a "
-         "failure: Backoff.wait",
-         "// wakeup-allow: <why no event exists> (check-concurrency.sh's marker; `poll-allow:` also works)",
-         sleep_in_loop),
+         unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
          "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
