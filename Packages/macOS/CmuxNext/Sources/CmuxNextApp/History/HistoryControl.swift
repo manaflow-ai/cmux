@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextHistory
 import Foundation
@@ -19,6 +20,16 @@ enum HistoryControl {
         ] + debugMethods(services: services)
     }
 
+    /// `debug.closed_ids` (DEBUG builds only): every closed group the local
+    /// daemon records, newest first, as `closed_id`s `history.reopen` takes.
+    /// Unlike `history.list` it hides nothing (a blank New Tab page, a chat
+    /// with no session yet, a page closed again), so each close the daemon
+    /// committed is one id. It answers after a sync barrier: one round trip
+    /// to the daemon, then the store has applied every event emitted before
+    /// that reply, so the list holds every close committed before the call.
+    /// The every-action sweep reads it before and after an input to reopen
+    /// exactly the groups that input closed.
+    ///
     /// `debug.history_cookie_backups {action: show|hide|delete_all}` (DEBUG
     /// builds only; the router drops `debug.*` in Release): drives the
     /// History page's cookie backups sheet of the active window's selected
@@ -28,6 +39,14 @@ enum HistoryControl {
     static func debugMethods(services: AppServices) -> [ControlMethod] {
         #if DEBUG
         return [
+            .mainActor("debug.closed_ids") { [weak services] _ in
+                guard let services else { throw ControlError.invalidParams("the app is closing") }
+                let daemon = services.daemon
+                guard daemon.store.servesStateResources, let connection = daemon.connection else {
+                    throw ControlError(code: "unavailable", message: "the local daemon records no closed history")
+                }
+                return .followUp { try await closedIDs(daemon, connection) }
+            },
             .mainActor("debug.history_cookie_backups") { [weak services] call in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
                 let action = call.params["action"]?.stringValue ?? "show"
@@ -48,6 +67,25 @@ enum HistoryControl {
         return []
         #endif
     }
+
+    #if DEBUG
+    /// `debug.closed_ids`' answer: the sync barrier on `connection`, then the
+    /// store's closed items (`session.events`), unfiltered.
+    @MainActor
+    static func closedIDs(_ daemon: DaemonService, _ connection: DaemonConnection) async throws -> JSONValue {
+        _ = try await connection.request(IdentifyRequest())
+        await daemon.store.applied(through: await connection.eventSequence())
+        await daemon.store.sessionStateResolved()
+        // A reconnect in between: the list may lack closes the old connection's events carried.
+        guard daemon.connection === connection else {
+            throw ControlError(code: "unavailable", message: "the local daemon reconnected during the read")
+        }
+        return .object([
+            "closed_ids": .array(daemon.store.closedItems.map { .string(DaemonClosedHistory.historyID($0.id)) }),
+            "sequence": JSONValue.number(Double(daemon.store.appliedSequence)),
+        ])
+    }
+    #endif
 
     #if DEBUG
     /// The page model of the active window's History tab, once its page is
