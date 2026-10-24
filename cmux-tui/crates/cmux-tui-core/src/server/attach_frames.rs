@@ -258,6 +258,26 @@ pub(crate) fn encode_frame_passing(
     Ok(Arc::new(frame))
 }
 
+/// A frame whose payload is `meta_len u32 | meta | data parts`, with `meta`
+/// already serialized JSON.
+pub(crate) fn encode_raw_meta_frame(
+    budget: &Arc<OutboundByteBudget>,
+    kind: FrameKind,
+    stream: ClientStreamId,
+    offset: u64,
+    meta: &[u8],
+    data: &[&[u8]],
+) -> std::io::Result<Arc<BudgetedFrame>> {
+    let meta_len = u32::try_from(meta.len())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "frame meta too large"))?
+        .to_le_bytes();
+    let mut parts: Vec<&[u8]> = Vec::with_capacity(2 + data.len());
+    parts.push(&meta_len);
+    parts.push(meta);
+    parts.extend_from_slice(data);
+    encode_frame(budget, kind, stream, offset, &parts)
+}
+
 /// A frame whose payload is `meta_len u32 | meta | data parts`.
 pub(crate) fn encode_meta_frame(
     budget: &Arc<OutboundByteBudget>,
@@ -268,14 +288,7 @@ pub(crate) fn encode_meta_frame(
     data: &[&[u8]],
 ) -> std::io::Result<Arc<BudgetedFrame>> {
     let meta = serde_json::to_vec(meta).map_err(std::io::Error::other)?;
-    let meta_len = u32::try_from(meta.len())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "frame meta too large"))?
-        .to_le_bytes();
-    let mut parts: Vec<&[u8]> = Vec::with_capacity(2 + data.len());
-    parts.push(&meta_len);
-    parts.push(&meta);
-    parts.extend_from_slice(data);
-    encode_frame(budget, kind, stream, offset, &parts)
+    encode_raw_meta_frame(budget, kind, stream, offset, &meta, data)
 }
 
 /// `json` (one serialized JSON object) with `"attach_stream":id` as its
