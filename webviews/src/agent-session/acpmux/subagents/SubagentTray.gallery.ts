@@ -217,8 +217,13 @@ export default agentPaneEntry({
       theme: { subagentTrayPlacement: "after-latest-message" },
       play: async (ctx) => {
         await trayLines(1)(ctx);
-        if (!ctx.document.querySelector(".acpmux-transcript-after-latest .acpmux-running-tray"))
+        const tray = ctx.document.querySelector<HTMLElement>(".acpmux-transcript-after-latest .acpmux-running-tray");
+        if (!tray)
           throw new Error("after-latest placement must stay in the transcript flow");
+        const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock");
+        const reserve = ctx.document.querySelector<HTMLElement>(".acpmux-transcript-after-latest");
+        if (dock && reserve && reserve.getBoundingClientRect().bottom > dock.getBoundingClientRect().top + 1)
+          throw new Error("after-latest tray must remain above the full dock");
         await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__tail"));
       },

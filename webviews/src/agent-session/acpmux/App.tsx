@@ -1958,6 +1958,11 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
+  // viewport, while an after-latest tray still needs the whole stack reserved in stage flow.
+  const [dockHeight, setDockHeight] = useState(0);
+  const dockHeightRef = useRef(0);
+  dockHeightRef.current = dockHeight;
   /// The composer card's height, in that stack: what grows a line at a time (Shift-Return, a wrap).
   const [dockCard, setDockCard] = useState(0);
   const dockCardRef = useRef(0);
@@ -2014,6 +2019,7 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
+      setDockHeight(0);
       setDockCard(0);
       return;
     }
@@ -2026,23 +2032,32 @@ export function VirtualTranscript({
       const view = ref.current?.getBoundingClientRect();
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
+    const height = () => Math.max(0, dock.getBoundingClientRect().height);
     // The composer card's height, while the stack reaches over the view.
     const card = (space: number) =>
       space > 0 ? (dock.querySelector(".acpmux-composer-box")?.getBoundingClientRect().height ?? 0) : 0;
     const observer = new ResizeObserver(() => {
       noteQueue();
       const next = over();
+      const nextHeight = height();
       const nextCard = card(next);
-      if (Math.abs(next - dockSpaceRef.current) >= 0.5 || Math.abs(nextCard - dockCardRef.current) >= 0.5)
+      if (
+        Math.abs(next - dockSpaceRef.current) >= 0.5 ||
+        Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
+        Math.abs(nextCard - dockCardRef.current) >= 0.5
+      )
         flushSync(() => {
           setDockSpace(next);
+          setDockHeight(nextHeight);
           setDockCard(nextCard);
         });
     });
     observer.observe(dock);
     noteQueue();
     const space = over();
+    const fullHeight = height();
     setDockSpace(space);
+    setDockHeight(fullHeight);
     setDockCard(card(space));
     return () => observer.disconnect();
   }, [dock, noteQueue]);
@@ -3696,7 +3711,7 @@ export function VirtualTranscript({
           className="acpmux-transcript-after-latest"
           // The dock is absolute over the stage. Keep an after-latest tray in flow above its
           // measured room so the composer never covers the expansion or its live tail.
-          style={dockSpace > 0 ? { marginBottom: dockSpace } : undefined}
+          style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
         >
           {afterLatest}
         </div>
