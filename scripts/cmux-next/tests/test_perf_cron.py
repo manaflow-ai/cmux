@@ -1276,12 +1276,13 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(self.names("regressions"), [])
         self.assertEqual(self.names("unconfirmed"), ["diff.stream.p95"])
         self.assertIn("1 of 3 values", self.state["unconfirmed"][0]["why"])
-        self.assertEqual(len(self.state["row_history"]["diff.stream.p95"]), 2, "a building baseline takes the value")
+        self.assertEqual(len(self.state["row_history"]["diff.stream.p95"]), 1,
+                         "a building baseline takes no regressed value (review 2 of the host-keyed rows)")
 
     def test_a_value_within_the_baseline_spread_is_unconfirmed(self):
-        for v in (19.5, 20.0, 34.0):
+        for v in (19.5, 20.0, 29.0):  # 29.0 is within the 10 ms floor of the reference: a baseline value
             self.measured(v)
-        self.assertEqual(self.measured(33.0), "good", "above the median by 10 % and the floor, below the max")
+        self.assertEqual(self.measured(33.0), "good", "above the median by 10 % and the floor, below the max + floor")
         self.assertEqual(self.names("regressions"), [])
         self.assertEqual(self.state["unconfirmed"][0]["why"], "within the baseline's spread")
 
@@ -1845,6 +1846,68 @@ class HostWaitTests(unittest.TestCase):
             "sha": "c" * 40, "kind": "tip", "started_at": cron.iso(T0), "parts_todo": [], "host": X,
             "parts": {"motion": {"state": "done", "worker": X}}}}
         self.assertEqual(cron.migrate_state(fresh)["current"]["parts"]["motion"]["worker"], X)
+
+
+
+class PendingAndBuildingTests(unittest.TestCase):
+    """Review 2 of the host-keyed rows: a pending value is confirmed only by the next tip measurement on its own host,
+    which the tip pin steers there; a baseline still building takes no regressed value."""
+
+    def setUp(self):
+        self.state = cron.empty_state(T0)
+        self.n = 0
+
+    def measured(self, rows, hours=None):
+        self.n += 1
+        t = at(hours if hours is not None else self.n)
+        self.state["current"] = cron.new_measurement((format(self.n, "x") * 40)[:40], "tip", [], t)
+        self.state["current"]["parts"] = {"motion": {"state": "done"}}
+        rows = {k: row(v, floor=1.0) for k, v in rows.items()}
+        return cron.finish_measurement(self.state, rows, None, "h", f"u{self.n}", t, budgets_mod)
+
+    X, Y = "cmd_d.e2e@cmux21", "cmd_d.e2e@aws-m4pro-9"
+
+    def baseline(self):
+        for v in (20.0, 20.5, 21.0):
+            self.measured({self.X: v, self.Y: v})
+
+    def test_a_pending_value_waits_for_its_own_host_and_is_not_confirmed_on_another(self):
+        self.baseline()
+        self.measured({self.X: 40.0})
+        self.assertIn(self.X, self.state["pending"])
+        self.assertEqual(cron.tip_pin_host(self.state, at(self.n)), "cmux21", "the confirming run goes to the pending host")
+        self.measured({self.Y: 20.0})
+        self.assertIn(self.X, self.state["pending"], "a run on another host leaves it")
+        self.assertEqual(self.measured({self.X: 41.0}), "regressed")
+
+    def test_a_pending_value_expires_when_its_host_does_not_judge_it_again(self):
+        self.baseline()
+        self.measured({self.X: 40.0})
+        self.measured({"palette.open.e2e@cmux21": 5.0})
+        self.assertNotIn(self.X, self.state["pending"], "the next run on its host did not judge the row")
+        self.assertEqual(self.measured({self.X: 41.0}), "good", "one value outside the spread again, not two in a row")
+        self.assertIn(self.X, self.state["pending"])
+
+    def test_a_pending_value_expires_after_a_day(self):
+        self.baseline()
+        self.measured({self.X: 40.0}, hours=10)
+        self.measured({self.Y: 20.0}, hours=10 + cron.PENDING_MAX_HOURS + 1)
+        self.assertNotIn(self.X, self.state["pending"])
+
+    def test_a_building_baseline_holds_regressed_values_and_restarts_after_three(self):
+        self.measured({self.X: 20.0})
+        self.measured({self.X: 30.0})
+        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [20.0], "held out of the baseline")
+        self.assertIn(self.X, self.state["building"])
+        self.measured({self.X: 20.5})
+        self.assertNotIn(self.X, self.state["building"], "a good value ends the hold")
+        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [20.0, 20.5])
+        for v in (31.0, 31.5, 32.0):
+            self.measured({self.X: v})
+        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [31.0, 31.5, 32.0],
+                         "three held values in a row restart the baseline from them")
+        self.assertTrue(self.state["unconfirmed"][0]["restarted"])
+        self.assertIn("restarted", self.state["unconfirmed"][0]["why"])
 
 
 if __name__ == "__main__":

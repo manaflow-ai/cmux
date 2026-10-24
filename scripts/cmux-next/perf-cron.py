@@ -101,6 +101,11 @@ REF_RUNS = 5
 # 2 consecutive tip measurements. Anything less is "unconfirmed" in the issue, not a regression (lead 2026-10-24: one
 # good value on a shared runner opened diff.stream.p95 for noise).
 CONFIRM_SAMPLES = 3
+# A row outside its baseline's spread once (state['pending']) is confirmed only by the next tip measurement on its own
+# host that judges it; one that does not judge it, or PENDING_MAX_HOURS without one, drops the entry (review 2 of the
+# host-keyed rows: a noisy value on host X, days of measurements on Y, then a second noisy value on X confirmed a
+# regression whose first_bad was days old).
+PENDING_MAX_HOURS = 24
 CREEP_DAYS = 7
 HISTORY_DAYS = 14
 HISTORY_MAX = 120
@@ -780,14 +785,17 @@ def give_up_host(state, t):
 
 
 def tip_pin_host(state, t):
-    """The Mac host a new tip measurement is pinned to (pure): the host of the earliest open regression of a Mac row,
+    """The Mac host a new tip measurement is pinned to (pure): the host of the oldest Mac row waiting for its confirming
+    run (state['pending']: it expires, so its run comes first), else of the earliest open regression of a Mac row,
     unless that host is avoided now (offline, or a measurement just gave it up: host_avoided) or gone (host_gone). A
-    host's rows are judged only on that host, so a tip measured elsewhere can never clear them. None: any idle measure
-    host."""
+    host's rows are judged only on that host, so a tip measured elsewhere can never confirm or clear them. None: any
+    idle measure host."""
+    pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
+    waiting = sorted((str((v or {}).get("at") or ""), n) for n, v in pending.items() if isinstance(n, str))
     regs = [r for r in state.get("regressions") or [] if isinstance(r, dict) and isinstance(r.get("name"), str)]
     regs.sort(key=lambda r: (str((r.get("first_bad") or {}).get("measured_at") or ""), r["name"]))
-    for r in regs:
-        host = mac_host(r["name"])
+    for name in [n for _, n in waiting] + [r["name"] for r in regs]:
+        host = mac_host(name)
         if host and HOST_RE.match(host) and not host_avoided(state, host, t) and not host_gone(state, host, t):
             return host
     return None
@@ -1687,6 +1695,7 @@ def confirm_regressions(state, regs, cur, run_url, t, regression):
     and the previous tip measurement (state['pending']); its range then starts at that first measurement. The others
     are unconfirmed with why; a row outside the spread for the first time goes into state['pending']."""
     pending = state.setdefault("pending", {})
+    building = state.setdefault("building", {})
     confirmed, unconfirmed = [], []
     for r in regs:
         samples = baseline_samples(state, r["name"], t)
@@ -1694,7 +1703,20 @@ def confirm_regressions(state, regs, cur, run_url, t, regression):
                  "max": max(samples) if samples else None, "samples": len(samples), "sha": cur["sha"], "at": iso(t),
                  "run_url": run_url}
         if len(samples) < CONFIRM_SAMPLES:
-            entry["why"] = f"the baseline has {len(samples)} of {CONFIRM_SAMPLES} values"
+            # Held out of the baseline (it builds only from values that are not regressed, review 2): a regression
+            # right after a macOS change or on a new host is not absorbed. CONFIRM_SAMPLES held values in a row mean
+            # the first value was the odd one: the baseline restarts from them, listed as unconfirmed.
+            held = [e for e in building.get(r["name"]) or [] if isinstance(e, dict)] + \
+                [{"at": iso(t), "p95": r["p95"], "sha": cur["sha"]}]
+            if len(held) >= CONFIRM_SAMPLES:
+                building.pop(r["name"], None)
+                state.setdefault("row_history", {})[r["name"]] = [{"at": e["at"], "p95": e["p95"]} for e in held]
+                entry["restarted"] = True
+                entry["why"] = (f"the baseline restarted from {len(held)} values held while it built (its earlier "
+                                f"{len(samples)} value(s) were lower; a regression in that window is not judged)")
+            else:
+                building[r["name"]] = held
+                entry["why"] = f"the baseline has {len(samples)} of {CONFIRM_SAMPLES} values; held out of it"
         elif not outside_spread(r, samples, regression):
             entry["why"] = "within the baseline's spread"
             pending.pop(r["name"], None)
@@ -1802,10 +1824,20 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # A row regressed already stays regressed while it is still worse; a new candidate must be confirmed first.
     confirmed, unconfirmed = confirm_regressions(state, [r for r in regs if r["name"] not in old], cur, run_url, t,
                                                  getattr(budgets_mod, "REGRESSION", 0.10))
-    # Rows judged in this run that are no candidate any more: a pending one was noise.
-    for name in [n for n in state.get("pending") or {} if n in judged and n not in {r["name"] for r in regs}]:
-        state["pending"].pop(name)
-    held = {e["name"] for e in unconfirmed if e["name"] in (state.get("pending") or {})}
+    # Rows judged in this run that are no candidate any more: a pending one was noise, a building one is good again.
+    candidates = {r["name"] for r in regs}
+    for key in ("pending", "building"):
+        for name in [n for n in state.get(key) or {} if n in judged and n not in candidates]:
+            state[key].pop(name)
+    # A pending row that this measurement did not judge although it ran on the row's host, or one older than
+    # PENDING_MAX_HOURS, expires: its confirming run must be the next one on its host.
+    ran_here = {row_host(n) for n in part_rows}
+    for name, value in list((state.get("pending") or {}).items()):
+        since = parse_iso((value or {}).get("at")) if isinstance((value or {}).get("at"), str) else None
+        if (name not in judged and row_host(name) in ran_here) or since is None or hours_between(since, t) > PENDING_MAX_HOURS:
+            state["pending"].pop(name)
+    restarted = {e["name"] for e in unconfirmed if e.get("restarted")}
+    held = {e["name"] for e in unconfirmed if e["name"] in (state.get("pending") or {}) or e["name"] in (state.get("building") or {})}
     state["unconfirmed"] = no_ref + unconfirmed
     regressions = []
     for r in [r for r in regs if r["name"] in old] + confirmed:
@@ -1821,7 +1853,7 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
     # Every good value is a baseline value of its own row (see the docstring); a rebased row restarted already.
-    accepted = {n: r for n, r in judged.items() if n not in now_bad and n not in all_rebased}
+    accepted = {n: r for n, r in judged.items() if n not in now_bad and n not in all_rebased and n not in restarted}
     state["last_good"] = {**state["last_good"], "rows": {**(state["last_good"].get("rows") or {}), **accepted}}
     remember_good(state, accepted, refresh_ms, t, good)
     ran_on = {row_host(n) for n in part_rows}
