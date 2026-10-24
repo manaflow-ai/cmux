@@ -2,7 +2,7 @@ public import CmuxNextBrowser
 import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
-import CmuxNextRemoteLocalhost
+public import CmuxNextRemoteLocalhost
 public import CmuxNextSettings
 import CryptoKit
 public import Foundation
