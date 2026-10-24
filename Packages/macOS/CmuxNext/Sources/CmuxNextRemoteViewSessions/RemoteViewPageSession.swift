@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextRemoteView
 public import CmuxNextSettings
+public import CmuxVNC
 
 /// The live part of a `remote_view` tab: the pane and its stream source.
 /// Development builds only (`RemoteViewAvailability`). The host `mock` is the
@@ -14,6 +15,30 @@ public import CmuxNextSettings
 public final class RemoteViewPageSession {
     /// The host name that opens the test desktop.
     public static let mockHost = "mock"
+
+    /// A byte stream to a Cloud machine's websockify port (6901) over the app's Cloud tunnel.
+    public nonisolated struct CloudDesktopStream: Sendable {
+        /// The next bytes, nil at the end of the stream.
+        public let read: @Sendable () async throws -> Data?
+        public let write: @Sendable (Data) async throws -> Void
+        public let close: @Sendable () -> Void
+
+        public init(read: @escaping @Sendable () async throws -> Data?, write: @escaping @Sendable (Data) async throws -> Void,
+                    close: @escaping @Sendable () -> Void) {
+            self.read = read
+            self.write = write
+            self.close = close
+        }
+    }
+
+    /// How to open Cloud machine `machine`'s desktop stream (once per session), or nil when the
+    /// app cannot reach it over its Cloud tunnel (signed out, no address).
+    public typealias CloudDesktopTransport = @MainActor (_ machine: String) -> (@Sendable () async throws -> CloudDesktopStream)?
+
+    /// The machine's VNC server as websockify serves it next to noVNC, over `open`'s stream.
+    nonisolated static func cloudRFBTransport(_ open: @escaping @Sendable () async throws -> CloudDesktopStream) -> any RFBTransport {
+        WebSocketRFBTransport(host: "localhost:6901") { CloudDesktopByteStream(try await open()) }
+    }
 
     #if DEBUG
     private let pane: RemoteDesktopPane
@@ -67,8 +92,12 @@ public final class RemoteViewPageSession {
 
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
     /// layer-contents presenter (the Metal presenter is for YUV video).
-    private init(vncRecord record: RemoteViewTabRecord, port: UInt16, closeTab: @escaping @MainActor () -> Void) {
-        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost)
+    private convenience init(vncRecord record: RemoteViewTabRecord, port: UInt16, closeTab: @escaping @MainActor () -> Void) {
+        self.init(vnc: RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost), closeTab: closeTab)
+    }
+
+    private init(vnc: RemoteVNCSession, closeTab: @escaping @MainActor () -> Void) {
+        let record = vnc.record
         self.vnc = vnc
         source = vnc.source
         rd = nil
@@ -171,10 +200,18 @@ public final class RemoteViewPageSession {
     public func pause() {}
     #endif
 
-    /// A session for `record`, or nil when this build cannot show it.
-    public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
+    /// A session for `record`, or nil when this build cannot show it. `cloudTransport` makes the
+    /// transports of a Cloud machine's desktop (`via=cloud`) over the app's Cloud tunnel; nil, or
+    /// nil for that machine (signed out, no address), shows "not available".
+    public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void,
+                            cloudTransport: CloudDesktopTransport? = nil) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
+        if record.cloudDesktop {
+            guard let open = cloudTransport?(record.host) else { return nil }
+            let vnc = RemoteVNCSession(cloudRecord: record, makeTransport: { cloudRFBTransport(open) })
+            return RemoteViewPageSession(vnc: vnc, closeTab: closeTab)
+        }
         if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, closeTab: closeTab) }
         if record.host.lowercased() == mockHost { return RemoteViewPageSession(record: record, closeTab: closeTab) }
         guard RemoteViewTabPolicy().isLoopback(record.host), let host = RemoteViewDebugRdHost(),
@@ -183,5 +220,29 @@ public final class RemoteViewPageSession {
         #else
         return nil
         #endif
+    }
+}
+
+/// `RemoteViewPageSession.CloudDesktopStream` as the RFB client's byte stream.
+private nonisolated struct CloudDesktopByteStream: RFBByteStream {
+    let stream: RemoteViewPageSession.CloudDesktopStream
+
+    init(_ stream: RemoteViewPageSession.CloudDesktopStream) {
+        self.stream = stream
+    }
+
+    /// Each read waits for the tunnel's next event; the WebSocket layer above reads again until
+    /// it holds a whole frame.
+    func read() async throws -> [UInt8] {
+        guard let data = try await stream.read() else { throw RFBError.connectionClosed }
+        return [UInt8](data)
+    }
+
+    func write(_ bytes: [UInt8]) async throws {
+        try await stream.write(Data(bytes))
+    }
+
+    func close() {
+        stream.close()
     }
 }
