@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Foundation
+import os
 import Testing
 
 /// AsyncProcess: a child's run is awaited without parking any thread (the cooperative pool stays free),
@@ -92,5 +93,18 @@ import Testing
         #expect(done == count * 4)
         runs.forEach { $0.cancel() }
         for run in runs { _ = try? await run.value }
+    }
+
+    @MainActor @Test func aMainActorCallerNeverSpawnsOnTheMainThread() async throws {
+        // A fork and exec can take hundreds of ms under memory pressure (807 ms in STRESS, PL-main): the
+        // main actor awaits the run, and the spawn itself happens on another thread.
+        let spawnedOnMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        let processes = AsyncProcess { process in
+            spawnedOnMain.withLock { $0 = Thread.isMainThread }
+            try process.run()
+        }
+        let outcome = try await processes.run(Self.tool("/usr/bin/true"))
+        #expect(outcome.succeeded)
+        #expect(spawnedOnMain.withLock { $0 } == false)
     }
 }
