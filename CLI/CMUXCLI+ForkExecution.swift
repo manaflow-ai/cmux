@@ -72,7 +72,7 @@ extension CMUXCLI {
             return String(
                 format: String(
                     localized: "cli.fork.error.workingDirectoryMissing",
-                    defaultValue: "fork: the saved working directory '%@' no longer exists. Recreate or remount it, then run 'cmux fork --surface'."
+                    defaultValue: "fork: the saved working directory '%@' is missing or is not a directory. Recreate or remount it as a directory, then run 'cmux fork --surface'."
                 ),
                 path
             )

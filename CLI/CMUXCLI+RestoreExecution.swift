@@ -26,7 +26,7 @@ extension CMUXCLI {
                 message: String(
                     format: String(
                         localized: "cli.restore.error.workingDirectoryMissing",
-                        defaultValue: "restore: the saved working directory '%@' no longer exists. Recreate or remount it, then run 'cmux restore --surface'."
+                        defaultValue: "restore: the saved working directory '%@' is missing or is not a directory. Recreate or remount it as a directory, then run 'cmux restore --surface'."
                     ),
                     path
                 )
