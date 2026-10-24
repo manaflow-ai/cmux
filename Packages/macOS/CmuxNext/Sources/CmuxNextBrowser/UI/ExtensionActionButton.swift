@@ -138,7 +138,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hover?.refresh()
+        hover?.ownerDidMoveToWindow()
     }
 
     override func viewDidChangeEffectiveAppearance() {

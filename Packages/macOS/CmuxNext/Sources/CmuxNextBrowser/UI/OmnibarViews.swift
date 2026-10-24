@@ -65,7 +65,7 @@ final class OmnibarPillView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hover?.refresh()
+        hover?.ownerDidMoveToWindow()
         // A theme repaint skips a pill outside the window (a dark-to-dark
         // theme switch brings no appearance change on return).
         refresh(animated: false)
