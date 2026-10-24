@@ -33,4 +33,13 @@ enum ControlStrings {
                                table: nil,
                                arguments: [.count(pending), .count(limit)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
+
+    /// The refusal of an atomic `action.batch` of `got` ops when one transaction holds at most `limit`.
+    static func batchTooLarge(limit: Int, got: Int,
+                              preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        bundle.localizedString(forKey: "control.error.batchTooLarge",
+                               value: "action.batch: too many ops for one transaction (limit %1$lld, got %2$lld); send several batches, or atomic: false to apply it as consecutive transactions",
+                               table: nil,
+                               arguments: [.count(limit), .count(got)], preferredLocalizations: preferredLocalizations, locale: locale)
+    }
 }

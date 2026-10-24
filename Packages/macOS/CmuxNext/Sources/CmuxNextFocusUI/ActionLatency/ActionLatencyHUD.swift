@@ -1,5 +1,6 @@
 package import AppKit
 package import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The action latency HUD (Debug menu > Toggle Action Latency HUD, DEV and NIGHTLY): a small
@@ -70,8 +71,7 @@ package final class ActionLatencyHUD {
     /// The panel's text: the header, then one line per run.
     package var text: NSAttributedString {
         let font = Typography.system(.monospacedDigit, size: TypeScale.caption)
-        let budget = Int(monitor.budgetNanos / 1_000_000)
-        let out = NSMutableAttributedString(string: Self.header(budget) + "\n",
+        let out = NSMutableAttributedString(string: Self.header(budgetNanos: monitor.budgetNanos) + "\n",
                                             attributes: [.font: font, .foregroundColor: Palette.textSecondary])
         if rows.isEmpty {
             out.append(NSAttributedString(string: Self.empty, attributes: [.font: font, .foregroundColor: Palette.textTertiary]))
@@ -115,9 +115,14 @@ package final class ActionLatencyHUD {
         String(localized: "actionLatencyHUD.title", defaultValue: "Action Latency", table: "ActionLatencyHUD", bundle: .module)
     }
 
-    private static func header(_ budget: Int) -> String {
-        String(format: String(localized: "actionLatencyHUD.header", defaultValue: "Newest first, budget %d ms to commit",
-                              table: "ActionLatencyHUD", bundle: .module), budget)
+    /// The panel's first line, with the per-action budget written by Foundation in whole milliseconds of the
+    /// HUD's language ("10 ms", ru "10 мс").
+    package static func header(budgetNanos: UInt64, preferredLocalizations: [String] = Bundle.module.preferredLocalizations,
+                               locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "actionLatencyHUD.header", value: "Newest first, budget to commit: %@",
+                                      table: "ActionLatencyHUD",
+                                      arguments: [.duration(.nanoseconds(budgetNanos), units: [.milliseconds])],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     private static var empty: String {

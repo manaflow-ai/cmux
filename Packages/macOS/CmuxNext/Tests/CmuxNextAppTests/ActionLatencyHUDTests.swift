@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFocusUI
+import Foundation
 import Testing
 
 /// The Debug latency HUD: newest runs first, at most its row count, over-budget runs in the
@@ -36,5 +37,15 @@ import Testing
         let fastColor = text.attribute(.foregroundColor, at: fastLine.location, effectiveRange: nil) as? NSColor
         #expect(slowColor != nil && fastColor != nil)
         #expect(slowColor != fastColor, "the over-budget run is not marked")
+    }
+
+    @Test func theHeaderBudgetIsFoundationsDuration() {
+        let latin = Locale(identifier: "en_US@numbers=latn")
+        #expect(ActionLatencyHUD.header(budgetNanos: 10_000_000, preferredLocalizations: ["en"], locale: latin)
+            == "Newest first, budget to commit: 10 ms")
+        let russian = ActionLatencyHUD.header(budgetNanos: 10_000_000, preferredLocalizations: ["ru"], locale: latin)
+        let unit = Duration.milliseconds(10).formatted(.units(allowed: [.milliseconds], width: .abbreviated)
+            .locale(Locale(identifier: "ru_US@numbers=latn")))
+        #expect(russian == "Сначала новые, бюджет до фиксации: \(unit)")
     }
 }

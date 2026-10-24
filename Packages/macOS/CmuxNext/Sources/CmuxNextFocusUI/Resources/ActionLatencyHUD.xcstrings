@@ -134,133 +134,133 @@
       }
     },
     "actionLatencyHUD.header": {
-      "comment": "First line of the action latency panel; %d is the budget in milliseconds.",
+      "comment": "First line of the action latency panel; %@ is the per-action budget, a duration Foundation writes in milliseconds.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الأحدث أولاً، الحد %d مللي ثانية حتى الالتزام"
+            "value": "الأحدث أولاً، الحد حتى الالتزام: %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najnovije prvo, budžet %d ms do potvrde"
+            "value": "Najnovije prvo, budžet do potvrde: %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nyeste først, budget %d ms til commit"
+            "value": "Nyeste først, budget til commit: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neueste zuerst, Budget %d ms bis zum Commit"
+            "value": "Neueste zuerst, Budget bis zum Commit: %@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Newest first, budget %d ms to commit"
+            "value": "Newest first, budget to commit: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lo más reciente primero, presupuesto de %d ms hasta el commit"
+            "value": "Lo más reciente primero, presupuesto hasta el commit: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le plus récent en premier, budget de %d ms jusqu’au commit"
+            "value": "Le plus récent en premier, budget jusqu’au commit : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prima i più recenti, budget di %d ms fino al commit"
+            "value": "Prima i più recenti, budget fino al commit: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい順。コミットまでの予算は %d ms"
+            "value": "新しい順。コミットまでの予算: %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថ្មីបំផុតមុន ថវិកា %d ms ដល់ការបញ្ជាក់"
+            "value": "ថ្មីបំផុតមុន ថវិការហូតដល់ការបញ្ជាក់៖ %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "최신 순, 커밋까지 예산 %d ms"
+            "value": "최신 순, 커밋까지 예산: %@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nyeste først, budsjett %d ms til commit"
+            "value": "Nyeste først, budsjett til commit: %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najnowsze najpierw, budżet %d ms do zatwierdzenia"
+            "value": "Najnowsze najpierw, budżet do zatwierdzenia: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mais recentes primeiro, orçamento de %d ms até o commit"
+            "value": "Mais recentes primeiro, orçamento até o commit: %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сначала новые, бюджет %d мс до фиксации"
+            "value": "Сначала новые, бюджет до фиксации: %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ล่าสุดก่อน งบเวลา %d ms จนถึงการคอมมิต"
+            "value": "ล่าสุดก่อน งบเวลาจนถึงการคอมมิต: %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Önce en yeni, işlemeye kadar %d ms bütçe"
+            "value": "Önce en yeni, işlemeye kadar bütçe: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спершу нові, бюджет %d мс до фіксації"
+            "value": "Спершу нові, бюджет до фіксації: %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mới nhất trước, ngân sách %d ms đến khi commit"
+            "value": "Mới nhất trước, ngân sách đến khi commit: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "最新的在前，提交预算 %d 毫秒"
+            "value": "最新的在前，提交预算：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "最新的在前，提交預算 %d 毫秒"
+            "value": "最新的在前，提交預算：%@"
           }
         }
       }
