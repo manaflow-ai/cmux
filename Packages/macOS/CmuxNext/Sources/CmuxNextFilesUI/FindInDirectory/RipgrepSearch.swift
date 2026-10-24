@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 
 /// One ripgrep match: a line of a file under the searched directory.
@@ -125,7 +126,11 @@ package nonisolated enum RipgrepSearch {
         } catch {
             return .failed(status: -1)
         }
-        let running = RunningProcess(process)
+        // The reading task and its cancellation handler both stop rg. The Process (not Sendable on
+        // the Xcode 26 SDK) moves into the lock, so each side reaches it only under the lock: a
+        // short synchronous critical section called from the synchronous cancellation handler
+        // (CLAUDE.md lock carve-out).
+        let running = Mutex(process)
         let (matches, limited) = await withTaskCancellationHandler {
             var matches: [RipgrepMatch] = []
             var line: [UInt8] = []
@@ -145,9 +150,9 @@ package nonisolated enum RipgrepSearch {
             } catch {}
             return (matches, false)
         } onCancel: {
-            running.stop()
+            stop(running)
         }
-        if limited { running.stop() }
+        if limited { stop(running) }
         var status: Int32 = -1
         for await code in exited.stream { status = code }
         // rg exits 0 with matches, 1 with none, 2 on an error (matches found
@@ -157,12 +162,9 @@ package nonisolated enum RipgrepSearch {
     }
 }
 
-/// `Process` is not Sendable; the cancellation handler only signals it.
-private nonisolated final class RunningProcess: @unchecked Sendable {  // crash-allow: Process is not Sendable; the cancellation handler only signals it (moved from CmuxNextApp)
-    package let process: Process
-    package init(_ process: Process) { self.process = process }
-
-    package func stop() {
+/// Stops `rg` if it still runs (a search past its limit, or cancelled).
+private nonisolated func stop(_ running: borrowing Mutex<Process>) {
+    running.withLock { process in
         if process.isRunning { process.terminate() }
     }
 }

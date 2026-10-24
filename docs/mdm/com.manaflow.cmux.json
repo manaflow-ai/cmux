@@ -1652,6 +1652,12 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "deviceHub.url" : {
+      "default" : "",
+      "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
+      "title" : "Device Hub Address",
+      "type" : "string"
+    },
     "diagnostics.hangReports" : {
       "default" : false,
       "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
@@ -1690,6 +1696,12 @@
       "default" : false,
       "description" : "diff.groupByKind",
       "title" : "Group Files by Kind",
+      "type" : "boolean"
+    },
+    "diff.hideWhitespace" : {
+      "default" : false,
+      "description" : "diff.hideWhitespace",
+      "title" : "Hide White Space",
       "type" : "boolean"
     },
     "diff.layout" : {
@@ -2544,6 +2556,18 @@
       "title" : "Split for Browsers Too",
       "type" : "boolean"
     },
+    "macScreen.debug.relayOnly" : {
+      "default" : false,
+      "description" : "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect.",
+      "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.systemShortcuts" : {
+      "default" : false,
+      "description" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.",
+      "title" : "Send System Shortcuts to the Remote Mac",
+      "type" : "boolean"
+    },
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
       "title" : "ManagedTeam",
@@ -2661,6 +2685,29 @@
       "description" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
       "title" : "Allow iPhone Connections",
       "type" : "boolean"
+    },
+    "mobile.terminalSizing" : {
+      "default" : "smallest",
+      "description" : "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone.",
+      "enum" : [
+        "smallest",
+        "mac",
+        "latest",
+        "priority"
+      ],
+      "title" : "Terminal Size When Shared",
+      "type" : "string"
+    },
+    "mobile.terminalSizingOrder" : {
+      "default" : [
+
+      ],
+      "description" : "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Terminal Size Priority",
+      "type" : "array"
     },
     "navigation.history.scope" : {
       "default" : "workspaces",

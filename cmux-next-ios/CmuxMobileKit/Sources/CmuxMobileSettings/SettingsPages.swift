@@ -260,6 +260,14 @@ struct TerminalPage: View {
                 Text("Applies to open terminals at once.")
             }
             Section {
+                NavigationLink(value: SettingsRoute.terminalSizing) {
+                    SettingsLabel("Terminal Size When Shared", symbol: "rectangle.on.rectangle")
+                }
+                .accessibilityIdentifier("settings.terminalSizing")
+            } footer: {
+                Text("Which device's size a terminal takes when this iPhone and the Mac show it at once.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {

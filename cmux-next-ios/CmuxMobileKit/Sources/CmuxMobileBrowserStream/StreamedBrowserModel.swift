@@ -51,7 +51,10 @@ extension BrowserTabState {
         return components?.url
     }
 
+    /// Safari's short label (TabsKitAddress.displayLabel(for:) is the toolbar's): the host,
+    /// or a local file's name, never a whole `file:` path.
     static func displayHost(_ url: URL?) -> String {
+        if let url, url.isFileURL { return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent }
         guard let host = url?.host() else { return url?.absoluteString ?? "" }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
