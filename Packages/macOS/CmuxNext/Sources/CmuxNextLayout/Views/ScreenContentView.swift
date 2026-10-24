@@ -78,6 +78,8 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
+    /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
+    var userMotionActive = false
     /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
     /// moved or whose covers changed, not every pane).
     var stripClipsComputed = 0
