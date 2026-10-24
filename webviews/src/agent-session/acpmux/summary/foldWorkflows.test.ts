@@ -91,3 +91,10 @@ test("resume creates a visible Workflow message only from known launch input", (
   expect(workflowDraft(undefined, "wf_resume")).toBeUndefined();
   expect(workflowDraft(launch)).not.toContain("resumeFromRunId");
 });
+
+test("a node restored from the cached snapshot's JSON (its agents map turned `{}`) summarizes without agents", () => {
+  const restored = JSON.parse(JSON.stringify(node("restored"))) as Subagent;
+  const [summary] = createWorkflowAdapter()([restored], "s");
+  expect(summary!.agents).toEqual([]);
+  expect(summary!.phases[0]!.agentIds).toEqual([]);
+});

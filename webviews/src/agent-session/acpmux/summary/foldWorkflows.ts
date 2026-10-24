@@ -43,13 +43,18 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
   };
 }
 
+/// The node's workflow agents, in order. A node restored from the page's cached snapshot carries the
+/// map as `{}` (JSON has no Map): none.
+const foldAgents = (node: Subagent): FoldAgent[] =>
+  node.workflowAgents instanceof Map ? [...node.workflowAgents.values()] : [];
+
 function summarize(node: Subagent, sessionId: string): WorkflowSummary {
-  const agents = [...(node.workflowAgents?.values() ?? [])].map((agent) => agentOf(node, agent));
+  const agents = foldAgents(node).map((agent) => agentOf(node, agent));
   const phases = (node.phases ?? []).map((phase) => ({
     id: String(phase.index),
     name: phase.title,
     state: "unknown" as const,
-    agentIds: [...(node.workflowAgents?.values() ?? [])]
+    agentIds: foldAgents(node)
       .filter((agent) => agent.phaseIndex === phase.index)
       .map((agent) => workflowAgentKey(node.id, agent.index)),
   }));
@@ -59,7 +64,7 @@ function summarize(node: Subagent, sessionId: string): WorkflowSummary {
   if (unassigned.length)
     phases.push({ id: "unassigned", name: "", state: "unknown", agentIds: unassigned.map((agent) => agent.id) });
   const counts = node.agents;
-  const sampled = [...(node.workflowAgents?.values() ?? [])].filter(
+  const sampled = foldAgents(node).filter(
     (agent) => agent.state === "completed" && !agent.cached && agent.tokens !== undefined,
   );
   const live = node.tokens;
