@@ -18,6 +18,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Send a local brief to another harness on a peer (or the least-loaded
+    /// allowed host with `--host auto`) and record its identity.
+    Dispatch(DispatchArgs),
+    #[command(subcommand)]
+    Briefs(BriefsCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -479,6 +484,51 @@ pub enum Command {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+    },
+}
+
+#[derive(Args)]
+pub struct DispatchArgs {
+    /// Local Markdown/text brief file (use `-` for stdin).
+    pub brief: PathBuf,
+    /// Host name, `auto` for least-loaded placement, or `local`.
+    #[arg(long, alias = "target", default_value = "auto")]
+    pub host: String,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub to: Option<String>,
+    #[arg(long)]
+    pub stop_condition: Option<String>,
+    /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
+    #[arg(long, short)]
+    pub model: Option<String>,
+    #[arg(long)]
+    pub preset: Option<String>,
+    #[arg(long)]
+    pub policy: Option<String>,
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+pub enum BriefsCmd {
+    #[command(alias = "list")]
+    Ls {
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    Steer {
+        brief_id: String,
+        text: Vec<String>,
+    },
+    Report {
+        brief_id: String,
+        summary: Vec<String>,
+        #[arg(long, default_value = "reported")]
+        status: String,
     },
 }
 
