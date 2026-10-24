@@ -15,9 +15,13 @@ in `required`, `optional` or `unservedByBundledDaemon`. The Swift lists are
 derived from `allCases` and the switch has no `default`, so the compiler puts
 every new case in a list; this check refuses what would get around that: a
 `default` arm, a case in no arm or in two, an arm that names no case, and a
-String constant declared in the catalog instead of a case (cc7a964ef61's regex
-over `let NAME = "..."` constants missed a typed one, and its hand-kept lists
-were the registry CLAUDE.md asks to derive).
+static member of the catalog that is (or may be) a String instead of a case, in
+DaemonEndpoint.swift or in an `extension DaemonCapability` in any Sources file:
+stored or computed, typed `String` or untyped, or a static func returning one.
+cc7a964ef61's regex over `let NAME = "..."` constants missed a typed one, its
+hand-kept lists were the registry CLAUDE.md asks to derive, and the gate APIs
+(`supports`, `require`, `missingCapabilities`) still take any String, so such a
+static compiles at a gate.
 
 It then renders the export the way DaemonCapabilityExportTests.json does
 (JSONEncoder with .prettyPrinted, .sortedKeys and .withoutEscapingSlashes, each
@@ -40,6 +44,7 @@ import sys
 from pathlib import Path
 
 SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
+SOURCES = "Packages/macOS/CmuxNext/Sources"
 JSON = "plans/cmux-next/daemon-capabilities.json"
 REGENERATE = ("CMUX_UPDATE_DAEMON_CAPABILITIES=1 swift test --package-path Packages/macOS/CmuxNext "
               "--filter DaemonCapabilityExportTests (on a fleet Mac or cmux-lawrence-2), then commit "
@@ -106,12 +111,108 @@ def depth_one(body: str) -> str:
 
 CASE_DECL = re.compile(r"^[ \t]*(?:(?:indirect)\s+)?case\s+([^\n;]*)", re.M)
 CASE_ITEM = re.compile(r'^([A-Za-z_]\w*)\s*(?:=\s*"([^"]*)")?$')
-STRING_CONSTANT = re.compile(r'\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::\s*String\s*)?=\s*"')
 ARM = re.compile(r"\bcase\s+((?:\.\w+\s*,\s*)*\.\w+)\s*:\s*(?:return\s+)?\.(\w+)")
+# The catalog's own body and each extension of it (`extension DaemonCapability`, also module-qualified).
+CATALOG_TYPE = re.compile(r"\b(enum|extension)\s+(?:[A-Za-z_]\w*\.)?DaemonCapability\b[^{;]*\{")
+CATALOG_EXTENSION = re.compile(r"\bextension\s+(?:[A-Za-z_]\w*\.)?DaemonCapability\b")
+STATIC_MEMBER = re.compile(r"\b(?:static|class)\s+(?:[a-z]+(?:\([^)]*\))?\s+)*?(let|var|func)\s+([A-Za-z_]\w*|`[^`]+`)")
+STRING_TYPE = re.compile(r"^(?:Swift\.)?(?:String|Substring|StaticString)\s*[?!]?$")
+
+
+def declaration(members: str, start: int) -> str:
+    """The declaration text from START to the end of its line, continued while a ( or [ is open."""
+    end, depth = start, 0
+    while end < len(members) and not (members[end] == "\n" and depth <= 0):
+        depth += {"(": 1, ")": -1, "[": 1, "]": -1}.get(members[end], 0)
+        end += 1
+    return members[start:end]
+
+
+def type_text(text: str) -> str:
+    """TEXT up to its first `=` or `{` outside (), [] and <> (a declared type or a return type), stripped."""
+    depth = 0
+    for i, c in enumerate(text):
+        if c in "([<":
+            depth += 1
+        elif c in ")]" or (c == ">" and text[i - 1:i] != "-"):
+            depth -= 1
+        elif depth <= 0 and c in "={":
+            return text[:i].strip()
+    return text.strip()
+
+
+def string_statics(members: str) -> list[tuple[str, str]]:
+    """(name, why) for each static member of a catalog body (depth-one code, comments stripped) that is or may
+    be a String: a stored or computed `let`/`var` typed String or with no type, or a func returning String."""
+    out = []
+    for match in STATIC_MEMBER.finditer(members):
+        kind, name = match.group(1), match.group(2)
+        rest = declaration(members, match.end())
+        if kind == "func":
+            # The return type follows the first `->` after the parameter list closes.
+            level, close = 0, len(rest)
+            for i, c in enumerate(rest):
+                level += {"(": 1, ")": -1}.get(c, 0)
+                if c == ")" and level == 0:
+                    close = i + 1
+                    break
+            arrow = rest.find("->", close)
+            returns = type_text(rest[arrow + 2:]) if arrow >= 0 else ""
+            returns = re.sub(r"\bwhere\b.*", "", returns).strip()
+            if STRING_TYPE.match(returns):
+                out.append((name, f"`static func {name}` returns {returns}"))
+            continue
+        stripped = rest.lstrip()
+        literal = re.search(r'=\s*("[^"\\]*")', rest)
+        value = f" = {literal.group(1)}" if literal else ""
+        if not stripped.startswith(":"):
+            out.append((name, f"`static {kind} {name}{value}` declares no type, so it may be a String"))
+        elif STRING_TYPE.match(type_text(stripped[1:])):
+            out.append((name, f"`static {kind} {name}: {type_text(stripped[1:])}{value}`"))
+    return out
+
+
+def catalog_strays(source: str, where: str) -> list[str]:
+    """Each static of the catalog (its enum or an extension of it) in SOURCE that is or may be a String.
+
+    check-app-capability-references.py reads every Sources file with it (rule 4), so both checks refuse the
+    same members.
+    """
+    code = strip_comments(source)
+    strays = []
+    for match in CATALOG_TYPE.finditer(code):
+        depth, i = 1, match.end()
+        while depth and i < len(code):
+            depth += {"{": 1, "}": -1}.get(code[i], 0)
+            i += 1
+        line = code.count("\n", 0, match.start()) + 1
+        for name, why in string_statics(depth_one(code[match.end():i - 1])):
+            strays.append(f"{name} ({why}; {match.group(1)} at {where}:{line})")
+    return strays
+
+
+def extension_sources(root: Path, rev: str | None) -> dict[str, str]:
+    """{path: text} of the Sources files other than DaemonEndpoint.swift that extend the catalog."""
+    if rev is None:
+        found = {}
+        for path in sorted((root / SOURCES).rglob("*.swift")):
+            rel = path.relative_to(root).as_posix()
+            if rel == SWIFT:
+                continue
+            text = path.read_bytes().decode("utf-8", "replace")
+            if "DaemonCapability" in text and CATALOG_EXTENSION.search(text):
+                found[rel] = text
+        return found
+    listed = subprocess.run(["git", "-C", str(root), "grep", "-l", "-E",
+                             r"extension[[:space:]]+([A-Za-z_][A-Za-z0-9_]*\.)?DaemonCapability([^A-Za-z0-9_]|$)", rev, "--", SOURCES],
+                            check=False, capture_output=True).stdout.decode("utf-8")
+    paths = [line.split(":", 1)[1] for line in listed.splitlines() if ":" in line]
+    texts = {p: read(root, rev, p) for p in paths if p != SWIFT}
+    return {p: text for p, text in texts.items() if CATALOG_EXTENSION.search(text)}
 
 
 def swift_lists(source: str) -> dict[str, list[str]]:
-    """The export's lists (plus `unlisted`: cases in no arm and String constants in the catalog)."""
+    """The export's lists (plus `unlisted`: the cases in no arm)."""
     return swift_catalog(source)[1]
 
 
@@ -134,7 +235,6 @@ def swift_catalog(source: str) -> tuple[dict[str, str], dict[str, list[str]]]:
                 sys.exit(f"check-daemon-capabilities-fresh: cannot read the case `{item}` in {SWIFT}; "
                          "write `case name = \"wire-name\"`")
             cases[match.group(1)] = match.group(2) if match.group(2) is not None else match.group(1)
-    stray = STRING_CONSTANT.findall(members)
     tier = re.search(r"\bvar\s+tier\s*:\s*Tier\s*\{", body)
     switch = type_body(body[tier.start():], "switch", "self") if tier else None
     if switch is None:
@@ -159,7 +259,7 @@ def swift_catalog(source: str) -> tuple[dict[str, str], dict[str, list[str]]]:
         sys.exit("check-daemon-capabilities-fresh: cannot resolve " + ", ".join(unresolved)
                  + f" in the `tier` switch of {SWIFT}: each arm names cases of DaemonCapability and returns "
                  ".required, .optional or .unservedByBundledDaemon")
-    lists["unlisted"] = sorted([name for name in cases if name not in placed] + stray)
+    lists["unlisted"] = sorted(name for name in cases if name not in placed)
     return cases, lists
 
 
@@ -196,8 +296,16 @@ def main() -> int:
     args = parser.parse_args()
     if args.write and args.rev:
         parser.error("--write cannot be combined with --rev")
-    swift = swift_lists(read(args.repo, args.rev, SWIFT))
+    endpoint = read(args.repo, args.rev, SWIFT)
+    swift = swift_lists(endpoint)
     problems = []
+    strays = catalog_strays(endpoint, SWIFT)
+    for path, text in extension_sources(args.repo, args.rev).items():
+        strays += catalog_strays(text, path)
+    if strays:
+        problems.append("a static of DaemonCapability that is (or may be) a String is in no list: " + "; ".join(strays)
+                        + ". A capability is a `case` placed in an arm of `tier`; give any other static a "
+                        "non-String type")
     # A capability in required/optional must be served by the bundled daemon;
     # one in the unserved list must not. In both, every build fails (#21445).
     for a, b in (("required", "optional"), ("required", "unservedByBundledDaemon"), ("optional", "unservedByBundledDaemon")):
@@ -207,7 +315,7 @@ def main() -> int:
     if swift["unlisted"]:
         problems.append("in DaemonCapability but in no list: " + ", ".join(swift["unlisted"])
                         + "; a capability is a `case` placed in an arm of `tier` (required, optional, "
-                        "unservedByBundledDaemon), not a String constant")
+                        "unservedByBundledDaemon)")
     for name in LISTS:
         want = swift[name]
         if len(set(want)) != len(want):
