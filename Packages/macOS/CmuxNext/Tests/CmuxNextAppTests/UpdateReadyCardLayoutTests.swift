@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextSettings
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// repeat the popup ("See all changes" was on both), and the popup is the themed popup every
 /// cmux popover is, beside the card, not AppKit's NSPopover with its stock arrow. The update is
 /// staged the way `debug.updater stage` stages one in the app.
-@MainActor @Suite(.serialized) struct UpdateReadyCardLayoutTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct UpdateReadyCardLayoutTests {
     /// The highlights page, as the App's React surface reports it.
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -134,15 +135,15 @@ import Testing
     }
 
     /// Puts the card's popup close on `clock`, so a test moves time itself (no fixed sleeps).
-    func manualClose(_ h: Harness) -> ManualClock {
-        let clock = ManualClock()
+    func manualClose(_ h: Harness) -> CmuxNextWakeupsTestSupport.ManualClock {
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         h.card.notesCloseTimer = DemandTimer(owner: "test.update-card.notes-close", clock: clock)
         return clock
     }
 
     /// One close wait passes: waits for the timer to sleep, moves the clock past it, and waits
     /// until the card's close check (a hop to the main actor) has run.
-    func passCloseDelay(_ clock: ManualClock, _ h: Harness) async throws {
+    func passCloseDelay(_ clock: CmuxNextWakeupsTestSupport.ManualClock, _ h: Harness) async throws {
         try await clock.waitForSleeper()
         let checks = h.card.notesCloseChecks
         clock.advance(by: SidebarUpdateCardView.notesCloseDelay)

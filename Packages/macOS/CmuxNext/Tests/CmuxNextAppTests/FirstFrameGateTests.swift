@@ -1,12 +1,13 @@
 @testable import CmuxNextApp
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Launch work behind the first window frame (perf-launch-memory).
 @MainActor
-@Suite struct FirstFrameGateTests {
+@Suite(.timeLimit(.minutes(1))) struct FirstFrameGateTests {
     @Test func workWaitsForTheFirstFrameThenRunsOnceInOrder() {
-        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: ManualClock()))
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: CmuxNextWakeupsTestSupport.ManualClock()))
         var ran: [String] = []
         gate.whenOpen { ran.append("updater") }
         gate.whenOpen { ran.append("warm-ups") }
@@ -19,7 +20,7 @@ import Testing
     }
 
     @Test func aLaunchWithNoWindowStillRunsTheWorkAfterTheBackstop() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock))
         var ran = 0
         gate.whenOpen { ran += 1 }
@@ -33,7 +34,7 @@ import Testing
     }
 
     @Test func theFirstFrameCancelsTheBackstop() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock))
         var ran = 0
         gate.whenOpen { ran += 1 }
