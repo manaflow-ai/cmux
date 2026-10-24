@@ -36,7 +36,7 @@ export function canEditWhen(binding: Pick<Binding, "source" | "removed" | "unset
   return !isReadOnly(binding) && binding.unset !== true;
 }
 
-/** The active rows a recording on `binding` would share `key` with: the same keys and a `when`
+/** The other actions' active rows a recording on `binding` would share `key` with: the same keys and a `when`
  *  that can hold with its own (no condition on either side, or the same one). The provider's
  *  conflict facts come after a write; this is the recorder's warning before it. */
 export function sameKeys(bindings: readonly Binding[], binding: Binding, key: string): Binding[] {
@@ -45,7 +45,7 @@ export function sameKeys(bindings: readonly Binding[], binding: Binding, key: st
     (other) =>
       !other.removed &&
       !other.unset &&
-      identity(other) !== identity(binding) &&
+      other.command !== binding.command &&
       keyMatches(other.key, { key, exact: true }) &&
       whenCanOverlap(other.when, binding.when),
   );

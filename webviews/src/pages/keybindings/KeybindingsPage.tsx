@@ -329,7 +329,8 @@ function Recorder({
     ...strokesShown.map((stroke) => ({ caps: strokeCaps(stroke), held: false })),
     ...(held.length ? [{ caps: held, held: true }] : []),
   ];
-  const others = sameKeys(bindings, binding, recording.key);
+  // The keys it shows: the ones going down, else the row's own (the saved keys after a save).
+  const others = sameKeys(bindings, binding, live ? recording.key : binding.key);
   return (
     <Popover
       open
@@ -338,8 +339,11 @@ function Recorder({
       className="keys-recorder"
       initialFocus={false}
       finalFocus={false}
-      onOpenChange={(open) => {
-        if (!open) store.stopRecording();
+      // A press anywhere else closes it as Close does (new keys are saved); Escape drops them.
+      onOpenChange={(open, details) => {
+        if (open) return;
+        if (details?.escape) store.stopRecording();
+        else store.closeRecording();
       }}
     >
       {recording.confirmed > 0 && (
@@ -413,7 +417,9 @@ interface RowProps {
 function BindingRow({ binding, strings, selected, editing, recording: rowRecording, resettable, store }: RowProps) {
   const { t } = strings;
   const recording = rowRecording !== undefined;
-  const recordingDisplay = rowRecording?.display;
+  const recordingDisplay = rowRecording
+    ? [rowRecording.display, rowRecording.held].filter(Boolean).join(" ") || rowRecording.binding.display
+    : undefined;
   const classes = ["keys-row", selected && "selected", binding.removed && "removed", recording && "recording"];
   return (
     <tr
@@ -447,6 +453,7 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
           >
             {recording ? (
               recordingDisplay ? (
+                // The keys as they go down, then the keys a release saved.
                 <Keycaps display={recordingDisplay} />
               ) : (
                 <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>

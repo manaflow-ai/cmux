@@ -185,6 +185,8 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   expect(caps()).toEqual(["⇧", "⌘", "P"]);
   expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeNull();
   expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Command Palette");
+  // The row shows the keys as they go down too, not only the recorder.
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
 
   // A click on the keys starts over; Close (as Return) saves the keys recorded.
   await click(recorderKeys());
@@ -251,6 +253,9 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   });
   await releaseKeys();
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k cmd+s", replaces: { key: "cmd+s" } });
+  // The saved keys' conflicts show in the recorder, and the row shows the saved keys.
+  expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Keyboard Shortcuts");
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘S");
   const saved = writes();
   await act(async () => {
     provider.cancel();
@@ -259,6 +264,23 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   expect(recorder()).toBeNull();
   expect(writes()).toBe(saved);
   expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘S");
+
+  // A press anywhere else closes the recorder and saves keys not saved yet.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    provider.press("cmd+j");
+    await Promise.resolve();
+  });
+  const MouseEvent = doc.defaultView!.MouseEvent;
+  await act(async () => {
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      doc.querySelector(".keys-title")!.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+    await Promise.resolve();
+  });
+  await act(async () => store.reload());
+  expect(recorder()).toBeNull();
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j" });
 
   // With no new keys, Close and a bare Return only close.
   const before = writes();
