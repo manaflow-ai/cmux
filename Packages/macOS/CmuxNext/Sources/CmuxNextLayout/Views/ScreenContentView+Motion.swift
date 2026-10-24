@@ -105,6 +105,7 @@ extension ScreenContentView {
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.restOffset != restOffset { host.restOffset = restOffset }
+            let restChanged = host.restSize != nil && host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect
@@ -126,6 +127,9 @@ extension ScreenContentView {
                 host.frame = placed
                 changed = true
             }
+            // A spring that starts or retargets (a press during the motion) to a new size: the content
+            // hears the size it will rest at now, once (a terminal sends its final grid at the start).
+            if restChanged, springing { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true
