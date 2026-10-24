@@ -83,8 +83,9 @@ extension ActionRegistry {
         guard event.type == .keyDown else { return [] }
         let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
         var keys: [String] = []
+        if let physical = Shortcut.physicalKey(for: event) { keys.append(physical) }
         if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
-        if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) { keys.append(base) }
+        if let base = Shortcut.eventKey(event), !keys.contains(base) { keys.append(base) }
         return keys.map { Shortcut($0, modifiers: flags) }
     }
 }

@@ -40,7 +40,30 @@ public nonisolated struct Shortcut: Hashable, Sendable {
         guard flags == modifiers else { return false }
         // `charactersIgnoringModifiers` keeps shift applied for letters on
         // some layouts, so compare lowercased.
-        return event.charactersIgnoringModifiers?.lowercased() == key
+        return Self.eventKey(event) == key
+    }
+
+    /// The stable key equivalent for a key event.
+    ///
+    /// AppKit can report the shifted character for the bracket keys even
+    /// through `charactersIgnoringModifiers` (for example, `{` for the
+    /// physical `[` key). The key code is the only unambiguous way to retain
+    /// the binding's base key while keeping Shift in the modifier set.
+    public static func eventKey(_ event: NSEvent) -> String? {
+        guard event.type == .keyDown else { return nil }
+        return (physicalKey(for: event) ?? event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers)?.lowercased()
+    }
+
+    /// A physical key whose shifted character can be mistaken for another
+    /// shortcut. Keep this separate so event readings can still prefer the
+    /// user's layout for ordinary keys.
+    public static func physicalKey(for event: NSEvent) -> String? {
+        guard event.type == .keyDown else { return nil }
+        return switch event.keyCode {
+        case 33: "[" // kVK_ANSI_LeftBracket
+        case 30: "]" // kVK_ANSI_RightBracket
+        default: nil
+        }
     }
 
     // `NSEvent.ModifierFlags` is not Hashable; hash its raw value.
