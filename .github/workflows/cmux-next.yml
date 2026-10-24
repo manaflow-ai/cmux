@@ -3609,8 +3609,17 @@ jobs:
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Release admission must type-check Release-only conditionals. The
+          # private fleet client rolls this profile out independently; until a
+          # runner has it, use the Mac Release fallback instead of silently
+          # admitting on a Debug compile under the Release gate name.
+          if ! "$client" compile-check --help 2>/dev/null | grep -q -- '--release'; then
+            echo "::warning title=Fast fleet compile check::the fleet client has no Release profile; the Mac fallback will run."
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           status=0
-          "$client" compile-check --ref "$REF" --app \
+          "$client" compile-check --ref "$REF" --app --release \
             --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass ;;
