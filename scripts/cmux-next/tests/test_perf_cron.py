@@ -1221,14 +1221,26 @@ class IssueRefreshTests(unittest.TestCase):
         def gh(path, method="GET", body=None, **k):
             calls.append((method, path, body))
             return issue
+        stale = json.loads(json.dumps(state))
         with mock.patch.object(cron, "gh_request", gh):
             self.assertEqual(cron.refresh_issue_body("o/r", state, at(1)), "closed issue #9 (no confirmed regression)")
-        self.assertEqual([b for m, _, b in calls if m == "PATCH"][-1], {"state": "closed", "state_reason": "completed"})
-        self.assertTrue(any(p.endswith("/comments") and "unconfirmed" in b["body"] for m, p, b in calls if m == "POST"))
+        writes = [(m, b) for m, _, b in calls if m != "GET"]
+        self.assertEqual([m for m, _ in writes], ["PATCH", "POST"], "the body and the close in one PATCH, then the comment")
+        self.assertEqual((writes[0][1]["state"], writes[0][1]["state_reason"]), ("closed", "completed"))
+        self.assertIn("unconfirmed", writes[1][1]["body"])
         calls.clear()
         with mock.patch.object(cron, "gh_request", gh):
-            cron.refresh_issue_body("o/r", state, at(30))
-        self.assertFalse(any(b == {"state": "closed", "state_reason": "completed"} for m, _, b in calls if m == "PATCH"),
+            self.assertEqual(cron.refresh_issue_body("o/r", state, at(1)), "", "a person reopened it: left open")
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+        state["unconfirmed"].append({"name": "x.e2e", "p95": 1, "samples": 1, "why": "y"})
+        calls.clear()
+        with mock.patch.object(cron, "gh_request", gh):
+            cron.refresh_issue_body("o/r", state, at(1))
+        self.assertEqual([b.keys() for m, _, b in calls if m == "PATCH"], [{"body": 1}.keys()], "only its body is kept")
+        calls.clear()
+        with mock.patch.object(cron, "gh_request", gh):
+            cron.refresh_issue_body("o/r", stale, at(30))
+        self.assertFalse(any((b or {}).get("state") == "closed" for m, _, b in calls if m == "PATCH"),
                          "a stale cron keeps the issue open")
 
 

@@ -1941,22 +1941,24 @@ def refresh_issue_body(repo, state, now):
     want_open = issue_plan(state, None, now, True, True, False)["open"]
     if state.get("issue_seen") == {"hash": body_hash(body), "open": want_open}:
         return ""
+    closed_by_cron = (state.get("issue_seen") or {}).get("open") is False
     issue = find_issue(repo, state.get("issue"))
     if not issue or issue.get("state") != "open":
         state["issue_seen"] = {"hash": None, "open": False}
         return ""
     number, changed = issue["number"], (issue.get("body") or "") != body
-    if changed:
-        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
-    state["issue_seen"] = {"hash": body_hash(body), "open": True}
-    if not want_open:
-        # No confirmed regression and not stale (an unconfirmed row opened it under the old rule): close it.
+    if not want_open and not closed_by_cron:
+        # No confirmed regression and not stale (an unconfirmed row opened it under the old rule): the body and the
+        # close in one write. An issue the cron closed and a person reopened stays open (only its body is kept).
         n = len(state.get("unconfirmed") or [])
+        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body, "state": "closed", "state_reason": "completed"})
         gh_request(f"/repos/{repo}/issues/{number}/comments", "POST", {"body":
                    f"No confirmed regression; {n} unconfirmed row(s) stay listed in the body."})
-        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"state": "closed", "state_reason": "completed"})
         state["issue_seen"] = {"hash": body_hash(body), "open": False}
         return f"closed issue #{number} (no confirmed regression)"
+    if changed:
+        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
+    state["issue_seen"] = {"hash": body_hash(body), "open": want_open} if closed_by_cron else {"hash": body_hash(body), "open": True}
     return f"rewrote the body of issue #{number}" if changed else ""
 
 
