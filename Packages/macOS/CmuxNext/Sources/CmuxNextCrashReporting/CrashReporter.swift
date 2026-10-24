@@ -113,10 +113,26 @@ public final class CrashReporter: Sendable {
         CrashDeadline.install()
     }
 
+    /// Starts the out-of-process crash watcher (``CrashWatcher``, #22844) off
+    /// the main thread. Call once at launch, after ``installCrashDeadline()``.
+    /// - Parameter sampleFile: Where the watcher writes its `sample` of an app
+    ///   it ends.
+    public static func installCrashWatcher(sampleFile: String) {
+        CrashWatcher.install(sampleFile: sampleFile)
+    }
+
     /// A crash has begun: the process ends within ``CrashDeadline/seconds``
-    /// even if the crash path blocks. Async-signal-safe.
+    /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
+    /// even if every thread of the app is suspended. Async-signal-safe.
     public static func beginCrashDeadline() {
         CrashDeadline.arm()
+        CrashWatcher.arm()
+    }
+
+    /// Suspends the crash deadline's thread, as Sentry's report writer does.
+    /// For the crash gate's `debug.crash.app {"signal": "suspended"}` only.
+    public static func suspendCrashDeadlineThread() {
+        CrashDeadline.suspendThread()
     }
 
     /// The first call of a fatal-signal handler: gives back Sentry's
