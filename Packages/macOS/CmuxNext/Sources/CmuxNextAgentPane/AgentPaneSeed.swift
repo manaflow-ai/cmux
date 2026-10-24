@@ -84,6 +84,10 @@ public final class AgentPaneSeedSource {
         self.limit = limit
     }
 
+    /// The page must run before anyone sees it. Red-commit stub with the base behavior: every chat
+    /// starts its page when it is made, so every seed counts.
+    public var sendsBeforeShown: Bool { true }
+
     /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
     /// that takes its folder from its New Tab context can stand in for it.
     public var holdsOnlyFolder: Bool {

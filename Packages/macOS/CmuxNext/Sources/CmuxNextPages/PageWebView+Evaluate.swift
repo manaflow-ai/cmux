@@ -9,6 +9,10 @@ public nonisolated enum PageScriptError: Error, Sendable, Equatable {
     case noResult
     /// The script threw; the text is Chromium's exception description.
     case exception(String)
+    /// The page shows in Chromium and has not started yet (it starts on its first show,
+    /// PageWebView+ChromiumCost.swift): there is no document to run the script in. Not an answer
+    /// of the page, so a caller can tell it from a script that returned `null`.
+    case notStarted
 }
 
 extension PageWebView {

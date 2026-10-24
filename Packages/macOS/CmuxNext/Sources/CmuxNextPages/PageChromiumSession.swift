@@ -8,6 +8,8 @@ final class PageChromiumSession {
     let bridge: ChromiumPageHostBridge
     /// Cancelled when the page reaches the host or the session ends.
     let deadline: DemandTimer
+    /// The page's first message reached the host. Red-commit stub: nothing reads it yet.
+    var reachedHost = false
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
         self.page = page
