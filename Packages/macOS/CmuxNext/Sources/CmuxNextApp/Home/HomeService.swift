@@ -183,7 +183,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
-        chief.start()
+        chief.start(launch: services.environment.daemonEnvironment)
         let local = services.machines.local
         let auth = services.cloud.auth
         let chief = chief
