@@ -27,13 +27,11 @@ pub(super) async fn send_latest(
     snapshots: &mut tokio::sync::watch::Receiver<crate::harness_health::inventory_feed::Snapshot>,
 ) {
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let mut reserved = false;
-    let permit = if enabled {
+    let reserved = if enabled {
         let _guard = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
         if conn.out.capacity() > super::OUTBOUND_CONTROL_RESERVE {
             let permit = conn.out.try_reserve().ok();
             if let Some(permit) = permit {
-                reserved = true;
                 // Keep producer admission serialized through the final
                 // subscription check and enqueue.
                 let enabled =
@@ -49,13 +47,15 @@ pub(super) async fn send_latest(
                     }
                     return;
                 }
+                true
+            } else {
+                false
             }
-            None
         } else {
-            None
+            false
         }
     } else {
-        None
+        false
     };
     if enabled && !reserved {
         // Keep the response and gap-marker permits available when an
