@@ -19,8 +19,8 @@
 //! (a deliberate timer: a diagnostic mode, never on in a normal run), or at once
 //! when a hop finds the ring half full (the one wake a hop may send). Each record
 //! is one JSON line: hop name, flow id or 0, terminal hex id, pid, thread id and
-//! `CLOCK_UPTIME_RAW` in nanoseconds on macOS (`CLOCK_MONOTONIC` on other Unix, the
-//! performance counter on Windows): the clock of the app's signposts, so no offset is guessed.
+//! `CLOCK_UPTIME_RAW` in nanoseconds on macOS (the performance counter on Windows,
+//! `CLOCK_MONOTONIC` elsewhere): the clock of the app's signposts, so no offset is guessed.
 //!
 //! A hop with a flow id carries the id the app minted for one key press (the
 //! `send` request's `flow`). A hop with flow 0 is on a path no message carries
@@ -332,7 +332,7 @@ fn now_ns() -> u64 {
     unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(any(target_os = "macos", windows)))]
 fn now_ns() -> u64 {
     let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: `now` is a valid out pointer for the call.
@@ -340,9 +340,10 @@ fn now_ns() -> u64 {
     (now.tv_sec as u64).saturating_mul(1_000_000_000).saturating_add(now.tv_nsec as u64)
 }
 
-/// The performance counter in nanoseconds: on current Windows both reads come from user-mode
-/// shared data (no kernel entry), and no allocation or lock. Declared here as on macOS, so the
-/// crate stays std and libc only.
+/// The performance counter in nanoseconds, with no allocation or lock. On most current Windows
+/// machines (an invariant TSC) both reads come from user-mode shared data with no kernel entry;
+/// with an HPET or PM-timer counter Windows enters the kernel, as close to the rule as the platform
+/// allows. Declared here as on macOS, so the crate stays std and libc only.
 #[cfg(windows)]
 fn now_ns() -> u64 {
     unsafe extern "system" {
