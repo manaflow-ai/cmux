@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
+ORIGINAL_ARGS=("$@")
 NAMESPACE_FIX=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -46,10 +47,61 @@ case "$PYTHON3_BIN" in
 esac
 # One install at a time per clone. post-merge runs this in every worktree that pulls a hook change, and every
 # worktree shares this hook folder and .git/config: two at once collide on `git config` (its lock file), and
-# two cleanups would remove one tree together. Wait for the other install (it takes seconds; a killed one
-# releases the lock with its open file). The lock is on fd 8, which this shell keeps open until it exits.
-exec 8>>"$TRUSTED_HOOK_DIR/install.lock"
-"$PYTHON3_BIN" -I -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)'
+# two cleanups would remove one tree together. The installer runs as the child of a python3 that holds an
+# exclusive flock on install.lock until the child exits. Only that parent has the lock file open (Python opens
+# it close-on-exec), so no process this install starts can keep the lock: a shell fd would be inherited by
+# every child, and a daemon a git command detaches (`git fsmonitor--daemon` with core.fsmonitor=true) would
+# hold it after the install exits, so every later install would wait forever. A waiting install names the
+# holder's pid. The marker variable says this shell is that child; it is removed at once so no child of this
+# install inherits it.
+INSTALL_LOCK="$TRUSTED_HOOK_DIR/install.lock"
+if [[ "${CMUX_HOOKS_INSTALL_LOCK_HELD:-}" != "$INSTALL_LOCK" ]]; then
+    # read -d '' stops at the end of the text with status 1.
+    IFS= read -r -d '' LOCK_HOLDER <<'PY' || true
+import fcntl
+import os
+import signal
+import subprocess
+import sys
+
+lock_path, command = sys.argv[1], sys.argv[2:]
+lock = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)  # not inheritable (PEP 446)
+try:
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    holder = os.pread(lock, 32, 0).decode(errors="replace").strip() or "unknown"
+    print(f"install-git-hooks: another install holds {lock_path} (pid {holder}); waiting for it to finish.",
+          file=sys.stderr, flush=True)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+os.ftruncate(lock, 0)
+os.pwrite(lock, f"{os.getpid()}\n".encode(), 0)
+# The lock must outlive the child: Ctrl-C reaches the child through the terminal's process group, and a
+# SIGTERM or SIGHUP sent to this holder goes on to the child (one that comes before the child exists is sent
+# once it does). The handlers are caught dispositions, which exec resets: the child keeps the defaults.
+children, pending = [], []
+
+
+def forward(number, frame):
+    if children:
+        children[0].send_signal(number)
+    else:
+        pending.append(number)
+
+
+signal.signal(signal.SIGINT, lambda number, frame: None)
+signal.signal(signal.SIGTERM, forward)
+signal.signal(signal.SIGHUP, forward)
+child = subprocess.Popen(command, env={**os.environ, "CMUX_HOOKS_INSTALL_LOCK_HELD": lock_path})
+children.append(child)
+for number in pending:
+    child.send_signal(number)
+code = child.wait()
+sys.exit(128 - code if code < 0 else code)
+PY
+    exec "$PYTHON3_BIN" -I -c "$LOCK_HOLDER" "$INSTALL_LOCK" "$BASH" "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
+        ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
+fi
+unset CMUX_HOOKS_INSTALL_LOCK_HELD
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
