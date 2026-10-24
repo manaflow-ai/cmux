@@ -165,4 +165,27 @@ describe("hover trigger/card bridge", () => {
     clock.advance(HOVER_INTENT.cardDwell);
     expect(opened).toBe(1);
   });
+
+  test("zero-sized JSDOM geometry does not keep a pinned card open", () => {
+    const clock = new FakeClock();
+    let closed = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: 0,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => {},
+      close: () => (closed += 1),
+    });
+    const zero = { left: 0, top: 0, right: 0, bottom: 0 };
+
+    // JSDOM's unstyled getBoundingClientRect() is all zeroes. This is the same
+    // pointerout sequence ContextCard uses when its pinned card is pressed out.
+    bridge.enter("trigger", zero, point(0, 0), true);
+    bridge.enter("card", zero, point(0, 0), true);
+    bridge.leave("trigger", zero, point(0, 0));
+    bridge.leave("card", zero, point(0, 0));
+    clock.advance(HOVER_INTENT.cardGrace);
+
+    expect(closed).toBe(1);
+  });
 });
