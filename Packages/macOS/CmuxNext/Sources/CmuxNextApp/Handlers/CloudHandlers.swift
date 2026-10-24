@@ -48,7 +48,12 @@ enum CloudHandlers {
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
-            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description)) }
+            // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
+            // resource id `cmux machine list` prints for a connected one.
+            guard let session = machines.session(target.id)
+                ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == target.id }) else {
+                throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description))
+            }
             return session
         }
         guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
