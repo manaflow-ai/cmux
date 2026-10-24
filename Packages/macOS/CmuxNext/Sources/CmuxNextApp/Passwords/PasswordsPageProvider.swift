@@ -114,7 +114,8 @@ final class PasswordsPageProvider: PageProvider {
                 onEvent(["revision": .number(Double(self.revision))])
             }
         }
-        return PageSubscription { stop(); gate.cancel() }
+        // A notice per profile (the page reloads the one it shows) or for the export gate (no profile).
+        return PageSubscription(freezing: .newest(by: { $0["profile"]?.stringValue ?? "" })) { stop(); gate.cancel() }
     }
 
     // MARK: Reads

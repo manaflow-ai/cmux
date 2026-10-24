@@ -124,7 +124,8 @@ final class UpdateSurfaceProvider: PageProvider {
                 onEvent(value)
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event is the highlights as they stand.
+        return PageSubscription(freezing: .newest) { task.cancel() }
     }
 }
 

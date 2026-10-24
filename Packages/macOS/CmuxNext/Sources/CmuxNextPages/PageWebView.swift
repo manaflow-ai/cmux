@@ -62,6 +62,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumStart: Task<Void, Never>?
     /// The Chromium host a page waits for until it first shows (PageWebView+ChromiumCost.swift).
     var chromiumAwaitingShow: (any PageChromiumHosting)?
+    /// Called with true when the hibernation froze the Chromium page and false when it thawed: an
+    /// owner whose own pushes must wait too (the agent chat's transport frames) holds them.
+    public var onChromiumFrozenChange: (@MainActor (Bool) -> Void)?
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
@@ -85,7 +88,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme.
-    private lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
+    private lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateDocumentState($0) }
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
@@ -408,7 +411,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         guard loaded else { return }
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
+        evaluateDocumentState(DesignSettings.shared.interfaceScaleScript)
         glassFeed.refresh() // the zoom moves the art's rect in CSS px
     }
 
@@ -498,6 +501,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // The message conversion stays here: `handle` must start in the order the page posted, and
         // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
         guard let body = JSONValue(foundation: message.body) else { return nil }
+        // A frozen page sends nothing; one busy with the host must not freeze until its reply went.
+        let session = chromiumSession
+        if let session { noteChromiumMessage(session, ended: false) }
+        defer { if let session { noteChromiumMessage(session, ended: true) } }
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
         let handled = ProcessInfo.processInfo.systemUptime
@@ -579,7 +586,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let theme = currentTheme()
         if force || theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
-            evaluateInPage(theme.applyScript)
+            evaluateDocumentState(theme.applyScript)
         }
         // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
         glassFeed.refresh(newDocument: force)
