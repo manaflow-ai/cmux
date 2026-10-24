@@ -15,10 +15,16 @@
 # bench=daemon: the daemon's own budgets instead (plans/cmux-next/acpmux-audit.md): the release
 # build of cmux-tui/crates/acpmux/tests/perf_ops.rs (every op send to reply, token to client,
 # idle wakeups, processes per chat; light, STRESS and 72 chats), at this ref and, with before=SHA,
-# at that ref on the same worker. No harness CLI, no npm. Output: ACPMUX-PERF lines, each with
-# its label (before/after). Exit 1 when the build at this ref misses a budget.
+# at that ref on the same worker. No harness CLI, no npm. Output: ACPMUX-PERF lines (and
+# ACPMUX-PERF-OPEN, a known over-budget finding), each with its label (before/after); per side an
+# ACPMUX-PERF-STATUS line with cargo's exit and result (ok, over-budget, failed), and on a nonzero exit
+# the tail of its log (ACPMUX-PERF-LOG). Each side's full cargo output: .build/acpmux-overhead/
+# perf-<label>.log. Exit 1 when the build at this ref misses a budget or does not build or run; exit 3
+# when the before= side did not build or run (no before rows: not a comparison). A before side that
+# ran and missed a budget is a comparison (the number a fix is measured against).
 #   cmux-ci run --class isolated --script scripts/measure/acpmux-overhead.sh --ref SHA \
-#     --arg=bench=daemon [--arg=before=SHA] --timeout 5400
+#     --arg=bench=daemon [--arg=before=SHA] --timeout 5400 \
+#     [--artifact .build/acpmux-overhead/perf-after.log] [--artifact .build/acpmux-overhead/perf-before.log]
 set -euo pipefail
 n=20
 harness="claude,codex,opencode"
@@ -58,23 +64,39 @@ if [[ "$bench" == daemon ]]; then
   echo "ACPMUX-PERF-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) load=\"$(sysctl -n vm.loadavg)\""
   export CI=1
   # The release daemon, as the app bundles it: the dev profile builds acpmux at opt-level 0.
+  # perf LABEL TREE: cargo's whole output goes to perf-LABEL.log; the step log gets every ACPMUX-PERF*
+  # row with the label, the budget assertion, one ACPMUX-PERF-STATUS line and, on a nonzero exit, the
+  # log's tail. Returns 0 (ok), 1 (ran and missed a budget: the bench's assertion) or 2 (did not build or run).
   perf() {
-    local label="$1" tree="$2"
+    local label="$1" tree="$2" log="$work/perf-$1.log" code=0 result=ok
     (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" cargo test --release --locked \
-      -p acpmux --test perf_ops -- --nocapture 2>&1) | sed -n "s/^ACPMUX-PERF /ACPMUX-PERF $label /p;/over the daemon budgets/,/^]/p"
-    return "${PIPESTATUS[0]}"
+      -p acpmux --test perf_ops -- --nocapture 2>&1) | tee "$log" \
+      | sed -n "s/^\(ACPMUX-PERF[A-Z-]*\) /\1 $label /p;/over the daemon budgets/,/^]/p" || code=$?
+    if (( code != 0 )); then
+      # perf_ops asserts its budgets last (`over the daemon budgets: [...]`): any other failure means
+      # the side has no complete rows (no test target, a lock or compile error, a daemon that did not start).
+      if grep -q 'over the daemon budgets' "$log"; then result=over-budget; else result=failed; fi
+    fi
+    echo "ACPMUX-PERF-STATUS $label exit=$code result=$result log=$log"
+    (( code == 0 )) || tail -n 40 "$log" | sed "s/^/ACPMUX-PERF-LOG $label /"
+    case "$result" in ok) return 0 ;; over-budget) return 1 ;; *) return 2 ;; esac
   }
+  before_rc=0
   if [[ -n "$before" ]]; then
     depth=()
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
     git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
     git worktree add -q --detach "$work/before-src" "$before"
     trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
-    perf before "$work/before-src" || true
+    perf before "$work/before-src" || before_rc=$?
   fi
   status=0
   perf after "$root" || status=1
   echo "ACPMUX-PERF-LOAD end $(sysctl -n vm.loadavg)"
+  if (( status == 0 && before_rc == 2 )); then
+    echo "ACPMUX-PERF-INCOMPLETE before=$before did not build or run (ACPMUX-PERF-LOG before): no comparison" >&2
+    status=3
+  fi
   exit "$status"
 fi
 echo "ACPMUX-OVERHEAD-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) load=\"$(sysctl -n vm.loadavg)\""
