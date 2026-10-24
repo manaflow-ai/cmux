@@ -56,6 +56,8 @@ fn request(socket: &Path, mut body: Value) -> Value {
 
 struct Daemon {
     child: Option<Child>,
+    /// The daemon executable (an app bundle's, for the update test).
+    binary: PathBuf,
     /// Extra daemon arguments, kept for every restart.
     args: Vec<String>,
     /// Extra daemon environment for the next restarts.
@@ -81,15 +83,14 @@ impl Daemon {
     }
 
     fn start_with_args_env(args: &[&str], env: &[(&str, &Path)]) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!(
-            "cmux-holder-{}-{}",
-            std::process::id(),
-            stamp % 1_000_000_000
-        ));
-        fs::create_dir_all(&dir).unwrap();
+        Self::start_binary(Path::new(env!("CARGO_BIN_EXE_cmux-tui")), args, env)
+    }
+
+    fn start_binary(binary: &Path, args: &[&str], env: &[(&str, &Path)]) -> Self {
+        let dir = unique_dir("cmux-holder");
         let mut daemon = Self {
             child: None,
+            binary: binary.to_path_buf(),
             args: args.iter().map(ToString::to_string).collect(),
             env: env
                 .iter()
@@ -106,7 +107,7 @@ impl Daemon {
     fn restart(&mut self) {
         standalone_holder_is_current();
         let _ = fs::remove_file(&self.socket);
-        let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        let child = Command::new(&self.binary)
             .args(["--headless", "--session", "holder-test", "--socket"])
             .arg(&self.socket)
             .arg("--state")
@@ -476,11 +477,14 @@ fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
 /// byte, and a restart after it must restore the exact screen, also when
 /// the holder dies inside an escape sequence or a UTF-8 character.
 ///
-/// The program waits behind a gate file. The daemon is stopped (SIGSTOP),
-/// the gate opens and the program prints [`FLOOD_LINES`] numbered colored
-/// lines: with nobody reading its link, the holder takes one credit window
-/// and reads the rest into its ring. The holder is then SIGKILLed and the
-/// daemon continued: every line, the last included, must reach the screen
+/// The program waits on a gate (a named pipe). The daemon is stopped
+/// (SIGSTOP), the gate opens and the program prints [`FLOOD_LINES`] numbered
+/// colored lines: with nobody reading its link, the holder takes one credit
+/// window and reads the rest into its ring. The program then says, through
+/// a second pipe, that its last write returned: every byte is in the holder
+/// or still in the PTY (where the next holder reads it), and the dead holder
+/// holds what it read past the credit window. The holder is then SIGKILLed
+/// and the daemon continued: every line, the last included, must reach the screen
 /// in order. Then the program stops in the middle of an SGR sequence, and
 /// later in the middle of `é`, and the holder is SIGKILLed at each stop.
 /// The live history and screen must be exact, and a daemon restart must
@@ -488,9 +492,8 @@ fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
 #[test]
 fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
     let mut daemon = Daemon::start();
-    let gate = daemon.dir.join("gate");
-    let tty = daemon.dir.join("tty");
-    let flooded = daemon.dir.join("flooded");
+    let gate = fifo(&daemon.dir.join("gate"));
+    let written = fifo(&daemon.dir.join("written"));
     let flood = daemon.dir.join("flood.txt");
     let script = daemon.dir.join("flood.sh");
     let mut lines = String::new();
@@ -503,13 +506,12 @@ fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
         &script,
         format!(
             r#"stty -echo
-tty > '{tty}'
 printf 'ready\n'
-while [ ! -e '{gate}' ]; do sleep 0.05; done
+read go < '{gate}'
 cat '{flood}'
 printf 'flood-end\n'
 printf 'X\033[38;5;1'
-: > '{flooded}'
+echo written > '{written}'
 read a
 printf '96mRED\303'
 read b
@@ -519,8 +521,7 @@ while [ $i -lt 30 ]; do printf 'tail %02d\n' "$i"; i=$((i + 1)); done
 exec sleep 3600
 "#,
             gate = gate.display(),
-            tty = tty.display(),
-            flooded = flooded.display(),
+            written = written.display(),
             flood = flood.display(),
         ),
     )
@@ -543,14 +544,11 @@ exec sleep 3600
     let daemon_pid = daemon.child.as_ref().unwrap().id() as i32;
     // SAFETY: SIGSTOP of the daemon this test started.
     unsafe { libc::kill(daemon_pid, libc::SIGSTOP) };
-    let read_before = holder_read_bytes(holder);
-    fs::write(&gate, b"").unwrap();
-    // What the program prints after the gate, as the PTY passes it (ONLCR
-    // makes each `\n` a `\r\n`).
-    let printed = fs::metadata(&flood).unwrap().len()
-        + FLOOD_LINES
-        + b"flood-end\r\nX\x1b[38;5;1".len() as u64;
-    holder_read_everything(&flooded, &tty, (holder, read_before, printed));
+    // Opening the gate's write end waits until the program reads it.
+    fs::write(&gate, b"go\n").unwrap();
+    // The program's own signal that its last write returned; the deadline
+    // only fails a program that never gets there.
+    read_line_within(&written, Duration::from_secs(60), "the flood was never written");
     // SAFETY: SIGKILL of the holder this test's daemon started.
     unsafe { libc::kill(holder, libc::SIGKILL) };
     // SAFETY: SIGCONT of the daemon this test stopped.
@@ -612,69 +610,31 @@ exec sleep 3600
     }
 }
 
-/// Wait until the replay-race program wrote its whole flood and the holder
-/// read every byte of it from the PTY into its ring: the program created
-/// `flooded` after its last write, and the holder read it all. On macOS a
-/// pty's output queue holds what the master has not read yet, so it reads
-/// empty then. On Linux the bytes move to the master's side at once and
-/// that queue always reads empty: there the holder's own read count
-/// (`rchar` in `/proc/<pid>/io`, while the daemon is stopped and sends it
-/// nothing) must have grown by every byte the program `printed` since
-/// `read_before`.
-fn holder_read_everything(flooded: &Path, tty: &Path, holder_read: (i32, u64, u64)) {
-    #[cfg(target_vendor = "apple")]
-    let _ = holder_read;
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::OpenOptionsExt;
-    #[cfg(target_vendor = "apple")]
-    const TIOCOUTQ: libc::c_ulong = 0x4004_7473; // _IOR('t', 115, int), <sys/ttycom.h>
-    #[cfg(not(target_vendor = "apple"))]
-    const TIOCOUTQ: libc::Ioctl = libc::TIOCOUTQ;
-    let path = fs::read_to_string(tty).expect("the program wrote its tty");
-    let slave = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_NOCTTY)
-        .open(path.trim())
-        .unwrap_or_else(|error| panic!("open the program's tty {}: {error}", path.trim()));
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let mut queued: libc::c_int = -1;
-        // SAFETY: TIOCOUTQ writes one int into a live local.
-        let asked = unsafe { libc::ioctl(slave.as_raw_fd(), TIOCOUTQ, &raw mut queued) };
-        assert_eq!(asked, 0, "TIOCOUTQ: {}", std::io::Error::last_os_error());
-        #[cfg(not(target_vendor = "apple"))]
-        {
-            let (holder, read_before, printed) = holder_read;
-            let read = holder_read_bytes(holder).saturating_sub(read_before);
-            if read < printed {
-                // Still on the master's side: count it as queued.
-                queued = queued.max(i32::try_from(printed - read).unwrap_or(i32::MAX));
-            }
-        }
-        if flooded.exists() && queued == 0 {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the holder never read the whole flood ({queued} bytes still in the PTY): \
-             FLOOD_LINES must fit the credit window plus UNSENT_HIGH_WATER"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+/// A named pipe at `path` (0600): a signal between the test and its program.
+fn fifo(path: &Path) -> PathBuf {
+    let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: mkfifo reads a NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "mkfifo {}", path.display());
+    path.to_path_buf()
 }
 
-/// Bytes `pid` read with read-like calls (Linux `/proc/<pid>/io` `rchar`);
-/// 0 where nothing counts them (macOS uses the PTY's output queue).
-fn holder_read_bytes(pid: i32) -> u64 {
-    if cfg!(target_vendor = "apple") {
-        return 0;
+/// Block until the program writes a line to the pipe `path`. `limit` only
+/// bounds the wait: running out of it fails the test with `what`.
+fn read_line_within(path: &Path, limit: Duration, what: &str) -> String {
+    let (sent, got) = std::sync::mpsc::channel();
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let read = fs::File::open(&path)
+            .and_then(|file| BufReader::new(file).read_line(&mut line))
+            .map(|_| line);
+        let _ = sent.send(read);
+    });
+    match got.recv_timeout(limit) {
+        Ok(Ok(line)) => line,
+        Ok(Err(error)) => panic!("{what}: {error}"),
+        Err(_) => panic!("{what} within {limit:?}"),
     }
-    let io = fs::read_to_string(format!("/proc/{pid}/io")).unwrap_or_default();
-    io.lines()
-        .find_map(|line| line.strip_prefix("rchar:"))
-        .and_then(|count| count.trim().parse().ok())
-        .unwrap_or(0)
 }
 
 /// Lines of the replay-race flood: 75 bytes each plus the CR the PTY adds
@@ -906,6 +866,141 @@ fn a_new_daemon_adopts_an_older_holder_by_its_wire_version() {
     }
 }
 
+/// The real update case (perf lead): Sparkle quits the app, moves the old
+/// bundle away and moves the new one into its place, and the new app starts
+/// its own daemon. The daemon and its holder run from the bundle at
+/// `/Applications`-like `installed/cmux.app` (the holder from its
+/// content-addressed copy, never from the bundle). The daemon stops for the
+/// update (it detaches, as the app's quit for an update does), the bundle is
+/// swapped and the old one deleted, and a daemon from the new bundle starts:
+/// every shell lives, every screen comes back, input works, and the new
+/// daemon adopts the running holder (the same process runs new terminals).
+/// Both bundles carry this build's binaries: a holder that did not change
+/// across an update (the common case, one copy); an older holder's wire is
+/// `a_new_daemon_adopts_an_older_holder_by_its_wire_version`.
+#[cfg(target_os = "macos")]
+#[test]
+fn an_update_that_swaps_the_app_bundle_keeps_every_shell_and_the_new_daemon_adopts_the_holder() {
+    // The bundles carry the standalone holder, another package's binary.
+    let Some(holder_binary) = built_binary("cmux-holder") else {
+        assert!(
+            !require_fixtures(),
+            "cmux-holder is not built beside cmux-tui and {REQUIRE_FIXTURES} is set: run the \
+             tests with --workspace"
+        );
+        eprintln!(
+            "SKIPPED an_update_that_swaps_the_app_bundle: cmux-holder is not built beside \
+             cmux-tui; run the tests with --workspace"
+        );
+        return;
+    };
+    standalone_holder_is_current();
+    let root = unique_dir("cmux-update");
+    let host_exe = root.join("host-exe");
+    let installed = root.join("Applications/cmux.app");
+    let staged = root.join("staging/cmux.app");
+    for bundle in [&installed, &staged] {
+        let bin = bundle.join("Contents/Resources/bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), bin.join("cmux-tui")).unwrap();
+        fs::copy(&holder_binary, bin.join("cmux-holder")).unwrap();
+    }
+    let daemon_exe = installed.join("Contents/Resources/bin/cmux-tui");
+    let mut daemon =
+        Daemon::start_binary(&daemon_exe, &[], &[("CMUX_TUI_HOST_EXE_DIR", host_exe.as_path())]);
+    let mut terminals = Vec::new();
+    for index in 0..3 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("update-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("before-update-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("before-update-{index}"));
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let first = running_surface(&daemon.socket, &terminals[0]);
+    let shells: Vec<i32> = terminals
+        .iter()
+        .map(|id| shell_pid(&daemon.socket, running_surface(&daemon.socket, id)))
+        .collect();
+    let holder = parent_of(shell_pid(&daemon.socket, first));
+    let holder_exe = exe_path(holder);
+    let copies = fs::canonicalize(&host_exe).unwrap();
+    assert!(
+        holder_exe.starts_with(&copies) && holder_exe.ends_with("cmux-holder"),
+        "the holder runs from {} (not its content-addressed copy)",
+        holder_exe.display()
+    );
+
+    // The quit for the update: the daemon detaches and exits.
+    let identity = request(&daemon.socket, json!({"cmd": "identify"}));
+    let generation = identity
+        .get("generation")
+        .or_else(|| identity.get("boot_generation"))
+        .cloned()
+        .unwrap_or(json!(""));
+    // The daemon may close the socket before its reply: only its exit counts.
+    let stream = UnixStream::connect(&daemon.socket).unwrap();
+    let stop = json!({"id": 1, "cmd": "shutdown-daemon", "pid": identity["pid"], "generation": generation});
+    (&stream).write_all(format!("{stop}\n").as_bytes()).unwrap();
+    let mut old = daemon.child.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while old.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the old daemon did not exit for the update");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Sparkle: the old bundle goes away, the new one takes its place, and
+    // the old one is deleted.
+    let trash = root.join("Trash/cmux.app");
+    fs::create_dir_all(trash.parent().unwrap()).unwrap();
+    fs::rename(&installed, &trash).unwrap();
+    fs::rename(&staged, &installed).unwrap();
+    fs::remove_dir_all(&trash).unwrap();
+    for (index, shell) in shells.iter().enumerate() {
+        assert!(alive(*shell), "terminal {index}: its shell died in the update");
+    }
+    assert!(alive(holder), "the holder died in the update");
+
+    // The new app's daemon, from the new bundle.
+    daemon.restart();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        screen_contains(&daemon.socket, surface, &format!("before-update-{index}"));
+        send(&daemon.socket, surface, &format!("after-update-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("after-update-{index}"));
+        assert!(screen.contains(&format!("before-update-{index}")), "terminal {index}: {screen}");
+        assert_eq!(
+            shell_pid(&daemon.socket, surface),
+            shells[index],
+            "terminal {index} got a new shell"
+        );
+    }
+    let probe = probe_holder(&mut daemon, "after-update");
+    assert_eq!(probe, holder, "the new daemon did not adopt the running holder");
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// The executable path of `pid`.
+fn exe_path(pid: i32) -> PathBuf {
+    #[cfg(target_vendor = "apple")]
+    {
+        let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: proc_pidpath writes at most the buffer's length.
+        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        assert!(len > 0, "no executable path for pid {pid}");
+        buf.truncate(len as usize);
+        PathBuf::from(String::from_utf8_lossy(&buf).into_owned())
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        fs::read_link(format!("/proc/{pid}/exe")).unwrap()
+    }
+}
+
 /// A binary cargo built beside this package's `cmux-tui` (another
 /// workspace package's, built for its own integration tests); `None` when
 /// this run did not build it (no `--workspace`).
@@ -980,6 +1075,28 @@ fn exe_name(pid: i32) -> String {
     #[cfg(not(target_vendor = "apple"))]
     let path = fs::read_link(format!("/proc/{pid}/exe")).unwrap();
     path.file_name().unwrap().to_string_lossy().into_owned()
+}
+
+/// A new, empty directory under `/tmp` no other test has: the pid, a
+/// counter and an exclusive `mkdir` (pid and clock alone were shared by
+/// tests in parallel threads, so their daemons and holders met on one
+/// socket).
+fn unique_dir(prefix: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    loop {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+        let dir = PathBuf::from("/tmp").join(format!(
+            "{prefix}-{}-{}-{:x}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            stamp % 0x10000
+        ));
+        match fs::create_dir(&dir) {
+            Ok(()) => return dir,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("make {}: {error}", dir.display()),
+        }
+    }
 }
 
 fn send(socket: &Path, surface: u64, line: &str) {
