@@ -82,6 +82,8 @@ export function screenRows(
     home?: string;
     ask?: ScreenAsk;
     create?: readonly CreateKind[];
+    /// The create actions' names in the pane's language (English when unset).
+    createNames?: Partial<Record<CreateKind, string>>;
     order?: SuggestionOrder;
   },
 ): ScreenRow[] {
@@ -90,7 +92,7 @@ export function screenRows(
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const create = order === "minimal" ? [] : (context.create ?? []);
   if (order === "chat") return [...rows, ...create.map((kind): ScreenRow => ({ type: "create", kind }))];
-  const named = create.filter((kind) => namesCreate(text, kind));
+  const named = create.filter((kind) => namesCreate(text, kind, context.createNames?.[kind]));
   return [
     ...rows,
     ...named.map((kind): ScreenRow => ({ type: "create", kind })),
@@ -146,12 +148,12 @@ function namedExactly(query: string, row: ScreenRow): boolean {
   return row.title.trim().toLocaleLowerCase() === query.toLocaleLowerCase();
 }
 
-/// Whether the text starts the create action's name or a word of it ("new", "term", "brow").
-function namesCreate(text: string, kind: CreateKind): boolean {
+/// Whether the text starts the create action's name (`name`, else English) or a word of it ("new",
+/// "term", "brow"). The English name always counts.
+function namesCreate(text: string, kind: CreateKind, name?: string): boolean {
   const query = text.trim();
   if (query.length < 2) return false;
-  const key = CREATE_KEYS[kind];
-  return matchScore(query, translateNewTab(key), translateNewTab(key, {}, "en")) >= 2;
+  return matchScore(query, name, translateNewTab(CREATE_KEYS[kind], {}, "en")) >= 2;
 }
 
 const CREATE_KEYS = { terminal: "create.terminal", browser: "create.browser", chat: "create.chat" } as const;

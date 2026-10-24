@@ -470,10 +470,10 @@ export function NewTabScreen(props: Props) {
             home,
             create: creates,
             ...(ask ? { ask } : {}),
+            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    // `nt`: a create row's name is matched in the pane's language.
     [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
