@@ -126,7 +126,17 @@ final class AppServices {
     let browserStores = BrowserSharedStores.application()
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel)  // first read in init (no IUO)
+    /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
+    let resizes = ResizeCoordinator()
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    #if DEBUG
+    /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
+    private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
+        let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
+        resizes.onSend = { [weak trace] in trace?.noteSend($0, columns: $1.cols, rows: $1.rows) }
+        return trace
+    }()
+    #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
     private(set) lazy var palette: PaletteController = {
