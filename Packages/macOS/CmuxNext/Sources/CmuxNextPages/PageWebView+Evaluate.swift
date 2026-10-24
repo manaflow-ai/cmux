@@ -25,8 +25,11 @@ extension PageWebView {
     ///   - body: A function body that may `await` and `return`.
     ///   - arguments: Its parameters by name; each must be a JSON value (NSNull for null).
     /// - Returns: The returned value; nil for `undefined` or `null`.
+    /// - Throws: ``PageScriptError/notStarted`` for a Chromium page that has not started yet; the
+    ///   engine's error when the script fails.
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
-        guard let page = chromiumSession?.page else {
+        guard let page = awakeChromiumPage else {
+            guard let webView = documentWebView else { throw PageScriptError.notStarted }
             return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
         }
         let names = arguments.keys.sorted()

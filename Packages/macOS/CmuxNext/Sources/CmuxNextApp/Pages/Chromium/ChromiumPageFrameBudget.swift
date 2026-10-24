@@ -1,14 +1,49 @@
 import CmuxNextControl
 
-/// Red-commit stub (the next commit implements it) with the base behavior: a page's CEF tab is
-/// made at once, in the turn that asked for it. Only the tests make it; the host does not use it yet.
+/// Makes cmux pages' CEF tabs one per display frame, never in the frame of the action that showed
+/// them (perf-lead.md F3, section 5).
+///
+/// A cmux page in Chromium starts on its first show (PageWebView+ChromiumCost.swift). A workspace
+/// or tab switch that shows N pages that never showed asked for N CEF tabs in its own turn:
+/// `makeReadyTab` and `createBrowser` run on the main thread (the CEF UI thread), ahead of the
+/// switch's commit, so the switch frame paid N cold starts. Each start now waits for the start of
+/// a later display frame and takes that frame alone; the next start waits for the frame after.
+/// The action commits without any of them, and no frame makes more than one. The incoming page's
+/// paint hold keeps the outgoing content until it paints, so a start costs about one frame of
+/// first-paint latency against its load and React mount. The same rule as
+/// ``ContentPresentationScheduler``'s one new terminal surface per frame (architecture.md 5a).
+/// Not a delay: a start waits only for the next frame its turn gets, and an idle app has no frame
+/// wakeups (``FrameBatcher``).
 @MainActor
 final class ChromiumPageFrameBudget {
-    init(frames: any ControlFrameSource) {}
+    private let frames: any ControlFrameSource
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var scheduled = false
 
-    /// Pages waiting for their frame: none, every start goes at once.
-    var waitingCount: Int { 0 }
+    /// - Parameter frames: The display frames (a test passes one it steps by hand).
+    init(frames: any ControlFrameSource = FrameBatcher(owner: "ChromiumPageStart")) {
+        self.frames = frames
+    }
 
-    /// Returns at once.
-    func nextFrame() async {}
+    /// Pages waiting for their frame (tests, `debug.cef`).
+    var waitingCount: Int { waiting.count }
+
+    /// Returns at the start of a display frame that no other page start takes.
+    func nextFrame() async {
+        await withCheckedContinuation { continuation in
+            waiting.append(continuation)
+            schedule()
+        }
+    }
+
+    private func schedule() {
+        guard !scheduled, !waiting.isEmpty else { return }
+        scheduled = true
+        // Holds self: a waiting start is resumed even if the host let go meanwhile.
+        frames.scheduleFrame { [self] in
+            scheduled = false
+            waiting.removeFirst().resume()
+            schedule()
+        }
+    }
 }

@@ -191,6 +191,10 @@ public final class AgentPaneView: NSView {
         inputReadiness.attach(webView)
         if let page {
             attachPage(page)
+            // Only the page sends a seeded prompt or adopt (and then `chat.persistSession`): a chat
+            // made out of sight with one starts its page now instead of on its first show. A chat
+            // with only a draft (every restored tab with kept text), a harness or a folder waits.
+            if model.seed?.sendsBeforeShown == true { page.startWithoutShowing() }
         } else {
             webView.configuration.userContentController.addScriptMessageHandler(
                 AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
@@ -365,8 +369,13 @@ public final class AgentPaneView: NSView {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
             webView.navigationDelegate = nil
         }
-        webView.stopLoading()
-        webView.loadHTMLString("", baseURL: nil)
+        // Only a WebKit view that shows the document has one to stop: loading an empty string into
+        // the unused WebKit view of a Chromium page would start a web content process to do it.
+        let documentWebView: WKWebView? = page == nil ? webView : page?.documentWebView
+        if let documentWebView {
+            documentWebView.stopLoading()
+            documentWebView.loadHTMLString("", baseURL: nil)
+        }
         removeFromSuperview()
     }
 

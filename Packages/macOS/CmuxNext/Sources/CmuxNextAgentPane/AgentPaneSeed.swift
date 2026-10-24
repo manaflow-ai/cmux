@@ -84,10 +84,6 @@ public final class AgentPaneSeedSource {
         self.limit = limit
     }
 
-    /// The page must run before anyone sees it. Red-commit stub with the base behavior: every chat
-    /// starts its page when it is made, so every seed counts.
-    public var sendsBeforeShown: Bool { true }
-
     /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
     /// that takes its folder from its New Tab context can stand in for it.
     public var holdsOnlyFolder: Bool {
@@ -95,6 +91,16 @@ public final class AgentPaneSeedSource {
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
             && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+    }
+
+    /// The page must run before anyone sees it: the seed holds a prompt that goes out by itself
+    /// (``AgentPaneSeed/PromptBy/sendsBySelf``) or an outside chat to adopt, which only the page
+    /// sends, and which then make it call `chat.persistSession`. A draft, a harness, a folder, a
+    /// prompt that waits in the composer, or a seed still to be read (another tab's selection, a
+    /// draft) wait for the page's first show: the page only shows them.
+    public var sendsBeforeShown: Bool {
+        guard read == nil, let value else { return false }
+        return (value.prompt != nil && value.promptBy.sendsBySelf) || value.adopt != nil
     }
 
     /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
