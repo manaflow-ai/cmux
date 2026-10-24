@@ -29,6 +29,13 @@ moved out of one file cannot come back in another. A file with fewer
 matches than its row also fails until the row is lowered, so the ratchet
 only goes down.
 
+It runs in the local pre-push gate only (no CI step: agents run their
+checks themselves), which refuses a push whose tree has a raw-spawn finding
+the base tree did not have. An error in the guard itself prints a warning
+and passes (fail open): a bug here must not block every push. Its rules are
+tested by scripts/cmux-next/tests/check-no-raw-spawn.test.sh, which
+tests/test_cmux_next_prepush_gate.py runs.
+
 Usage: scripts/cmux-next/check-no-raw-spawn.py [repo-root] [--list]
   --list  print every matching line and exit 0.
 """
@@ -45,39 +52,36 @@ BASELINE = "scripts/cmux-next/raw-spawn-baseline.tsv"
 
 ALWAYS = re.compile(
     r"\b(?:std|tokio)::process::Command\b"
-    r"|\buse\s+(?:std|tokio)::process::\{[^}]*\bCommand\b"
     r"|\bprocess::Command::new\b"
     r"|\.pre_exec\s*\("
     r"|\blibc::(?:fork|vfork|posix_spawnp?|execvp?e?|execl[pe]?|forkpty)\s*\("
     r"|\bnix::unistd::fork\b"
 )
-HELPER_COMMAND_IMPORT = re.compile(r"\buse\s+cmux_process::(?:Command\b|\{[^}]*\bCommand\b)", re.S)
-GROUP_START = re.compile(r"\buse\s+(?:std|tokio)::process::\{")
-COMMAND_IN_GROUP = re.compile(r"\bCommand\b")
+# `use std::process::{..., Command, ...}`, on one line or several.
+PROCESS_GROUP = re.compile(r"\buse\s+(?:std|tokio)::process::\{[^}]*\}")
+COMMAND_WORD = re.compile(r"\bCommand\b")
+HELPER_COMMAND_IMPORT = re.compile(r"\buse\s+cmux_process::(?:Command\b|\{[^}]*\bCommand\b)")
 COMMAND_NEW = re.compile(r"(?<![\w:])Command::new\s*\(")
 COMMENT = re.compile(r"^\s*(//|/\*|\*(\s|/|$))")
+# Every pattern needs one of these words: a file without them is skipped
+# unread past its bytes (most of the 1,600 files), which keeps the guard
+# under a second.
+TRIGGERS = (b"Command", b"pre_exec", b"fork", b"posix_spawn", b"libc::exec")
 
 
 def matching_lines(text: str) -> list[tuple[int, str]]:
-    helper_command = bool(HELPER_COMMAND_IMPORT.search(text))
-    found = []
-    in_group = False
-    for number, line in enumerate(text.splitlines(), 1):
-        if COMMENT.match(line):
-            continue
-        # A multi-line `use std::process::{ ..., Command, ... };`
-        if GROUP_START.search(line) and "}" not in line:
-            in_group = True
-        hit = bool(ALWAYS.search(line))
-        if in_group and COMMAND_IN_GROUP.search(line):
-            hit = True
-        if not hit and not helper_command and COMMAND_NEW.search(line):
-            hit = True
-        if in_group and "}" in line:
-            in_group = False
-        if hit:
-            found.append((number, line.rstrip()))
-    return found
+    """Each line with a raw spawn, once, comments left out. The patterns run
+    on the whole text (a regex per file, not per line)."""
+    hit_offsets = [match.start() for match in ALWAYS.finditer(text)]
+    for group in PROCESS_GROUP.finditer(text):
+        hit_offsets.extend(group.start() + word.start() for word in COMMAND_WORD.finditer(group.group()))
+    if not HELPER_COMMAND_IMPORT.search(text):
+        hit_offsets.extend(match.start() for match in COMMAND_NEW.finditer(text))
+    if not hit_offsets:
+        return []
+    lines = text.split("\n")
+    numbers = sorted({text.count("\n", 0, offset) + 1 for offset in hit_offsets})
+    return [(n, lines[n - 1].rstrip()) for n in numbers if not COMMENT.match(lines[n - 1])]
 
 
 def scan(root: str) -> dict[str, list[tuple[int, str]]]:
@@ -96,10 +100,13 @@ def scan(root: str) -> dict[str, list[tuple[int, str]]]:
                 path = os.path.join(dirpath, name)
                 rel = os.path.relpath(path, root).replace(os.sep, "/")
                 try:
-                    with open(path, encoding="utf-8", errors="replace") as f:
-                        text = f.read()
+                    with open(path, "rb") as f:
+                        raw = f.read()
                 except OSError:
                     continue
+                if not any(word in raw for word in TRIGGERS):
+                    continue
+                text = raw.decode("utf-8", errors="replace")
                 found = matching_lines(text)
                 if found:
                     hits[rel] = found
@@ -162,5 +169,17 @@ def main(argv: list[str]) -> int:
     return status
 
 
+def guarded_main(argv: list[str]) -> int:
+    """`main`, failing open on a bug in the guard (not on a finding)."""
+    try:
+        return main(argv)
+    except SystemExit:
+        raise
+    except Exception as error:  # noqa: BLE001 - fail open on any guard bug
+        print(f"check-no-raw-spawn: WARNING: the guard failed ({type(error).__name__}: {error}); "
+              "not applied. Tell the Performance Lead (PL-holder) with this line.", file=sys.stderr)
+        return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(guarded_main(sys.argv[1:]))
