@@ -3,6 +3,7 @@
 // small SVG pages (no app or user data), plus the real sign-in screenshot the tool-images
 // gallery already uses.
 import { LOGIN_SCREENSHOT_PNG, LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
+import type { Play } from "../../../gallery/play";
 import type { ReelFrame } from "./TurnReel";
 
 const W = 640;
@@ -120,3 +121,13 @@ export const MIXED_RUN: ReelFrame[] = [
 
 /** A recording of a run (the tool-images gallery's 7 s MP4). */
 export const RUN_RECORDING = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
+
+/** The interaction every turn-reel variant is measured on: focus the strip's chosen step, step
+ *  back twice with the arrow key, point at another frame, then choose it. */
+export const reelPlay: Play = async (ctx) => {
+  await ctx.focus({ selector: ".cv-reel__thumb[aria-current='step']" });
+  await ctx.press("ArrowLeft");
+  await ctx.press("ArrowLeft");
+  await ctx.hover({ selector: ".cv-reel__thumb:first-child" });
+  await ctx.click({ selector: ".cv-reel__thumb:first-child" });
+};

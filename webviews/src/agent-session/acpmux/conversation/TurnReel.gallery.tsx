@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import type { TurnReelProps } from "./TurnReel";
-import { BROWSER_RUN, FAILED_RUN, LONG_RUN, MIXED_RUN, RUN_RECORDING } from "./turnReelFixture";
+import { BROWSER_RUN, FAILED_RUN, LONG_RUN, MIXED_RUN, RUN_RECORDING, reelPlay } from "./turnReelFixture";
 
 export default componentEntry<TurnReelProps>({
   id: "agent-pane.turn-reel",
@@ -15,11 +15,13 @@ export default componentEntry<TurnReelProps>({
   variants: {
     ring: {
       props: { frames: BROWSER_RUN },
+      play: reelPlay,
       note: "A six-step sign-in run; the stage shows the last step, a ring marks each click",
     },
-    crosshair: { props: { frames: BROWSER_RUN, mark: "crosshair", initial: 3 } },
+    crosshair: { props: { frames: BROWSER_RUN, mark: "crosshair", initial: 3 }, play: reelPlay },
     ripple: {
       props: { frames: BROWSER_RUN, mark: "ripple", initial: 1 },
+      play: reelPlay,
       note: "The ring grows in once per step shown; still under Reduce Motion",
     },
     "failed-step": {

@@ -32,6 +32,9 @@ export type TurnReelProps = {
   mark?: ReelMark;
   /** The step shown first (the last one by default: where the run ended). */
   initial?: number;
+  /** A named treatment, as `data-look` on the reel, for stylesheets that restyle the stage, strip
+   *  and step change (gallery comparisons); absent draws the default look. */
+  look?: string;
 };
 
 /// The stage's shape is the first frame's, known before any image loads, so nothing moves.
@@ -48,7 +51,7 @@ export function fittedBox(frame: { width: number; height: number }, stage: numbe
   return { left: (100 - width) / 2, top: 0, width, height: 100 };
 }
 
-export function TurnReel({ frames, video, mark = "ring", initial }: TurnReelProps) {
+export function TurnReel({ frames, video, mark = "ring", initial, look }: TurnReelProps) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   const last = frames.length - 1;
@@ -96,7 +99,7 @@ export function TurnReel({ frames, video, mark = "ring", initial }: TurnReelProp
     .join(" · ");
 
   return (
-    <figure className="cv-reel" data-mark={mark}>
+    <figure className="cv-reel" data-mark={mark} data-look={look}>
       <div className="cv-reel__stage" style={{ aspectRatio: String(stage) }}>
         {playing && video ? (
           // oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions
