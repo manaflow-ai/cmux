@@ -38,6 +38,7 @@ export interface AgentModelCatalog {
     claude: AgentModelProvider;
     codex: AgentModelProvider;
     gemini: AgentModelProvider;
+    minimax?: AgentModelProvider;
     opencode?: AgentModelProvider;
     pi?: AgentModelProvider;
   };
@@ -45,7 +46,7 @@ export interface AgentModelCatalog {
 
 export const agentModelCatalog = {
   schemaVersion: 1,
-  updatedAt: "2026-08-09T00:00:00.000Z",
+  updatedAt: "2026-10-20T00:00:00.000Z",
   providers: {
     claude: {
       defaultModel: "claude-sonnet-5",
@@ -140,6 +141,23 @@ export const agentModelCatalog = {
         { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
         { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
         { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+      ],
+    },
+    minimax: {
+      defaultModel: "MiniMax-M3.1-Flash",
+      models: [
+        {
+          id: "MiniMax-M3.1-Flash",
+          label: "MiniMax M3.1 Flash",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
+        {
+          id: "MiniMax-M3",
+          label: "MiniMax M3",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
       ],
     },
   },
