@@ -192,7 +192,7 @@ fn two_views_share_one_connection_their_frames_name_their_streams_and_each_ends_
     let reply = harness.reader.reply(5, &mut after_cancel);
     assert_eq!(reply["data"]["outcome"], "applied", "{reply}");
     let end = loop {
-        let wire = after_cancel.pop().map_or_else(|| harness.reader.next(), |wire| wire);
+        let wire = after_cancel.pop().unwrap_or_else(|| harness.reader.next());
         if let Wire::Frame(header, payload) = wire
             && header.kind == FrameKind::Event
         {
@@ -426,7 +426,7 @@ fn a_local_ring_stream_reads_its_output_from_shared_memory_and_gets_only_ring_ad
         match reader.next() {
             Wire::Frame(header, _) if header.kind == FrameKind::RingAdvance => break header.offset,
             Wire::Frame(header, _) => {
-                assert_ne!(header.kind, FrameKind::Output, "a ring stream gets no output bytes")
+                assert_ne!(header.kind, FrameKind::Output, "a ring stream gets no output bytes");
             }
             _ => {}
         }
