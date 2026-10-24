@@ -16,7 +16,7 @@ import CmuxNextWakeups
 ///
 /// ```swift
 /// let freezing = PageFreezing(plan: { setting, hidden in (hidden.filter { $0.value >= 30 }.map(\.key), nil) })
-/// hosting.freezePolicy = freezing
+/// let host = ChromiumPageHost(cef: cef, preference: preference, keyRouter: router, freezePolicy: freezing)
 /// ```
 @MainActor
 public final class PageFreezing: PageFreezePolicy {

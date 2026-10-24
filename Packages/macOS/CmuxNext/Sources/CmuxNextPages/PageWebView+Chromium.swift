@@ -204,7 +204,7 @@ extension PageWebView {
     /// for a frozen page sends them again (the router's held events go with its reset or close).
     private func endChromiumSession() {
         guard let session = chromiumSession else { return }
-        session.freezePolicy?.pageIsNoLongerHidden(self)
+        session.freezePolicy.pageIsNoLongerHidden(self)
         session.end()
         chromiumSession = nil
         if session.frozen { onChromiumFrozenChange?(false) }

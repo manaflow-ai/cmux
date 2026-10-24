@@ -359,6 +359,7 @@ final class AppServices {
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
+    let cmuxPageFreezing = PageFreezing.hibernation()  // freezes unseen cmux pages in Chromium: the page host's policy, driven by the hibernation
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
