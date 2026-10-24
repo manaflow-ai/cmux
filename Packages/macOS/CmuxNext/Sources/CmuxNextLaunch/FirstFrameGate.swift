@@ -16,16 +16,22 @@ public import CmuxNextWakeups
 /// ```
 @MainActor
 public final class FirstFrameGate {
+    /// Schedules `next`, the gate's next step of waiting work, on the main actor.
+    public typealias Step = @MainActor (_ next: @escaping @MainActor @Sendable () -> Void) -> Void
+
     private var waiters: [@MainActor () -> Void] = []
     /// Whether the first window frame was committed (or the backstop passed).
     public private(set) var isOpen = false
     private let backstop: DemandTimer
+    private let step: Step
 
     /// A closed gate.
-    /// - Parameter backstop: The deadline that opens the gate when no frame comes; tests inject
-    ///   a manual clock.
-    public init(backstop: DemandTimer = DemandTimer(owner: "FirstFrameGate.backstop")) {
+    /// - Parameters:
+    ///   - backstop: The deadline that opens the gate when no frame comes; tests inject a manual clock.
+    ///   - step: Where the waiting work runs once the gate opens; at once by default.
+    public init(backstop: DemandTimer = DemandTimer(owner: "FirstFrameGate.backstop"), step: @escaping Step = { $0() }) {
         self.backstop = backstop
+        self.step = step
     }
 
     /// A gate with no launch frame to wait for, open from the start: a services graph built outside
@@ -42,14 +48,17 @@ public final class FirstFrameGate {
         if isOpen { work() } else { waiters.append(work) }
     }
 
-    /// Opens the gate (first call only) and runs the waiting work.
+    /// Opens the gate (first call only) and runs the waiting work in one ``Step``.
     public func open() {
         guard !isOpen else { return }
         isOpen = true
         backstop.cancel()
-        let waiting = waiters
-        waiters.removeAll()
-        for work in waiting { work() }
+        step { [weak self] in
+            guard let self else { return }
+            let waiting = waiters
+            waiters.removeAll()
+            for work in waiting { work() }
+        }
     }
 
     /// Opens the gate after `delay` unless a frame opened it first.
