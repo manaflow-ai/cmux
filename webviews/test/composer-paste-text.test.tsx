@@ -256,6 +256,44 @@ test("custom inline clipboard replacement removes selected payloads even with th
   expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
 });
 
+test("reverse decoder completion follows live mark order after the caret moves", async () => {
+  const { insertResolvedAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const attachment = (id: string): ComposerAttachment => ({
+    id,
+    kind: "image",
+    name: id,
+    mimeType: "image/png",
+    size: 1,
+    data: "AQ==",
+  });
+  // A was reserved at the original caret; after moving before it, B owns the earlier mark. B
+  // resolves first, then A. A stale insertionIndex of zero would incorrectly produce [A, B].
+  const marks = new Map([
+    ["A", 1],
+    ["B", 0],
+  ]);
+  let staged = insertResolvedAttachments([], [attachment("B")], 0, (id) => marks.get(id));
+  staged = insertResolvedAttachments(staged, [attachment("A")], 0, (id) => marks.get(id));
+  expect(staged.map((item) => item.id)).toEqual(["B", "A"]);
+});
+
+test("cut selection removes inline payloads and history undo restores them", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  const original = chips(composer)[0]!;
+  await act(async () => markdownField().selectAll());
+  const cut = new dom.window.Event("cut", { bubbles: true, cancelable: true });
+  Object.defineProperty(cut, "clipboardData", { value: { setData() {} } });
+  await act(async () => field().dispatchEvent(cut));
+  // jsdom does not perform the browser's default cut; apply the same replacement transaction.
+  await act(async () => markdownField().writeText("", 0, 0));
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+});
+
 test("a paste over 2,000 characters on one line is a chip too", async () => {
   const composer = await openComposer();
   const long = "word ".repeat(450);

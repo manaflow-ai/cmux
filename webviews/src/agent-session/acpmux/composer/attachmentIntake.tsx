@@ -72,6 +72,8 @@ export type AttachmentIntakeOptions = {
   /// resolved attachments belong in the ordered attachment list; undefined keeps legacy append
   /// behavior for surfaces that still use the tray.
   reserveInline?(ids: readonly string[]): number | undefined;
+  /// Returns an attachment id's current mark index. This follows caret moves while a file reads.
+  inlineIndex?(id: string): number | undefined;
   /// Removes marks for files that were refused during intake.
   releaseInline?(ids: readonly string[]): void;
 };
@@ -104,6 +106,46 @@ export function appendAttachments(
     result.push(attachment);
   }
   return result;
+}
+
+/** Insert resolved payloads by their live replacement-mark order. Pending decoders can finish in
+ * either order after the caret moves; a stale reserve index is only a fallback for tray callers. */
+export function insertResolvedAttachments(
+  current: readonly ComposerAttachment[],
+  added: readonly ComposerAttachment[],
+  fallbackIndex: number | undefined,
+  inlineIndex?: (id: string) => number | undefined,
+): ComposerAttachment[] {
+  if (fallbackIndex === undefined || !inlineIndex) return appendAttachmentsAt(current, added, fallbackIndex);
+  const ordered = added
+    .map((attachment, order) => ({ attachment, order, mark: inlineIndex(attachment.id) }))
+    .sort(
+      (left, right) =>
+        (left.mark ?? Number.MAX_SAFE_INTEGER) - (right.mark ?? Number.MAX_SAFE_INTEGER) || left.order - right.order,
+    );
+  const next = [...current];
+  for (const { attachment, mark } of ordered) {
+    if (mark === undefined) {
+      next.push(attachment);
+      continue;
+    }
+    const at = next.findIndex((existing) => {
+      const existingMark = inlineIndex(existing.id);
+      return existingMark !== undefined && existingMark > mark;
+    });
+    next.splice(at < 0 ? next.length : at, 0, attachment);
+  }
+  return next;
+}
+
+function appendAttachmentsAt(
+  current: readonly ComposerAttachment[],
+  added: readonly ComposerAttachment[],
+  insertionIndex: number | undefined,
+): ComposerAttachment[] {
+  if (insertionIndex === undefined) return appendAttachments(current, added);
+  const at = Math.min(Math.max(insertionIndex, 0), current.length);
+  return [...current.slice(0, at), ...added, ...current.slice(at)];
 }
 
 /// A chip shown the moment a file is pasted, dropped or chosen, while the composer reads, scales or
@@ -200,11 +242,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (refused.length) current.releaseInline?.(refused);
     // Keep pending ids visible to `removeInlineAttachment` until refused marks are removed.
     read();
-    setAttachments((staged) => {
-      if (insertionIndex === undefined) return appendAttachments(staged, taken.attachments);
-      const at = Math.min(Math.max(insertionIndex, 0), staged.length);
-      return [...staged.slice(0, at), ...taken.attachments, ...staged.slice(at)];
-    });
+    setAttachments((staged) => insertResolvedAttachments(staged, taken.attachments, insertionIndex, now.inlineIndex));
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });

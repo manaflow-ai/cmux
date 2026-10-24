@@ -495,6 +495,7 @@ export function Composer({
       },
       carries: () => carryPrompt.current || Boolean(switching),
       reserveInline: (ids) => field.current?.insertInlineAttachments(ids),
+      inlineIndex: (id) => field.current?.inlineAttachmentIndex(id),
       releaseInline: (ids) => {
         for (const id of ids) field.current?.removeInlineAttachment(id);
       },
@@ -588,9 +589,14 @@ export function Composer({
     handle,
     () => ({
       restore(restoredText, restoredAttachments) {
+        // Legacy callers supplied a tray list without replacement marks. Give those payloads an
+        // inline position at the front so restoring a failed prompt never leaves hidden chips.
+        const restoredMarks = restoredText.split(INLINE_ATTACHMENT_MARK).length - 1;
+        const missingRestored = Math.max(0, restoredAttachments.length - restoredMarks);
+        const markedRestored = `${INLINE_ATTACHMENT_MARK.repeat(missingRestored)}${restoredText}`;
         // What comes back goes first; what was typed or attached since stays after it.
         const typed = field.current?.value() ?? "";
-        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        const next = typed.trim() ? `${markedRestored}\n\n${typed}` : markedRestored;
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
         if (!field.current?.type(next)) {
@@ -620,6 +626,9 @@ export function Composer({
         });
       },
       detach(ids) {
+        // Design selection removes the payload and its replacement mark together. Removing only
+        // the payload would shift every later mark onto the wrong thumbnail.
+        for (const id of ids) field.current?.removeInlineAttachment(id);
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
       },
       send: () => submitNow.current(true),
@@ -641,11 +650,22 @@ export function Composer({
       }),
       wake(state) {
         const back = state.attachments ?? [];
-        if (back.length)
+        if (back.length) {
+          const currentText = field.current?.value() ?? textRef.current;
+          const existingMarks = currentText.split(INLINE_ATTACHMENT_MARK).length - 1;
+          const missing = Math.max(0, back.length - existingMarks);
+          if (missing) {
+            const next = `${INLINE_ATTACHMENT_MARK.repeat(missing)}${currentText}`;
+            if (!field.current?.type(next)) {
+              setText(next);
+              setCaret(next.length);
+            }
+          }
           setAttachments((current) => [
             ...back,
             ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
           ]);
+        }
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");

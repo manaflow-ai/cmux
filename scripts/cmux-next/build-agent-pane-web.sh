@@ -57,6 +57,9 @@ bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$W
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
 bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+# Composer image previews decode and downsample in their own same-origin worker, keeping paste and
+# typing off the page's main thread. The worker has no network-capable imports.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/inline-thumbnail-worker.ts" "$SRC/acpmux/shiki" "$WORK/inline-thumbnail-worker.js"
 
 # The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
 # fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
@@ -105,7 +108,7 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
@@ -141,6 +144,7 @@ cp "$WORK/pane/pane.js" "$OUT/pane.js"
 rm -rf "$OUT/chunks"
 cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
+cp "$WORK/inline-thumbnail-worker.js" "$OUT/inline-thumbnail-worker.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"
