@@ -1,5 +1,5 @@
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
-import type { PasteRange } from "./promptCollapse";
+import { pasteName, type PasteRange } from "./promptCollapse";
 
 type RawPart = Record<string, unknown>;
 
@@ -18,6 +18,8 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
   if (!isRecord(value)) return undefined;
   const kind = typeof value.kind === "string" ? value.kind : value.type;
   if (kind === "text" && typeof value.text === "string") {
+    if (value.pasted === true)
+      return { kind: "pasted", name: pasteName(value.text), text: value.text };
     return {
       kind: "text",
       text: value.text,
@@ -39,11 +41,11 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
   }
   if (
     (kind === "file" || kind === "document" || kind === "audio" || kind === "recording" || kind === "pasted" || kind === "resource_link") &&
-    (typeof value.name === "string" || typeof value.uri === "string")
+    (typeof value.name === "string" || typeof value.uri === "string" || kind === "audio" || kind === "recording")
   ) {
     return {
       kind: kind === "resource_link" ? "file" : kind,
-      name: typeof value.name === "string" && value.name.length > 0 ? value.name : String(value.uri),
+      name: typeof value.name === "string" && value.name.length > 0 ? value.name : typeof value.uri === "string" ? value.uri : kind,
       ...(typeof value.id === "string" && { id: value.id }),
       ...(typeof value.mimeType === "string" && { mimeType: value.mimeType }),
       ...(positiveInteger(value.size) && { size: value.size }),
