@@ -43,7 +43,7 @@ extension UpdaterService {
         let log = log
         // task-owner: one clone that ends by itself; the install waits for nothing it does.
         keepTask = Task.detached { [weak self] in
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("keep_previous_start")
             #endif
             let kept: Bool
@@ -55,7 +55,7 @@ extension UpdaterService {
                 log.append("could not keep \(build) for rollback: \(error)")
                 kept = false
             }
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("keep_previous_end")
             #endif
             await MainActor.run { self?.keptRunningBuild = kept ? .kept : nil }
@@ -81,14 +81,12 @@ extension UpdaterService {
     public func rollbackInputs(stateDirectories: [URL?]) async -> RollbackInputs {
         let store = keptVersions
         let bundle = Bundle.main.bundleURL
-        return await Task.detached {
-            let kept = store.list().map { version in
-                var version = version
-                if version.storeSchemas == nil { version.storeSchemas = StoreSchemaProbe(bundle: version.bundle).readable() }
-                return version
-            }
-            return RollbackInputs(kept: kept, stored: StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
-        }.value
+        // The directory listing is small; the probes are awaited child processes (no thread waits).
+        var kept = await Task.detached(priority: .utility) { store.list() }.value
+        for index in kept.indices where kept[index].storeSchemas == nil {
+            kept[index].storeSchemas = await StoreSchemaProbe(bundle: kept[index].bundle).readable()
+        }
+        return RollbackInputs(kept: kept, stored: await StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
     }
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.

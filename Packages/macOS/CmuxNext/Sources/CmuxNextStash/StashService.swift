@@ -99,7 +99,7 @@ public final class StashService: StashPageSource {
             reopened = try await state().restoreStash(id, target: .here, pane: host?.stashRestorePane)
         } catch { throw Self.failure(error) }
         if let host, let connection = host.localDaemon.connection {
-            await host.localDaemon.store.applied(through: await connection.eventSequence())
+            await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash")
             host.showRestored(reopened, asWorkspace: workspaces)
         }
         await model.reload()
@@ -152,7 +152,7 @@ public final class StashService: StashPageSource {
             let reopened = try await state.restoreStash(group.id, members: tabs.map(\.id), target: inNewWorkspace ? .newWorkspace : .here,
                                                         pane: host?.stashRestorePane)
             guard let host, let connection = host.localDaemon.connection else { return }
-            await host.localDaemon.store.applied(through: await connection.eventSequence())
+            await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash group")
             host.showRestored(reopened, asWorkspace: inNewWorkspace)
         } catch { throw Self.failure(error) }
     }

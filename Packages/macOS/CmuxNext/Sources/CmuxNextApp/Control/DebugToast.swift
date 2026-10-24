@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.toast`: the toasts of every window, for automation (R96), through
 /// the paths a person takes.
 /// - `{}` lists each window's toasts (id, message, action title, undo).

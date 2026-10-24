@@ -163,7 +163,7 @@ fn send_key_encodes_command_chords_from_authoritative_keyboard_modes() {
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let encode = |keys: &[&str]| {
-        let mut encoder = ghostty_vt::KeyEncoder::new().unwrap();
+        let mut encoder = KeyEncoder::new().unwrap();
         let mut encoded = Vec::new();
         surface.with_terminal(|term| {
             encoder.sync_from_terminal(term);

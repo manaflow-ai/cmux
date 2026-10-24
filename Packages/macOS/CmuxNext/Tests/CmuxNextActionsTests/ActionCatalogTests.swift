@@ -174,4 +174,12 @@ import Testing
             #expect(ids.contains(canonical), "\(legacy) -> \(canonical)")
         }
     }
+
+    @Test func completeConversationCopyIsReachableFromThePalette() throws {
+        let copy = try #require(ActionCatalog.all.first { $0.id == "agentChat.copyConversation" })
+        #expect(copy.surfaces.contains(.palette))
+        #expect(copy.requires.contains(.agentPaneFocused))
+        #expect(copy.keywords.contains("conversation"))
+        #expect(copy.keywords.contains("markdown"))
+    }
 }

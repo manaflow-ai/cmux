@@ -54,14 +54,14 @@ enum BrowserHitHandlers {
         registry.bind("browser.link.openInIncognitoWindow", run: { invocation in
             context.services.openOffTheRecord(try Self.url(invocation), source: Self.page(invocation, context))
         })
-        registry.bind("browser.link.openInSplit", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+        registry.bindEffect("browser.link.openInSplit", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, effect: { invocation in
             let url = try Self.url(invocation)
             let pane = try context.pane(invocation)
             let services = context.services
             let profile = Self.page(invocation, context).flatMap { services.cache.key(of: $0) }.flatMap { services.cache.tabModel($0) }
                 .map { services.browserProfiles.profileID(ofTab: $0) }
-            try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile,
-                                             byPerson: invocation.origin == .user, context: context)
+            return try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile,
+                                                    byPerson: invocation.origin == .user, context: context)
         })
     }
 

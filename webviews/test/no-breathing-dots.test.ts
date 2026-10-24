@@ -21,15 +21,8 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
   {
     file: "agent-session/acpmux/conversation/conversation.css",
     keyframes: "cmux-breathe",
-    selector: ".cv-spinner[data-working]",
-    why: "the Debug Breathing Dot working look, not the default since #23776",
-    goneWith: "#23870, which deletes the look and guards it in static-status-loops.test.ts",
-  },
-  {
-    file: "agent-session/acpmux/conversation/conversation.css",
-    keyframes: "acpmux-jump-latest-dot",
-    selector: ".acpmux-jump-latest",
-    why: "Jump to latest's three working dots (#21800); Static and Reduce Motion still them",
+    selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
+    why: "explicit user-selected Breathing Dot only; the default and unknown values use the spinner",
   },
   {
     file: "agent-session/acpmux/styles.css",
@@ -54,14 +47,6 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     keyframes: "cmux-breathe",
     selector: ".apps-skeleton",
     why: "the Apps page's loading skeleton",
-    goneWith: "#23870, which renames it cmux-skeleton-pulse",
-  },
-  {
-    file: "pages/apps/styles.css",
-    keyframes: "cmux-skeleton-pulse",
-    selector: ".apps-skeleton",
-    why: "the Apps page's loading skeleton (its name once #23870 lands)",
-    goneWith: "not until #23870, which renames cmux-breathe to this",
   },
   {
     file: "pages/cloud/styles.css",
@@ -266,6 +251,21 @@ describe("no breathing or blinking dots", () => {
       ".h-dot throb scale",
       ".i-dot[data-on] flash visibility",
     ]);
+  });
+
+  test("agent chat falls back to the shared spinner and keeps Jump to latest static", () => {
+    const conversation = shipped.find(
+      (sheet) => sheet.file === "agent-session/acpmux/conversation/conversation.css",
+    )?.css;
+    expect(conversation).toBeDefined();
+    expect(conversation).not.toContain("acpmux-jump-latest-dot");
+    expect(
+      loops.filter(
+        (loop) =>
+          loop.file === "agent-session/acpmux/conversation/conversation.css" &&
+          !loop.selector.includes('[data-working-look="breathe"]'),
+      ),
+    ).toEqual([]);
   });
 
   test("no stylesheet fades, blinks or pulses a dot forever", () => {

@@ -150,6 +150,36 @@
       "group": "exact"
     },
     {
+      "query": "copy agent name",
+      "expect": ["action:agentChat.copyName"],
+      "group": "exact"
+    },
+    {
+      "query": "copy harness session id",
+      "expect": ["action:agentChat.copyHarnessSessionID"],
+      "group": "exact"
+    },
+    {
+      "query": "copy conversation markdown",
+      "expect": ["action:agentChat.copyConversation"],
+      "group": "exact"
+    },
+    {
+      "query": "copy session details",
+      "expect": ["action:agentChat.copySessionDetails"],
+      "group": "exact"
+    },
+    {
+      "query": "copy working directory",
+      "expect": ["action:agentChat.copyWorkingDirectory"],
+      "group": "exact"
+    },
+    {
+      "query": "copy chat host",
+      "expect": ["action:agentChat.copyHost"],
+      "group": "exact"
+    },
+    {
       "query": "split",
       "expect": ["action:splitRight", "action:splitDown"],
       "group": "partial"

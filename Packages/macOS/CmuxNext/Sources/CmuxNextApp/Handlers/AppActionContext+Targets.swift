@@ -28,6 +28,12 @@ extension AppActionContext {
             burst.refusal()
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
+        // An action's local change was rolled back because the daemon refused it: say so where
+        // refusals show, so the change does not just vanish.
+        registry.remoteFailureObserver = { action, notice in
+            Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+        }
     }
 
     /// Reports why this invocation cannot run. Returns nil so guards can
