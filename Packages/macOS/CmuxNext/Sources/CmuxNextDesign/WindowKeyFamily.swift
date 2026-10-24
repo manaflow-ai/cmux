@@ -65,7 +65,8 @@ final class WindowKeyFamily {
     func remove(_ view: WindowMaterialView) {
         views.remove(view)
         // The last view left: no one reads the state, so no notice should cost a check.
-        if views.allObjects.isEmpty { observers.removeAll() }
+        // `anyObject` finds a live view without copying the table (O(1) per remove).
+        if views.anyObject == nil { observers.removeAll() }
     }
 
     private func startObserving() {

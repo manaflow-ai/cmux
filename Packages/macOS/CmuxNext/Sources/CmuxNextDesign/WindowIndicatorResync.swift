@@ -55,7 +55,13 @@ final class WindowIndicatorResync {
     func leave(_ client: any StatusIndicatorResyncClient) {
         members.remove(client)
         shown.remove(client)
-        if members.allObjects.isEmpty { observers.removeAll() }
+        // `anyObject` finds a live member without copying the table: a leave stays O(1), so a
+        // window teardown or a row recycle is not O(members) per indicator.
+        guard members.anyObject == nil else { return }
+        observers.removeAll()
+        // Nothing in the window missed the moment it owed: an indicator that enters later starts
+        // current.
+        owesResync = false
     }
 
     /// `client` shows in the window: resyncs reach it.
