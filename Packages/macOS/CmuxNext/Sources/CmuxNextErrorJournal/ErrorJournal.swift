@@ -7,6 +7,9 @@ import CmuxNextWakeups
 ///
 /// Writes are batched off the main actor (``ErrorJournalLimits/flushDelaySeconds``); storms
 /// only bump counters; disk use stays below about twice ``ErrorJournalLimits/segmentBytes``.
+/// A recorded fault or crash is written in the same actor turn, with every change pending
+/// before it: it is the record that explains a crash a moment later, and a batch deadline
+/// would lose exactly that one. Faults are bugs the code never expected, so this is rare.
 ///
 /// ```swift
 /// let journal = ErrorJournal(directory: tempDirectory)
@@ -103,18 +106,20 @@ public actor ErrorJournal {
         return merged
     }
 
-    /// Folds one occurrence into its entry and schedules the write.
+    /// Folds one occurrence into its entry and schedules the write; a fault or crash is written
+    /// before this returns.
     public func record(_ event: ErrorEvent) {
         loadIfNeeded()
         fold(event)
-        scheduleFlush()
+        scheduleFlush(durableNow: event.level >= .fault)
     }
 
-    /// Folds many occurrences and schedules one write.
+    /// Folds many occurrences and schedules one write; written before this returns when any of
+    /// them is a fault or crash.
     public func record(contentsOf events: [ErrorEvent]) {
         loadIfNeeded()
         for event in events { fold(event) }
-        scheduleFlush()
+        scheduleFlush(durableNow: events.contains { $0.level >= .fault })
     }
 
     /// Writes every pending change now.
@@ -279,8 +284,9 @@ public actor ErrorJournal {
         }
     }
 
-    private func scheduleFlush() {
-        if dirty.count >= limits.flushBatch {
+    /// `durableNow`: a fault or crash was folded; it is written in this turn, not at the deadline.
+    private func scheduleFlush(durableNow: Bool = false) {
+        if durableNow || dirty.count >= limits.flushBatch {
             flush()
             return
         }

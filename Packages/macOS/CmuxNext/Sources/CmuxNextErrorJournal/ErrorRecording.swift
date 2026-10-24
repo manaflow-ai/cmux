@@ -11,7 +11,8 @@
 /// }
 /// ```
 public protocol ErrorRecording: Sendable {
-    /// Folds one occurrence into the journal; the journal writes it in its next batch.
+    /// Folds one occurrence into the journal; the journal writes it in its next batch, or at once
+    /// for a fault or crash (``ErrorJournal/record(_:)``).
     /// - Parameter event: What happened.
     func record(_ event: ErrorEvent) async
 }
