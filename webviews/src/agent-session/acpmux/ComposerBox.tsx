@@ -231,6 +231,9 @@ export function ComposerBox({
           />
           {fieldOverlay}
         </ContextMenu>
+        {!showAttachmentTray && attachError && (
+          <output className="acpmux-attachment-note acpmux-inline-attachment-note">{attachError}</output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the

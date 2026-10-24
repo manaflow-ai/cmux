@@ -1243,6 +1243,7 @@
 }
 .acpmux-composer-inner { display: contents; }
 .acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
+.acpmux-composer-box > .acpmux-inline-attachment-note { grid-column: 1 / -1; grid-row: 1; align-self: end; }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * {
   grid-column: 2;
   grid-row: 2;
