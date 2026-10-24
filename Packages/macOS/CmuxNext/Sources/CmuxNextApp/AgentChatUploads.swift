@@ -113,7 +113,10 @@ struct AgentChatUploads {
                 } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 return AgentPaneReply.success(["path": destination.path])
             case .cancel(let token):
-                if let stage = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: stage.folder) }
+                if let stage = stages[token], stage.session == session {
+                    stages.removeValue(forKey: token)
+                    try? FileManager.default.removeItem(at: stage.folder)
+                }
                 return AgentPaneReply.success()
             }
         }
