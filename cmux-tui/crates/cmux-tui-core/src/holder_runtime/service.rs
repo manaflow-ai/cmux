@@ -488,8 +488,7 @@ impl HolderService {
         }
         // After the mark: a link published meanwhile is the one read here,
         // or its publish reads the mark ([`Self::publish`]).
-        let link = self.open_link();
-        if let Some(link) = link {
+        if let Some(link) = self.open_link() {
             link.forget(chan);
             let _ = link.detach(chan);
         }
