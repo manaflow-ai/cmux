@@ -19,7 +19,7 @@ enum DebugPaneFocus {
     /// Main-thread work of `kind` runs now (a window record save, a trail encode): every switch timer
     /// counts it while a recorded switch waits for its commit (`work_before_commit`).
     static func noteMainWork(_ kind: String) {
-        for each in [timer, DebugWorkspaceSwitch.timer, DebugTabSwitch.timer, DebugWorkspaceSwitch.inputCommit.timer] { each.noteWork(kind) }
+        for each in [timer, DebugWorkspaceSwitch.timer, DebugTabSwitch.timer] { each.noteWork(kind) }
     }
 
     /// `debug.pane_focus`: the timer's moves, plus `work_before_commit` (reset by `start`).

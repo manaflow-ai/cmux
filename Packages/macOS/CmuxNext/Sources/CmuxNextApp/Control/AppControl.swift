@@ -99,7 +99,7 @@ final class AppControl {
             // Each workspace switch's own time: input to shown content, and to its commit (perf-budgets.py).
             .mainActor("debug.workspace_switch") { call in .value(DebugWorkspaceSwitch.timer.handle(call.params, key: "switches")) },
             // Any key or click: input to the commit its dispatch left open (switch-bench.py: space switch, group collapse).
-            .mainActor("debug.input_commit") { call in .value(DebugWorkspaceSwitch.inputCommit.timer.handle(call.params, key: "inputs")) },
+            .mainActor("debug.input_commit") { [weak services] call in .value(services?.inputCommit.timer.handle(call.params, key: "inputs") ?? .null) },
             // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
