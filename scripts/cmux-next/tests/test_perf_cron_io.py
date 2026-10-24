@@ -36,16 +36,19 @@ def measure_tip(state, s, rows, t):
 
 
 class ReferenceTests(unittest.TestCase):
-    def test_a_creep_of_8_percent_per_run_regresses(self):
+    def test_a_creep_of_8_percent_per_run_regresses_against_the_week_old_values(self):
         # 40 ms is over the 10 ms target on every run, so only the relative rule can catch the creep (STRESS close
-        # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: under the 10 % rule against the run before it.
+        # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: never 10 % above the max of the runs before it,
+        # so the confirmation rule (outside the baseline's spread twice) catches it against the values at least
+        # CREEP_DAYS old, one run every 2 days here.
         state = cron.empty_state(T0)
         self.assertEqual(measure_tip(state, sha(1), {"panes.close.stress.e2e": row(40.0)}, at(0)), "first")
         events, value = [], 40.0
-        for i in range(2, 7):
+        for i in range(2, 9):
             value = round(value * 1.08, 2)
-            events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(i)))
-        self.assertIn("regressed", events, f"five +8 % runs must regress, got {events}")
+            events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(48 * (i - 1))))
+        self.assertIn("regressed", events, f"a +8 % creep for 2 weeks must regress, got {events}")
+        self.assertNotIn("regressed", events[:4], "not before a week-old value exists")
 
     def test_one_noisy_run_does_not_move_the_reference(self):
         state = cron.empty_state(T0)
@@ -226,7 +229,7 @@ class ManageIssueTests(unittest.TestCase):
         self.assertEqual(line, "opened issue #77")
         self.assertEqual(writes[0][0:2], ("POST", "/repos/o/r/issues"))
         self.assertIn(cron.ISSUE_MARK, writes[0][2]["body"])
-        self.assertIn("macOS 27 only", writes[0][2]["body"])
+        self.assertIn("compared only with values of the same host", writes[0][2]["body"])
         self.assertEqual(state["issue"], 77)
 
     def test_reopens_a_closed_own_issue_with_a_comment(self):

@@ -67,6 +67,10 @@ final class HostView: NSView {
     var headerGlass: HeaderGlassView?
     /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
     var bareTop = false
+    /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
+    var topFadeStyle: HomeTopFadeStyle?
+    /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
+    var topFadeView: HomeTopFadeView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
@@ -189,6 +193,8 @@ final class HostView: NSView {
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
         placeHeaderGlass()
+        placeTopFadeView()
+        updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
@@ -534,6 +540,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
+            self?.host.updateTopFadeScrollEdge()
             self?.intents?.scrolled()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }

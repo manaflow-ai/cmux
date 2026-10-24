@@ -34,11 +34,14 @@ Warnings (never refuse):
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
 counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way). It refuses
 when the root (top-level AppDelegate, CmuxNextApp and AppServices(+X).swift) adds more than ROOT_BUDGET lines per
-push (lines moved into it from feature files count; lines moved out are free), and when a new App file is
+push (lines moved into it from feature files count, and so do lines it moves into other App files; only a move
+into a package is free), and when a new App file is
 neither a move nor the push's one AppServices+<Domain>Host.swift of one-line forwards (outside the budget), so
-feature logic does not become wiring by moving into a root file. It warns (never refuses, for now) when the App
-outside the root or CmuxNextApp as a whole grows (the same total check-app-size.sh --base computes, a split
-file's new imports included), with the bytes added and the package the code goes to. This is the only App-size
+feature logic does not become wiring by moving into a root file, and when an existing App file gains a new
+top-level type that is not a move (the new-file rule's god-file dodge; a small private helper and
+`// app-type-allow:` pass). It warns (never refuses, for now) when the App outside the root or CmuxNextApp as a
+whole grows (the same total check-app-size.sh --base computes, a split file's new imports included), with the
+bytes added and the package the code goes to. This is the only App-size
 limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
 
@@ -439,6 +442,15 @@ HOST_MEMBER = re.compile(r"^(@\w+(\([^)]*\))?\s+)*((public|package|internal|priv
 GENERIC_WORDS = frozenset(("else", "return", "break", "continue", "default", "nil", "true", "false", "self", "try",
                            "await", "throws", "async", "case", "fallthrough", "in", "do"))
 TOKEN = re.compile(r"@?\w+|\S")
+# A top-level type declaration (lead decision (b), 2026-10-23): a new one in an existing App file is held to the
+# new-file rule, so the refusal of a new file does not send its type into a god file (CLAUDE.md: one major type
+# per file). An `extension` is not a type; a private or fileprivate helper of PRIVATE_TYPE_MAX source lines or
+# fewer stays with the type it serves (CLAUDE.md's "small, closely-bound helpers").
+TYPE_DECL = re.compile(r"^((@\w+(\([^)]*\))?|public|package|internal|private|fileprivate|final|open|nonisolated|"
+                       r"indirect)\s+)*(?P<kind>struct|class|enum|actor|protocol)\s+(?P<name>[A-Za-z_]\w*)")
+TYPE_ALLOW = re.compile(r"//\s*app-type-allow:\s*\S")
+TYPE_ESCAPE = "// app-type-allow: <why this type must share its file>"
+PRIVATE_TYPE_MAX = 15  # the lead's value (decision (b)): source lines of a private helper type kept in its file
 DESIGN = "plans/cmux-next/architecture-refactor-DESIGN.md section 4, \"Destination map\""
 
 
@@ -485,6 +497,9 @@ class AppFile:
     added: list[SourceLine]
     removed: list[SourceLine]
     is_deleted: bool = False
+    head_lines: list[str] = field(default_factory=list)
+    base_lines: list[str] = field(default_factory=list)
+    head_flags: list[bool] = field(default_factory=list)  # CI's lexer: whether each head line is a source line
 
 
 def app_rel(path: str) -> str:
@@ -512,14 +527,83 @@ def app_file(change: FileChange) -> AppFile:
     """CHANGE's added and removed source lines, each judged on its whole file version by CI's lexer (a line in a
     block comment or a multi-line string is what it is there)."""
 
-    def source(lines: list[str], changed: list[Added]) -> list[SourceLine]:
-        flags = swift_lexer()("\n".join(lines))
+    def source(flags: list[bool], changed: list[Added]) -> list[SourceLine]:
         ordinals = list(itertools.accumulate(map(int, flags)))
         return [SourceLine(line.path, line.number, line.text, ordinals[line.number - 1]) for line in changed
                 if 0 < line.number <= len(flags) and flags[line.number - 1]]
 
-    return AppFile(change.path, change.is_new, is_root_file(change.path), source(change.head_lines, change.added),
-                   source(change.base_lines, change.removed), change.is_deleted)
+    head_flags = swift_lexer()("\n".join(change.head_lines))
+    base_flags = swift_lexer()("\n".join(change.base_lines))
+    return AppFile(change.path, change.is_new, is_root_file(change.path), source(head_flags, change.added),
+                   source(base_flags, change.removed), change.is_deleted, change.head_lines,
+                   change.base_lines, head_flags)
+
+
+def brace_depths(lines: list[str]) -> list[tuple[int, bool]]:
+    """(brace depth, starts in code) at the start of each of LINES: braces in comments and string literals (one-line
+    and multi-line) do not count, and a line that starts inside a comment or a multi-line string is not code."""
+    out, depth, mode, block = [], 0, "code", 0
+    for line in lines:
+        out.append((depth, mode == "code"))
+        i = 0
+        while i < len(line):
+            c = line[i]
+            if mode == "code":
+                if line.startswith("//", i):
+                    break
+                if line.startswith("/*", i):
+                    mode, block, i = "block", 1, i + 2
+                    continue
+                if line.startswith('"""', i):
+                    mode, i = "multi", i + 3
+                    continue
+                if c == '"':
+                    mode = "string"
+                elif c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth = max(depth - 1, 0)
+            elif mode == "block":
+                if line.startswith("/*", i):
+                    block, i = block + 1, i + 2
+                    continue
+                if line.startswith("*/", i):
+                    block, i = block - 1, i + 2
+                    mode = "code" if block == 0 else mode
+                    continue
+            elif c == "\\":  # an escape in a string skips the next character
+                i += 2
+                continue
+            elif mode == "string" and c == '"':
+                mode = "code"
+            elif mode == "multi" and line.startswith('"""', i):
+                mode, i = "code", i + 3
+                continue
+            i += 1
+        if mode == "string":  # a one-line string literal ends with its line
+            mode = "code"
+    return out
+
+
+def top_level_types(lines: list[str]) -> list[tuple[str, int, int, int, bool]]:
+    """(name, declaration, first, end, private) per top-level type declared in LINES, 0-based: FIRST is its first
+    attribute line (or the declaration), END one past its closing brace; PRIVATE marks `private`/`fileprivate`."""
+    depths, types = brace_depths(lines), []
+    for j, line in enumerate(lines):
+        depth, in_code = depths[j]
+        match = TYPE_DECL.match(line.strip()) if depth == 0 and in_code else None
+        if match is None:
+            continue
+        k, opened = j + 1, "{" in code_of(line)
+        while k < len(lines) and (depths[k][0] > 0 or not opened):
+            opened = opened or depths[k][0] > 0 or "{" in code_of(lines[k])
+            k += 1
+        first = j
+        while first > 0 and depths[first - 1] == (0, True) and ATTRIBUTE_LINE.match(lines[first - 1]):
+            first -= 1
+        prefix = line.strip()[:match.start("kind")]
+        types.append((match["name"], j, first, k, re.search(r"\b(private|fileprivate)\b", prefix) is not None))
+    return types
 
 
 def is_generic(key: str) -> bool:
@@ -682,20 +766,67 @@ def host_problem(file: AppFile) -> str | None:
     return None if declared else "a Host file declares `extension AppServices: <Domain>Host`"
 
 
+def new_type_hits(file: AppFile, pools: Callable[[AppFile, list[SourceLine]], list[collections.Counter]]
+                  ) -> list[Added]:
+    """The top-level types FILE (an existing App file) gains that are new code: refused like a new App file.
+
+    A type is new when its name is not a top-level type of FILE's base version and its declaration line is added.
+    It passes as a move when at least MOVE_SHARE of its source lines are moved in (credit_moves, the run rule of
+    a new file, over POOLS(file, the type's added lines)) or are unchanged lines; the declaration line of a type
+    renamed in place (a base type of the same kind that the head no longer has) is the old declaration, not new
+    code. A private or fileprivate helper of PRIVATE_TYPE_MAX source lines or fewer and a type with TYPE_ESCAPE pass too.
+    """
+    base_types = top_level_types(file.base_lines)
+    head_types = top_level_types(file.head_lines)
+    old = {name for name, *_ in base_types}
+    kind = lambda lines, decl: TYPE_DECL.match(lines[decl].strip())["kind"]
+    gone = collections.Counter(kind(file.base_lines, decl) for name, decl, *_ in base_types
+                               if name not in {n for n, *_ in head_types})
+    added = {a.number: a for a in file.added}
+    hits: list[Added] = []
+    for name, decl, first, end, private in head_types:
+        if name in old or decl + 1 not in added or escaped(file.head_lines, decl, TYPE_ALLOW):
+            continue
+        source = sum(1 for n in range(first, end) if n < len(file.head_flags) and file.head_flags[n])
+        if private and source <= PRIVATE_TYPE_MAX:
+            continue
+        mine = [added[n + 1] for n in range(first, end) if n + 1 in added]
+        renamed = gone[kind(file.head_lines, decl)] > 0
+        if renamed:
+            gone[kind(file.head_lines, decl)] -= 1
+            mine = [a for a in mine if a.number != decl + 1]
+        fresh = len(mine) - len(credit_moves(mine, pools(file, mine)).moved)
+        if source - fresh >= MOVE_SHARE * source:
+            continue
+        hits.append(NetHit(file.path, first + 1, f"new type {name} in an existing App file, {source} source lines "
+                           f"({fresh} not moved): put it in {destination(file.path)}, or in its own file if it must "
+                           "stay in the App (one major type per file, CLAUDE.md; a new App file is held to the same "
+                           f"move rule). Reviewed escape: `{TYPE_ESCAPE}`", f"new:{file.path}:{name}", source))
+    return hits
+
+
 def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """The App growth a push may not add or is warned about (NetHit per bucket); see the `app-size` rule's text.
 
     Per push, in source lines: the root adds at most ROOT_BUDGET lines besides the push's one Host conformance
     file, lines moved into it from feature files included; a new file is refused unless it is a move or that Host
-    file. Growth of the App as a whole (exactly check-app-size.sh --base's count: a split file's new import lines
-    are growth there and here) and of the App outside the root are NetHit.warn hits: warnings, not refusals.
-    Lines moved between feature files (a git mv, a split) and out of the root are not growth; code moved into the
-    root (a Host file too) counts against the root's budget and gives the rest no shrink credit. MOVED (removed
-    lines of every Sources file) is not used: code moved into the App from a package is App growth.
+    file; a new top-level type in an existing App file is refused the same way (new_type_hits). Growth of the
+    App as a whole (exactly check-app-size.sh --base's count: a split file's new import lines are growth there
+    and here) and of the App outside the root are NetHit.warn hits: warnings, not refusals. Lines moved between
+    feature files (a git mv, a split) are not growth; code moved into the root (a Host file too) counts against
+    the root's budget and gives the rest no shrink credit, and code moved out of the root into another App file
+    counts against the root's budget too (a move into a package is free). CHANGES holds every Sources file:
+    package files' lost lines only make a new App file or type a move (placement); code moved into the App from
+    a package is App growth all the same. MOVED is not used.
     """
     app = [app_file(c) for c in changes if c.path.startswith(APP) and c.path.endswith(".swift")]
     if not app:
         return []
+    packages = [c for c in changes if not c.path.startswith(APP)]
+    # What packages really lose: a type moved from a package into an App file is placed there, not written there
+    # (its lines are App growth all the same: the `total` warning).
+    package_pool = (collections.Counter(r.text.strip() for c in packages for r in c.removed)
+                    - collections.Counter(a.text.strip() for c in packages for a in c.added))
     hits: list[Added] = []
 
     root_files = [f for f in app if f.root]
@@ -746,8 +877,9 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         if file.path in twins:
             continue
         # The moved share is of non-import source lines on both sides: imports count neither as moved nor as code.
-        moved_lines = len(credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
-                                       bridge=is_import).moved)
+        # A package's lost lines make a new file a move (placement); they are App growth all the same.
+        pools = [root_pool] if file.root else [other_pool, root_pool, package_pool]
+        moved_lines = len(credit_moves(file.added, pools, bridge=is_import).moved)
         code = sum(1 for a in file.added if not is_import(a.text.strip()))
         if moved_lines and moved_lines >= MOVE_SHARE * code:
             continue
@@ -770,6 +902,22 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
 
     def removed(files: list[AppFile]) -> collections.Counter:
         return collections.Counter(r.text.strip() for f in files for r in f.removed)
+
+    def text(lines) -> collections.Counter:
+        return collections.Counter(line.text.strip() for line in lines)
+
+    sides = {root: (text(r for f in app if f.root == root for r in f.removed),
+                    text(a for f in app if f.root == root and not f.is_new for a in f.added)) for root in (True, False)}
+
+    def type_pools(file: AppFile, own: list[SourceLine]) -> list[collections.Counter]:
+        """Where the type of OWN lines in FILE may come from: lines each side really loses (removed minus what
+        its existing files add back, the type's own lines left out so they do not cancel themselves)."""
+        lost = {root: gone - (kept - text(own)) for root, (gone, kept) in sides.items()}
+        return [lost[True]] if file.root else [lost[False], lost[True], package_pool.copy()]
+
+    for file in app:
+        if not file.is_new:
+            hits += new_type_hits(file, type_pools)
 
     # The Host file is a root file here: what it takes from feature files is moved into the root, not a shrink.
     # A move across the root's edge is found on each file's whole added list, from the lines the other side
@@ -813,18 +961,24 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         lines = new_lines[first.path] or first.added
         return first.path, lines[0].number if lines else 1, shown
 
-    # Code moved into the root counts against its wiring budget (a move does not make feature logic wiring); code
-    # moved out of it is free: neutral for the root and the rest. The push's one Host file (one-line forwards
-    # only, host_problem) is outside the budget; what it takes from feature files still gives them no credit.
-    root_net = net(root_files) + out_of_root
+    # Code moved into the root counts against its wiring budget (a move does not make feature logic wiring). Code
+    # moved out of the root into another App file counts against it too (lead decision (b), 2026-10-23): it is no
+    # root shrink, and wiring that leaves the root for a feature file is still App wiring, built outside the
+    # composition root (P1); only a move into a package (not an App file, so not in out_of_root) is the wanted
+    # direction and stays free. The feature files do not count those lines again. The push's one Host file
+    # (one-line forwards only, host_problem) is outside the budget; what it takes from feature files still gives
+    # them no credit.
+    root_net = net(root_files) + 2 * out_of_root
     other_net = net(other_files) + into_root - out_of_root
     wiring = root_net - (len(host.added) if host else 0)
     total = net(app)
     if wiring > ROOT_BUDGET:
         path, number, shown = top([f for f in root_files if f is not host] or root_files)
         besides = f" besides {app_rel(host.path)}'s {len(host.added)}" if host else ""
+        out = (f"; {out_of_root} moved from the root into other App files count too: move them to their package"
+               if out_of_root else "")
         hits.append(NetHit(path, number, f"the composition root grows {wiring:+d} source lines{besides}, over its "
-                           f"wiring budget of +{ROOT_BUDGET} per push ({shown})", "root", wiring - ROOT_BUDGET))
+                           f"wiring budget of +{ROOT_BUDGET} per push ({shown}{out})", "root", wiring - ROOT_BUDGET))
     # Growth warnings, not refusals, until the large domains are out of the App (see the values' comment above).
     if other_net > 0:
         path, number, shown = top(other_files)
@@ -925,21 +1079,24 @@ RULES = (
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
-         f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
-         f"and of its feature files warns)",
+         f"push, moves into the root and out of it into other App files included, plus one Host file; new App "
+         f"files, and new top-level types in existing App files, only as moves; growth of the App and of its "
+         f"feature files warns)",
          "the App re-emits its whole module on every edit and ends as the composition root only (cmuxApp, "
          "AppDelegate, AppServices wiring: about 5-10k lines, perf-lead.md \"Architecture targets\")",
          f"put the logic in its domain package ({DESIGN}); the root (top-level AppDelegate, CmuxNextApp, "
          f"AppServices(+X).swift) only constructs and passes instances, and the push that adds that wiring should "
          f"move at least as many lines out of the App (a warning names the growth); a domain's one-line forwards "
          f"go in one new AppServices+<Domain>Host.swift per push (<= {HOST_FILE_MAX} source lines, only "
-         "`extension AppServices: <Domain>Host { <one-line forwards> }`, no stored `let`/`var`); moves between "
-         "feature files (git mv, a split; its new import lines are growth, as check-app-size.sh counts them) and "
-         "out of the root are not growth, moves into the root count against its budget; blank and comment lines "
-         "never count",
+         "`extension AppServices: <Domain>Host { <one-line forwards> }`, no stored `let`/`var`); a new type goes "
+         f"to its package, or to its own file, not into an existing App file (escape: `{TYPE_ESCAPE}`; a private "
+         f"helper of <= {PRIVATE_TYPE_MAX} source lines may stay); moves between "
+         "feature files (git mv, a split; its new import lines are growth, as check-app-size.sh counts them) are "
+         "not growth; moves into the root, and out of it into another App file, count against its budget (out of "
+         "it into a package is free); blank and comment lines never count",
          None,
          app_size,
-         scope=(APP,),
+         scope=(SOURCES,),  # the App's files; package files only as the source of a type moved into the App
          net=True),
 )
 

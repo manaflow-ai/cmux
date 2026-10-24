@@ -136,6 +136,81 @@ import UniformTypeIdentifiers
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty)
     }
 
+    /// Another view of the same conversation on the same store: what a switch to another chat
+    /// and back builds (the store lives on; only the view goes).
+    private func reopen(_ launch: Launch) async throws -> Launch {
+        launch.view.stop()
+        launch.window.close()
+        let me = try #require(launch.store.me?.id)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let view = MessagesLabHomeView(store: launch.store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
+        view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        view.projection.refresh()
+        return Launch(store: launch.store, view: view, window: window)
+    }
+
+    /// A second, different picture.
+    private func otherShot(_ launch: Launch) async throws -> LocalAttachment {
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 80, pixelsHigh: 30, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bytesPerRow: 0, bitsPerPixel: 0))
+        let shot = try await launch.store.prepareAttachment(data: try #require(rep.representation(using: .png, properties: [:])),
+                                                            typeIdentifier: UTType.png.identifier)
+        await launch.view.addDraftAttachment(shot)
+        return shot
+    }
+
+    /// Types `more` after the draft, as a key in the field does (the text changes, then the host hears of it).
+    private func append(_ more: String, in launch: Launch) {
+        launch.view.controller.dispatch(.setDraft(launch.view.draftText + more))
+        launch.view.projection.draftChanged()
+    }
+
+    /// Text, a picture, text, a picture, text: the order the person built it in.
+    private func interleaved(_ launch: Launch) async throws -> (text: String, shots: [LocalAttachment]) {
+        append("look at this", in: launch)
+        let first = try await paste(launch)
+        append("\nand then this one", in: launch)
+        let second = try await otherShot(launch)
+        append("\nwhich is right?", in: launch)
+        let text = launch.view.draftText
+        #expect(text == "look at this\u{FFFC}\nand then this one\u{FFFC}\nwhich is right?")
+        #expect(launch.view.draftAttachments == [first, second])
+        return (text, [first, second])
+    }
+
+    /// Lawrence 2026-10-23: "if i have text interleaved image, and i switch to diff messages, and
+    /// switch back, then the ordering of images/text is broken". The draft came back as all the
+    /// text, then every picture at the end.
+    @Test func textInterleavedWithPicturesKeepsItsOrderAcrossAChatSwitch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await launch(root)
+        let draft = try await interleaved(first)
+        let back = try await reopen(first)
+        defer { back.quit() }
+        await until { back.view.draftAttachments.count == draft.shots.count }
+        #expect(back.view.draftAttachments == draft.shots, "both pictures are back, in order")
+        #expect(back.view.draftText == draft.text, "each picture sits where it was in the text")
+    }
+
+    @Test func textInterleavedWithPicturesKeepsItsOrderAcrossARelaunch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await launch(root)
+        let draft = try await interleaved(first)
+        first.quit()
+
+        let second = try await launch(root)
+        defer { second.quit() }
+        await until { second.view.draftAttachments.count == draft.shots.count }
+        #expect(second.view.draftAttachments == draft.shots)
+        #expect(second.view.draftText == draft.text, "each picture sits where it was in the text")
+    }
+
     @Test func aSentScreenshotDoesNotComeBack() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
