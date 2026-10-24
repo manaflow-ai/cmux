@@ -182,6 +182,20 @@ processes and ~2,000 threads fewer.
   and ADOPTs every fd. Output written while no holder reads waits in the kernel's PTY buffer (the
   shell blocks, nothing is lost). Exit statuses of shells whose parent died read
   `exit-unobserved`, as today's rehost.
+- Reconnect (holder-core deep review, on the rule that a reconnect ends only the terminals this
+  daemon abandoned): a connect error says whether a holder runs (`client::ConnectFailure`), and
+  the service starts a holder only when none serves the socket. A holder that refused the HELLO
+  runs (a second one would exit at once). A holder that took the connect and did not answer (at
+  its descriptor limit the connection waits in its listen queue; a slow one answers late) is a
+  typed `HolderServes`: the restart waits and connects again while a terminal is live, and loses
+  none (before: `lose_all`, every terminal lost while the holder still ran it). After a link fault
+  (`BAD_PAYLOAD`, `NO_DESCRIPTORS`) the restart waits 100 ms, doubled per fault in a row, at most
+  5 s (before: an immediate reconnect, a tight loop when the holder refused every link). After a
+  `NO_DESCRIPTORS` fault the next link hands the holder no descriptor: a live terminal it does not
+  list ends as lost instead of an ADOPT that faults again. A terminal that ends while no link
+  carries its CLOSE is abandoned: every new link's publish CLOSEs it while the holder lists it
+  (before: the waiting CLOSE was dropped, and a holder that lost only its link kept the ended
+  terminal). Tests: `holder_runtime/service.rs` against a stand-in holder.
 - The replay race at a holder crash (holder item 1, built 2026-10-23): the daemon replays from its
   last fully parsed and confirmed offset, never from the holder's send offset. Its sink keeps each
   queued byte's holder offset (runs, so a seed, a prologue or a CAN takes none), a chunk the reader
