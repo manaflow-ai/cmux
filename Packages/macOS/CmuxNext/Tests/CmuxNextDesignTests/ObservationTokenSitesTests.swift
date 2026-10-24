@@ -3,8 +3,8 @@ import AppKit
 import Testing
 
 /// Design observers that moved from raw `addObserver(queue:)` blocks plus a deinit that removed
-/// them to `MainActorObservation` tokens: they still see each notification in the post's own turn,
-/// and they stop when their owner says so.
+/// them to tokens that remove themselves when released: they still see each notification in the
+/// post's own turn, and they stop when their owner says so.
 @MainActor
 @Suite struct ObservationTokenSitesTests {
     /// A panel shown without the keys (the app is not active) hears another window of the app
@@ -38,7 +38,7 @@ import Testing
     }
 
     /// The elasticity follows the document's frame in the same turn as the change (AppKit posts
-    /// frame changes on main, where the token's `queue: .main` handler runs inline), both ways.
+    /// frame changes on main, where the token's no-queue observer runs its handler inline), both ways.
     @Test func elasticityFollowsTheDocumentFrameInTheSameTurn() {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 50))

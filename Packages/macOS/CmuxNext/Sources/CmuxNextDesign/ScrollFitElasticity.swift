@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Vertical rubber band only when there is something to scroll to: a list
 /// whose content fits neither scrolls nor bounces, and bounces again once
@@ -10,7 +10,7 @@ import CmuxNextCompat
 @MainActor
 public final class ScrollFitElasticity {
     private weak var scrollView: NSScrollView?
-    private var observers: [MainActorObservation] = []
+    private var observers: [FrameChangeObservation] = []
     private weak var observedDocument: NSView?
 
     /// The elasticity for a document `documentHeight` tall in a clip
@@ -25,11 +25,8 @@ public final class ScrollFitElasticity {
         self.scrollView = scrollView
         let clip = scrollView.contentView
         clip.postsFrameChangedNotifications = true
-        // AppKit posts frame changes on main, where a `queue: .main` observer runs inline: the
-        // elasticity is right before the next event.
-        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: clip) { [weak self] in
-            self?.update()
-        })
+        // Synchronous (no queue): the elasticity is right before the next event (a hop only off main).
+        observers.append(FrameChangeObservation(clip) { [weak self] in self?.update() })
         update()
     }
 
@@ -48,8 +45,26 @@ public final class ScrollFitElasticity {
         guard let document, document !== observedDocument else { return }
         observedDocument = document
         document.postsFrameChangedNotifications = true
-        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: document) { [weak self] in
-            self?.update()
-        })
+        observers.append(FrameChangeObservation(document) { [weak self] in self?.update() })
+    }
+}
+
+/// One view's frame-change observer, registered with no queue, that removes itself when released.
+///
+/// Not `MainActorObservation`: that registers on the main queue, so a post off the main thread
+/// would block its thread until main ran the handler. Here a post on main runs `handler` inline
+/// and a post from any other thread hands it to the main queue without waiting (`MainDelivery`).
+/// `NotificationCenter.removeObserver(_:)` is thread-safe, so the deinit runs on any thread.
+private nonisolated final class FrameChangeObservation {
+    private let token: any NSObjectProtocol
+
+    init(_ view: NSView, _ handler: @escaping @MainActor @Sendable () -> Void) {
+        token = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { _ in
+            MainDelivery().run(handler)
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(token)
     }
 }
