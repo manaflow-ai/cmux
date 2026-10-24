@@ -26,6 +26,10 @@ import CmuxNextTerminal
 /// - `pane_count_changes`: each workspace view's shown pane count, appended when an apply changes
 ///   it (the last 64). A split shows 1, 2; a split undone before its daemon pane lands shows
 ///   1, 2, 1, 2 (cx-ry0y, scripts/cmux-next/split-no-flicker-e2e.py).
+/// - `backdrop_catalog_builds`: wallpaper folder listings for the Settings page (`BackdropCatalogSource`);
+///   a store change with Settings open lists nothing (perf-gate `idle`). Not reset.
+/// - `settings_host_list_runs`: runs of the Settings page's host lists (each store change they
+///   read re-runs them). Not reset.
 @MainActor
 enum DebugLayoutCounters {
     static var paneSnapshots: UInt64 = 0
@@ -46,7 +50,7 @@ enum DebugLayoutCounters {
         if paneCountChanges.count > 64 { paneCountChanges.removeFirst(paneCountChanges.count - 64) }
     }
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
+    static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let report: JSONValue = [
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
@@ -58,6 +62,8 @@ enum DebugLayoutCounters {
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
+            "backdrop_catalog_builds": JSONValue(services.settingsWindow.backdropSource.builds),
+            "settings_host_list_runs": JSONValue(services.settingsWindow.hostListRuns),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
         if params["reset"]?.boolValue == true {

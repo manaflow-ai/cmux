@@ -101,7 +101,7 @@ final class AppControl {
             // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
-            .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params, services: services)) },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).

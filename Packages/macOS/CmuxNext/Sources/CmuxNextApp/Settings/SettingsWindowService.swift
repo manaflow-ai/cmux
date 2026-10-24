@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextServer
@@ -20,6 +21,27 @@ import Foundation
 @MainActor
 final class SettingsWindowService: InternalPageProvider {
     unowned let services: AppServices
+    /// The wallpaper choices, listed again only when a source folder changes (FSEvents).
+    let backdropSource = BackdropCatalogSource(changes: { folder in
+        let changes = FolderWatcher(latency: 0.25).changes(in: folder)
+        // Bounded: a reader that lags drops the oldest change, and the rescan after it lists again.
+        return AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
+            // task-owner: maps one folder watch's events; ends with the watch or its reader
+            let task = Task { @MainActor in
+                for await change in changes {
+                    let names: [String]? = switch change {
+                    case .items(let names): names
+                    case .rescan: nil
+                    }
+                    if case .dropped = continuation.yield(names) { continuation.yield(nil) }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    })
+    /// Runs of ``pageHostLists()`` (debug.layout_counters `settings_host_list_runs`).
+    var hostListRuns = 0
 
     init(services: AppServices) {
         self.services = services

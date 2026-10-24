@@ -126,6 +126,7 @@ struct PageFactory {
             return .object([:])
         }
         provider.agents = services.agentHarnesses
+        provider.backdropsChanged = { [weak services] in services?.settingsWindow.backdropSource.refresh() }
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
             openTerminal: { [weak services] line in _ = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } },
@@ -214,8 +215,8 @@ struct PageFactory {
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute())]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          currentChoices: { SettingsWindowService.backdrops.choices },
+        let dynamicResources = SettingsBackdropThumbnails(choices: services.settingsWindow.backdrops.choices,
+                                                          currentChoices: { [weak services] in services?.settingsWindow.backdrops.choices ?? [] },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
