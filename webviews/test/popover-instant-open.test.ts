@@ -31,7 +31,6 @@ const POPUP_CLASSES = [
   "acpmux-access-menu",
   "acpmux-file-menu-list",
   "acpmux-effort-menu",
-  "acpmux-effort-track",
 ];
 const POPUP = new RegExp(`\\.(${POPUP_CLASSES.join("|")})(?![\\w-])`);
 /// A state the surface leaves through: its fade out is allowed.
@@ -120,6 +119,19 @@ function stylesheets(dir: string): string[] {
 }
 
 describe("popovers and menus open in one frame", () => {
+  // The effort track is the model menu's slider (EffortPicker), and stands on its own in the gallery:
+  // it keeps its entrance there, and opens with the menu, at once, inside a popup.
+  test("the effort track enters on its own but not inside a popup", () => {
+    const source = readFileSync(path.join(WEBVIEWS, "src/agent-session/acpmux/composerControls.css"), "utf8");
+    const rules = cssRules(source);
+    const own = rules.find((rule) => rule.selector.trim() === ".acpmux-effort-track");
+    const inPopup = rules.find((rule) => rule.selector.trim() === ".ui-popup .acpmux-effort-track");
+    expect({
+      own: own?.decls.find(([name]) => name === "animation")?.[1].startsWith("acpmux-effort-track-in"),
+      inPopup: inPopup?.decls.find(([name]) => name === "animation")?.[1],
+    }).toEqual({ own: true, inPopup: "none" });
+  });
+
   test("the scan catches an open animation and a starting style on a popup, and passes its exit fade", () => {
     expect(
       popupEntrances(`
