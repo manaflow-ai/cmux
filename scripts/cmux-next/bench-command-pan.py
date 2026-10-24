@@ -168,8 +168,12 @@ def pan_round(app, name, mode, index, session, point):
     hangs = app.rpc("debug.hangs", {"limit": 8}) or {}
     stalls = sorted(hangs.get("hangs") or [], key=lambda h: -(h.get("duration_ms") or 0)) if isinstance(hangs, dict) else []
     taken = sum(1 for d in delivered if d == "LayoutRootView")
+    # Who took each event (`delivered_to`, or the error text): where a pan went when the layout did not take it.
+    took = {}
+    for receiver in delivered:
+        took[receiver] = took.get(receiver, 0) + 1
     run = {"session": name, "mode": mode, "round": index, "dx": dx, "window_s": window, "events": len(delivered),
-           "layout_took": taken,
+           "layout_took": taken, "delivered_to": took,
            "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
            "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
            "missed_at_ms": frames.get("missed_at_ms"), "stalls": len(stalls),
@@ -217,7 +221,13 @@ def summarize(name, mode, runs, report, intervals=None):
             report["problems"].append(f"{name} {mode}: no key.scroll_frame of the layout's events was recorded")
     report["summary"].append(row)
     if row["events_to_layout"] != row["events"]:
-        report["problems"].append(f"{name} {mode}: {row['events'] - row['events_to_layout']} events missed the layout")
+        elsewhere = {}
+        for run in runs:
+            for receiver, count in run["delivered_to"].items():
+                if receiver != "LayoutRootView":
+                    elsewhere[receiver] = elsewhere.get(receiver, 0) + count
+        report["problems"].append(f"{name} {mode}: {row['events'] - row['events_to_layout']} events missed the layout, "
+                                  f"delivered to {json.dumps(elsewhere)[:300]}")
     if not row["frames_total"]:
         report["problems"].append(f"{name} {mode}: no frames drawn")
     print("COMMAND-PAN " + json.dumps(row), flush=True)
