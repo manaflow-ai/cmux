@@ -203,10 +203,23 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const ids = new Set(shown.map((chip) => chip.id));
     const insertionIndex = current.reserveInline?.(shown.map((chip) => chip.id));
     if (insertionIndex !== undefined) {
-      for (const chip of shown) chip.insertionIndex = insertionIndex;
+      for (const [offset, chip] of shown.entries())
+        chip.insertionIndex = current.inlineIndex?.(chip.id) ?? insertionIndex + offset;
     }
     batches.current.add(batch);
-    if (shown.length) setPending((chips) => [...chips, ...shown]);
+    if (shown.length)
+      setPending((chips) => {
+        const next = [...chips, ...shown];
+        const scopeChips = next.filter((chip) => chip.scope === batch.scope);
+        if (!scopeChips.some((chip) => chip.insertionIndex !== undefined)) return next;
+        scopeChips.sort((left, right) => {
+          const leftIndex = left.insertionIndex ?? Number.MAX_SAFE_INTEGER;
+          const rightIndex = right.insertionIndex ?? Number.MAX_SAFE_INTEGER;
+          return leftIndex - rightIndex;
+        });
+        let index = 0;
+        return next.map((chip) => (chip.scope === batch.scope ? scopeChips[index++]! : chip));
+      });
     const paths = current.localPaths;
     // Their placeholders go in the same render as what they became (or when the read fails).
     const read = () => {

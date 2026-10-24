@@ -552,6 +552,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   };
   const inlineAttachmentsRef = useRef<readonly ComposerAttachment[]>(inlineAttachments);
   inlineAttachmentsRef.current = inlineAttachments;
+  // Pending placeholders reserve marks before React has rendered their payloads. Keep their IDs in
+  // the same order synchronously so a second paste can query its live mark index immediately.
+  const inlineAttachmentIdsRef = useRef<readonly string[]>(inlineAttachments.map((attachment) => attachment.id));
+  useLayoutEffect(() => {
+    inlineAttachmentIdsRef.current = inlineAttachments.map((attachment) => attachment.id);
+  }, [inlineAttachments]);
+  const currentInlineAttachmentIDs = () =>
+    inlineAttachmentIdsRef.current.length
+      ? inlineAttachmentIdsRef.current
+      : inlineAttachmentsRef.current.map((attachment) => attachment.id);
   const inlineRemoveRef = useRef(onInlineAttachmentRemove);
   inlineRemoveRef.current = onInlineAttachmentRemove;
   const inlineRestoreRef = useRef(onInlineAttachmentRestore);
@@ -631,6 +641,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       const at = inlineMarkPositions(editorView.state.doc)[index];
       if (at === undefined) return false;
       removedInlineIds.push(id);
+      inlineAttachmentIdsRef.current = currentInlineAttachmentIDs().filter((attachmentID) => attachmentID !== id);
       editorView.dispatch(editorView.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
       inlineRemoveRef.current?.(id);
       return true;
@@ -1292,23 +1303,27 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           const current = view.current;
           if (!current || ids.length === 0) return 0;
           const { from, to } = current.state.selection;
-          const index = inlineMarkPositions(current.state.doc).filter((position) => position < from).length;
+          const marks = inlineMarkPositions(current.state.doc);
+          const index = marks.filter((position) => position < from).length;
+          const currentIDs = currentInlineAttachmentIDs();
+          inlineAttachmentIdsRef.current = [...currentIDs.slice(0, index), ...ids, ...currentIDs.slice(index)];
           current.dispatch(current.state.tr.insertText(INLINE_ATTACHMENT_MARK.repeat(ids.length), from, to));
           return index;
         },
         inlineAttachmentIndex: (id) => {
           const current = view.current;
           if (!current) return undefined;
-          const attachmentIndex = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+          const attachmentIndex = currentInlineAttachmentIDs().indexOf(id);
           if (attachmentIndex < 0) return undefined;
           return attachmentIndex < inlineMarkCount(current.state.doc) ? attachmentIndex : undefined;
         },
         removeInlineAttachment: (id) => {
           const current = view.current;
           if (!current) return false;
-          const index = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+          const index = currentInlineAttachmentIDs().indexOf(id);
           const at = index < 0 ? undefined : inlineMarkPositions(current.state.doc)[index];
           if (at === undefined) return false;
+          inlineAttachmentIdsRef.current = currentInlineAttachmentIDs().filter((attachmentID) => attachmentID !== id);
           current.dispatch(current.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
           inlineRemoveRef.current?.(id);
           return true;
