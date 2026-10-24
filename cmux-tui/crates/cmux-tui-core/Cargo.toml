@@ -29,6 +29,7 @@ cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
 cmux-tui-remote-access.workspace = true
 cmux-tui-util.workspace = true
+cmux-kitty-media.workspace = true
 cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
