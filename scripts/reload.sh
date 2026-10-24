@@ -2325,6 +2325,10 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       CMUX_DEV_AUTH_REPLACE_SESSION=1
     )
   fi
+  # Opt-in DEBUG PTY input tracing (#18556); `env -i` launches drop it otherwise.
+  if [[ "${CMUX_TRACE_PTY_INPUT:-}" == "1" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_TRACE_PTY_INPUT=1)
+  fi
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
