@@ -13,6 +13,11 @@ export type DiffViewerPayload = {
   title?: string;
   /** Persisted display toggles baked in by the CLI; sanitized at boot. */
   viewerOptions?: Record<string, unknown>;
+  /**
+   * The sidecar session options the host's sidecar honors, by their handshake capability names
+   * (Native/DiffSidecar/src/protocol.rs): `session.ignoreWhitespace` turns on Hide white space.
+   */
+  sessionCapabilities?: string[];
   [key: string]: any;
 };
 

@@ -3,8 +3,9 @@
 
 check-daemon-capabilities.sh starts the bundled cmux-tui and checks that it
 serves every capability in DaemonCapabilities.required and .optional
-(plans/cmux-next/daemon-capabilities.json). That list is written by hand, so a
-capability the app gates on through another constant (`Foo.capability`,
+(plans/cmux-next/daemon-capabilities.json). That export is generated from the
+Swift lists (and the base autofix can rewrite it), so a capability the app gates
+on through another constant (`Foo.capability`,
 `"session-journal-v1"` in a `supports(...)` call) was never checked: when the
 daemon dropped or renamed it, the feature went dark with no red build. This
 check closes that gap from the source, with no build. check-daemon-capabilities.sh
@@ -20,7 +21,7 @@ capability references:
                   refused with "not available in this version" or "restart to
                   update")
   the list        every `let name = "..."` in `struct DaemonCapabilities`
-X resolves when it is a string literal, `DaemonCapabilities.shared.NAME`,
+X resolves when it is a string literal, `DaemonCapabilities.NAME`,
 `caps.NAME`, `Self.NAME`, `Type.NAME` or a bare constant of the enclosing type;
 other expressions forward a value from elsewhere and are not references.
 Named gaps: values passed through variables, tuples or arrays

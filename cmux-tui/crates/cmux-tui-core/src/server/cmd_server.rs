@@ -151,6 +151,7 @@ pub(super) fn set_client_info(
     api_revision: Option<u32>,
     version: Option<String>,
     install: Option<String>,
+    remote: bool,
 ) -> anyhow::Result<Value> {
     // Refuse an unsupported revision before changing anything else; the
     // refusal names the client's own update command.
@@ -172,6 +173,9 @@ pub(super) fn set_client_info(
     let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
     if identity_changed {
         mux.control_clients.set_sizing_identity(client, identity);
+    }
+    if remote {
+        mux.control_clients.mark_remote_device(client);
     }
     mux.refresh_terminal_client_identity(client);
     mux.emit(MuxEvent::ClientChanged { client, name, kind });

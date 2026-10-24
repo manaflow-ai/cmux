@@ -32,7 +32,7 @@ enum SidebarDocWiring {
 
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
         let local = services.machines.local, machines = services.machines
-        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
+        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
         // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);

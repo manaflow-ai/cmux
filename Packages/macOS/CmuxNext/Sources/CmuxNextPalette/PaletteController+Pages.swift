@@ -167,6 +167,7 @@ extension PaletteController {
     /// inline rename entries backed by the sources.
     func makeRegistryProvider() -> RegistryPaletteProvider {
         let provider = RegistryPaletteProvider(registry: registry)
+        provider.hiddenIDs.formUnion(hiddenActionIDs?() ?? [])
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets

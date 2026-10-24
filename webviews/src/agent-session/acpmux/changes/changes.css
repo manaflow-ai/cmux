@@ -36,7 +36,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-pull-request-create:disabled{color:var(--agent-muted)}
 .acpmux-pull-request-create:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-pull-request{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
-.acpmux-pull-request[role=alert]{white-space:normal;color:var(--acpmux-del)}
+.acpmux-pull-request[role=alert]{white-space:normal;color:var(--agent-status-failure)}
 .acpmux-pull-request a{color:var(--agent-accent);text-decoration:none}
 .acpmux-pull-request a:hover{text-decoration:underline}
 .acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);white-space:nowrap}

@@ -6,8 +6,11 @@ import Foundation
 /// recency from the location trail, closing tabs from the strips' visible
 /// state, closed tabs from the closed-items log. Main actor; reads only.
 enum TabSearchFactsBuilder {
-    static func facts(_ services: AppServices) -> ControlTabSearchFacts {
-        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: closed(services))
+    /// With `cache` the closed tabs are kept between publishes and rebuilt only when a read of
+    /// theirs changed (about 10% of main while idle on cmux8s when rebuilt per publish). The
+    /// trail and closing tabs stay fresh: the trail is no Observation source, and both are small.
+    static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
+        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: cache?.closedTabs { closed(services) } ?? closed(services))
     }
 
     /// When the user last settled on each tab (the location trail), by tab id.

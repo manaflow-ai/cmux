@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-21: "WHY HAS IT NOT BEEN ALIGNED". A sidebar row's hover card sat with its top on
 /// the row's middle (#22473), so it never lined up with the row it describes. It now sits beside

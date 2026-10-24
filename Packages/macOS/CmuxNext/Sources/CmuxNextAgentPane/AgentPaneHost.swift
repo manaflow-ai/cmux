@@ -19,6 +19,7 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
     func putFile(sessionId: String, name: String, data: Data) async throws -> String
+    func putFile(sessionId: String, name: String, file: URL) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -35,6 +36,13 @@ extension AgentPaneHostProviding {
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         throw AgentPaneFilePutFailure.unsupported
+    }
+
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        let data = try await Task.detached(priority: .utility) {
+            try Data(contentsOf: file)
+        }.value
+        return try await putFile(sessionId: sessionId, name: name, data: data)
     }
 }
 
@@ -177,6 +185,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
     }
 
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneFilePutFailure.unsupported }
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, file: file)
+    }
+
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
         if let task = inFlight[startsDaemon] { return try await task.value }
@@ -215,10 +229,22 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
-        let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
-                                                     params: [:], executable: environment.executable,
-                                                     allowForeign: true, deadline: .seconds(2))
-        return try AcpmuxStatus(result).endpoint()
+        let deadline = ContinuousClock.now + .seconds(3)
+        var delay: Duration = .milliseconds(100)
+        // wakeup-allow: bounded retry while the daemon recreates its Unix socket; this exits at the deadline or on any non-transient refusal.
+        while true {
+            do {
+                let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
+                                                             params: [:], executable: environment.executable,
+                                                             allowForeign: true, deadline: .seconds(2))
+                return try AcpmuxStatus(result).endpoint()
+            } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
+                let remaining = deadline - ContinuousClock.now
+                // wakeup-allow: bounded backoff for the transient socket handoff; the deadline limits this sleep to three seconds.
+                try await Task.sleep(for: min(delay, remaining))
+                delay = min(delay * 2, .milliseconds(500))
+            }
+        }
     }
 
     /// The pane's error for a peer check that refused the daemon on `environment`'s socket,

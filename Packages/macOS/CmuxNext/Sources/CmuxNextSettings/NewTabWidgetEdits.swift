@@ -8,7 +8,7 @@ import os
 /// ```
 ///
 /// A widget's place does not turn it on; its own key does. Widgets left out follow in Settings'
-/// order, and a bad or repeated item is dropped with a diagnostic. The greeting stays over the
+/// order, and a bad or repeated item is dropped with a diagnostic. The headline stays over the
 /// composer, and the template dots stay where they are.
 nonisolated extension NewTabWidgetSettings {
     public static let orderPath = ["tabs", "newTabWidgets", "order"]

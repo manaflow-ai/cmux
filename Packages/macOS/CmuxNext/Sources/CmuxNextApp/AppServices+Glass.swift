@@ -5,6 +5,6 @@ extension AppServices {
     /// Transparency, Low Power Mode): every web view pushes its theme (`data-glass`) and its
     /// wallpaper still again (plans/cmux-next/glass-lens-DESIGN.md).
     func observeGlass() {
-        glassWatch = GlassModeWatch { ThemeStore.shared.repaintAll() }
+        glassWatch = GlassModeWatch { self.themeStore.repaintAll() }
     }
 }

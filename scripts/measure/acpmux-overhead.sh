@@ -11,6 +11,14 @@
 # p50 of any metric for any harness: guard_ms= (default 5) plus twice the standard error of
 # the raw median (cold starts vary by far more than 5 ms); guard_ms=0 measures only.
 # Output: ACPMUX-OVERHEAD lines (the table per acpmux build); files under .build/acpmux-overhead.
+#
+# bench=daemon: the daemon's own budgets instead (plans/cmux-next/acpmux-audit.md): the release
+# build of cmux-tui/crates/acpmux/tests/perf_ops.rs (every op send to reply, token to client,
+# idle wakeups, processes per chat; light, STRESS and 72 chats), at this ref and, with before=SHA,
+# at that ref on the same worker. No harness CLI, no npm. Output: ACPMUX-PERF lines, each with
+# its label (before/after). Exit 1 when the build at this ref misses a budget.
+#   cmux-ci run --class isolated --script scripts/measure/acpmux-overhead.sh --ref SHA \
+#     --arg=bench=daemon [--arg=before=SHA] --timeout 5400
 set -euo pipefail
 n=20
 harness="claude,codex,opencode"
@@ -19,8 +27,10 @@ claude_version="2.1.303"
 codex_version="0.163.0"
 opencode_version="1.19.3"
 guard_ms=5
+bench=harness
 for arg in "$@"; do
   case "$arg" in
+    bench=*) bench="${arg#bench=}" ;;
     n=*) n="${arg#n=}" ;;
     harness=*) harness="${arg#harness=}" ;;
     before=*) before="${arg#before=}" ;;
@@ -38,11 +48,35 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon)$ ]] || { echo "acpmux-overhead.sh: bench=harness or bench=daemon" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/acpmux-overhead"
 rm -rf "$work"
 mkdir -p "$work/bin" "$work/tools"
+if [[ "$bench" == daemon ]]; then
+  echo "ACPMUX-PERF-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) load=\"$(sysctl -n vm.loadavg)\""
+  export CI=1
+  # The release daemon, as the app bundles it: the dev profile builds acpmux at opt-level 0.
+  perf() {
+    local label="$1" tree="$2"
+    (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" cargo test --release --locked \
+      -p acpmux --test perf_ops -- --nocapture 2>&1) | sed -n "s/^ACPMUX-PERF /ACPMUX-PERF $label /p;/over the daemon budgets/,/^]/p"
+    return "${PIPESTATUS[0]}"
+  }
+  if [[ -n "$before" ]]; then
+    depth=()
+    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+    git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
+    git worktree add -q --detach "$work/before-src" "$before"
+    trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
+    perf before "$work/before-src" || true
+  fi
+  status=0
+  perf after "$root" || status=1
+  echo "ACPMUX-PERF-LOAD end $(sysctl -n vm.loadavg)"
+  exit "$status"
+fi
 echo "ACPMUX-OVERHEAD-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) load=\"$(sysctl -n vm.loadavg)\""
 
 # The build scripts run Cargo only on a build host; this step is one.

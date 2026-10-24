@@ -1,8 +1,10 @@
+import type { SwitchPort } from "./harnessSwitch";
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
   AcpmuxLocation,
   AcpmuxPermission,
+  AcpmuxPermissionScope,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
@@ -72,6 +74,8 @@ import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
+import { taskGoal } from "./goal";
+import { recordedConversationEvents } from "./conversation/exportEvents";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -246,8 +250,9 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
 /// attach still goes out and lays what acpmux holds now over it; an unchanged chat replays to the
 /// same rows, so nothing moves (test/chat-open-perf.test.ts). The tails themselves live in
 /// tailCache.ts, which also shares them with the next tab through the app host.
-/// The longest a chat switch keeps the chat before on screen while the new one attaches.
-const SWITCH_HOLD_MS = 400;
+/// The longest a chat switch keeps the chat before on screen while the new one attaches. Match the
+/// cold-open hold: a busy daemon must not expose a blank transcript between the old and new chats.
+const SWITCH_HOLD_MS = 1_500;
 /// Reading ahead (``AcpmuxDirectClient.readAhead``): the user, 2026-10-21, "switching between
 /// different chiefs and messages/conversations needs instant loading of messages". A chat the page
 /// never read waited on its attach behind the hold above; the recent ones are read while the pane is
@@ -277,6 +282,28 @@ const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
+const objectValue = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+const stringValue = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+/** Keep only the stable ACP subject fields that make an approval's target legible. */
+function permissionScopeFromMessage(raw: any, toolCall: any): AcpmuxPermissionScope | undefined {
+  const subject = objectValue(raw?.subject);
+  const subjectTool = subject?.type === "tool_call" ? objectValue(subject.toolCall) : undefined;
+  const call = subjectTool ?? objectValue(toolCall);
+  const input = objectValue(call?.rawInput);
+  const app = stringValue(input?.app) ?? stringValue(input?.application) ?? stringValue(input?.appName);
+  if (app) return { kind: "app", value: app };
+  const locations = (Array.isArray(call?.locations) ? call.locations : [])
+    .map((location: unknown) => stringValue(objectValue(location)?.path))
+    .filter((path: string | undefined): path is string => path !== undefined);
+  const resource = locations[0] ?? stringValue(input?.file_path) ?? stringValue(input?.path) ?? stringValue(input?.url);
+  if (resource && call?.kind !== "execute") return { kind: "resource", value: resource };
+  const cwd = (subject?.type === "command" ? stringValue(subject.cwd) : undefined) ?? stringValue(input?.cwd);
+  return cwd ? { kind: "directory", value: cwd } : undefined;
+}
+
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
   const raw = envelope?.request ?? envelope;
@@ -292,6 +319,10 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
       ? raw.toolCall._meta.claude
       : undefined;
+  const subject = objectValue(raw.subject);
+  const subjectTool = subject?.type === "tool_call" ? objectValue(subject.toolCall) : undefined;
+  const subjectCommand = subject?.type === "command" ? subject : undefined;
+  const toolCall = raw.toolCall ?? subjectTool;
   const suggestions = Array.isArray(claudeMeta?.suggestions)
     ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
         if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
@@ -314,30 +345,34 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
-    title: raw.toolCall?.title,
+    // ACP v2's request title names the approval itself; a subject tool title is its operation fallback.
+    title: raw.title ?? toolCall?.title,
     // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
     command:
-      typeof raw.toolCall?.command === "string"
-        ? raw.toolCall.command
-        : (shellCommand(raw.toolCall?.rawInput) ?? (typeof raw.command === "string" ? raw.command : undefined)),
+      typeof toolCall?.command === "string"
+        ? toolCall.command
+        : (shellCommand(toolCall?.rawInput) ??
+          stringValue(subjectCommand?.command) ??
+          (typeof raw.command === "string" ? raw.command : undefined)),
     description:
       typeof claudeMeta?.description === "string"
         ? claudeMeta.description
-        : typeof raw.toolCall?.description === "string"
-          ? raw.toolCall.description
+        : typeof toolCall?.description === "string"
+          ? toolCall.description
           : typeof raw.description === "string"
             ? raw.description
             : undefined,
     rule:
       suggestions.length > 0
         ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
-        : typeof raw.toolCall?.rule === "string"
-          ? raw.toolCall.rule
+        : typeof toolCall?.rule === "string"
+          ? toolCall.rule
           : typeof raw.rule === "string"
             ? raw.rule
             : undefined,
-    kind: raw.toolCall?.kind,
-    ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
+    kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
+    ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
+    scope: permissionScopeFromMessage(raw, toolCall),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -991,6 +1026,9 @@ export class AcpmuxDirectClient {
   /// names the options it runs now), then each newer config update. A replayed update before it is
   /// history and never takes the current options back (a chat moved from Low to High).
   private configSeq = 0;
+  /// The session detail's goal is current through attach's lastSeq; older session-info history
+  /// must not replace it while newer live goal events still apply.
+  private goalSeq = 0;
   private queue: QueuedPrompt[] = [];
   /// Prompts that left the queue without running (snapshot `queueWithdrawn`), the last QUEUE_WITHDRAWN_KEPT.
   private queueWithdrawn: readonly string[] = [];
@@ -1288,6 +1326,36 @@ export class AcpmuxDirectClient {
     }
   }
 
+  /// An export stays on this connection and selection, including while a history page is in flight.
+  async conversationEvents(isCurrent: () => boolean): Promise<EventRecord[]> {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const connection = this.socket;
+    const current = () =>
+      !this.closed &&
+      this.socket === connection &&
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      isCurrent();
+    if (!sessionId) throw new Error("conversation_export_no_session");
+    return recordedConversationEvents(
+      sessionId,
+      {
+        detail: async () => {
+          // Events is already allowed on the pane bridge; its sequence watermark avoids exposing
+          // the daemon's broader, native-only session detail surface to page code.
+          const page = await this.typed("_acpmux/events", { sessionId, afterSeq: 0, limit: 1, kinds: ["transcript"] });
+          return { lastSeq: page.lastSeq };
+        },
+        page: async (params) => {
+          const page = await this.typed("_acpmux/events", params);
+          return { events: records(page.events), hasMore: page.hasMore };
+        },
+      },
+      current,
+    );
+  }
+
   static async connect(
     host: AcpmuxHostConfig,
     listener: Listener,
@@ -1537,6 +1605,7 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.configSeq = 0;
+    this.goalSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
     this.usageFromSeq = Infinity;
@@ -2329,6 +2398,7 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
+    this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
     // The reads the chat draws with, at once rather than one after another: each is a round trip,
     // as slow as the attach on a busy daemon, and the chat shows only once they are in (its asks,
@@ -2898,6 +2968,16 @@ export class AcpmuxDirectClient {
         ? contextBreakdownOf(update?._meta?.acpmux?.contextBreakdown)
         : undefined;
     if (breakdown && this.summary) this.summary = { ...this.summary, contextBreakdown: breakdown };
+    // Codex owns its goal lifecycle in `_meta.goal`; apply live completion and clearing before
+    // the session-start row's early return so the persistent strip follows the harness event.
+    if (
+      update?.sessionUpdate === SESSION_INFO_KIND &&
+      this.summary &&
+      event.seq >= this.goalSeq &&
+      Object.prototype.hasOwnProperty.call(update._meta ?? {}, "goal")
+    ) {
+      this.summary = { ...this.summary, goal: taskGoal(update._meta.goal) };
+    }
     // An update that carries only the breakdown has nothing more to draw.
     if (breakdown && update.title === undefined && Object.keys(update._meta ?? {}).every((key) => key === "acpmux"))
       return;
@@ -3570,8 +3650,18 @@ export class AcpmuxDirectClient {
             worktree: text(summary.worktree),
             title: summary.title,
             name: summary.name,
+            goal: taskGoal(summary.goal),
             harness: summary.harness,
             family: typeof summary.family === "string" ? summary.family : undefined,
+            agentInfo:
+              summary.agentInfo && typeof summary.agentInfo === "object" && !Array.isArray(summary.agentInfo)
+                ? summary.agentInfo
+                : undefined,
+            authSource: text(summary.authSource),
+            baseUrl: text(summary.baseUrl),
+            route: text(summary.route),
+            settingsSources: summary.settingsSources,
+            usageLimits: text(summary.usageLimits),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
@@ -4590,7 +4680,16 @@ export class AcpmuxDirectClient {
     } finally {
       this.releaseSnapshots(hold);
     }
-    return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
+    const selected =
+      generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
+    if (selected && this.summary?.sessionId !== selected) {
+      // A daemon may answer an attach with events but no session detail. Treat that as a failed
+      // selection and leave the client unselected, so a recovered New Tab cannot send into the
+      // malformed target through ensureSession's selected-session fast path.
+      this.leave();
+      throw new Error("chat attach did not return a matching session summary");
+    }
+    return selected;
   }
 
   /// While a chat is opened (a connect or reconnect, a switch, a new chat's first send, a fallback
@@ -4719,7 +4818,7 @@ export class AcpmuxDirectClient {
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
   /// its harness reuses it), its harness, and its folder when it runs on this machine (the new
   /// chat starts there; a cloud or peer session's folder is not one acpmux can start in here).
-  shownSession(): { sessionId: string; harness?: string; model?: string; empty: boolean; cwd?: string } | undefined {
+  shownSession(): ReturnType<SwitchPort["shown"]> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return undefined;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
@@ -4731,7 +4830,15 @@ export class AcpmuxDirectClient {
       ...(typeof summary?.model === "string" && summary.model ? { model: summary.model } : {}),
       empty: this.rows.size === 0 && this.queue.length === 0 && turns === 0 && !this.turnOpen,
       ...(local && typeof summary?.cwd === "string" && summary.cwd ? { cwd: summary.cwd } : {}),
+      ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
     };
+  }
+  /// The selected chat's attach has supplied a matching summary for this selection generation.
+  /// A stale or malformed attach can otherwise make `select()` resolve with only its requested id.
+  attachedSession(): string | undefined {
+    return this.attachedGeneration === this.selectionGeneration && this.summary?.sessionId === this.selectedSessionId
+      ? this.selectedSessionId
+      : undefined;
   }
   /// A turn is running in the shown session.
   turnRunning(): boolean {
@@ -4865,6 +4972,7 @@ export class AcpmuxDirectClient {
   }
   /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
+  /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
   async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
     try {
       const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
@@ -4885,8 +4993,13 @@ export class AcpmuxDirectClient {
         modeId: answer.modeId,
         ...(typeof answer.name === "string" && answer.name ? { name: answer.name } : {}),
       };
-    } catch {
-      return undefined;
+    } catch (error) {
+      // acpmux refused (an unknown harness, a method it predates): it sets none there. A request
+      // that never reached it, or whose socket closed, answered nothing (startMode.ts keeps what it had).
+      // The pane's host refusing to relay it (`data.origin: "native"`, such as a new workspace's home
+      // folder outside the roots it relays) is one of those: acpmux never saw the ask.
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) return undefined;
+      throw error;
     }
   }
   /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
@@ -5681,4 +5794,10 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
 /// hidden, or in an occluded window.
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
+function refusedByHost(error: AcpmuxRpcError): boolean {
+  const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
+  return data?.origin === "native";
 }

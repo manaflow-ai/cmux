@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
 
@@ -84,14 +85,16 @@ extension PaneHandlers {
                 ctx.send("close-pane") { try await $0.closePane(handle) }
             }
         })
-        registry.bind("renamePane", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
+        // The name shows in the input's turn (a store intent); a refusal puts the old one back.
+        registry.bindEffect("renamePane", effect: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return .done }
             let handle = pane.handle
             if let name = invocation["name"]?.stringValue {
-                ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
-                return
+                guard ctx.connection() != nil else { return .done }
+                return ctx.daemon.intentEffect("rename-pane", .renamePane(pane: handle, name: name)) { try await $0.renamePane(handle, to: name) }
             }
             ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
+            return .done
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }

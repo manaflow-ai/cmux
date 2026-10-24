@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
@@ -6,7 +6,6 @@ import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
 import { useQuietRow } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
@@ -55,7 +54,7 @@ export type ComposerBoxProps = {
   /// The button row's leading control (+) and anything before it.
   leading?: React.ReactNode;
   /// The agent's mode, model and effort chips: in the box's row, or with the plain footer in the
-  /// quiet row under it (ComposerFoot). They hand up Codex's speed option (FastToggle.tsx).
+  /// quiet row under it (ComposerFoot). The model picker owns any inline Fast toggle.
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
   /// before the model in the box's row.
@@ -112,9 +111,6 @@ export function ComposerBox({
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar, quietRow);
-  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
-  // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   const prompt = useRef<MarkdownFieldHandle>(null);
   const setPrompt = useCallback(
     (next: MarkdownFieldHandle | null) => {
@@ -152,8 +148,7 @@ export function ComposerBox({
     if (onCardPress) onCardPress();
     else prompt.current?.focus();
   };
-  // The chips hand up Codex's speed option, the bolt before the mic (FastToggle.tsx).
-  const shownChips = chips && <SpeedToggleHost.Provider value={setSpeed}>{chips}</SpeedToggleHost.Provider>;
+  const shownChips = chips;
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
@@ -217,8 +212,6 @@ export function ComposerBox({
             {!quietRow && plainFooter && ring}
             <span className="acpmux-composer-actions">
               {actionsLead}
-              {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
-              {speed && <FastToggle speed={speed} />}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">

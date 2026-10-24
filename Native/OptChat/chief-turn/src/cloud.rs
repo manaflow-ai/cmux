@@ -40,6 +40,11 @@ pub struct TurnStream {
     last_gen: i64,
     blocks: HashMap<Option<u64>, Open>,
     result: Option<Value>,
+    /// The last text block that ended (its generation and text): the reply
+    /// of a turn that ends early.
+    last_text: Option<(i64, String)>,
+    /// Tool calls the turn started.
+    tools: u64,
     /// Set by the first content delta (ms from the turn's start, as the
     /// caller's clock says).
     first_token_ms: Option<u64>,
@@ -52,6 +57,8 @@ impl Default for TurnStream {
             last_gen: 0,
             blocks: HashMap::new(),
             result: None,
+            last_text: None,
+            tools: 0,
             first_token_ms: None,
         }
     }
@@ -63,6 +70,8 @@ pub struct Exit<'a> {
     pub model: &'a str,
     /// Claude Code's exit code; None when a signal ended it.
     pub code: Option<i32>,
+    /// The runner's time limit stopped it.
+    pub timed_out: bool,
     /// Signal number when there was no code.
     pub signal: Option<i32>,
     /// The end of Claude Code's stderr.
@@ -180,6 +189,7 @@ impl TurnStream {
                 StreamEvent::BlockStop { index } => match self.blocks.remove(&index) {
                     Some(Open::Text(text)) if !text.trim().is_empty() => {
                         self.last_gen = self.generation;
+                        self.last_text = Some((self.generation, text.clone()));
                         note(
                             &mut out,
                             obj(json!({"type":"text_done","text":text})),
@@ -188,6 +198,7 @@ impl TurnStream {
                         );
                     }
                     Some(Open::Tool { id, name, json }) => {
+                        self.tools += 1;
                         let input = serde_json::from_str::<Value>(if json.is_empty() {
                             "{}"
                         } else {
@@ -210,8 +221,27 @@ impl TurnStream {
         out
     }
 
+    /// What the turn had written when it ended early: the text block still
+    /// open (cut by the stop), else the last one that ended.
+    fn written(&self) -> Option<(i64, String)> {
+        let open = self
+            .blocks
+            .values()
+            .filter_map(|b| match b {
+                Open::Text(t) if !t.trim().is_empty() => Some(t.clone()),
+                _ => None,
+            })
+            .next();
+        open.map(|t| (self.generation.max(0), t))
+            .or_else(|| self.last_text.clone())
+    }
+
     /// The turn's result (`/run/chief/<run>.out` and the last notes post):
     /// done when Claude Code sent a result that is not an error and exited 0.
+    /// Otherwise `reason` says why (`timeout`: the runner's time limit,
+    /// `model`: an error result, `stopped`: Claude Code exited without one),
+    /// and a turn that had written text is `partial` with that text as its
+    /// reply, never an empty one (the Worker posts it after a line saying so).
     pub fn finish(&self, exit: Exit<'_>) -> Value {
         let r = self.result.as_ref();
         let ok = r.is_some_and(|r| r.get("is_error") != Some(&Value::Bool(true)))
@@ -225,16 +255,30 @@ impl TurnStream {
         let u = Usage::parse_lenient(r.and_then(|r| r.get("usage")));
         let mut out = Map::new();
         out.insert("run".into(), json!(exit.run));
-        out.insert("status".into(), json!(if ok { "done" } else { "failed" }));
+        let written = if ok { None } else { self.written() };
+        let status = match (ok, &written) {
+            (true, _) => "done",
+            (false, Some(_)) => "partial",
+            (false, None) => "failed",
+        };
+        out.insert("status".into(), json!(status));
         out.insert(
             "reply".into(),
-            json!(if ok {
-                present("result").map(as_text).unwrap_or_default()
-            } else {
-                String::new()
+            json!(match (ok, &written) {
+                (true, _) => present("result").map(as_text).unwrap_or_default(),
+                (false, Some((_, text))) => text.clone(),
+                (false, None) => String::new(),
             }),
         );
         if !ok {
+            let reason = if exit.timed_out {
+                "timeout"
+            } else if r.is_some_and(|r| r.get("is_error") == Some(&Value::Bool(true))) {
+                "model"
+            } else {
+                "stopped"
+            };
+            out.insert("reason".into(), json!(reason));
             let why = present("result")
                 .or_else(|| present("subtype"))
                 .map(as_text)
@@ -257,7 +301,11 @@ impl TurnStream {
             json!({"input": u.input, "output": u.output, "cache_read": u.cache_read, "cache_write": u.cache_write}),
         );
         out.insert("first_token_ms".into(), json!(self.first_token_ms));
-        out.insert("last_gen".into(), json!(self.last_gen));
+        out.insert(
+            "last_gen".into(),
+            json!(written.as_ref().map_or(self.last_gen, |(g, _)| *g)),
+        );
+        out.insert("tools".into(), json!(self.tools));
         out.insert("total_ms".into(), json!(exit.total_ms));
         Value::Object(out)
     }
@@ -360,6 +408,7 @@ mod tests {
             run: "run_1",
             model: "claude-opus",
             code: Some(0),
+            timed_out: false,
             signal: None,
             stderr: "",
             total_ms: 900,
@@ -368,7 +417,7 @@ mod tests {
             r,
             json!({"run":"run_1","status":"done","reply":"Hi there","model":"claude-opus",
                    "usage":{"input":5,"output":7,"cache_read":100,"cache_write":20},
-                   "first_token_ms":30,"last_gen":1,"total_ms":900})
+                   "first_token_ms":30,"last_gen":1,"tools":1,"total_ms":900})
         );
     }
 
@@ -421,11 +470,13 @@ mod tests {
             run: "run_2",
             model: "m",
             code: Some(1),
+            timed_out: false,
             signal: None,
             stderr: "boom",
             total_ms: 5,
         });
         assert_eq!(r["status"], "failed");
+        assert_eq!(r["reason"], "stopped");
         assert_eq!(r["reply"], "");
         assert_eq!(r["error"], "claude exited 1: boom");
         assert_eq!(r["first_token_ms"], Value::Null);
@@ -436,6 +487,7 @@ mod tests {
             run: "run_3",
             model: "m",
             code: Some(0),
+            timed_out: false,
             signal: None,
             stderr: "",
             total_ms: 5,
@@ -447,12 +499,74 @@ mod tests {
             run: "run_4",
             model: "m",
             code: None,
+            timed_out: false,
             signal: Some(9),
             stderr: "",
             total_ms: 5,
         });
         assert_eq!(r["status"], "failed");
         assert_eq!(r["error"], "ok");
+    }
+
+    fn text_block(index: u64, text: &str, stop: bool) -> Vec<Value> {
+        let mut v = vec![
+            se(json!({"type":"content_block_start","index":index,"content_block":{"type":"text"}})),
+            se(
+                json!({"type":"content_block_delta","index":index,"delta":{"type":"text_delta","text":text}}),
+            ),
+        ];
+        if stop {
+            v.push(se(json!({"type":"content_block_stop","index":index})));
+        }
+        v
+    }
+
+    #[test]
+    fn a_turn_the_time_limit_stops_keeps_what_it_wrote() {
+        // A long tool-heavy turn: text, a tool, then a second message cut mid-sentence by the kill.
+        let mut lines = vec![se(json!({"type":"message_start","message":{"id":"m1"}}))];
+        lines.extend(text_block(0, "Pushing the fix now.", true));
+        lines.push(se(
+            json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"Bash"}}),
+        ));
+        lines.push(se(json!({"type":"content_block_stop","index":1})));
+        lines.push(se(json!({"type":"message_stop"})));
+        lines.push(se(json!({"type":"message_start","message":{"id":"m2"}})));
+        lines.extend(text_block(0, "The deploy is green; next I", false));
+        let (t, _) = feed(&lines);
+        let r = t.finish(Exit {
+            run: "run_5",
+            model: "m",
+            code: None,
+            timed_out: true,
+            signal: Some(9),
+            stderr: "",
+            total_ms: 1_200_000,
+        });
+        assert_eq!(r["status"], "partial");
+        assert_eq!(r["reason"], "timeout");
+        assert_eq!(r["reply"], "The deploy is green; next I");
+        assert_eq!(r["last_gen"], 1);
+        assert_eq!(r["tools"], 1);
+
+        // With no open block, the last one that ended.
+        let mut lines = vec![se(json!({"type":"message_start","message":{"id":"m1"}}))];
+        lines.extend(text_block(0, "Pushing the fix now.", true));
+        lines.push(json!({"type":"result","is_error":true,"result":"API Error: 529 overloaded"}));
+        let (t, _) = feed(&lines);
+        let r = t.finish(Exit {
+            run: "run_6",
+            model: "m",
+            code: Some(1),
+            timed_out: false,
+            signal: None,
+            stderr: "",
+            total_ms: 5,
+        });
+        assert_eq!(r["status"], "partial");
+        assert_eq!(r["reason"], "model");
+        assert_eq!(r["reply"], "Pushing the fix now.");
+        assert_eq!(r["error"], "API Error: 529 overloaded");
     }
 
     #[test]

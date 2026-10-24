@@ -1,6 +1,7 @@
 import CmuxNextDesign
 import CmuxTheme
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-21: a link opened in a split beside his chat, and Cmd-W closed the chat, because
 /// nothing showed which pane had focus. With the default `appearance.focusIndicator` (tabs, no

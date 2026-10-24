@@ -6,22 +6,32 @@ target's layer from plans/cmux-next/architecture-layers.json, then prints:
 
   layers       targets and Swift lines per layer
   violations   hard: a core, service or domain target that depends on a ui or app target;
-               soft: a service target that depends on a domain target
+               soft: a service target that depends on a domain target;
+               upward: any other edge that points up (core -> service, core -> domain)
+               (the classes and the map reader are scripts/cmux-next/arch_counts.py's `edge_class` and
+               `LayerMap`, the ones the arch ratchet and the pre-push layer gate use)
   app          Swift lines in CmuxNextApp (the composition root's target)
 
 This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates).
 The inventory of singletons, broadcasts and DEBUG-only code is PL-guardrails'
-plans/cmux-next/codebase-health.md; `--counts` prints the same grep counts the design doc used.
+plans/cmux-next/codebase-health.md; `--counts` prints the grep counts the design doc used, except observers: those
+are arch_counts.py's observer_sites (the ratchet's row: registrations counted through wrappers such as
+`MainActorObservation(`, at each use a caller configures).
 
-Usage: scripts/cmux-next/arch-layers.py [--dump FILE] [--json] [--counts]
-  --dump FILE  read dump-package JSON from FILE instead of running swift
-  --json       print one JSON object (for before/after rows in commit messages)
-  --counts     add the grep counts (static shared, MainActor.assumeIsolated, observers, #if DEBUG)
+Targets are the regular, executable and binary ones (arch_counts.py's MAPPED_KINDS, the same set the ratchet
+and the gate read); test targets are left out.
+
+Usage: scripts/cmux-next/arch-layers.py [--dump FILE] [--layers FILE] [--json] [--counts]
+  --dump FILE    read dump-package JSON from FILE instead of running swift
+  --layers FILE  read the layer map from FILE instead of plans/cmux-next/architecture-layers.json
+  --json         print one JSON object (for before/after rows in commit messages)
+  --counts       add the grep counts (static shared, MainActor.assumeIsolated, observers, #if DEBUG)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
@@ -34,7 +44,17 @@ SOURCES = PACKAGE / "Sources"
 LAYERS = ROOT / "plans/cmux-next/architecture-layers.json"
 
 
-def load_graph(dump: str | None) -> dict[str, list[str]]:
+def load_counts():
+    """scripts/cmux-next/arch_counts.py, next to this file (standard library only)."""
+    spec = importlib.util.spec_from_file_location("cmux_next_arch_counts", Path(__file__).resolve().parent / "arch_counts.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_graph(dump: str | None, mapped_types: set[str]) -> dict[str, list[str]]:
+    """Target -> dependency names for the dump's targets whose `type` is in MAPPED_TYPES."""
     if dump:
         data = json.loads(Path(dump).read_text())
     else:
@@ -43,7 +63,7 @@ def load_graph(dump: str | None) -> dict[str, list[str]]:
         data = json.loads(out)
     graph: dict[str, list[str]] = {}
     for target in data["targets"]:
-        if target["type"] not in ("regular", "binary"):
+        if target["type"] not in mapped_types:
             continue
         deps = []
         for dep in target.get("dependencies", []):
@@ -61,17 +81,25 @@ def swift_lines(path: Path) -> int:
 COUNTS = {
     "static_shared": re.compile(r"static\s+(?:let|var)\s+shared\b"),
     "assume_isolated": re.compile(r"MainActor\.assumeIsolated"),
-    "nc_observers": re.compile(r"addObserver\s*\(|\.notifications\s*\(\s*named\s*:|\.publisher\s*\(\s*for\s*:"),
     "if_debug": re.compile(r"^\s*#if\s+DEBUG\b", re.M),
 }
 
 
 def grep_counts() -> dict[str, int]:
-    totals = dict.fromkeys(COUNTS, 0)
+    """The `--counts` numbers over the Swift under SOURCES. nc_observers is arch_counts.py's observer_sites
+    (`observer_registrations`, the arch ratchet's row: registrations through wrappers such as
+    `MainActorObservation(` count at each use, comments do not), never a regex of its own, so the ratchet,
+    codebase-health.md and this report count one set."""
+    counts = load_counts()
+    totals = {**dict.fromkeys(COUNTS, 0), "nc_observers": 0}
+    texts: dict[str, str] = {}
     for path in SOURCES.rglob("*.swift"):
         text = path.read_text(errors="ignore")
         for name, pattern in COUNTS.items():
             totals[name] += len(pattern.findall(text))
+        # Keyed like the repository path, so a file's Swift module (its package directory) is the same.
+        texts[f"{counts.SOURCES}/{path.relative_to(SOURCES).as_posix()}"] = text
+    totals["nc_observers"] = counts.observer_registrations(texts).total()
     return totals
 
 
@@ -80,30 +108,29 @@ def main() -> int:
     parser.add_argument("--dump")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--counts", action="store_true")
+    parser.add_argument("--layers", default=str(LAYERS))
     args = parser.parse_args()
 
-    spec = json.loads(LAYERS.read_text())
-    order = {name: index for index, name in enumerate(spec["order"])}
-    layers = {name: entry["layer"] for name, entry in spec["targets"].items()}
-    graph = load_graph(args.dump)
+    counts = load_counts()
+    layer_map = counts.LayerMap.parse(Path(args.layers).read_text())
+    if layer_map.error:
+        print(f"{args.layers} does not parse: {layer_map.error}", file=sys.stderr)
+        return 2
+    graph = load_graph(args.dump, {counts.DUMP_TYPES[kind] for kind in counts.MAPPED_KINDS})
 
-    unplaced = sorted(set(graph) - set(layers))
-    hard, soft = [], []
+    unplaced = sorted(name for name in graph if layer_map.placed(name) is None)
+    found: dict[str, list[tuple[str, str, str, str]]] = {kind: [] for kind in counts.EDGE_CLASSES}
     for source, deps in sorted(graph.items()):
-        if source not in layers:
-            continue
-        for dep in deps:
-            if dep not in layers:
-                continue
-            a, b = layers[source], layers[dep]
-            if order[b] > order[a] and b in ("ui", "app"):
-                hard.append((source, a, dep, b))
-            elif a == "service" and b == "domain":
-                soft.append((source, a, dep, b))
+        for dep in dict.fromkeys(deps):
+            kind = layer_map.classify(source, dep)
+            if kind is not None:
+                found[kind].append((source, layer_map.placed(source), dep, layer_map.placed(dep)))
+    hard, soft, upward = found["hard"], found["soft"], found["upward"]
 
-    per_layer: dict[str, list[int]] = {name: [0, 0] for name in spec["order"]}
-    for name, layer in layers.items():
-        if name not in graph:
+    per_layer: dict[str, list[int]] = {name: [0, 0] for name in layer_map.order}
+    for name in graph:
+        layer = layer_map.placed(name)
+        if layer is None:
             continue
         per_layer[layer][0] += 1
         per_layer[layer][1] += swift_lines(SOURCES / name)
@@ -114,6 +141,7 @@ def main() -> int:
         "app_lines": swift_lines(SOURCES / "CmuxNextApp"),
         "hard_violations": len(hard),
         "soft_violations": len(soft),
+        "upward_violations": len(upward),
         "layers": {name: {"targets": t, "lines": n} for name, (t, n) in per_layer.items()},
     }
     if args.counts:
@@ -132,6 +160,9 @@ def main() -> int:
     print(f"soft violations {len(soft)} (service -> domain):")
     for source, a, dep, b in soft:
         print(f"  {source} -> {dep}")
+    print(f"upward violations {len(upward)} (core -> service/domain; edges only point down):")
+    for source, a, dep, b in upward:
+        print(f"  {source} ({a}) -> {dep} ({b})")
     if args.counts:
         print("counts: " + ", ".join(f"{k} {v}" for k, v in report["counts"].items()))
     return 0

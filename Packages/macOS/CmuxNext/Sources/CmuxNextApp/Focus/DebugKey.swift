@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -108,10 +108,6 @@ enum DebugKey {
             return .object(["decision": .string(String(describing: decision)), "action": action,
                             "focus": .string(String(describing: controller.focus.state.resolved))])
         }
-        let registry = services.registry
-        let previous = registry.isDispatchingKeyDown
-        registry.isDispatchingKeyDown = { true }
-        defer { registry.isDispatchingKeyDown = previous }
         // The target window is the key window for this dispatch, so rules
         // that read the key window (WindowKeyTable) see it.
         let previousKey = services.keyWindowSource
@@ -141,7 +137,11 @@ enum DebugKey {
                 if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
+                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }
             }
+            // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
+            // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
+            if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
             return (window !== shell ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {

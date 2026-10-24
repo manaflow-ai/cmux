@@ -37,6 +37,7 @@ on:
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShellWindow*.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/Frame*.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/**
+      - Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/**
       - "Packages/macOS/CmuxNext/Sources/**/Motion*.swift"
       - webviews/src/agent-session/acpmux/pacing.ts
       - webviews/src/agent-session/acpmux/followTrace.ts

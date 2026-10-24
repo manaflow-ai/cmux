@@ -2,6 +2,8 @@ import Foundation
 
 /// The browser-data import offer's strings (table `BrowserImportOffer`).
 nonisolated enum BrowserImportOfferStrings {
+    /// The bundle that holds `Resources/BrowserImportOffer.xcstrings` (this module's), for tests.
+    static var bundle: Bundle { .module }
     /// `browser`: the detected browser's name ("Google Chrome").
     static func title(browser: String) -> String {
         String(format: String(localized: "browserImportOffer.title", defaultValue: "Import bookmarks, history and passwords from %@",

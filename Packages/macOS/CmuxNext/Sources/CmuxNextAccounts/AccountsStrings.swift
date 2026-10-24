@@ -19,6 +19,13 @@ enum AccountsStrings {
     static var signInToCmux: String { text("accounts.action.signInCmux", "Sign In to cmux") }
     static var refresh: String { text("accounts.action.refresh", "Refresh") }
 
+    static var teamTitle: String { text("accounts.team.title", "Active Team") }
+    static var teamHelp: String {
+        text("accounts.team.help", "Cloud machines, CodeRouter and phone access use this team.")
+    }
+    static var teamManaged: String { text("accounts.team.managed", "Your organization chose this device's team.") }
+    static var teamSwitchFailed: String { text("accounts.team.switchFailed", "Could not switch teams. Try again.") }
+
     static func status(_ row: AccountRowState) -> String {
         guard let status = row.status, row.phase != .detecting else { return text("accounts.status.detecting", "Checking…") }
         if row.provider.isLocalServer {

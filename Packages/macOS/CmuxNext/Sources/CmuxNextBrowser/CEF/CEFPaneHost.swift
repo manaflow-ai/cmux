@@ -151,6 +151,7 @@ final class CEFPaneHost {
             tabSwitchMark("activate")
             _ = runtime.shim?.tabActivate(browser)
             tabSwitchMark("activated")
+            hostView.layerHosting.pageShown(browser: browser)
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
             tab.sidePanel.scheduleRefresh()
@@ -215,7 +216,7 @@ final class CEFPaneHost {
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
@@ -256,13 +257,14 @@ final class CEFPaneHost {
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
         #endif
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
+        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
         // Tabs shown or created while the window was being built.
         for waiting in tabs where waiting !== tab && waiting.browserID == nil && waiting.isCreationPending {
             waiting.isCreationPending = false
@@ -313,10 +315,13 @@ final class CEFPaneHost {
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        // The resize deadline addresses the page window through a live browser of it.
+        hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
         if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             window = .none
+            hostView.layerHosting.stop()
             hostView.removeFromSuperview()
             if isPopupHost { runtime.hosts[key] = nil }
         }

@@ -127,6 +127,9 @@ const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 /// How long the reader keeps draining stdout after the agent process exits.
 const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Bounded stderr drain after stdout closes, before failing pending requests.
+const STDERR_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
+
 struct Pending {
     map: HashMap<String, oneshot::Sender<Result<Value, RpcError>>>,
     /// Answers that arrived with nobody waiting (a replayed answer to a
@@ -266,7 +269,6 @@ impl ChildAgent {
             job,
         });
 
-        // Writer task.
         tokio::spawn(async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
@@ -285,18 +287,16 @@ impl ChildAgent {
             agent.codex_lines(first.server).await;
         }
 
-        // Stderr task.
-        {
+        let stderr_done = {
             let inbound = inbound.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = inbound.send(Inbound::Stderr(line, None)).await;
                 }
-            });
-        }
+            })
+        };
 
-        // Reader task.
         {
             let inbound = inbound.clone();
             let pending = pending.clone();
@@ -456,13 +456,13 @@ impl ChildAgent {
                         }
                     }
                 }
-                // The app-server is gone: the translator answers what waits on
-                // it and refuses what comes later.
+                // Settle the app-server translator's requests too.
                 if let Some(cx) = &agent_for_exit.codex {
                     let closed = crate::codex_app_server::split(cx.tr.server_closed("it exited"));
                     agent_for_exit.codex_to_hub(cx, closed.hub).await;
                 }
-                // Fail every pending request, then report exit.
+                // Queue stderr first so limit/sign-in deaths are not continued.
+                let _ = tokio::time::timeout(STDERR_DRAIN, stderr_done).await;
                 let mut p = pending.lock().await;
                 for (_, tx) in p.map.drain() {
                     let _ = tx.send(Err(RpcError::internal("agent process closed")));
@@ -715,6 +715,18 @@ impl ChildAgent {
 
     /// Send a request and wait for its response.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_with_hook(method, params, || {}).await
+    }
+
+    /// Send a request and run `on_written` only after its frame reached the agent write path.
+    /// Used by first-message title generation to start beside the turn, after the harness can
+    /// publish its own session title.
+    pub async fn request_with_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
@@ -723,6 +735,7 @@ impl ChildAgent {
             self.pending.lock().await.map.remove(&key(&Value::from(id)));
             return Err(RpcError::internal(e.to_string()));
         }
+        on_written();
         rx.await.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
     }
 

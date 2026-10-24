@@ -65,13 +65,19 @@ extension ActionRegistry {
     func runScoped(_ action: Action, _ id: ActionID, _ invocation: ActionInvocation) {
         let run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false).nested(in: ActionRunScope.current)
         for observer in willRunObservers { observer(id, run.origin) }
+        // The run's timing has read the press; the handler gets none, so an action it performs
+        // later with this invocation does not report this press's age.
+        var handed = invocation
+        handed.inputTimestamp = nil
+        // The effect is settled inside the run's scopes, so the remote half it starts keeps the run's
+        // view-change permission and machine routing.
         ActionRunScope.$current.withValueInTask(run) {
             if let invocationScope {
-                invocationScope(invocation) { action.run(invocation) }
+                invocationScope(handed) { settle(action.run(handed), of: id, handed) }
             } else {
-                action.run(invocation)
+                settle(action.run(handed), of: id, handed)
             }
         }
-        runObserver?(id, invocation)
+        runObserver?(id, handed)
     }
 }

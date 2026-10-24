@@ -239,7 +239,8 @@ mod notification_types;
 mod notifications;
 pub use notification_types::{
     NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationSource, ResourceNotification, SurfaceNotification,
+    NotificationPost, NotificationPoster, NotificationSource, ResourceNotification,
+    SurfaceNotification,
 };
 pub(crate) use notifications::NotificationClearScope;
 mod notification_level;
@@ -311,6 +312,7 @@ mod terminal_rehost;
 mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
+pub(crate) use terminal_sizing::host_policy;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
@@ -639,6 +641,9 @@ pub struct Mux {
     /// pruned: only after a create commits, and only for ids the committed receipts no longer
     /// retain, so a failed create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// The event number and poster of each ledger row this run posted
+    /// (`notification_post`), dropped with the row.
+    notification_posts: Mutex<HashMap<NotificationPublicId, NotificationPost>>,
     /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
     /// `workspace_registry`, then `state`; never take it while holding either.
     feed_local: Mutex<cmux_feed_core::Feed>,

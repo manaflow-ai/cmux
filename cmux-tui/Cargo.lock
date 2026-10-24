@@ -1133,6 +1133,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-holder"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-holder-v3"
+version = "0.1.0"
+dependencies = [
+ "cmux-holder",
+ "libc",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -1148,6 +1163,16 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-kitty-media"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "memchr",
+ "tempfile",
 ]
 
 [[package]]
@@ -1532,6 +1557,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-holder",
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
@@ -1620,6 +1646,8 @@ dependencies = [
  "cmux-feed-core",
  "cmux-git",
  "cmux-history",
+ "cmux-holder",
+ "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",

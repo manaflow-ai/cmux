@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxNextBrowserImport
 import Foundation
+import CmuxNextBrowser
 
 /// An in-memory store with made-up sign-ins for DEBUG builds only: the Passwords page dev
 /// loop (`CMUX_NEXT_PASSWORDS_SAMPLE=1` in a tagged DEV build) and the provider tests. It is

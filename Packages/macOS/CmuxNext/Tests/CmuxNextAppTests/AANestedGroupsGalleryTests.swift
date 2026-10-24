@@ -35,7 +35,7 @@ import Testing
         root.wantsLayer = true
         root.appearance = window.appearance
         window.contentView = root
-        _ = ThemeStore.shared.apply(try input(theme))
+        _ = ThemeScope.app.store.apply(try input(theme))
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: try input(theme), animated: false)
         scope.root(root)

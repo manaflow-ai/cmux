@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Measure cmux-next codebase health: the debt the guardrails ratchet (plans/cmux-next/codebase-health.md).
 
-Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: singletons, MainActor.assumeIsolated,
-@unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops, NotificationCenter
-broadcast names and their observers, NSHostingView, #if DEBUG, plus target sizes, the Package.swift
-target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl with
-stale references, and script and workflow counts. Reads the working tree's tracked files only.
+Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: stateful singletons and global mutable
+statics, MainActor.assumeIsolated, @unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops,
+NotificationCenter broadcast names and their observers, NSHostingView, #if DEBUG, plus target sizes, the
+Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl
+with stale references, and script and workflow counts. Reads the working tree's tracked files only.
+
+The singleton, global-static, assumeIsolated, broadcast-name and observer rows and the layer edges are
+scripts/cmux-next/arch_counts.py's (count_texts(), layers(), observer_registrations()): the definitions
+plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the reports never disagree. An observer is a
+registration, counted through wrappers such as `MainActorObservation(` (each use of a wrapper that a caller
+configures counts, the wrapper's own body does not), and a call may span lines.
 
   scripts/cmux-next/codebase-health.py           # print the report
   scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md
@@ -15,22 +21,59 @@ from __future__ import annotations
 import argparse
 import collections
 import datetime
+import importlib.util
+import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import NamedTuple
+
+HERE = Path(__file__).resolve().parent
 
 PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
+UPSTREAM = "origin/feat-cmux-next"
+# What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
+MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
+BENCHES = "scripts/cmux-next/perf-hot-benches.json"
+PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
+
+def load_arch_counts():
+    """scripts/cmux-next/arch_counts.py: the one definition of the architecture rows and the layer rule."""
+    name = "cmux_next_arch_counts"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, HERE / "arch_counts.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+ARCH = load_arch_counts()
+
+# (id, title, arch_counts row, the row of the sites outside seam adapters or None, note)
+ARCH_CATEGORIES = (
+    ("singleton", "stateful singletons and globals (arch_counts `stateful_singletons`)", "stateful_singletons", None,
+     "runtime state behind a global, under any name; construct at the composition root and inject "
+     "(CLAUDE.md Package design discipline)"),
+    ("global_static", "global mutable statics (arch_counts `global_mutable_statics`)", "global_mutable_statics", None,
+     "a static or file-scope var, lock or cache: state no owner injects"),
+    ("assume_isolated", "`MainActor.assumeIsolated`", "assume_isolated_total", "assume_isolated_outside_adapters",
+     "traps off main; allowed only in a small seam adapter with `// main-proof: <why>`"),
+    ("observers", "NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, "
+     "KVO included; arch_counts `observer_sites`)", "observer_sites", None, "each one wakes on every post of its name"),
+    ("notification_names", "custom `Notification.Name` declarations (arch_counts `app_broadcast_names`)",
+     "app_broadcast_names", None, "a broadcast signal: every observer reacts, O(all)"),
+)
 
 # (id, title, pattern on comment-stripped code, waiver marker or None, note)
 CATEGORIES = (
-    ("singleton", "`static let/var shared` singletons", r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b", r"singleton-allow:",
-     "runtime state behind a global; construct at the composition root and inject (CLAUDE.md Package design discipline)"),
-    ("assume_isolated", "`MainActor.assumeIsolated`", r"\bMainActor\.assumeIsolated\b", r"main-proof:",
-     "traps off main; each needs `// main-proof: <why>` (crash_ratchet.py counts the rest)"),
     ("unchecked_sendable", "`@unchecked Sendable`", r"@unchecked\s+Sendable\b", r"crash-allow:",
      "a data race the compiler cannot see; needs `// crash-allow: <safety argument>`"),
     ("nonisolated_unsafe", "`nonisolated(unsafe)`", r"\bnonisolated\(unsafe\)", r"crash-allow:",
@@ -43,24 +86,16 @@ CATEGORIES = (
     ("clock_sleep", "clock sleeps `.sleep(for:/until:)`", r"\.sleep\((for|until):", r"wakeup-allow:", "as above"),
     ("main_async", "`DispatchQueue.main.async`", r"\bDispatchQueue\.main\.async\b", None, "use @MainActor and await"),
     ("async_after", "`asyncAfter`", r"\basyncAfter\(", None, "banned (check-concurrency.sh); an injected Clock"),
-    ("observers", "NotificationCenter observers", r"\.addObserver\(|\.notifications\(named:|\.publisher\(for:", None,
-     "each one wakes on every post of its name"),
-    ("notification_names", "custom `Notification.Name` declarations", r"\b(NS)?Notification\.Name\(\s*\"", None,
-     "a broadcast signal: every observer reacts, O(all)"),
     ("hosting_view", "`NSHostingView` / `NSHostingController`", r"\bNSHosting(View|Controller)\b", None,
      "a SwiftUI graph inside AppKit; costly on hot paths"),
     ("if_debug", "`#if DEBUG` blocks", r"^\s*#if\s+DEBUG\b", None, "DEBUG-only instrumentation is not in Release builds"),
     ("combine_state", "`ObservableObject` / `@Published` / `@StateObject` / `@ObservedObject` / `@EnvironmentObject`",
      r"\bObservableObject\b|@(Published|StateObject|ObservedObject|EnvironmentObject)\b", None, "CLAUDE.md: @Observable"),
 )
+# Every table row in report order: (id, title, waiver label or None, note).
+SHOWN = ([(c[0], c[1], ("outside seam adapters" if c[3] else None), c[4]) for c in ARCH_CATEGORIES]
+         + [(c[0], c[1], (f"no `{c[3]}`" if c[3] else None), c[4]) for c in CATEGORIES])
 
-UI_IMPORT = re.compile(r"^\s*(@\w+\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+(AppKit|SwiftUI|WebKit|Cocoa)\b",
-                       re.MULTILINE)
-# Targets every layer may import (Package.swift header): macOS 14 back-ports and the sanctioned wakeup primitives.
-FOUNDATION = {"CmuxNextCompat", "CmuxNextWakeups"}
-IO_USE = re.compile(r"\b(FileManager|FileHandle|Process\(|URLSession|NWConnection|NWListener|socket\(|posix_spawn|"
-                    r"sqlite3_|SecItem\w+|DispatchSource|NSXPCConnection|xpc_|fopen\(|UserDefaults|Darwin\.(read|write)|"
-                    r"open\(\w*path)", re.MULTILINE)
 TARGET_CALL = re.compile(r"\.(target|executableTarget|testTarget|binaryTarget|systemLibrary)\(\s*name:\s*\"([^\"]+)\"")
 STRING_DEP = re.compile(r"\"([A-Za-z0-9_]+)\"")
 STALE_PATH = re.compile(r"plans/cmux-next/[\w./-]+?\.md\b")
@@ -114,18 +149,23 @@ def module_of(path: str) -> str:
 
 def scan(repo: Path) -> dict:
     files = [p for p in tracked(repo, SOURCES) if p.endswith(".swift")]
-    hits: dict[str, collections.Counter] = {c[0]: collections.Counter() for c in CATEGORIES}
-    unwaived: dict[str, collections.Counter] = {c[0]: collections.Counter() for c in CATEGORIES}
+    ids = [c[0] for c in ARCH_CATEGORIES] + [c[0] for c in CATEGORIES]
+    hits: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
+    unwaived: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
     lines_per_module: collections.Counter = collections.Counter()
     texts: dict[str, list[str]] = {}
+    raw: dict[str, str] = {}
     compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES]
+    blanked: dict[str, str] = {}
     for path in files:
         try:
             text = (repo / path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        raw[path] = text
         lines = text.split("\n")
         texts[path] = lines
+        blanked[path] = ARCH.strip(text)
         lines_per_module[module_of(path)] += text.count("\n") + (0 if text.endswith("\n") or not text else 1)
         for index, line in enumerate(lines):
             code = strip_comment(line)
@@ -136,54 +176,116 @@ def scan(repo: Path) -> dict:
                     hits[cid][path] += 1
                     if marker is not None and not waived(lines, index, marker):
                         unwaived[cid][path] += 1
-    return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts}
+
+    def read(rel: str) -> str | None:
+        try:
+            return (repo / rel).read_text(encoding="utf-8")
+        except OSError:
+            return None
+    observers = ARCH.observer_registrations(raw)  # one resolution for section 1's row and section 2's names
+    sites = observer_sites(observers, blanked)
+    arch, edges = ARCH.count_texts(raw, read(ARCH.MANIFEST), read(ARCH.LAYERS_JSON), observers)
+    for cid, _, row, waiver_row, _ in ARCH_CATEGORIES:
+        for site in arch.sites[row]:
+            hits[cid][site.path] += 1
+        for site in (arch.sites[waiver_row] if waiver_row else []):
+            unwaived[cid][site.path] += 1
+    return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts,
+            "edges": edges, "sites": sites, "blanked": blanked}
 
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
-OBSERVE = re.compile(r"addObserver|notifications\(named|publisher\(for")
-OBSERVED_NAME = re.compile(r"(?:forName|named|for):\s*([\w.]+)")
+OBSERVED_NAME = re.compile(r"\b(?:forName|named|name|for):\s*([\w.]+)")
+# A wrapper call such as `MainActorObservation(name, ...)`: the name is its first, unlabeled argument.
+WRAPPED = re.compile(r"\s*([\w.]+)\s*(?:,|$)")
 
 
-def notification_report(texts: dict[str, list[str]]) -> tuple[list, list]:
-    """Custom names: (name, observer sites, `object: nil` sites, post sites, per-instance observer files);
-    every observed name: (name, sites, per-instance observer files)."""
+
+class ObserverSite(NamedTuple):
+    """One counted registration statement (a raw call, or a use of a wrapper): its first and last 0-based line, the
+    notification name it observes ("?" when the arguments do not name one), whether that name is a variable (a
+    bare identifier such as a loop's `name`, not `.paneMoved` or `Type.member`), whether it observes every sender
+    (no `object:` argument, or `object: nil`) and how many registrations it makes (arch_counts' count for it: a
+    wrapper's per-call count, times the elements of a literal loop it uses)."""
+    first: int
+    last: int
+    name: str
+    variable: bool
+    every_sender: bool
+    count: int = 1
+
+
+def observer_sites(observers, blanked: dict[str, str]) -> dict[str, list[ObserverSite]]:
+    """The registrations arch_counts counts (OBSERVERS: `ARCH.observer_registrations`), per file. BLANKED is each
+    file's `ARCH.strip` text (comments and string contents blanked, same length, so offsets keep their lines)."""
+    found: dict[str, list[ObserverSite]] = {}
+    for path, hits in observers.hits.items():
+        code = blanked[path]
+        for reg, count in hits:
+            end = reg.end if reg.end > reg.pos else reg.pos
+            open_paren = code.find("(", reg.pos, end)
+            arguments = code[open_paren + 1:ARCH._closing(code, open_paren)] if open_paren >= 0 else ""
+            if reg.kind == "raw":
+                named = OBSERVED_NAME.search(arguments)
+            else:  # a wrapper: its first, unlabeled argument when it has one
+                named = WRAPPED.match(arguments) if reg.kind == "call" and reg.args and not reg.args[0][0] else None
+            # NotificationCenter's `object:` defaults to nil (every sender) in every form that may omit it.
+            every = "object:" not in arguments or re.search(r"\bobject:\s*nil\b", arguments) is not None
+            raw = named.group(1) if named else "?"
+            found.setdefault(path, []).append(ObserverSite(
+                code.count("\n", 0, reg.pos), code.count("\n", 0, end), raw.split(".")[-1],
+                raw != "?" and "." not in raw, every, count))
+    return found
+
+
+def attributed_names(site: ObserverSite, code: list[str], names: set[str], any_name) -> list[str]:
+    """The names SITE observes: its own name; for a call that passes a variable (`for name in [.a, .b] {
+    addObserver(forName: name, ...) }`), the custom names on the two lines above it, where such a binding sits."""
+    if not site.variable or any_name is None:
+        return [site.name]
+    above = " ".join(code[max(0, site.first - 2):site.first + 1])
+    bound = list(dict.fromkeys(m.group(1) for m in any_name.finditer(above)))
+    return bound or [site.name]
+
+
+def notification_report(code_of: dict[str, str], sites_of: dict[str, list[ObserverSite]]) -> tuple[list, list]:
+    """Custom names: (name, observer sites, every-sender sites, post sites, per-instance observer files);
+    every observed name: (name, sites, per-instance observer files). CODE_OF is each file's blanked text and
+    SITES_OF its observer sites (section 1's count)."""
     decl = re.compile(r"static\s+(?:let|var)\s+(\w+)\s*(?::\s*(?:NS)?Notification\.Name)?\s*=\s*(?:NS)?Notification\.Name\(")
-    names = set()
-    code_of: dict[str, list[str]] = {}
-    is_view: dict[str, bool] = {}
-    for path, lines in texts.items():
-        code = [strip_comment(l) for l in lines]
-        code_of[path] = code
-        is_view[path] = any(VIEW_CLASS.search(l) for l in code)
-        for line in code:
-            m = decl.search(line)
-            if m:
-                names.add(m.group(1))
-    any_name = re.compile(r"\.(" + "|".join(re.escape(n) for n in sorted(names)) + r")\b") if names else None
+    lines_of = {path: text.split("\n") for path, text in code_of.items()}
+    names = {m.group(1) for lines in lines_of.values() for line in lines for m in [decl.search(line)] if m}
+    is_view = {path: any(VIEW_CLASS.search(l) for l in lines) for path, lines in lines_of.items()}
     stats = {n: [0, 0, 0, []] for n in names}
     observed: dict[str, list] = {}
-    for path, code in code_of.items():
-        for index, line in enumerate(code):
-            window = " ".join(code[max(0, index - 2):index + 3])
-            if OBSERVE.search(line):
-                m = OBSERVED_NAME.search(" ".join(code[index:index + 3]))
-                key = m.group(1).split(".")[-1] if m else "?"
-                entry = observed.setdefault(key, [0, []])
-                entry[0] += 1
+    any_name = re.compile(r"\.(" + "|".join(re.escape(n) for n in sorted(names)) + r")\b") if names else None
+    for path, sites in sites_of.items():
+        for site in sites:
+            attributed = attributed_names(site, lines_of[path], names, any_name)
+            # A statement that names several observed names registers once per name; one name gets them all.
+            each = 1 if len(attributed) > 1 else site.count
+            for name in attributed:
+                entry = observed.setdefault(name, [0, []])
+                entry[0] += each
                 if is_view[path] and path not in entry[1]:
                     entry[1].append(path)
-            if any_name is None:
-                continue
-            for m in any_name.finditer(line):
-                row = stats[m.group(1)]
-                if OBSERVE.search(window) and "post(" not in line:
-                    row[0] += 1
-                    if re.search(r"object:\s*nil", window):
-                        row[1] += 1
+                if name in stats:
+                    row = stats[name]
+                    row[0] += each
+                    row[1] += each if site.every_sender else 0
                     if is_view[path] and path not in row[3]:
                         row[3].append(path)
-                elif "post(" in window:
-                    row[2] += 1
+    for path, code in lines_of.items():
+        if any_name is None:
+            break
+        inside = {i for site in sites_of.get(path, ()) for i in range(site.first, site.last + 1)}
+        for index, line in enumerate(code):
+            if index in inside:  # the name an observer call passes: counted above
+                continue
+            window = " ".join(code[max(0, index - 2):index + 3])
+            for m in any_name.finditer(line):
+                if "post(" in window:
+                    stats[m.group(1)][2] += 1
     rows = [(n, *v) for n, v in stats.items()]
     rows.sort(key=lambda r: (-len(r[4]), -r[1], r[0]))
     top = sorted(((n, c, f) for n, (c, f) in observed.items()), key=lambda r: (-len(r[2]), -r[1], r[0]))
@@ -214,57 +316,16 @@ def targets(repo: Path) -> dict[str, dict]:
     return out
 
 
-def classify(repo: Path, graph: dict[str, dict]) -> dict[str, str]:
-    """Layer per target from what its sources import and call: app, ui, service, core, test, other."""
-    layers = {}
-    for name, info in graph.items():
-        if info["kind"] == "testTarget":
-            layers[name] = "test"
-            continue
-        if name in FOUNDATION:
-            layers[name] = "foundation"
-            continue
-        if name == APP or info["kind"] == "executableTarget":
-            layers[name] = "app"
-            continue
-        if info["kind"] in ("binaryTarget", "systemLibrary"):
-            layers[name] = "other"
-            continue
-        texts = []
-        for path in tracked(repo, f"{SOURCES}{name}/"):
-            if path.endswith((".swift", ".c", ".m", ".mm", ".h")):
-                try:
-                    texts.append((repo / path).read_text(encoding="utf-8", errors="replace"))
-                except OSError:
-                    pass
-        joined = "\n".join(texts)
-        if UI_IMPORT.search(joined):
-            layers[name] = "ui"
-        elif IO_USE.search(joined):
-            layers[name] = "service"
-        else:
-            layers[name] = "core"
-    return layers
-
-
-RANK = {"core": 1, "service": 2, "ui": 4, "app": 5}
-
-
-def layer_violations(graph: dict[str, dict], layers: dict[str, str]) -> list[tuple[str, str, str]]:
-    found = []
-    for name, info in sorted(graph.items()):
-        mine = layers.get(name)
-        if mine not in RANK:
-            continue
-        for dep in info["deps"]:
-            theirs = layers.get(dep)
-            if theirs not in RANK:
-                continue
-            if RANK[theirs] > RANK[mine]:
-                found.append((name, dep, f"{mine} depends upward on {theirs}"))
-            elif mine == "ui" and theirs == "service":
-                found.append((name, dep, "UI depends on a service directly (needs a domain model or protocol seam)"))
-    return found
+def placed_layers(repo: Path, graph: dict[str, dict]) -> dict[str, str]:
+    """Layer per target from plans/cmux-next/architecture-layers.json (the map the ratchet holds the edges to);
+    test targets are `test`, a target the map misses is `unplaced`."""
+    try:
+        text = (repo / ARCH.LAYERS_JSON).read_text(encoding="utf-8")
+    except OSError:
+        text = None
+    layer_map = ARCH.LayerMap.parse(text)  # the map reader the layer rows and the layer gate use
+    return {name: "test" if info["kind"] == "testTarget" else layer_map.placed(name) or "unplaced"
+            for name, info in graph.items()}
 
 
 def depth(graph: dict[str, dict], name: str, memo: dict[str, int], stack: frozenset = frozenset()) -> int:
@@ -324,9 +385,168 @@ def file_list(counter: collections.Counter, limit: int | None = None) -> str:
     return text
 
 
+class Marker(NamedTuple):
+    """One `// perf-hot: <budget> <path-id>` marker: the file, its 1-based line and its path id."""
+    path: str
+    line: int
+    pid: str
+
+
+def perf_hot_markers(repo: Path) -> list[Marker]:
+    """Every `// perf-hot:` marker with a path id in the working tree's tracked Swift.
+
+    Reads every tracked Swift file in the repository (markers live in shared packages too, e.g.
+    Packages/Shared/CmuxMessagesLab), not only the app sources the debt counts cover.
+    """
+    # git grep exits 1 when nothing matches: no marker anywhere is a result, not an error.
+    found = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-z", "-n", "-F", "perf-hot:", "--", "*.swift"],
+                           capture_output=True, text=True)
+    if found.returncode not in (0, 1):
+        raise SystemExit(f"codebase-health: git grep failed: {found.stderr.strip()}")
+    markers = []
+    for record in found.stdout.splitlines():
+        path, _, rest = record.partition("\0")
+        number, _, line = rest.partition("\0")
+        match = PERF_HOT_ID.search(line)
+        if match:
+            markers.append(Marker(path, int(number), match.group(1)))
+    return markers
+
+
+def load_guardrails():
+    """The pre-push hook's own module (guardrails.py next to this file): section 6 asks it, never a copy of it."""
+    spec = importlib.util.spec_from_file_location("cmux_next_guardrails_for_health",
+                                                  Path(__file__).resolve().parent / "guardrails.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses resolve their module by name
+    spec.loader.exec_module(module)
+    return module
+
+
+# guardrails.perf_hot_warnings' line for an edited marked declaration: `<path>:<line>: changes perf-hot ... (budget
+# <budget>, <path-id>...`.
+HOOK_WARNING = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): changes perf-hot .*\(budget [^,]+, (?P<pid>[\w-]+)")
+
+
+def git_env(repo: Path, env: dict[str, str], *args: str, stdin: str | None = None) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, input=stdin,
+                          env={**os.environ, **env}).stdout
+
+
+def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> list[tuple[str, int, str]]:
+    """(path, declaration line, path id) per perf-hot warning `guardrails.check` gives a push that edits every line
+    of each file in TEXTS (path: its working-tree text).
+
+    Both sides of that push are the working tree: the base tree is HEAD with TEXTS as they are, the edited tree
+    the same with a trailing space on every line. The only change the hook sees is that space, so an uncommitted
+    edit (a marker removed or retagged) is part of both sides, never a change the hook reports. The hook itself
+    decides, with its own diff scope and declaration parser. Both trees go to a throwaway object directory that
+    borrows the repository's objects, so the report writes nothing into the repository.
+    """
+    objects = git(repo, "rev-parse", "--path-format=absolute", "--git-path", "objects").strip()
+    paths = sorted(texts)
+    with tempfile.TemporaryDirectory(prefix="codebase-health-") as tmp:
+        os.mkdir(os.path.join(tmp, "objects"))
+        env = {"GIT_OBJECT_DIRECTORY": os.path.join(tmp, "objects"), "GIT_ALTERNATE_OBJECT_DIRECTORIES": objects}
+        indexed = {**env, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+        git_env(repo, indexed, "read-tree", "HEAD")
+        modes = {}
+        for entry in git_env(repo, indexed, "ls-files", "-s", "-z", "--", *paths).split("\0"):
+            if entry:
+                meta, _, path = entry.partition("\t")
+                modes[path] = meta.split()[0]
+
+        def tree_of(suffix: str) -> str:
+            """The tree of HEAD with every path in TEXTS replaced by its text, SUFFIX appended to every line."""
+            copies = []
+            for number, path in enumerate(paths):
+                copy = os.path.join(tmp, f"{number}{suffix and '-edited'}.swift")
+                Path(copy).write_text("\n".join(line + suffix for line in texts[path].split("\n")), encoding="utf-8")
+                copies.append(copy)
+            oids = git_env(repo, env, "hash-object", "-w", "--no-filters", "--stdin-paths",
+                           stdin="\n".join(copies) + "\n").split()
+            git_env(repo, indexed, "update-index", "--add", "--index-info",
+                    stdin="".join(f"{modes.get(path, '100644')} {oid}\t{path}\n" for path, oid in zip(paths, oids)))
+            return git_env(repo, indexed, "write-tree").strip()
+
+        base = tree_of("")
+        tree = tree_of(" ")  # a trailing space on every line: the same code, every line touched
+        saved = {key: os.environ.get(key) for key in env}
+        os.environ.update(env)  # guardrails' git processes read both trees from the throwaway objects
+        try:
+            _, warnings = guardrails.check(repo, base, tree)
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+    found = []
+    for kind, text in warnings:
+        if kind == "guardrails" and (text.startswith("perf-hot ") or "could not read this push's diff" in text):
+            raise SystemExit(f"codebase-health: guardrails could not judge the perf-hot markers: {text}")
+        if kind != "perf-hot":
+            continue
+        match = HOOK_WARNING.match(text)
+        if not match:  # never guess: a reworded warning must not read as "no marker warns"
+            raise SystemExit(f"codebase-health: cannot read guardrails' perf-hot warning (reworded?): {text}")
+        found.append((match.group("path"), int(match.group("line")), match.group("pid")))
+    return found
+
+
+def hook_view(repo: Path, markers: list[Marker]) -> dict[Marker, str]:
+    """Per marker, what the pre-push hook does when a push edits its function: "warns"; "outside" (the hook's
+    parser finds the declaration, but the hook never diffs the file); or "unparsed" (the hook's parser finds no
+    declaration for the marker, e.g. a trailing marker on the last line of a multi-line signature)."""
+    if not markers:
+        return {}
+    guardrails = load_guardrails()
+    in_file: dict[str, list[Marker]] = collections.defaultdict(list)
+    for marker in markers:
+        in_file[marker.path].append(marker)
+    texts = {path: (repo / path).read_text(encoding="utf-8", errors="replace") for path in in_file}
+
+    def owner(path: str, first: int, pid: str) -> Marker | None:
+        # A declaration's marker is the nearest one of its id at or above it (on its line, or in the comment above).
+        return max((m for m in in_file[path] if m.pid == pid and m.line <= first), key=lambda m: m.line, default=None)
+
+    parsed = {owner(path, span[0], span[4]) for path, text in texts.items()
+              for span in guardrails.function_spans(text.split("\n"))}
+    warned = {owner(path, line, pid) for path, line, pid in hook_warnings_for_edits(repo, guardrails, texts)}
+    return {m: "warns" if m in warned else "outside" if m in parsed else "unparsed" for m in markers}
+
+
+NO_WARNING = {
+    "outside": "outside the pre-push hook's diff scope: no warning",
+    "unparsed": "not on a declaration line the hook parses (a multi-line signature's last line?): no warning",
+}
+
+
+def marker_text(marker: Marker, state: str) -> str:
+    """MARKER as section 6 prints it: path (short under the app sources) and line, flagged when it never warns."""
+    shown = marker.path[len(SOURCES):] if marker.path.startswith(SOURCES) else marker.path
+    flag = NO_WARNING.get(state)
+    return f"{shown}:{marker.line}" + (f" ({flag})" if flag else "")
+
+
+def measured_at(repo: Path) -> str:
+    """Where the numbers come from, by a sha that survives a rebase: the merge base with origin/feat-cmux-next,
+    plus the measured files the working tree changes over it (the local commits and edits a rebase rewrites)."""
+    head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
+    found = subprocess.run(["git", "-C", str(repo), "merge-base", "HEAD", UPSTREAM], capture_output=True, text=True)
+    if found.returncode != 0:
+        return f"at `{head}` (this repository has no `{UPSTREAM}`)"
+    base = found.stdout.strip()
+    changed = [p for p in git(repo, "diff", "--name-only", "--no-renames", base, "--", *MEASURED).split("\n") if p]
+    short = git(repo, "rev-parse", "--short=11", base).strip()
+    if not changed:
+        return f"at feat-cmux-next `{short}`"
+    listed = ", ".join(f"`{p}`" for p in changed[:4]) + (f" and {len(changed) - 4} more" if len(changed) > 4 else "")
+    return f"at feat-cmux-next `{short}` plus this tree's changes to {listed}"
+
+
 def report(repo: Path) -> str:
     data = scan(repo)
-    head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
     total_lines = sum(data["lines"].values())
     pkg_lines = 0
     for path in tracked(repo, PKG + "/"):
@@ -336,14 +556,14 @@ def report(repo: Path) -> str:
             except OSError:
                 pass
     graph = targets(repo)
-    layers = classify(repo, graph)
-    violations = layer_violations(graph, layers)
+    layers = placed_layers(repo, graph)
+    edges = data["edges"]
     memo: dict[str, int] = {}
     non_test = {n: i for n, i in graph.items() if layers[n] != "test"}
     app_deps = len([d for d in graph.get(APP, {}).get("deps", []) if d in graph])
     leaves = [n for n, i in non_test.items() if not [d for d in i["deps"] if d in graph]]
     max_depth = max((depth(non_test, n, memo) for n in non_test), default=0)
-    notes, observed = notification_report(data["texts"])
+    notes, observed = notification_report(data["blanked"], data["sites"])
     d = docs(repo)
     scripts_top = [p for p in tracked(repo, "scripts/cmux-next/") if "/" not in p[len("scripts/cmux-next/"):]]
     scripts_all = tracked(repo, "scripts/cmux-next/")
@@ -353,9 +573,10 @@ def report(repo: Path) -> str:
     w = out.append
     w("# cmux-next codebase health (measured)")
     w("")
-    w(f"Measured {datetime.date.today().isoformat()} at feat-cmux-next `{head}` by "
+    w(f"Measured {datetime.date.today().isoformat()} {measured_at(repo)} by "
       "`scripts/cmux-next/codebase-health.py --write` (rerun it to refresh; do not edit numbers by hand).")
-    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped. The pre-push guardrails")
+    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped (section 6's perf-hot markers:")
+    w("every tracked Swift file). The pre-push guardrails")
     w("(`scripts/cmux-next/guardrails.py`, run by `prepush-gate.py`) refuse NEW instances of the ratcheted rows;")
     w("the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail rules: section 6.")
     w("")
@@ -363,13 +584,12 @@ def report(repo: Path) -> str:
     w("")
     w("| Pattern | Lines | Files | Without the waiver comment | Why it matters |")
     w("|---|---:|---:|---:|---|")
-    for cid, title, _, marker, note in CATEGORIES:
+    for cid, title, label, note in SHOWN:
         hits = data["hits"][cid]
-        unw = sum(data["unwaived"][cid].values()) if marker else None
-        waiver = f"{unw} (no `{marker}`)" if marker else "-"
+        waiver = f"{sum(data['unwaived'][cid].values())} ({label})" if label else "-"
         w(f"| {title} | {sum(hits.values())} | {len(hits)} | {waiver} | {note} |")
     w("")
-    for cid, title, _, marker, _ in CATEGORIES:
+    for cid, title, _, _ in SHOWN:
         hits = data["hits"][cid]
         if not hits:
             continue
@@ -385,7 +605,7 @@ def report(repo: Path) -> str:
     w(f"{sum(data['hits']['observers'].values())} observer registrations; {len(notes)} custom names. A name observed by a")
     w("per-instance view or window class wakes every instance on every post: O(all), not O(changed).")
     w("")
-    w("| Name | Observer sites | `object: nil` | Post sites | Per-instance observer files |")
+    w("| Name | Observer sites | Every sender (no `object:`, or `object: nil`) | Post sites | Per-instance observer files |")
     w("|---|---:|---:|---:|---|")
     for name, obs, broad, posts, per in notes:
         files = ", ".join(f"`{Path(p).name}`" for p in per) or "-"
@@ -424,25 +644,28 @@ def report(repo: Path) -> str:
     w("")
     counts = collections.Counter(layers[n] for n in graph)
     w(f"`Package.swift`: {len(graph)} targets ({len(non_test)} non-test: "
-      + ", ".join(f"{counts[k]} {k}" for k in ("app", "ui", "service", "core", "foundation", "other") if counts[k])
+      + ", ".join(f"{counts[k]} {k}" for k in ("app", "ui", "domain", "service", "core", "unplaced") if counts[k])
       + f"; {counts['test']} test). The App depends directly on {app_deps} targets; {len(leaves)} targets have no")
-    w(f"in-package dependency; the longest dependency chain is {max_depth} targets. The graph is flat: almost every")
-    w("feature is a leaf that the App wires, and domain state and UI share targets (every UI target is main-actor")
-    w("by default via `uiSwiftSettings`), so CLAUDE.md layer 3 (domain) and 4 (UI) are not separate.")
+    w(f"in-package dependency; the longest dependency chain is {max_depth} targets.")
     w("")
-    w("Layer per target is inferred from its sources: `ui` imports AppKit/SwiftUI/WebKit; `service` does I/O")
-    w("(FileManager, Process, sockets, URLSession, XPC, SQLite, Keychain, UserDefaults, DispatchSource); `core` neither;")
-    w("`foundation` (CmuxNextCompat, CmuxNextWakeups) is importable by every layer. A heuristic: read each edge before acting.")
-    w(f"**{len(violations)} edges break the rule** (upward edges, or UI straight onto a service):")
+    w("Layer per target from `plans/cmux-next/architecture-layers.json`; the rule is arch_counts.py's `layers()`,")
+    w("the one plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold: hard, a core/service/domain target")
+    w("that depends on a ui or app target; soft, a service target that depends on a domain target; upward, any")
+    w("other edge that points up a layer (core -> service/domain).")
+    w(f"**{len(edges.hard)} hard, {len(edges.soft)} soft and {len(edges.upward)} upward edges break the rule; "
+      f"{len(edges.unplaced)} targets are unplaced:**")
     w("")
     w("<details><summary>Layer violations</summary>")
     w("")
     w("```")
-    for why, n in collections.Counter(why for _, _, why in violations).most_common():
-        w(f"{n:3d}  {why}")
-    w("")
-    for src, dst, why in violations:
-        w(f"{src} -> {dst}: {why}")
+    for src, a, dst, b in edges.hard:
+        w(f"hard  {src} ({a}) -> {dst} ({b})")
+    for src, a, dst, b in edges.soft:
+        w(f"soft  {src} ({a}) -> {dst} ({b})")
+    for src, a, dst, b in edges.upward:
+        w(f"upward  {src} ({a}) -> {dst} ({b})")
+    for name in edges.unplaced:
+        w(f"unplaced  {name}")
     w("```")
     w("</details>")
     w("")
@@ -466,11 +689,58 @@ def report(repo: Path) -> str:
     w("## 6. Guardrails (pre-push, local, never CI)")
     w("")
     w("`scripts/cmux-next/guardrails.py`, run by the pre-push hook through `prepush-gate.py --pre-push`, looks only at")
-    w("lines the push adds under `Packages/macOS/CmuxNext/Sources` (moved lines do not count) and takes well under")
-    w("a second. Refusals print the rule, why, the right pattern and the escape. Skip one push with")
-    w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>: <why>\"` and say so in your report. `guardrails.py --list` prints every rule.")
+    w("lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it")
+    w("is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file")
+    w("does not count. Removed lines pay only when they were debt in the base (same context and escape rules), and an")
+    w("unchanged line counts when the push changes its context (a new loop around a sleep, `struct` -> `class`). Lines a")
+    w("push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,")
+    w("why, the right pattern and the escape. One rule is not per line: `app-size` is a net count over the push in")
+    w("CmuxNextApp source lines (CI's lexer, as `check-app-size.sh --base` counts them), where removed App lines pay")
+    w("for added ones and code moved into the App from a package is growth. It refuses the root's wiring over its budget")
+    w("(`ROOT_BUDGET` in guardrails.py, `--list` prints it; lines moved into the root count) and a new App file that is")
+    w("neither a move nor the push's one `AppServices+<Domain>Host.swift` of one-line forwards; growth of the App total")
+    w("and of the App outside the composition root warns (bytes added, the package the code goes to) until the large")
+    w("domains are out of CmuxNextApp. `app-type`, a second net rule, refuses a new type in an existing App file")
+    w("or in a new App file that passes as a move, when the type is not a move (any depth: top-level, in an")
+    w("`extension`, or a nested type over `PRIVATE_TYPE_MAX` source lines with its `extension` blocks in the file).")
+    w("They are the only App-size limits in force on a push. Skip one rule for one push with")
+    w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>[,<rule>]: <why>\"` (the other rules still refuse) and say so in your report.")
+    w("`guardrails.py --list` prints every rule. The guardrails also run the arch ratchet (`arch-ratchet.py`): the")
+    w("arch_counts rows of section 1 and the layer edges of section 4 may not rise over a push, and their totals in")
+    w("`plans/cmux-next/arch-ratchet.json` only go down; their one escape is a dated exception in that file (the skip")
+    w("variable does not skip them).")
+    w("If the script itself fails, the hook prints a warning and lets the push through.")
     w("It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,")
     w("`scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).")
+    w("")
+    try:
+        known = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
+    except (OSError, ValueError):
+        known = {}
+    markers = perf_hot_markers(repo)
+    states = hook_view(repo, markers)
+    per_id: dict[str, list[Marker]] = collections.defaultdict(list)
+    for marker in markers:
+        per_id[marker.pid].append(marker)
+    marked = [pid for pid in known if per_id.get(pid)]
+    warning = [pid for pid in known if any(states[m] == "warns" for m in per_id.get(pid, ()))]
+    silent = [m for m in markers if states[m] != "warns"]
+    w("Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner")
+    w("marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or")
+    w("`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what")
+    w("`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and")
+    w("declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not")
+    w("read as a declaration, is flagged: an edit of that function warns nobody.")
+    w("")
+    w(f"Marked: {len(marked)} of {len(known)} path ids ({len(markers)} markers); {len(warning)} of {len(known)} "
+      f"warn at push; {len(silent)} of {len(markers)} markers never warn.")
+    w("")
+    for pid, entry in known.items():
+        listed = ", ".join(marker_text(m, states[m]) for m in per_id.get(pid, ()))
+        w(f"- `{pid}`: " + (listed or f"**no marker** (owner {entry.get('owner', '?')})"))
+    for pid in sorted(set(per_id) - set(known)):
+        listed = ", ".join(marker_text(m, states[m]) for m in per_id[pid])
+        w(f"- `{pid}`: {listed} (**unknown id**: not in `{BENCHES}`)")
     w("")
     return "\n".join(out) + "\n"
 

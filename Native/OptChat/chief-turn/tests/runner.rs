@@ -277,6 +277,7 @@ fn the_time_limit_stops_claude_code_and_everything_it_started() {
     let result: Value =
         serde_json::from_slice(&fs::read(t.run_dir.join("run_7.out")).unwrap()).unwrap();
     assert_eq!(result["status"], "failed");
+    assert_eq!(result["reason"], "timeout");
     assert!(
         result["error"]
             .as_str()
@@ -285,6 +286,44 @@ fn the_time_limit_stops_claude_code_and_everything_it_started() {
         "{result}"
     );
     assert_eq!(posts.lock().unwrap().last().unwrap()["result"], result);
+    let _ = fs::remove_dir_all(&t.root);
+}
+
+/// Result posts the fake Worker refused (503) before it took one.
+static REFUSED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[test]
+fn a_turn_the_time_limit_stops_posts_what_it_wrote_through_a_failing_worker() {
+    // The Worker answers 503 to the first two result posts (a deploy, an overloaded isolate).
+    let (url, posts) = worker(|body| {
+        if body.get("result").is_some()
+            && REFUSED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2
+        {
+            (503, json!({}))
+        } else {
+            (200, json!({}))
+        }
+    });
+    let script = r#"#!/bin/sh
+e() { printf '{"type":"stream_event","event":%s}\n' "$1"; }
+e '{"type":"message_start","message":{"id":"m1"}}'
+e '{"type":"content_block_start","index":0,"content_block":{"type":"text"}}'
+e '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Half way: the fix is pushed"}}'
+sleep 120
+"#;
+    let t = setup("partial", script);
+    let input = json!({"notes_url": url, "token": "tok-1", "prompt": "", "system": "", "model": "m", "max_ms": 1500});
+    let out = run(&t, "run_8", &input, free_port());
+    assert!(out.status.success());
+    let result: Value =
+        serde_json::from_slice(&fs::read(t.run_dir.join("run_8.out")).unwrap()).unwrap();
+    assert_eq!(result["status"], "partial", "{result}");
+    assert_eq!(result["reason"], "timeout");
+    assert_eq!(result["reply"], "Half way: the fix is pushed");
+    let posts = posts.lock().unwrap().clone();
+    let results: Vec<&Value> = posts.iter().filter_map(|p| p.get("result")).collect();
+    assert_eq!(results.len(), 3, "two refused, the third taken");
+    assert_eq!(results[2], &result);
     let _ = fs::remove_dir_all(&t.root);
 }
 

@@ -151,3 +151,23 @@ toast, confirm and tip in light and dark, in a Home right-pane tab; A ships (Rec
 4. `_acpmux/status` advertises `capabilities[]`; acpmux notices list features.
 5. Remote hosts: notices per host; restart over the link.
 6. Chief's own cmux-tui daemon: notice in the Chief card (with a185's turn resume, never mid-turn).
+
+## 10. Settings > Server (Oct 23, user: "we need these in cmux when it makes sense", Rex's server panel)
+
+Rex's Settings server panel (name, Running, version line, "Restart Recommended", Local API URL,
+Tailscale address with Pair, Stop) maps onto cmux-next like this:
+
+| Rex | cmux-next | State |
+| --- | --- | --- |
+| Bottom toast "Restart the server to use new features" | `ServerUpdatePresenter` toast (sections 6, 7) | built (a286) |
+| Running / version line | Settings > Server row: `Version 0.67.0 · Build abc1234 · Protocol 12` from `identify` | built here |
+| "Restart Recommended" + Restart… | the row shows while the policy finds missing capabilities; ignores snooze; the button opens the toast's own confirm (`cmux.settings.server.restart`) | built here |
+| API revision "server supports 0 to 0, app speaks 0 to 1" | not shown: cmux-tui `identify` reports one `protocol_version` and capabilities decide behavior (rule 3), so there is no range to compare | by design |
+| Local API URL + copy | Local Socket + Copy (the connected daemon's socket) | built here |
+| Tailscale Address + Pair + copy | first address of `cmux host status --json` (`addresses`) + Pair (opens the Server panel's pairing card) + Copy | built here |
+| Stop Server… | not added: the only stop is `server.stopServing` (debug-only, turns off serving); stopping cmux-tui itself would end terminals | open |
+| acpmux row | the report lists any server the coordinator heard from; acpmux reports no handshake yet (step 4) | open |
+
+Data path: `ServerUpdateCoordinator.settingsReport` (pure, tested) -> `ServerSettingsPageJSON` ->
+host lists `server` -> `ServerCard.tsx`. Nothing in the report restarts a server.
+

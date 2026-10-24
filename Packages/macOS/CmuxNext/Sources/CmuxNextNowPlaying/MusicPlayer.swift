@@ -5,6 +5,7 @@ import CmuxNextWakeups
 public import Foundation
 public import Observation
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// cmux's own music player (cx-imt2i, a preview feature): the person's songs, folders and stream
 /// URLs played with AVFoundation, which ships with macOS, so cmux carries no codec. It is a
@@ -34,7 +35,7 @@ public final class MusicPlayer: NowPlayingSource {
     @ObservationIgnored private let labels: SidebarNowPlaying.Labels
     @ObservationIgnored private var rateObservation: NSKeyValueObservation?
     @ObservationIgnored private var itemObservation: NSKeyValueObservation?
-    @ObservationIgnored private var itemObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var itemObservers: [MainActorObservation] = []
     /// Previous restarts the song once it has played this long, as music apps do.
     static let restartAfter: TimeInterval = 3
 
@@ -164,13 +165,11 @@ public final class MusicPlayer: NowPlayingSource {
         }
         let center = NotificationCenter.default
         itemObservers = [
-            center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.songEnded(failed: false) }
+            MainActorObservation(AVPlayerItem.didPlayToEndTimeNotification, object: item, center: center) { [weak self] in
+                self?.songEnded(failed: false)
             },
-            center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.songEnded(failed: true) }
+            MainActorObservation(AVPlayerItem.failedToPlayToEndTimeNotification, object: item, center: center) { [weak self] in
+                self?.songEnded(failed: true)
             },
         ]
         Task { [weak self] in
@@ -182,8 +181,7 @@ public final class MusicPlayer: NowPlayingSource {
 
     private func unobserveItem() {
         itemObservation = nil
-        for observer in itemObservers { NotificationCenter.default.removeObserver(observer) }
-        itemObservers = []
+        itemObservers.removeAll()
     }
 
     /// The current item's status: its length once ready; a failed one ends as a song does.

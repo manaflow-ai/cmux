@@ -41,10 +41,13 @@ extension UpdateDriver {
     }
 
     /// The staged update, or nil when nothing waits for the user: this driver's held download,
-    /// else the one Sparkle's silent driver staged while its install still waits.
+    /// the update whose relaunch the gate holds, else the one Sparkle's silent driver staged
+    /// while its install still waits.
     var stagedItem: SUAppcastItem? {
         if stagedInstall != nil { return backgroundItem }
-        guard case .installing(let installing) = model.state, installing.isAutoUpdate else { return nil }
+        guard case .installing(let installing) = model.state else { return nil }
+        if installing.relaunchBlockers != nil { return heldRelaunchItem }
+        guard installing.isAutoUpdate else { return nil }
         return quitInstallItem
     }
 

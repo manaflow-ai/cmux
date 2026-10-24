@@ -16,7 +16,7 @@ enum TabLifecycle {
     /// `asTab`: a tab in the focused pane whatever `newTerminal.opensWorkspace` and
     /// `layout.newPanePlacement` say (Cmd-T with `tabs.terminalFirst`, #23021).
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil, asTab: Bool = false) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
         #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
@@ -343,7 +343,7 @@ enum TabLifecycle {
         let browserTabs = ctx.services.cache.browserTabs
         if let refusal = browserTabs.refusal(in: pane) ?? browserTabs.refusal(for: url) { return ctx.refuse(refusal) }
         guard browserTabs.isAvailable(in: pane) else {
-            return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+            return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
         }
         let choice: BrowserEngineChoice
         switch browserTabs.resolve(requested: engine, url: url) {

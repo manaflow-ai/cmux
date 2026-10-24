@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CmuxNextTerminal
+import CmuxNextCompat
 
 /// The R92 diagnostics of the applied Ghostty config, kept current: read
 /// again on every config change (`GhosttyRuntime.configDidChange`). The
@@ -16,16 +17,15 @@ final class GhosttyDiagnosticsModel {
     private(set) var diagnostics: [GhosttyConfigDiagnostic]?
 
     @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
-    @ObservationIgnored private var observer: (any NSObjectProtocol)?
+    @ObservationIgnored private var observer: MainActorObservation?
     @ObservationIgnored private var generation = 0
 
     init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
          notifications: NotificationCenter = .default) {
         self.read = read
         refresh()
-        observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.refresh() }
+        observer = MainActorObservation(GhosttyRuntime.configDidChange, center: notifications) { [weak self] in
+            self?.refresh()
         }
     }
 

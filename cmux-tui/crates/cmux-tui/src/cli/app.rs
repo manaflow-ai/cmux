@@ -29,6 +29,7 @@ use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
+mod batch;
 mod call;
 mod classic;
 mod events;
@@ -222,7 +223,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             let Some((id, tail)) = rest[1..].split_first() else {
                 return Err(UsageError::new(messages.action_run_usage));
             };
-            run_action(id, tail, ActionName::Any)?
+            // `-`: the actions on stdin, as one `action.batch` transaction.
+            if id == "-" {
+                batch::parse_batch(tail, &mut std::io::stdin().lock(), action_origin())?
+            } else {
+                run_action(id, tail, ActionName::Any)?
+            }
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -700,8 +706,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     }
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     // Runs that may create or close something carry a key, so a retry is not a second run.
-    let keyed =
-        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
+    let keyed = [
+        "action.run",
+        "action.batch",
+        "browser.page.new_tab",
+        "browser.page.select_tab",
+        "browser.page.close",
+    ];
     let key = if keyed.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),

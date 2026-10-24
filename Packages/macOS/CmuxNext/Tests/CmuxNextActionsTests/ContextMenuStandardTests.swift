@@ -69,7 +69,7 @@ struct ContextMenuStandardTests {
         }
     }
 
-    /// The tab bar's +: the three kinds of tab, then the ways to pick one.
+    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one.
     @Test func newTabMenuListsTheKindsFirst() {
         let entries = menus.entries(for: .newTab)
         let ids = entries.map { entry -> String in
@@ -79,7 +79,7 @@ struct ContextMenuStandardTests {
             default: "?"
             }
         }
-        #expect(ids == ["newSurface", "openBrowser.chromium", "palette.newAgentChat", "—", "browserProfile.newTab", "newTab.page"])
+        #expect(ids == ["newSurface", "openBrowser.chromium", "palette.newAgentChat", "macScreen.open", "—", "browserProfile.newTab", "newTab.page"])
     }
 
     /// Delete, Remove and Forget rows (a trash icon) end their menu, after a separator.

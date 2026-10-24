@@ -68,6 +68,7 @@ const cmuxSigningIn: AccountsCmux = {
   note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
 };
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
+  teams: null,
   refresh: "Refresh",
   refreshing: false,
   cmux: cmuxSignedIn,
@@ -781,6 +782,11 @@ Object.assign(variants, {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
+  // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
+  "chief-look-bubbles": variant("chief", {
+    focus: "home.chiefBubbleStyle",
+    note: "Look: the pet, the characters, then Bubble Style at the card's foot (no Chief Chat card of its own).",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -840,6 +846,25 @@ Object.assign(variants, {
       },
     }),
     note: "Empty credential form; fixtures never contain credentials.",
+  }),
+  "accounts-teams": variant("accounts", {
+    accounts: accounts(
+      {},
+      {
+        teams: {
+          title: "Active Team",
+          help: "Cloud machines, CodeRouter and phone access use this team.",
+          options: [
+            { id: "sample-team-1", name: "Sample team", active: true },
+            { id: "sample-team-2", name: "Another sample team", active: false },
+          ],
+          disabled: false,
+          note: null,
+          error: null,
+        },
+      },
+    ),
+    note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",
   }),
   "accounts-success": variant("accounts", {
     accounts: accounts({ outcome: { kind: "success", text: "Account connected." } }),
@@ -935,6 +960,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",

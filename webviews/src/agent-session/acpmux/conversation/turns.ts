@@ -369,6 +369,14 @@ function shapedTurn(
       ...held,
       ...line,
     ];
+    // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
+    // composer for the latest completed turn without restoring the permanent runway under every
+    // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
+    if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
+      let final = shaped.length - 1;
+      while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
+      if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
+    }
   }
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
   return shaped;
@@ -750,7 +758,7 @@ function liveTurn(
     // the turn's last row and ticks from the prompt.
     if (plan && last?.kind !== "assistant") {
       const work = shown.filter((row) => row !== plan);
-      return [...work, plan, activityLine(user, work, plan, clockOffset)];
+      return [...work, plan, activityLine(user, work, plan, clockOffset, undefined, true)];
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
@@ -863,6 +871,7 @@ function codexLiveTurn(
       plan,
       clockOffset,
       named?.tool,
+      true,
     ),
   ];
 }
@@ -917,6 +926,7 @@ function activityLine(
   plan: AcpmuxRow,
   clockOffset: number,
   named?: NonNullable<AcpmuxActivity["tool"]>,
+  below = false,
 ): AcpmuxRow {
   const running = named
     ? { kind: "tool", text: "", tool: named }
@@ -937,6 +947,9 @@ function activityLine(
     at: user.at + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
+    // The line below a plan occupies the footer's slot. Keeping the marker on that row lets the
+    // estimator and the DOM swap it for `turnSummary` without changing the rows above it.
+    ...(below && { below: true }),
   };
   if (command) line.doingCommand = true;
   return line;
@@ -984,6 +997,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "item" ||
     group.type === "message" ||
     group.type === "subsession" ||
+    group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;

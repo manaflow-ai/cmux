@@ -112,6 +112,8 @@ extension SurfaceBridge {
         let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         guard view.bounds.contains(point) else { return }
         // Ghostty expects points with a top-left origin.
-        ghostty_surface_mouse_pos(surface, point.x, view.bounds.height - point.y, GhosttyInput.mods(NSEvent.modifierFlags))
+        // With the keys a pointer event has: Shift added for Command alone in a program that has
+        // the mouse, so Ghostty finds the link there (TerminalPointerMods).
+        ghostty_surface_mouse_pos(surface, point.x, view.bounds.height - point.y, GhosttyInput.mods(view.pointerFlags(NSEvent.modifierFlags)))
     }
 }

@@ -23,11 +23,16 @@ thread top frames).
       [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8]
 
 --gate-p95-ms: exit 1 when the churn phase's key-to-frame p95 is over that many ms, or over the idle
-phase's p95 by more than --gate-delta-ms (default 2). Fleet (an owned mini with a console; the step builds the app):
+phase's p95 by more than --gate-delta-ms (default 2). --gate-stall-ms: exit 1 when a churn phase has a main-thread
+stall (debug.hangs, threshold 8 ms) longer than that (plans/cmux-next/main-thread-budget.md: < 8 ms). Each phase also
+records the main-thread scheduler's budget counters (debug.main_budget) and the tasks that ran past their class budget
+with their stacks (debug.hangs over_budget). Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
 import argparse, csv, glob, json, os, random, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -43,6 +48,7 @@ parser.add_argument("--rounds", type=int, default=1, help="idle/churn pairs, int
 parser.add_argument("--trace", action="store_true", help="Time Profiler over the first churn phase")
 parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--gate-delta-ms", type=float, default=2.0)
+parser.add_argument("--gate-stall-ms", type=float, help="also exit 1 when a churn phase's longest main-thread stall is over this many ms")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -210,6 +216,11 @@ def main_thread_profile(path):
         return element
 
     inclusive, leaf, samples = {}, {}, 0
+    # For a few frames: who called them and what they called, so a hot generic frame names its owner.
+    focus = ("generateAccessList", "Array._makeMutableAndUnique", "withObservationTracking<", "SidebarSameTurn.observe",
+             "DaemonStore.applyBatch", "stepTransactionFlush", "SidebarListView.reload", "ObservationStream.LegacyIterator.track",
+             "FrameBatcher.drain", "publishNow", "reconcileMembership", "SidebarRowIndex.patching")
+    callers, callees = {}, {}
     for row in root.iter("row"):
         thread = backtrace = None
         for child in row:
@@ -227,13 +238,24 @@ def main_thread_profile(path):
             leaf[frames[0]] = leaf.get(frames[0], 0) + 1
         for name in set(frames):
             inclusive[name] = inclusive.get(name, 0) + 1
+        seen = set()
+        for i, name in enumerate(frames):  # leaf first
+            key = next((f for f in focus if f in name), None)
+            if key is None or key in seen:
+                continue
+            seen.add(key)  # the outermost-but-first occurrence per sample: one count each
+            up = frames[i + 1] if i + 1 < len(frames) else "-"
+            down = frames[i - 1] if i > 0 else "(self)"
+            callers.setdefault(key, {})[up[:160]] = callers.setdefault(key, {}).get(up[:160], 0) + 1
+            callees.setdefault(key, {})[down[:160]] = callees.setdefault(key, {}).get(down[:160], 0) + 1
     generic = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun", "__CFRunLoop",
                "_CFRunLoopRun", "-[NSApplication(NSEvent) _nextEventMatchingEventMask", "_BlockUntilNextEventMatchingListInMode",
                "ReceiveNextEventCommon", "RunCurrentEventLoopInMode", "_dispatch_main_queue", "__CFRUNLOOP", "_dispatch_", "?",
                "_DPSBlockUntilNextEventMatchingListInMode", "-[NSApplication(NSEventRouting)", "CmuxNextApp.main()")
     top = [{"frame": n[:220], "samples": c, "pct": round(100.0 * c / samples, 1) if samples else 0}
            for n, c in sorted(inclusive.items(), key=lambda kv: -kv[1]) if not n.startswith(generic)][:80]
-    return {"main_samples": samples, "top_inclusive": top,
+    top_of = lambda table: {k: sorted(v.items(), key=lambda kv: -kv[1])[:8] for k, v in table.items()}
+    return {"main_samples": samples, "top_inclusive": top, "callers": top_of(callers), "callees": top_of(callees),
             "top_leaf": [{"frame": n[:220], "samples": c} for n, c in sorted(leaf.items(), key=lambda kv: -kv[1])[:30]]}
 
 
@@ -288,6 +310,7 @@ def type_keys(count, pid=None, label="warmup"):
 def phase(name, pid, ids, groups, churn_hz, trace=False):
     rows_before = len(probe_rows())
     rpc("debug.hangs", {"clear": True})
+    rpc("debug.main_budget", {"reset": True})
     rpc("debug.sidebar_perf", {"reset": True})
     rpc("debug.frames", {"action": "start"})
     churn = None
@@ -307,6 +330,7 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     frames = rpc("debug.frames", {"action": "stop"}, timeout=20)
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     perf = rpc("debug.sidebar_perf", timeout=20)
+    budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
     entry = {
@@ -318,6 +342,9 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
         "hangs": {k: hangs.get(k) for k in ("count", "busy_count", "max_ms", "total_ms", "long_frames", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
+        "over_budget_count": (hangs or {}).get("over_budget_count") if isinstance(hangs, dict) else None,
+        "over_budget": (hangs or {}).get("over_budget") if isinstance(hangs, dict) else None,
+        "main_budget": budget,
         "frames": frames, "sidebar_perf": perf,
     }
     if churn:
@@ -341,27 +368,21 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
 
 
 def main():
-    with open(CONFIG, "w") as f:
-        json.dump({"appearance": {"theme": "Catppuccin Mocha"}}, f)
-    open(GHOSTTY, "w").write("")
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
-           "CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
-    log = open(os.path.join(OUT, "app.log"), "a")
-    binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-    app = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    note(f"launched pid {app.pid}")
+    global SOCKET, CONFIG
+    # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
+    # folder, and the reason when the app does not come up. The bench's own environment on top of its defaults.
+    bench = BenchApp(opts.app, out=OUT, config={"appearance": {"theme": "Catppuccin Mocha"}}, window=WINDOW, log_name="app.log",
+                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     results["load_at_start"] = os.getloadavg()
     made = []
     groups = []
     try:
-        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
-            sys.exit(f"the tagged app did not come up (exit={app.poll()})")
-        time.sleep(3)
+        try:
+            bench.launch(timeout=180, settle=3.0)
+        except LaunchError as error:
+            results["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
+            raise
+        app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
         t0 = time.monotonic()
         for g in range(opts.groups):
             name = f"churn group {g:02d}"
@@ -386,7 +407,7 @@ def main():
         results["setup"] = {"workspaces": len(ids), "groups": len(groups), "typing": typed_id}
         type_keys(10)  # warm-up
         for r in range(opts.rounds):
-            phase(f"idle-{r}", app.pid, ids, groups, 0)
+            phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0)
             phase(f"churn-{r}", app.pid, ids, groups, opts.churn_hz, trace=opts.trace and r == 0)
     finally:
         idle = [p for p in results["phases"] if p["churn_hz"] == 0 and p.get("key_to_frame_ms")]
@@ -406,11 +427,9 @@ def main():
         with open(report, "w") as f:
             json.dump(results, f, indent=1, default=str)
         if not opts.keep:
-            rpc("action.run", {"action": "quitEndSessions", "origin": "script"})
-            try:
-                app.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                app.terminate()
+            bench.stop()
+    if opts.gate_stall_ms is not None and summary and summary["churn_hang_max_ms"] > opts.gate_stall_ms:
+        sys.exit(f"gate: churn main-thread stall {summary['churn_hang_max_ms']} ms is over {opts.gate_stall_ms} ms")
     if opts.gate_p95_ms is not None and summary:
         over = summary["churn_p95_ms"] > opts.gate_p95_ms or summary["churn_p95_ms"] - summary["idle_p95_ms"] > opts.gate_delta_ms
         if over:

@@ -1009,6 +1009,7 @@ fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &owner_writer,
     )

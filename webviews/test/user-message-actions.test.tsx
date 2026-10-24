@@ -61,7 +61,7 @@ async function draw(row: AcpmuxRow, actions: object) {
   );
 }
 
-test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each naming itself; no Pin", async () => {
+test("a read prompt's row is Leo's: check, age, dot, Copy, Edit, Retry, Fork, each naming itself; no Pin", async () => {
   const forked: number[] = [];
   const sent: [string, string][] = [];
   const row: AcpmuxRow = {
@@ -81,8 +81,8 @@ test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each nam
     promptTurns: new Map([["user-4", 5]]),
     route: { name: "Claude Code", harness: "claude" },
   });
-  // Leo's row, then cmux's own Edit where the chat can fork before the prompt.
-  expect(labels()).toEqual(["Read by Claude Code", "3 days ago", "·", "Copy", "Retry", "Fork from here", "Edit"]);
+  // Leo's row, then the direct prompt actions: Copy, Edit, Retry and Fork.
+  expect(labels()).toEqual(["Read by Claude Code", "3 days ago", "·", "Copy", "Edit", "Retry", "Fork from here"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
   expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("true");
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
@@ -110,6 +110,140 @@ test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each nam
   expect(forked).toEqual([5]);
   act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!.click());
   expect(sent).toEqual([["user-4", "Cover it"]]);
+});
+
+test("Fork gives same-frame pending feedback and suppresses duplicate activation", async () => {
+  let calls = 0;
+  let resolve!: () => void;
+  const pending = new Promise<void>((done) => {
+    resolve = done;
+  });
+  const row: AcpmuxRow = {
+    id: "user-fork-pending",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    seq: 4,
+    text: "Fork this",
+  };
+  await draw(row, {
+    fork: () => {
+      calls += 1;
+      return pending;
+    },
+    forkAny: true,
+    promptTurns: new Map([[row.id, 5]]),
+  });
+  const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+  act(() => button.click());
+  act(() => button.click());
+  expect(calls).toBe(1);
+  expect(button.disabled).toBe(true);
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  resolve();
+  await act(async () => {
+    await pending;
+  });
+  expect(button.disabled).toBe(false);
+  expect(button.dataset.forkState).toBe("done");
+  expect(button.getAttribute("aria-label")).toBe("Fork from here ✓");
+});
+
+test("Fork shows a terminal error state when the host refuses it", async () => {
+  let reject!: (error: Error) => void;
+  const refused = new Promise<void>((_, fail) => {
+    reject = fail;
+  });
+  const row: AcpmuxRow = {
+    id: "user-fork-failed",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    seq: 4,
+    text: "Fork this",
+  };
+  await draw(row, {
+    fork: () => refused,
+    forkAny: true,
+    promptTurns: new Map([[row.id, 5]]),
+  });
+  const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+  act(() => button.click());
+  reject(new Error("refused"));
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(button.disabled).toBe(false);
+  expect(button.dataset.forkState).toBe("failed");
+  expect(button.getAttribute("aria-label")).toBe("Couldn't fork this chat");
+});
+
+test("Fork treats the host's empty session result as a refusal", async () => {
+  const previous = window.cmuxAcpmuxActions;
+  window.cmuxAcpmuxActions = { "chat.fork": async () => undefined };
+  try {
+    const row: AcpmuxRow = {
+      id: "user-fork-empty",
+      version: 1,
+      at: Date.now(),
+      kind: "user",
+      seq: 4,
+      text: "Fork this",
+    };
+    await draw(row, {
+      fork: () => "fallback",
+      forkAny: true,
+      promptTurns: new Map([[row.id, 5]]),
+    });
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+    act(() => button.click());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(button.dataset.forkState).toBe("failed");
+    expect(button.getAttribute("aria-label")).toBe("Couldn't fork this chat");
+  } finally {
+    window.cmuxAcpmuxActions = previous;
+  }
+});
+
+test("Fork shows success when the live host returns a new session id", async () => {
+  const previous = window.cmuxAcpmuxActions;
+  const calls: Record<string, unknown>[] = [];
+  window.cmuxAcpmuxActions = {
+    "chat.fork": async (params) => {
+      calls.push(params);
+      return "forked-session";
+    },
+  };
+  try {
+    const row: AcpmuxRow = {
+      id: "user-fork-live-success",
+      version: 1,
+      at: Date.now(),
+      kind: "user",
+      seq: 4,
+      text: "Fork this",
+    };
+    await draw(row, {
+      fork: () => "fallback",
+      forkAny: true,
+      promptTurns: new Map([[row.id, 5]]),
+    });
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+    act(() => button.click());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls).toEqual([{ throughSeq: 5 }]);
+    expect(button.dataset.forkState).toBe("done");
+    expect(button.getAttribute("aria-label")).toBe("Fork from here ✓");
+  } finally {
+    window.cmuxAcpmuxActions = previous;
+  }
 });
 
 test("a chat that cannot fork at a prompt hides Fork there rather than showing it disabled", async () => {

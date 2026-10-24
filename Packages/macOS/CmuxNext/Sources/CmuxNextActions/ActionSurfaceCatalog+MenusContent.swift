@@ -141,6 +141,8 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.toggleWorkspaceMute": [p(.workspaceRow, .identity, 113, folder: .options, label: ObjectMenuLabels.toggleWorkspaceMute)],
         "notifications.dismissHighlight": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.newAgentChat": [p(.newTab, .create, 2)],
+        // A tab kind: listed with the others, before the profile and New Tab Page rows (c0c88e7b24ff).
+        "macScreen.open": [p(.newTab, .create, 3)],
         "newTab.page": [p(.newTab, .create, 101)],
         "palette.forkAgentConversationRight": [p(.terminalSelection, .create, 200, folder: .agent), p(.agentChat, .create, 200, folder: .agent)],
         "palette.forkAgentConversationLeft": [p(.terminalSelection, .create, 202, folder: .agent), p(.agentChat, .create, 202, folder: .agent)],

@@ -25,10 +25,21 @@ final class FilePageOpener: FileOpening {
         "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
     ]).union(AgentPaneFileOpen.mediaExtensions)
 
+    /// Raster and document previews use WebKit's scoped `loadFileURL` path. Chromium can decode a
+    /// local PNG (its tab title proves the dimensions), but its sandboxed ImageDocument paints
+    /// some large RGBA/color-profile files black; WebKit grants the containing folder explicitly.
+    nonisolated static let webKitPreviewExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "avif", "pdf",
+    ]
+
     /// The engine of the tab that previews `url`: WebKit for video and audio the Chromium build
-    /// cannot decode (``LocalFileHandoff``), else nil (the default engine).
+    /// cannot decode (``LocalFileHandoff``), and for local image/PDF previews whose scoped file
+    /// read and color handling are more reliable than CEF's `file://` ImageDocument.
     nonisolated static func tabEngine(for url: URL) -> String? {
-        url.localFileHandoff == .webKitTab ? BrowserEngineTag.webkit.rawValue : nil
+        if url.localFileHandoff == .webKitTab || webKitPreviewExtensions.contains(url.pathExtension.lowercased()) {
+            return BrowserEngineTag.webkit.rawValue
+        }
+        return nil
     }
 
     /// The page that opens `url`, nil for a file the browser tab previews.

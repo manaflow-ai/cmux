@@ -9,6 +9,7 @@ import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
+import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
@@ -23,6 +24,7 @@ import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } f
 import { PlaceholderSection } from "./PlaceholderSection";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
+import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
@@ -47,12 +49,14 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
   mobile: () => <MobileCard />,
+  devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: () => <ChannelsCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
+  server: () => <ServerCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

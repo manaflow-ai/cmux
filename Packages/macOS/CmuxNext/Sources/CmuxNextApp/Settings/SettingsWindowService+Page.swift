@@ -15,8 +15,10 @@ extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
-        _ = ThemeStore.shared.generation
+        _ = services.themeStore.generation
         return [
+            // The Development category (dev_only) shows only in DEV builds.
+            "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.machineRow)),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
@@ -49,6 +51,8 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
+            // Settings > Server: status, version line, Restart Recommended, socket and tailnet address.
+            "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).

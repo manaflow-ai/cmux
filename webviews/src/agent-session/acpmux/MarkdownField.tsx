@@ -7,7 +7,7 @@ import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownForma
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
 import { followActionsWidth } from "./composerScrollLane";
-import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -41,7 +41,9 @@ export type MarkdownFieldHandle = {
   /// The caret's offset in the first paragraph.
   caret(): number;
   /// Replaces the prompt as typing would: the composer hears it through `onChange`.
-  type(markdown: string): void;
+  /// False when the editor is not made yet (it mounts a moment after the field): nothing changed,
+  /// and the caller sets the field's `value` instead.
+  type(markdown: string): boolean;
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
@@ -122,6 +124,42 @@ export type MarkdownFieldProps = {
   /// selection kept under one key never comes back under another, even over the same text.
   selectionKey?: string;
 };
+
+/// Streaming agent updates replace the composer's snapshot while the prompt is unchanged. The
+/// editor keeps its own ProseMirror view, so rebuilding that React subtree for every token only
+/// competes with the next key for the main thread. Event callbacks are held in `latest` below;
+/// callers may therefore update their refs without forcing the editor to reconcile.
+function sameMarkdownFieldAttributes(
+  left: MarkdownFieldProps["attributes"],
+  right: MarkdownFieldProps["attributes"],
+): boolean {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left ?? {});
+  const rightKeys = Object.keys(right ?? {});
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left?.[key] === right?.[key]);
+}
+
+function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFieldProps): boolean {
+  return (
+    previous.value === next.value &&
+    previous.multiline === next.multiline &&
+    previous.placeholder === next.placeholder &&
+    previous.placeholderKey === next.placeholderKey &&
+    previous.className === next.className &&
+    previous.selectionKey === next.selectionKey &&
+    previous.onChange === next.onChange &&
+    previous.onCaret === next.onCaret &&
+    previous.onKeyDown === next.onKeyDown &&
+    previous.onCompositionChange === next.onCompositionChange &&
+    previous.onBeforeInput === next.onBeforeInput &&
+    previous.onSubmit === next.onSubmit &&
+    previous.onReturnInput === next.onReturnInput &&
+    previous.onFirstInput === next.onFirstInput &&
+    previous.plugins === next.plugins &&
+    sameMarkdownFieldAttributes(previous.attributes, next.attributes)
+  );
+}
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
@@ -302,7 +340,7 @@ function plainPosition(doc: ProseNode, offset: number): number {
 /// and no syntax reveal. Enter is the composer's (send or pick a command); Shift-Enter starts a
 /// new block, a new list item inside a list. The composer reads and writes markdown through
 /// `value` / `onChange`, so its slash menu, mention and draft logic stay as they were.
-export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownField(
+const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownFieldImpl(
   {
     value,
     onChange,
@@ -756,6 +794,9 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
+  // Under the scrollbar fade (agentPane.debug.scrollerFade, on by default since Lawrence 2026-10-23)
+  // a long draft's thumb fades in and out with the scrolling marks, as the transcript's does.
+  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -779,7 +820,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         value: () => known.current,
         caret: () => (view.current ? caretOf(view.current) : 0),
         type: (markdown) => {
-          if (!editor.current) return;
+          if (!editor.current) return false;
           refocus.current = null;
           // Not `known`: the view plugin reports the change as the user's.
           setDocument(markdown);
@@ -788,6 +829,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             const end = current.state.doc.content.size;
             current.dispatch(current.state.tr.setSelection(TextSelection.near(current.state.doc.resolve(end), -1)));
           }
+          return true;
         },
         text: () => {
           const current = view.current;
@@ -902,7 +944,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft keeps its thin scrollbar while it overflows (scrollers.ts).
+      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
+      // shown while it scrolls and while the pointer is near its edge.
       {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
@@ -924,3 +967,5 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     </div>
   );
 });
+
+export const MarkdownField = React.memo(MarkdownFieldImpl, sameMarkdownFieldProps);

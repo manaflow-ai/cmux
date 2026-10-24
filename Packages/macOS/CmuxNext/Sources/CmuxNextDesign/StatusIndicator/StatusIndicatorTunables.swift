@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Debug Settings tunables for status indicators (section "Status
 /// Indicators"). `style` overrides `appearance.statusIndicator.style` so

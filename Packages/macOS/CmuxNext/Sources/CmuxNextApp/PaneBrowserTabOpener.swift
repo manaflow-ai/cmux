@@ -55,9 +55,10 @@ struct PaneBrowserTabOpener {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
-        // and no tab (false, so a New Tab page that asked stays in place).
+        // and cmux://mac-screen the Mac Screen tab, and no browser tab (false, so a New Tab page that
+        // asked stays in place).
         if child == nil, let typed = target {
-            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background) else { return false }
+            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background, in: controller) else { return false }
             target = routed
         }
         if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
@@ -143,7 +144,7 @@ struct PaneBrowserTabOpener {
         }
         guard Self.allowsSessionLocalTab(url: url, requested: requested) else {
             child?.close()
-            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
             return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
@@ -153,7 +154,7 @@ struct PaneBrowserTabOpener {
         if controller.isPinnedDockPane {
             guard case .pane(let id) = services.linkOpener.target(from: controller), id != controller.layoutPaneID,
                   let right = controller.workspace?.panes[id] else {
-                services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+                services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
                 return false
             }
             holder = right

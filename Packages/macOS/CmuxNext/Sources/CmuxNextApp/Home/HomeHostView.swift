@@ -56,7 +56,7 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
-                                              diagrams: service.diagrams)
+                                              diagrams: service.diagrams, openPanel: services.openPanel)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
@@ -280,18 +280,20 @@ final class HomeHostView: NSView {
         message.lineBreakMode = .byWordWrapping
         message.wraps = true
         message.stringValue = HomeStrings.unavailable
+        // Hidden until the owner answers: a daemon still connecting is not one too old (the launch's fill shows).
+        message.isHidden = true
         addSubview(transcript)
         addSubview(message)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
             // placed on a server) needs no local Chief owner.
-            for await (available, online, why, notice) in ObservationStream({
-                (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
-                 service.conversationNotice(for: id))
+            for await (available, explained, online, why, notice) in ObservationStream({
+                (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
+                 service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
                 self?.transcript.isHidden = !available
-                self?.message.isHidden = available
+                self?.message.isHidden = available || !explained
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true
@@ -308,18 +310,19 @@ final class HomeHostView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181): the observation
+    // Tasks are Sendable and end here. Two stops are main-actor work with no Sendable handle, so they run on the
+    // main actor: the settings popover's window, and the transcript's stop, which releases its dictation claim in
+    // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
+    // returned off main skipped all of it.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            availability?.cancel()
-            engineWatch?.cancel()
-            avatarsWatch?.cancel()
-            hostWatch?.cancel()
-            agentsWatch?.cancel()
-            shortcutsWatch?.cancel()
-            headerPanelsWatch?.cancel()
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, headerPanelsWatch, firstPage] {
+            task?.cancel()
+        }
+        let settings = settings, transcript = transcript
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
             settings.close()
-            firstPage?.cancel()
             transcript.stop()
         }
     }
@@ -428,7 +431,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).

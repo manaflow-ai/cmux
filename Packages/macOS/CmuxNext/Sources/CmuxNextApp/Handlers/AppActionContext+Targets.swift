@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
 import os
@@ -20,10 +21,18 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
+        let burst = BurstSignposts()
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
+            burst.refusal()
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+        }
+        // An action's local change was rolled back because the daemon refused it: say so where
+        // refusals show, so the change does not just vanish.
+        registry.remoteFailureObserver = { action, notice in
+            Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
 

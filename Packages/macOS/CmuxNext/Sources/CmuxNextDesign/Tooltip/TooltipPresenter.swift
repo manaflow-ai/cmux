@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
 /// (`.themedHelp` in SwiftUI); hovering it shows this tooltip below the view, kept on screen, with

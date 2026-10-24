@@ -12,12 +12,12 @@ extension ConversationClient {
     static let attachmentChunkTimeout: Duration = .seconds(30)
 
     public static func supportsAttachments(_ connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.shared.localAttachments) == true
+        await connection.identity?.supports(DaemonCapabilities.localAttachments) == true
     }
 
     private func requireAttachments() async throws {
         guard await Self.supportsAttachments(connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.localAttachments])
+            throw DaemonError.missingCapabilities([DaemonCapabilities.localAttachments])
         }
     }
 

@@ -277,6 +277,35 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    test("queue growth uses the structural motion token while its fitted height changes", async () => {
+      const page = await openChat(PROMPTS);
+      const before = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const style = getComputedStyle(list);
+        return {
+          height: list.getBoundingClientRect().height,
+          transition: style.transition,
+          ready: list.hasAttribute("data-fit-ready"),
+          animations: list.getAnimations().length,
+        };
+      });
+      expect(before.transition).toContain("max-height");
+      expect(before.ready).toBe(true);
+      expect(before.animations).toBe(0);
+      await page.locator(".acpmux-queue-fold").click();
+      await page.waitForFunction(
+        (height) =>
+          document.querySelector<HTMLElement>(".acpmux-composer-queue")!.getBoundingClientRect().height > height + 1,
+        before.height,
+      );
+      const after = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        return list.getBoundingClientRect().height;
+      });
+      expect(after).toBeGreaterThan(before.height);
+      await page.close();
+    });
+
     test("an opened long queue keeps Show less and the focused row in sight, never a half row (capture, 2026-10-15)", async () => {
       // The real-app capture at 90721dc: five queued, opened, the list stayed capped at 132px, row 4
       // cut through its text and Show less (focused) below the edge.

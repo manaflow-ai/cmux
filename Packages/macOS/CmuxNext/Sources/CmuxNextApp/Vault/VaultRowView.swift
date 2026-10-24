@@ -1,6 +1,7 @@
 import CmuxAgentBrands
 import CmuxNextDesign
 import SwiftUI
+import CmuxNextHistory
 
 /// One session of the vault list: the agent's mark, title, folder and last activity.
 struct VaultRowView: View {

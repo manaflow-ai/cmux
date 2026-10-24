@@ -17,6 +17,9 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
+        // Chats feed only fills the history; a launch without one used to leave the action unbound).
+        SidebarChatHistoryFeed.bind(into: registry)
         FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         StashHandlers.bind(into: registry, context: context)
@@ -115,6 +118,7 @@ enum AppActions {
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
+        ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()
