@@ -7,6 +7,7 @@ import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
+import { incomingRows } from "./incomingFixture";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
@@ -21,8 +22,9 @@ import { queuedRowsState } from "./queuedRowsState";
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
-  /// Replaces the transcript with `count` synthetic rows, or with the worked turn of
-  /// workedTurn.ts when `fixture` is "worked-turn".
+  /// Replaces the transcript with `count` synthetic rows, with the worked turn of
+  /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
+  /// (incomingFixture.ts) when it is "incoming".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -128,7 +130,9 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "worked-turn"
           ? workedTurnRows(Date.now() - 60_000)
-          : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+          : fixture === "incoming"
+            ? incomingRows(Date.now() - 120_000)
+            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);

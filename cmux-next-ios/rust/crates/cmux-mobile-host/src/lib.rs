@@ -12,15 +12,27 @@
 pub mod acpmux_policy;
 pub mod auth;
 pub mod browser;
+pub mod browser_policy;
 pub mod browser_track;
 pub mod chief_answers;
 pub mod chief_policy;
 pub mod config;
 pub mod control;
 pub mod host;
+pub mod mailbox;
+pub mod mailbox_apply;
 pub mod media_session;
 pub mod netwatch;
 pub mod notify;
+pub mod notify_content;
+pub mod notify_redact;
+#[cfg(test)]
+mod notify_secfix_tests;
+pub mod notify_terminal;
 pub mod pairing;
 pub mod policy;
+pub mod push_keys;
+pub mod seal;
+pub mod sealed_notify;
 pub mod services;
+pub mod size_release;

@@ -59,11 +59,12 @@ extension WorkspaceRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = Palette.textPrimary
-            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel, elapsedLabel].forEach { $0.setColor(Palette.textTertiary) }
-            if let chip { timeLabel.setColor(SidebarPriorityRowView.chipColor(chip)) }
+            // An idle workspace nobody named reads quiet until it is selected, hovered or busy.
+            title.textColor = isQuiet && !isSelected && !isSecondarySelected && !isHovered ? Palette.textSecondary : Palette.textPrimary
+            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            if let machine { machineMark.setTint(machine.color) }
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -91,13 +92,13 @@ extension WorkspaceRowView {
         let fades = fadesNextHover && !isHovered
         defer { fadesNextHover = false; CATransaction.commit() }
 
-        // Members indent under their group header; the members' line is
-        // one layer per group under the rows (SidebarListView+GroupLines).
-        let groupIndent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
-        let indent = groupIndent + CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
+        // A group member's content starts where an ungrouped row's does: no indent for the group
+        // (Leo 2026-10-21); the members' line is one layer per group beside the rows
+        // (SidebarListView+GroupLines).
+        let indent = CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
         let (th, sh, top, cy) = textMetrics(head: b)
-        // A custom workspace icon takes the leading slot; without one the
-        // title starts at the leading inset (no default kind glyph).
+        // A custom workspace icon or favicon takes the leading slot; without one the title starts
+        // at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
         let side: CGFloat
         switch iconKind {
@@ -106,7 +107,7 @@ extension WorkspaceRowView {
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
-        layoutTreeLine(leading: SidebarStyle.horizontalInset + groupIndent)
+        layoutTreeLine(leading: SidebarStyle.horizontalInset)
 
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
@@ -132,6 +133,8 @@ extension WorkspaceRowView {
             prBadge.frame = NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h)
             trailing -= w + Metrics.space2
         }
+        trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
+        trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the
@@ -193,19 +196,17 @@ extension WorkspaceRowView {
             trailing -= w + Metrics.space2
         }
 
-        // The title's text starts a Chrome-like 6 pt after the icon's drawing (a favicon or an
-        // emoji draws at `kindGlyphSize`, centered in its box; Lawrence 2026-10-19: "slightly too
-        // much space between the favicon and the name"); without an icon, at `leading`.
-        let iconTextGap: CGFloat = switch iconKind {
-        case .swatch?: Metrics.space3 // a color dot keeps its spacing
-        default: Metrics.space3 - Self.labelInset - max(0, (side - SidebarStyle.kindGlyphSize) / 2)
-        }
-        var textX = side > 0 ? icon.frame.maxX + iconTextGap : leading - Self.labelInset
+        // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
+        let swatch: Bool = if case .swatch? = iconKind { true } else { false }
+        var textX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - Self.labelInset
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
         }
-        trailing = layoutElapsed(trailing: trailing, textX: textX, cy: cy, height: sh)
+        if !machineMark.isHidden {
+            machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
+            textX = machineMark.frame.maxX + Metrics.space1
+        }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -227,7 +228,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel, elapsedLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

@@ -18,6 +18,9 @@ extension UpdatesSettings {
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
+    /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
+    public nonisolated static let webPath = ["updates", "web"]
+    public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = true
@@ -31,6 +34,14 @@ extension UpdatesSettings {
     /// `updates.showWhatsNew`: The bottom-left "cmux Updated!" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.
     public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
     public nonisolated static let showWhatsNewDefault = true
+    /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
+    public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
+    public nonisolated static let idleInstallMaxWaitDefault: Double = 900
+    public nonisolated static let idleInstallMaxWaitRange: ClosedRange<Double> = 60...7200
+    /// `updates.idleInstallQuietSeconds`: Nightly idle install (#20295): how long keyboard and pointer input must be quiet before it installs.
+    public nonisolated static let idleInstallQuietPath = ["updates", "idleInstallQuietSeconds"]
+    public nonisolated static let idleInstallQuietDefault: Double = 60
+    public nonisolated static let idleInstallQuietRange: ClosedRange<Double> = 5...600
 }
 
 extension AnnouncementsSettings {
@@ -106,6 +117,20 @@ nonisolated enum UpdateSettingsSchema {
                 keywords: ["update", "metered", "cellular", "low data", "hotspot"]
             ),
             SettingDescriptor(
+                UpdatesSettings.webPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.web", "Web UI Updates"),
+                help: SettingsText.keyed("settings.updates.web.help", "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."),
+                kind: .choice([
+                    SettingChoice(UpdatesWebSetting.everyMerge.rawValue, SettingsText.keyed("settings.choice.updatesWebEveryMerge", "Every Merge")),
+                    SettingChoice(UpdatesWebSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesWebNightly", "With Nightly")),
+                    SettingChoice(UpdatesWebSetting.off.rawValue, SettingsText.keyed("settings.choice.updatesWebOff", "Off")),
+                ]),
+                default: .string(UpdatesSettings.webDefault.rawValue),
+                keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
+            ),
+            SettingDescriptor(
                 UpdatesSettings.installOnQuitPath,
                 section: .general,
                 group: group,
@@ -146,6 +171,26 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showWhatsNewDefault),
                 keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.idleInstallMaxWaitPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.idleInstallMaxWait", "Install Within"),
+                help: SettingsText.keyed("settings.updates.idleInstallMaxWait.help", "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."),
+                kind: .number(SettingNumber(UpdatesSettings.idleInstallMaxWaitRange, step: 60, unit: .seconds)),
+                default: .number(UpdatesSettings.idleInstallMaxWaitDefault),
+                keywords: ["update", "install", "idle", "wait", "automatic", "nightly"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.idleInstallQuietPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.idleInstallQuiet", "Quiet Time Before Installing"),
+                help: SettingsText.keyed("settings.updates.idleInstallQuiet.help", "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."),
+                kind: .number(SettingNumber(UpdatesSettings.idleInstallQuietRange, step: 5, unit: .seconds)),
+                default: .number(UpdatesSettings.idleInstallQuietDefault),
+                keywords: ["update", "install", "idle", "quiet", "typing", "nightly"]
             ),
         ]
     }

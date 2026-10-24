@@ -15,6 +15,19 @@ struct AgentSubsessionFamilyTests {
         #expect(links == ["c1": "root"])
     }
 
+    /// A chat its agent made with `acpmux new` carries `spawnedBy` only; the tray and the Inspector
+    /// list it as started, so a click on it must open it, not be refused.
+    @Test func aSpawnedChatIsFamilyToo() {
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "lane", "spawnedBy": "coord"]) == "coord")
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "c", "startedBy": "a", "spawnedBy": "b"]) == "a",
+                "the sub-session link wins")
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "c", "startedBy": " ", "spawnedBy": "b"]) == "b")
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "x", "spawnedBy": "x"]) == nil)
+        let turns = AgentTurnStateStore()
+        turns.replaceStartedBy(AgentTurnStateStore.startedBy(["sessions": [["sessionId": "lane", "spawnedBy": "coord"]]]))
+        #expect(turns.isFamily("lane", of: "coord"))
+    }
+
     /// The watch's lines carry the links: its page, a change, and none for a purge.
     @Test func theFeedReadsStartedByFromItsPageAndItsChanges() {
         func message(_ json: String) -> AgentTurnStateFeed.Message? { AgentTurnStateFeed.Message(line: Data(json.utf8)) }
@@ -22,11 +35,11 @@ struct AgentSubsessionFamilyTests {
         guard case .page(_, _, _, _, _, _, _, let links) = page else { Issue.record("not a page: \(String(describing: page))"); return }
         #expect(links == ["c1": "root"])
         let change = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","session":{"sessionId":"c1","startedBy":"root"}}}"#)
-        guard case .change(let session, _, _, _, _, _, _, _, let parent) = change else { Issue.record("not a change: \(String(describing: change))"); return }
+        guard case .change(let session, _, _, _, _, _, _, _, let parent, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }
         #expect(session == "c1")
         #expect(parent == "root")
         let purge = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","kind":"purged"}}"#)
-        guard case .change(_, _, _, _, _, _, _, _, let purged) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
+        guard case .change(_, _, _, _, _, _, _, _, let purged, _) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
         #expect(purged == nil, "a purged session keeps no parent")
     }
 

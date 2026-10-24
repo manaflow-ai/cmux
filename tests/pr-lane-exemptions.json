@@ -66,25 +66,6 @@
       ]
     },
     {
-      "reason": "No tests/test-execution.toml entry on the base (the registry check warns about it). Place it in a lane first.",
-      "tests": [
-        "tests/test_app_crate_licenses.py",
-        "tests/test_ci_package_lane_prebuild.py",
-        "tests/test_cmux_bug_triage.py",
-        "tests/test_cmux_code_mode_mcp.py",
-        "tests/test_cmux_cua_dev_helper_identity.py",
-        "tests/test_cmux_next_dev_daily_notify_cli.py",
-        "tests/test_cmux_next_media_publish_windows.py",
-        "tests/test_compile_string_catalogs.py",
-        "tests/test_list_macho_candidates.py",
-        "tests/test_publish_cmux_tui_tree.py",
-        "tests/test_shell_claude_rereports_pwd.py",
-        "tests/test_socket_control_schema.py",
-        "tests/test_swiftpm_test_product.py",
-        "tests/test_zsh_git_head_watch_no_fork.py"
-      ]
-    },
-    {
       "reason": "ci-guards.yml's `release-ios` group, which guards only main's iOS release path: ios-testflight.yml and ios-appstore-upload.yml (scheduled and dispatched from main; their upload, assignment and secret jobs require refs/heads/main and the release environment), the ios/scripts TestFlight and App Store upload tooling those workflows alone run (upload-testflight.sh, generate-testflight-notes.sh, fetch-testflight-notes-history.sh, resolve_testflight_distribution.py, asc_assign_external_testflight_group.py), scripts/ci/ios_upload_batch_decision.py and ios/fastlane. No feat-cmux-next workflow runs any of them, and nothing feat-cmux-next ships (nightly-next, its iOS build in test-ios.yml) reads them, so a feat pull request cannot break an upload; an edit to them takes effect only on main, and ci.yml routes this group by path on every pull request into main. The group's guards of shared tooling (the iOS package conventions diff and test-ios.yml's dispatch ref) moved to `preflight`, which feat pull requests route.",
       "tests": [
         "tests/test_ios_appstore_lane_identity.py",
@@ -102,54 +83,9 @@
       ]
     },
     {
-      "reason": "remote-daemon.yml, which ci.yml calls only for pull requests into main and main pushes.",
-      "tests": [
-        "tests/test_remote_daemon_notices.py",
-        "tests/test_remote_daemon_release_assets.py",
-        "tests/test_remote_daemon_release_verification.py"
-      ]
-    },
-    {
-      "reason": "cmux-browser-host-release.yml runs it on feat-cmux-next pushes that touch the browser host. A pull request lane needs that release workflow to gain a pull_request trigger with its publish jobs gated off.",
-      "tests": [
-        "tests/test_browser_host_release_package.py",
-        "tests/test_browser_host_release_smoke.py"
-      ]
-    },
-    {
-      "reason": "Only cmux-next-notices.yml runs it, on workflow_dispatch.",
-      "tests": [
-        "tests/test_install_zig_ci_reviewed_version.py"
-      ]
-    },
-    {
-      "reason": "Only nightly-next-feed-watch.yml runs it, on a schedule (from main's copy).",
+      "reason": "Only nightly-next-feed-watch.yml runs it, on a schedule, and a schedule runs main's copy of the workflow and of scripts/ci/nightly_next_feed_watch.py. feat-cmux-next's copies are never executed and lag main's (main changed both after the last sync), so a feat pull request cannot break the watch; main's own pull requests (ci.yml guards) test the copy that runs.",
       "tests": [
         "tests/test_nightly_next_feed_watch.py"
-      ]
-    },
-    {
-      "reason": "Only the scripts/verify-local.py recipe runs it, and no pull request job runs the recipe. It tests the classic cmux.xcodeproj normalizer.",
-      "tests": [
-        "tests/test_normalize_pbxproj.py"
-      ]
-    },
-    {
-      "reason": "cmux-tui-artifacts.yml (pushes) and macos-cross-parity.yml (schedule) run it. Its subject, scripts/ci/macos_stubs.py and macho_weaken.py, is a cmux-next.yml path, but adding it there selects every cmux-next tier; route it with cmux_next_route.py.",
-      "tests": [
-        "tests/test_ci_macos_stubs.py"
-      ]
-    },
-    {
-      "reason": "cmux-tui-artifacts.yml and app-ffi-release.yml (pushes) and macos-cross-parity.yml (schedule) run it. Its subject, scripts/ci/macos_stubs.py and macho_weaken.py, is a cmux-next.yml path, but adding it there selects every cmux-next tier; route it with cmux_next_route.py.",
-      "tests": [
-        "tests/test_ci_macho_parity.py"
-      ]
-    },
-    {
-      "reason": "web-validation.yml's main-push job runs it; its subject (scripts/ci/web_validation.py) routes only that main-only workflow.",
-      "tests": [
-        "tests/test_web_validation.py"
       ]
     }
   ]

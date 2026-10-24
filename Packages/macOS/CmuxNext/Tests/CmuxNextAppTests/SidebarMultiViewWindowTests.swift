@@ -194,9 +194,11 @@ struct SidebarMultiViewWindowTests {
     static func withMultiView<T>(_ on: Bool = true, _ body: () async throws -> T) async rethrows -> T {
         TunableStore.shared.register(SidebarTunables.all)
         TunableStore.shared.activate(file: nil)
+        // Puts back what it found, so a test of the other multi-view suite that runs in this one's await keeps its value.
+        let before = TunableStore.shared.override(SidebarTunables.multiView.key)
         TunableStore.shared.set(SidebarTunables.multiView.key, on ? .bool(true) : nil)
         precondition(SidebarTunables.multiView.value == on, "the sidebar.multiView override did not take")
-        defer { TunableStore.shared.set(SidebarTunables.multiView.key, nil) }
+        defer { TunableStore.shared.set(SidebarTunables.multiView.key, before) }
         return try await body()
     }
 
@@ -377,7 +379,7 @@ struct SidebarMultiViewWindowTests {
         try await Self.withMultiView(false) {
             let f = try await Fixture()
             defer { f.close() }
-            // With the toggle off a press selects its row at once, so the drag starts as the window drag's own.
+            // With the toggle off, a drag of the shown workspace's row starts as the window drag's own.
             let handoff = SidebarDragHandoff(payload: .workspaces([WorkspaceID("k1")]), workspaceIDs: [WorkspaceID("k1")],
                                              rowScreenFrame: CGRect(x: 300, y: 300, width: 220, height: 28),
                                              grabOffset: CGPoint(x: 20, y: 14), screenPoint: CGPoint(x: 320, y: 314), image: nil)

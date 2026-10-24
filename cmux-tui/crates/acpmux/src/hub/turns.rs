@@ -200,23 +200,25 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
-        let mut on_accepted = opts.on_accepted;
-        let mut accept = |v: Value| {
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
+        // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
+        // is committed (queued, started, or steered in), never before a refusal.
+        let supersede = opts.supersede.clone();
+        let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
+                if supersede.is_some() {
+                    super::queue::supersede::mark(&mut v, replaced.get());
+                }
                 f(v);
             }
         };
-        // A prompt that cannot reach any agent (none running, and its harness is gone) is
-        // refused before it is recorded, so a caller may send it again (handoff start).
+        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
+        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         let live = match session.child.lock().await.as_ref() {
             Some(child) => child.is_alive().await,
             None => false,
         };
-        let m = session.meta();
-        if !live {
-            let cfg = self.config.read().await;
-            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
-        }
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
@@ -226,9 +228,14 @@ impl Hub {
             )
             .with_data(json!({"reason": "steer.unavailable"})));
         }
+        if !live {
+            self.cold_prompt_check(session).await?;
+        }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
+        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -239,10 +246,10 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
-        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
+            display_parts: opts.display_parts.as_ref(),
             client,
             prompt_id: &prompt_id,
             control,
@@ -250,6 +257,8 @@ impl Hub {
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
+            supersede: supersede.as_deref(),
+            replaced: &replaced,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -271,6 +280,7 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
@@ -309,12 +319,15 @@ impl Hub {
             provenance = Some(super::digest::digest_provenance(&parts));
             let blocks = super::digest::digest_blocks(&parts);
             let text = prompt_text(&blocks);
+            display_parts = None;
             (blocks, text)
         };
         let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
-            m.last_prompt = Some(short_text(&text, 200));
+            // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
+            let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+            m.last_prompt = Some(short_text(&line, 200));
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
@@ -329,8 +342,13 @@ impl Hub {
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
-        self.append_prompt(session, msg, &blocks);
+        self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if !waiting {
+            // Started at once: only prompts a failed turn holds can wait under its key.
+            if let Some(key) = supersede.as_deref() {
+                let _ =
+                    replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
@@ -411,12 +429,15 @@ impl Hub {
         }
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
-        let mut result = super::steer_end::agent_prompt(
+        // Start title generation after the first prompt is written to the harness, while its
+        // session-info title can still win before the cheap completion is spent.
+        let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
             json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
+            || self.title_after_prompt(session),
         )
         .await;
         // The account behind this harness is exhausted: move the session
@@ -499,7 +520,7 @@ impl Hub {
                 turn_id: &turn_id,
                 control,
                 trust_gate,
-                error: agent_error.as_deref().unwrap_or(&e.message),
+                error: super::turn_errors::continuation_error(agent_error.as_deref(), &e.message),
             }),
             _ => None,
         };
@@ -543,7 +564,8 @@ impl Hub {
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
-        // A process that died without answering: say what it printed last.
+        // Apply queued stderr before classifying a dead process (a limit never resumes).
+        Self::drain_inbound(session).await;
         if let Err(e) = &mut result {
             let bare = e.message == "agent process closed"
                 || e.message == "Internal error"
@@ -604,10 +626,6 @@ impl Hub {
                 Some(_) => {}
             }
         }
-        // The agent's notifications before this answer (the reply text, the
-        // preview) are applied before the turn settles, so every record below
-        // and the chat activity it sends see them.
-        Self::drain_inbound(session).await;
         let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
@@ -689,7 +707,7 @@ impl Hub {
 
     /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -721,7 +739,7 @@ impl Hub {
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -1027,6 +1045,7 @@ impl Hub {
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             session.purged.store(true, Ordering::SeqCst);
+            let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
@@ -1043,12 +1062,24 @@ impl Hub {
                     at: now_ms(),
                     dir: "mux".into(),
                     kind: "purged".into(),
-                    msg: json!({"sessionId": session.id}),
+                    msg: if replaced {
+                        json!({"sessionId": session.id, "replaced": true})
+                    } else {
+                        json!({"sessionId": session.id})
+                    },
                     host_seq: None,
                 }),
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
+            // itself comes back under this id.
+            if !replaced {
+                let id = session.id.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
+                        .await;
+            }
         }
         Ok(())
     }

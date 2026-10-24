@@ -128,10 +128,7 @@ fn forbidden(message: impl Into<String>) -> ErrorBody {
 
 /// `inner` is `outer` or sits below it (`cmux.git` inside `cmux`).
 pub fn within(inner: &str, outer: &str) -> bool {
-    inner == outer
-        || (inner.len() > outer.len()
-            && inner.starts_with(outer)
-            && inner.as_bytes()[outer.len()] == b'.')
+    inner == outer || inner.strip_prefix(outer).is_some_and(|rest| rest.starts_with('.'))
 }
 
 fn first_party(app_id: &str) -> bool {

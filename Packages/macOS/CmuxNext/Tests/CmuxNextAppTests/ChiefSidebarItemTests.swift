@@ -76,6 +76,23 @@ struct ChiefSidebarItemTests {
         #expect(ChiefSidebar.menuRemovals(isApp: true, isChief: false) == [ChiefSidebar.toggleIdleAction])
     }
 
+    /// The Chief item wears the chosen pet character (`home.chiefPetMascot`) as its picture in every
+    /// look, not a generic glyph; another pick draws another picture, and an unknown id draws the orb.
+    @Test func theChiefItemWearsTheChosenPetCharacter() {
+        let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
+        func picture(_ mascot: String?) -> SidebarFavicon? {
+            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
+        }
+        let fox = picture("fox"), orb = picture("orb")
+        #expect(fox != nil)
+        #expect(orb != nil)
+        #expect(fox != orb)
+        // The same pick is the same picture, so an unrelated sidebar change does not redraw the item.
+        #expect(picture("fox") == fox)
+        #expect(picture(nil) == orb)
+        #expect(picture("not-a-mascot") == orb)
+    }
+
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
         let lanes = [Self.lane("optchat-sub-6b68ac4a-a10", .working, title: "Inspector"),
                      Self.lane("optchat-sub-6b68ac4a-a2", .idle),

@@ -6,6 +6,8 @@ import type { Play } from "../../../gallery/play";
 type PreviewCardProps = { url: string };
 const docs = "https://docs.example.test/guide";
 const loopback = "http://127.0.0.1:3000/admin?tab=1";
+// A dev server whose address carries its access token (fixture value, not a real secret).
+const tokened = "http://127.0.0.1:47811/?token=fixture-dev-server-token-47811";
 // A gallery stage, served by this same gallery under its other loopback name (localhost and
 // 127.0.0.1 are different origins, so the card does not take it for the pane's own page).
 const stage = (() => {
@@ -76,6 +78,11 @@ export default componentEntry<PreviewCardProps>({
       note: "A local dev server address is one compact row, with no thumbnail box, until the reader clicks Load preview.",
       chipHost,
       props: { url: loopback },
+    },
+    "loopback-token": {
+      note: "A dev server address with an access token reads token=•••, in one compact row whose actions are quiet text buttons.",
+      chipHost,
+      props: { url: tokened },
     },
   },
 });

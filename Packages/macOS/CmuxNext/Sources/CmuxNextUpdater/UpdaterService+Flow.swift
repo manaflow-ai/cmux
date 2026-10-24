@@ -14,6 +14,7 @@ extension UpdaterService {
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
         guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        if card == .installing, installCardDismissed { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
     }
@@ -24,8 +25,9 @@ extension UpdaterService {
     }
 
     /// One click installs (footer pill, palette, `cmux update install`): at
-    /// once, or when the download finishes. Running agents never hold it:
-    /// the relaunch keeps them (`willRelaunch` records keep sessions).
+    /// once, or when the download finishes. The relaunch waits only for busy
+    /// agents and running commands (the quiet-input and daemon-mirror holds are
+    /// for idle installs); `willRelaunch` records keep sessions.
     public func installClicked() {
         #if DEBUG
         UpdateHarness.mark("install_clicked")
@@ -62,20 +64,10 @@ extension UpdaterService {
     private func perform(_ effect: UpdateFlowEffect) {
         switch effect {
         case .install:
-            log.append("gate: installing the staged update")
-            #if DEBUG
-            UpdateHarness.mark("install_started")
-            #endif
-            if let failure = installPreflightFailure() {
-                failInstall(failure)
-                return
-            }
-            recordBeforeInstall()
-            willInstallStaged?()
-            installStaged()
-            #if DEBUG
-            UpdateHarness.mark("install_handed_to_sparkle")
-            #endif
+            stagedRefresh.installStarted()
+            automaticInstallInFlight = false
+            // The newest build of the ring, not a stale staged one (one click, one relaunch).
+            stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -84,9 +76,46 @@ extension UpdaterService {
         }
     }
 
+    /// Hands the staged update to Sparkle: preflight, the What's New record, the windows, the install.
+    private func installStagedNow() {
+        log.append("gate: installing the staged update")
+        #if DEBUG
+        UpdateHarness.mark("install_started")
+        #endif
+        let failure = if let preflightOverride { preflightOverride() } else { installPreflightFailure() }
+        if let failure {
+            failInstall(failure)
+            return
+        }
+        recordBeforeInstall()
+        willInstallStaged?()
+        installStaged()
+        #if DEBUG
+        UpdateHarness.mark("install_handed_to_sparkle")
+        #endif
+    }
+
+    /// The click that replaced a stale staged build carries over: once Sparkle checks for the
+    /// newer build, the click holds it (its download shows, it installs once staged); a failed
+    /// check opens the update sheet, so the click never ends in silence.
+    func carryInstallClick(_ phase: UpdateIndicatorPhase) {
+        guard installAfterSwap else { return }
+        switch phase {
+        case .checking, .downloading, .available, .ready:
+            installAfterSwap = false
+            send(.installRequested)
+        case .note:
+            installAfterSwap = false
+            log.append("install click: the newer build's check failed")
+            presentUpdateUI?()
+        case .hidden, .installing:
+            break
+        }
+    }
+
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
-        dropStaleStagedUpdate()
+        stagedRefresh.dropStale(updater: self)
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
@@ -101,11 +130,19 @@ extension UpdaterService {
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
         send(.sparkle(phase))
+        carryInstallClick(phase)
+        followInstall(phase)
         followStagedUpdate(phase)
+        stagedRefresh.follow(phase, updater: self)
         switch phase {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
+        case .note where wasInstalling && automaticInstallInFlight:
+            // An install nobody clicked failed: nothing opens over the person's work; the
+            // log keeps it and the next check offers the update again.
+            automaticInstallInFlight = false
+            log.append("automatic install ended without a relaunch (not shown)")
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
@@ -138,11 +175,19 @@ extension UpdaterService {
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
     /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
-    /// (``follow(ring:)``) to Sparkle. The ring is kept without a driver too (the probe reads it).
+    /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
+    /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
+    /// too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
-                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
+                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
         if let ring { follow(ring: ring) }
+        if let idleInstall {
+            idleInstallQuiet = .seconds(idleInstall.quiet)
+            controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+        }
         downloadSetting = (downloadAutomatically, metered)
+        stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -152,12 +197,21 @@ extension UpdaterService {
 
     /// Follows `updates.channel`: which release ring's appcast items Sparkle and the probe offer.
     /// Takes the setting's raw value (`stable`, `nightly`, `canary`, `dev`); anything else is Nightly.
+    /// The first value is the launch's; a later move is the person's pick, so the app checks the
+    /// new ring at once instead of at the next scheduled check (a faster ring's newer build
+    /// downloads and waits for one restart; a slower ring's way back is ``ringReturn(to:)``).
     public func follow(ring rawValue: String) {
         let ring = UpdateRing(rawValue: rawValue) ?? .nightly
+        let picked = ringFollowed
+        ringFollowed = true
         guard self.ring != ring else { return }
         self.ring = ring
         controller?.ring = ring
+        stagedRefresh.ringMoved()
         log.append("update ring \(ring.rawValue)")
+        guard picked else { return }
+        log.append("update ring picked: checking \(ring.rawValue) now")
+        checkForUpdates()
     }
 
     /// Recomputes whether found updates download by themselves: the user's

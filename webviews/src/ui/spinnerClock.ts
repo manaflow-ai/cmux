@@ -6,12 +6,15 @@
 
 /** The keyframes every page spinner runs (desktop.css). */
 export const SPINNER_KEYFRAMES = "cmux-spin";
-/** Every shared loop the clock keeps in phase: the spinner, the working rows' shimmer (WORKING-LOOK)
- * and the loading skeleton's pulse (desktop.css), so many rows move as one. */
+/** Every shared loop the clock keeps in phase: the spinner, and agent work's breathing dot and
+ * shimmer (WORKING-LOOK, desktop.css), so many working rows move as one. */
 export const SHARED_LOOP_KEYFRAMES: ReadonlySet<string> = new Set([
   SPINNER_KEYFRAMES,
+  "cmux-breathe",
   "cmux-shimmer",
-  "cmux-skeleton-pulse",
+  // The Thinking shimmer's two layers (ShimmerText.tsx): one phase keeps the lit words still.
+  "cmux-shimmer-band",
+  "cmux-shimmer-lit",
 ]);
 
 /** The start time (document timeline ms) a loop of `period` ms must have so that its phase at

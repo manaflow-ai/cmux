@@ -1,0 +1,55 @@
+name: cmux-next Computer Use helper identity
+
+# A tagged dev build never bundles or launches an ad-hoc cmux Computer Use helper
+# (tests/test_cmux_cua_dev_helper_identity.py): it signs fixtures with /usr/bin/codesign
+# and runs scripts/cmux-cua-helper-trust.sh against them, so it needs a Mac. It had no
+# registry entry, so no job ran it (tests/test_pr_lane_coverage.py). This runs it on a
+# macOS runner for every feat-cmux-next pull request and push that touches the helper's
+# build (every scripts/*cmux-cua* file: build, patch, rpath strip), trust check or bench
+# launcher; nothing else starts a Mac here.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "scripts/*cmux-cua*"
+      - "tests/automation-bench/cua/helper.sh"
+      - "tests/fixtures/cua-helper-signatures/**"
+      - "tests/test_cmux_cua_build_cache_safety.py"
+      - "tests/test_cmux_cua_dev_helper_identity.py"
+      - ".github/workflows/cmux-next-cua-helper-identity.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "scripts/*cmux-cua*"
+      - "tests/automation-bench/cua/helper.sh"
+      - "tests/fixtures/cua-helper-signatures/**"
+      - "tests/test_cmux_cua_build_cache_safety.py"
+      - "tests/test_cmux_cua_dev_helper_identity.py"
+      - ".github/workflows/cmux-next-cua-helper-identity.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-cua-helper-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  helper-identity:
+    name: cmux-next Computer Use helper identity
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # codesign comes from the system; pin the Xcode like every other macOS job anyway.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: A dev build carries and launches no ad-hoc Computer Use helper
+        run: python3 tests/test_cmux_cua_dev_helper_identity.py

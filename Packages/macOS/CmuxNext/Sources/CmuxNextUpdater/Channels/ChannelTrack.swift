@@ -82,8 +82,9 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
     public var installed: ChannelBuild? { builds.first(where: \.isInstalled) }
 
     /// The tracks shown today, one per ring, slowest first (Stable, Nightly, Canary, Dev).
-    /// Every published build carries the Nightly tag, so the Nightly track is the feed's build
-    /// index; the other rings have no builds of their own until CI publishes ring-tagged items.
+    /// The Nightly track is the feed's build index, each build with its canary verdict. Dev takes
+    /// every build CI publishes (`cmux-next-dev` first, then `cmux-next` once promoted), so its
+    /// track is the same index; Stable and Canary have no builds until CI publishes them.
     /// - Parameters:
     ///   - index: `notes/index.json`, newest first.
     ///   - verdicts: each build's canary verdict (`verdicts/<build>.json`: pass, fail, skipped).
@@ -103,7 +104,7 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
                          isInstalled: entry.build == installedBuild, isKept: keptBuilds.contains(entry.build))
         }
         return UpdateRing.allCases.map { ring in
-            ChannelTrack(ring: ring, builds: ring == .nightly ? Array(nightly) : [], isFollowed: ring == followed,
+            ChannelTrack(ring: ring, builds: ring == .nightly || ring == .dev ? Array(nightly) : [], isFollowed: ring == followed,
                          releaseURL: ring == .nightly ? URL(string: "\(ChannelBuild.repository)/releases/tag/nightly-next") : nil)
         }
     }

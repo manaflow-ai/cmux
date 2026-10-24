@@ -177,6 +177,46 @@
   box-shadow: none;
 }
 
+/* A glass card (Settings > Chief): the card is liquid glass (.ui-glass, ui/glass/glass.css: the
+   theme surface's translucent tint, never opaque) holding its title, help and rows; the rows drop
+   their own outline and keep the hairlines between them, under one hairline below the header. */
+.group.ui-glass {
+  border-radius: var(--card-radius);
+  padding-top: 10px;
+}
+
+.group.ui-glass > :not(.rows) {
+  margin-inline: var(--row-pad-x);
+}
+
+.group.ui-glass > .rows {
+  border: 0;
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+.group.ui-glass > .rows > .row:first-child {
+  border-radius: 0;
+}
+
+.group.ui-glass > :last-child:not(.rows) {
+  margin-bottom: 12px;
+}
+
+/* Look's characters keep clear of the Bubble Style row's hairline. */
+.group.chief-pet.ui-glass > :not(.rows):has(+ .rows) {
+  margin-bottom: 16px;
+}
+
+/* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
+   row's lines and loads after styles.css's .chiefs-row, so the row drew every part centred down
+   the card. */
+.rows > .chiefs-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .rows > .row:first-child {
   border-top-left-radius: var(--card-radius);
   border-top-right-radius: var(--card-radius);

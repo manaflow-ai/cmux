@@ -197,6 +197,45 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudGroup {
+    pub id: GroupId,
+    pub name: String,
+    pub created_by: UserId,
+    pub created_at: i64,
+    pub archived: bool,
+    pub default_placement: CloudGroupDefaultPlacement,
+    pub item_count: i64,
+    pub role: CloudGroupRole,
+}
+
+wire_enum! {
+    CloudGroupDefaultPlacement {
+        Local = "local",
+        Mini = "mini",
+        CloudVm = "cloud_vm",
+    }
+}
+
+wire_enum! {
+    CloudGroupRole {
+        Owner = "owner",
+        Edit = "edit",
+        View = "view",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudGroupItem {
+    pub workspace: GroupWorkspaceId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub placement: GroupPlacement,
+    pub position: i64,
+    pub added_by: UserId,
+    pub added_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachine {
     pub id: MachineId,
     pub team: TeamId,
@@ -705,6 +744,28 @@ wire_enum! {
 /// A server-side grant; tokens carry only its id.
 pub type GrantId = String;
 
+/// A cloud group, minted by TeamDO (grp_ + 20 lowercase hex).
+pub type GroupId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupPlacement {
+    pub kind: GroupPlacementKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+}
+
+wire_enum! {
+    GroupPlacementKind {
+        Local = "local",
+        Mini = "mini",
+        CloudVm = "cloud_vm",
+    }
+}
+
+pub type GroupWorkspaceId = String;
+
 /// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeAttachmentPoster {
@@ -841,61 +902,4 @@ wire_enum! {
         Suppressed = "suppressed",
         RefusedEnv = "refused_env",
     }
-}
-
-wire_enum! {
-    HomeGrantableRole {
-        Admin = "admin",
-        Member = "member",
-        ReadOnly = "read_only",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeInboxEntry {
-    pub conversation: ConversationId,
-    pub rev: i64,
-    pub kind: ConversationKind,
-    pub title: String,
-    pub last_seq: i64,
-    pub last_at: Timestamp,
-    pub preview: String,
-    /// Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview_attachments: Option<HomeInboxEntryPreviewAttachments>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dm_peer: Option<ParticipantId>,
-    pub removed: bool,
-    /// A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub large: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub member_count: Option<i64>,
-    pub unread: i64,
-    pub mentions: i64,
-    pub counts_rev: i64,
-    pub pinned: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pin_position: Option<i64>,
-    pub muted: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub muted_until: Option<WireNumber>,
-    pub archived: bool,
-    pub archived_seq: i64,
-    pub marked_unread: bool,
-}
-
-wire_enum! {
-    HomeInboxEntryPreviewAttachmentsKind {
-        Photo = "photo",
-        Video = "video",
-        Audio = "audio",
-        File = "file",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeInboxEntryPreviewAttachments {
-    pub kind: HomeInboxEntryPreviewAttachmentsKind,
-    pub count: i64,
 }

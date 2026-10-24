@@ -1,0 +1,135 @@
+name: Swift packages (Linux)
+
+# Builds and tests the SwiftPM packages under Packages/ on Linux runners.
+# Each group runs its packages one after another in the swift.org toolchain
+# container (the ECR Public mirror of the Docker official image, same
+# digest); the Mac jobs keep what needs Apple frameworks.
+#
+# Cache: every package's .build in the group, keyed on toolchain + manifests
+# + Package.resolved. The key carries the ISO week, so no cache entry
+# outlives a week; pushes to feat-cmux-next save, pull requests only restore.
+# The key deliberately omits github.sha: .build is rebuildable state, and a
+# per-commit key caused every push to upload another copy of the same weekly
+# dependency/build cache. The first successful push for a tuple creates the
+# immutable seed; later pushes reuse it while SwiftPM recompiles changed
+# sources. This avoids uploading a new archive for every commit.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - .github/workflows/swift-packages-linux.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - .github/workflows/swift-packages-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-packages-linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  packages:
+    name: swift test ${{ matrix.group }} (Linux)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: shared
+            packages: >-
+              Packages/Shared/CMUXAuthCore
+              Packages/Shared/CmuxAgentQuestion
+              Packages/Shared/CmuxSentryTelemetry
+          - group: mobile-core
+            packages: >-
+              Packages/Shared/CMUXMobileCore
+              Packages/Shared/CmuxSyncStore
+              Packages/Shared/CmuxTheme
+              Packages/iOS/CmuxMobilePairedMac
+              Packages/iOS/CmuxMobileShellModel
+          # CryptoKit packages: on Linux their manifests add swift-crypto (`import Crypto`).
+          - group: crypto
+            packages: >-
+              Packages/Shared/CmuxChiefVoiceCore
+              Packages/Shared/CmuxFeedPushCore
+              Packages/Shared/CmuxInstallAuthCore
+              Packages/Shared/CmuxTextConfirmCore
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # CmuxMobilePairedMac links the system SQLite; the image ships only the runtime.
+      - name: Install SQLite headers
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends libsqlite3-dev
+
+      - name: Cache key
+        id: key
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifests="$(find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+            -type f \( -name Package.swift -o -name Package.resolved \) -print0 |
+            LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
+          {
+            echo "manifests=$manifests"
+            echo "week=$(date -u +%G-W%V)"
+            echo "toolchain=$(swift --version 2>/dev/null | head -1 | tr -cs 'A-Za-z0-9.' '-')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore .build
+        id: build_cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: Packages/**/.build
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}
+          restore-keys: |
+            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}-
+            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-
+
+      - name: Build and test
+        env:
+          PACKAGES: ${{ matrix.packages }}
+          # The manifests' Linux-only changes (CmuxSentryTelemetry, CmuxMobilePairedMac, the crypto
+          # group's swift-crypto) apply only with this: the fleet reads the same manifests on Linux
+          # hosts to build for macOS.
+          CMUX_SWIFTPM_TARGET_LINUX: "1"
+        run: |
+          failed=""
+          echo "| Package | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for package in $PACKAGES; do
+            echo "::group::$package"
+            result=pass
+            if ! swift build --package-path "$package" --build-tests; then
+              result="build failed"
+            elif [ -d "$package/Tests" ] && ! swift test --package-path "$package" --skip-build --parallel; then
+              result="tests failed"
+            fi
+            echo "::endgroup::"
+            echo "| \`$package\` | $result |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != pass ]; then
+              echo "::error title=$package::$result"
+              failed="$failed $package"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "Failed:$failed"
+            exit 1
+          fi
+
+      - name: Save .build
+        if: success() && github.event_name == 'push' && steps.build_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: Packages/**/.build
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}

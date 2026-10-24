@@ -15,6 +15,9 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+#[cfg(unix)]
+mod holder_spawn;
+mod host_launch;
 mod host_state;
 mod input;
 mod metadata;
@@ -31,6 +34,9 @@ mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
+#[cfg(unix)]
+pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
+pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
@@ -131,9 +137,9 @@ use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::mpsc::{
-    Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
-};
+#[cfg(test)]
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
@@ -728,7 +734,7 @@ impl Surface {
             platform::snapshot_cwd_to_local_path(cwd, Some(attachment.record.owner_token.as_str()))
         });
         let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -849,7 +855,7 @@ impl Surface {
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
-        spawn_frame_producer(&surface, frame_rx)?;
+        spawn_frame_producer(&surface)?;
 
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and

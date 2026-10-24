@@ -41,6 +41,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
     /// Set once by `AppServices`: sees every event first (input journal).
     var inputObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
+    /// another, the key window (`CrossWindowInputGuard`): the key is dropped.
+    var crossWindowKeyGuard: ((NSEvent, NSWindow?) -> Bool)?
+    /// Set once by `AppServices`: runs a click's or key's dispatch with the window it came from as
+    /// the active window (`WindowManager.dispatching(eventFrom:_:)`).
+    var dispatchScope: ((NSEvent, () -> Void) -> Void)?
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
@@ -60,6 +66,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(isHandlingSendEvent)
     func isHandlingSendEvent() -> Bool { handlingSendEvent }
 
+    /// The event `sendEvent` is dispatching now, or nil between dispatches. `currentEvent` alone
+    /// keeps the last event after its dispatch ended, so a socket action run later would read a
+    /// stale key press (`ActionRegistry.dispatchingInputEvent`, the action signposts' input age).
+    var dispatchingEvent: NSEvent? { handlingSendEvent ? currentEvent : nil }
+
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
@@ -74,6 +85,21 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
+        // A key typed into one cmux window never reaches another (the key window changed since).
+        if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
+        guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
+        dispatchScope(event) { dispatch(event) }
+    }
+
+    /// The input events whose dispatch acts in the window they came from (`dispatchScope`).
+    static func scopesDispatch(_ type: NSEvent.EventType) -> Bool {
+        switch type {
+        case .keyDown, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp: true
+        default: false
+        }
+    }
+
+    private func dispatch(_ event: NSEvent) {
         if event.type == .keyDown {
             // Router-consumed keys never reach AppKit local event monitors.
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
@@ -137,6 +163,40 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         return accessibilityWindow(for: window)
     }
 
+    // MARK: Assistive clients
+
+    /// Set once by `AppServices`: whether an assistive client asks for the app's accessibility
+    /// tree (Chromium pages build theirs only then, `CEFEngine.setAssistiveClientActive`). It is
+    /// told the current state when set, so a client that asked before launch finished counts.
+    var assistiveClientsChanged: ((Bool) -> Void)? {
+        didSet { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
+    }
+    private var assistiveRequests = AssistiveClientRequests()
+
+    nonisolated override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
+        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
+            return super.accessibilitySetValue(value, forAttribute: attribute)
+        }
+        let number = value as? NSNumber
+        MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
+            let wanted = assistiveRequests.wantsAccessibility
+            _ = assistiveRequests.set(number, for: attribute.rawValue)
+            if assistiveRequests.wantsAccessibility != wanted { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
+        }
+    }
+
+    nonisolated override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool {
+        AssistiveClientRequests.attributes.contains(attribute.rawValue) || super.accessibilityIsAttributeSettable(attribute)
+    }
+
+    nonisolated override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
+            return super.accessibilityAttributeValue(attribute)
+        }
+        let value = MainActor.assumeIsolated { assistiveRequests.value(for: attribute.rawValue) } // main-proof: checked Thread.isMainThread above
+        return value.map { NSNumber(value: $0) }
+    }
+
     // MARK: Activation
 
     override func activate() {
@@ -152,5 +212,28 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     private func logRefused() {
         logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1)")
+    }
+}
+
+/// What assistive clients asked of the app: VoiceOver sets `AXEnhancedUserInterface`, automation
+/// drivers (cua) `AXManualAccessibility`, on the application element. The app wants Chromium's page
+/// accessibility while either is on.
+nonisolated struct AssistiveClientRequests: Equatable {
+    static let attributes: Set<String> = ["AXEnhancedUserInterface", "AXManualAccessibility"]
+    private var values: [String: Bool] = [:]
+
+    var wantsAccessibility: Bool { values.values.contains(true) }
+
+    /// Records `value` for `attribute`; false (nothing recorded) for an attribute no assistive
+    /// client sets.
+    mutating func set(_ value: Any?, for attribute: String) -> Bool {
+        guard Self.attributes.contains(attribute) else { return false }
+        values[attribute] = (value as? NSNumber)?.boolValue ?? false
+        return true
+    }
+
+    /// What was set for `attribute`; nil for other attributes. Unset reads as false.
+    func value(for attribute: String) -> Bool? {
+        Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }

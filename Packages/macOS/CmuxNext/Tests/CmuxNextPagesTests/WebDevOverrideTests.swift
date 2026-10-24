@@ -34,6 +34,10 @@ struct WebDevOverrideTests {
         #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app", isDebugBuild: false))
         #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.rc", isDebugBuild: false))
         #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.nightlyx", isDebugBuild: false))
+        // cmux NEXT DEV, a Release compile, reads it; no other id under it does.
+        #expect(WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.debug.next", isDebugBuild: false))
+        #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.debug.nextx", isDebugBuild: false))
+        #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.debug.next.other", isDebugBuild: false))
         #expect(!WebDevOverride.isAvailable(bundleID: nil, isDebugBuild: false))
     }
 

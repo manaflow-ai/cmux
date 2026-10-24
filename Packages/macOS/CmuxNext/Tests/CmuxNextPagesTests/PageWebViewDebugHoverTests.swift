@@ -1,5 +1,6 @@
 #if DEBUG
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -50,6 +51,15 @@ struct PageWebViewDebugHoverTests {
         #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40])
         let call = try #require(page.calls.first { ($0.params["expression"] as? String)?.contains("getBoundingClientRect") == true })
         #expect((call.params["expression"] as? String)?.contains(#"[true,".chief-pet-card"]"#) == true)
+        view.close()
+    }
+
+    /// The element's size comes back with the point, so a caller can check the point is inside it.
+    @Test func hoverReportsTheElementsSize() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, _) = try await chromiumPage(center: #"{"x":120.5,"y":40,"w":81,"h":30,"hit":true}"#)
+        let result = await view.debugHover(".chief-pet-card")
+        #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40, "width": 81, "height": 30])
         view.close()
     }
 

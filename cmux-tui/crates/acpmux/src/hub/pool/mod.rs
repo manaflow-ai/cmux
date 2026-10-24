@@ -135,6 +135,11 @@ pub(super) struct Pooled {
     target: Option<oneshot::Sender<mpsc::Sender<Inbound>>>,
     rss: u64,
     parked: bool,
+    /// Whether it was started with OpenCode asked to ask (`opencode_ask.rs`).
+    opencode_asks: bool,
+    /// The question preview format its command was pinned to at prewarm
+    /// (`agent::pinned_preview_format`), which the taking session records.
+    preview: crate::hub::questions::PreviewFormat,
 }
 
 /// What a pooled session is started from, and the key it is served under.
@@ -584,6 +589,19 @@ impl Hub {
         lock(&self.pool.claimed).remove(id)
     }
 
+    /// The claimed pooled session for `id`, when it asks OpenCode to ask as `spawn` does
+    /// (`opencode_ask.rs`). One claimed before the chat's policy changed is ended, and the
+    /// session starts cold.
+    pub(super) fn pool_take_claimed_for(&self, id: &str, spawn: &HarnessProfile) -> Option<Pooled> {
+        let p = self.pool_take_claimed(id)?;
+        if p.opencode_asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return Some(p);
+        }
+        tracing::info!(session = %id, "pooled session not taken: the chat's policy changed since the claim");
+        self.pool_discard(vec![p]);
+        None
+    }
+
     /// `ensure_child` takes a claimed pooled session for `session`: move its
     /// record into the hosts directory, log its host start and held lines,
     /// switch it live, and record what its harness answered. An entry that
@@ -598,6 +616,7 @@ impl Hub {
             return Err(e);
         }
         self.forget_adopted_caller(&session.id);
+        self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
         let mut started = json!({
             "incarnation": p.record.incarnation.clone(),

@@ -919,3 +919,73 @@ async fn a_dead_pooled_host_is_not_served_and_the_session_starts_on_a_fresh_host
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     end_group(harness);
 }
+
+impl Rpc {
+    /// The agent text streamed while `session` answers `text`.
+    async fn prompt_text(&mut self, session: &str, text: &str) -> String {
+        self.next += 1;
+        let id = self.next;
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+        let line =
+            json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt", "params": prompt});
+        self.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        let mut streamed = String::new();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(60), self.lines.next_line())
+                .await
+                .expect("daemon answered in time")
+                .unwrap()
+                .expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{v}");
+                return streamed;
+            }
+            let chunk = v.pointer("/params/update/content/text").and_then(Value::as_str);
+            if v.pointer("/params/sessionId") == Some(&json!(session))
+                && let Some(t) = chunk
+            {
+                streamed.push_str(t);
+            }
+        }
+    }
+}
+
+/// An OpenCode chat whose permission policy is narrower than approve-all never takes a pooled
+/// agent started without OpenCode asked to ask (the pool key holds the spawn env,
+/// `hub/policy_mode.rs`): it starts cold, on an agent host, with `OPENCODE_CONFIG_CONTENT`
+/// asking before every tool. An approve-all chat takes the pooled agent, which runs with none.
+#[tokio::test(flavor = "multi_thread")]
+async fn opencode_policy_a_pooled_agent_is_never_taken_by_a_chat_it_would_not_ask_for() {
+    let fakeb = json!({"argv": ["python3", FAKE], "family": "opencode"});
+    let daemon = Daemon::with_fakeb("ocask", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let config = |text: String| match text.strip_prefix("OPENCODE_CONFIG_CONTENT=") {
+        Some("") => Value::Null,
+        Some(v) => serde_json::from_str(v).unwrap_or_else(|e| panic!("{v:?}: {e}")),
+        None => panic!("the agent names the variable: {text:?}"),
+    };
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let meta = json!({"harness": "fakeb", "policy": "approve-reads"});
+    let created = rpc
+        .call("session/new", json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": meta}}))
+        .await;
+    let narrow = created["sessionId"].as_str().expect("session id").to_owned();
+    assert!(!taken(&daemon, &narrow), "the pooled agent does not ask: never taken");
+    assert!(
+        daemon.host_records().iter().any(|r| r["session_id"] == narrow.as_str()),
+        "the chat's agent runs on an agent host"
+    );
+    let seen = rpc.prompt_text(&narrow, "env: OPENCODE_CONFIG_CONTENT").await;
+    assert_eq!(config(seen), json!({"permission": {"*": "ask"}}));
+
+    // An approve-all chat takes a pooled agent, which OpenCode's own settings drive.
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (wide, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &wide), "an approve-all chat takes the pooled agent");
+    let seen = rpc.prompt_text(&wide, "env: OPENCODE_CONFIG_CONTENT").await;
+    assert_eq!(config(seen), Value::Null);
+}

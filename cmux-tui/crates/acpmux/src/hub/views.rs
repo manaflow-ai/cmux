@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod host_load;
+
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 
@@ -293,6 +295,8 @@ impl Hub {
             queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
+            // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
+            waits_for_slot: self.waits_for_slot(&m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some(),
             // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
@@ -394,6 +398,7 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v["availableCommands"] = commands.clone();
@@ -416,6 +421,8 @@ impl Hub {
     }
 
     pub async fn status(&self) -> Value {
+        // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
+        let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
         let sessions = self.sessions();
         let mut live = 0;
@@ -427,6 +434,8 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": BUILD,
+            // The protocol surfaces this build serves (`capabilities.rs`).
+            "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning
@@ -464,6 +473,8 @@ impl Hub {
             // from this daemon's own environment; the app hands off a Chief-home
             // daemon that lacks it.
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
+            // The host's CPU and RAM budget and this daemon's share of the load (`host_load.rs`).
+            "host_pressure": host_pressure,
         })
     }
 }

@@ -681,6 +681,40 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.
+    ChiefDeleteOp {
+        name: "chief.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "destructive",
+        principals: [Session],
+        params: ChiefDeleteParams,
+        result: HomeChief,
+        error: ChiefDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefDeleteParams {
+    pub chief: ChiefId,
+    pub expected_rev: WireNumber,
+}
+
+wire_errors! {
+    /// The error codes chief.delete declares.
+    ChiefDeleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ChiefIsDefault = "chief_is_default",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// The user's chiefs (active first, the default marked), archived ones on request, and tombstones.
     ChiefListOp {
         name: "chief.list",
@@ -867,35 +901,4 @@ pub struct CloudMachineCreateParams {
     pub image: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_snapshot: Option<SnapshotId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineCreateResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.create declares.
-    CloudMachineCreateError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudQuotaExceeded = "cloud.quota.exceeded",
-        CloudRateLimited = "cloud.rate_limited",
-        CloudSizeLocked = "cloud.size.locked",
-        CloudSnapshotNotFound = "cloud.snapshot.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

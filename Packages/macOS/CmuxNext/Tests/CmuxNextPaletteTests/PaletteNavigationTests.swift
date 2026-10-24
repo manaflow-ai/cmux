@@ -23,7 +23,12 @@ struct PaletteNavigationTests {
     @MainActor private final class Navigation: PaletteNavigationSource {
         var entries: [PaletteNavigationEntry] = []
         var opened: [String] = []
-        func navigationEntries() -> [PaletteNavigationEntry] { entries }
+        /// How many times the palette read the source (each read builds every row's item).
+        var reads = 0
+        func navigationEntries() -> [PaletteNavigationEntry] {
+            reads += 1
+            return entries
+        }
         func open(_ entry: PaletteNavigationEntry) { opened.append(entry.itemID) }
     }
 
@@ -106,6 +111,16 @@ struct PaletteNavigationTests {
         let item = WorkspacePaletteProvider(source: workspaces, showsItemsForEmptyQuery: true).makeItems()[0]
         #expect(item.subtitle == "Backend · /srv/api")
         #expect(item.keywords.contains("Backend"))
+    }
+
+    /// Machine identity: with workspaces on more than one machine, a row leads with its machine,
+    /// and typing the machine's name finds its workspaces.
+    @Test func workspaceRowsNameTheirMachine() {
+        let workspaces = Workspaces()
+        workspaces.workspaces = [PaletteWorkspace(id: "w1", title: "api", directory: "/srv/api", groupName: "Backend", machineName: "gpu-box")]
+        let item = WorkspacePaletteProvider(source: workspaces, showsItemsForEmptyQuery: true).makeItems()[0]
+        #expect(item.subtitle == "gpu-box · Backend · /srv/api")
+        #expect(item.keywords.contains("gpu-box"))
     }
 
     // MARK: Ranking
@@ -200,7 +215,10 @@ struct PaletteNavigationTests {
         #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: false, registry: palette.registry) == .toggleActions)
     }
 
-    @Test func manyEntriesRankQuickly() async {
+    /// 5,000 tabs rank without the palette rebuilding them per keystroke: no new read of the
+    /// source and no new search index after the first key. Counted, not timed: a 5 s wall-clock
+    /// limit failed on a loaded fleet host (9.27 s on aws-m4pro-4, 2026-10-21) with nothing wrong.
+    @Test func manyEntriesRankWithoutARebuildPerKeystroke() async {
         let workspaces = Workspaces()
         workspaces.workspaces = (0..<200).map { PaletteWorkspace(id: "w\($0)", title: "workspace \($0)") }
         let navigation = Navigation()
@@ -210,11 +228,17 @@ struct PaletteNavigationTests {
         }
         let palette = Self.palette(workspaces, navigation)
         defer { palette.hide() }
-        let started = ContinuousClock.now
         palette.show(.workspaces)
-        let ranked = await Self.search(palette, "tab 4321")
+        let query = "tab 4321"
+        _ = await Self.search(palette, String(query.prefix(1)))
+        let readsAfterFirstKey = navigation.reads
+        let indexAfterFirstKey = palette.model.current?.version
+        #expect(readsAfterFirstKey >= 1, "the palette never read its tabs")
+        var ranked: [String] = []
+        for length in 2...query.count { ranked = await Self.search(palette, String(query.prefix(length))) }
         #expect(ranked.first == "tab:t4321")
-        // Generous for a loaded CI host; a regression to per-keystroke rebuilding takes seconds.
-        #expect(started.duration(to: .now) < .seconds(5))
+        #expect(navigation.reads == readsAfterFirstKey,
+                "typing \(query.count - 1) more keys read the 5,000 tabs \(navigation.reads - readsAfterFirstKey) more times")
+        #expect(palette.model.current?.version == indexAfterFirstKey, "typing rebuilt the search index of the 5,000 tabs")
     }
 }

@@ -206,7 +206,10 @@ public final class UpdateController {
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
         // Terminal states the controller sets itself never pass through the driver.
-        if UpdateDriver.endsInstallRequest(state) { driver.installsWhenStaged = false }
+        if UpdateDriver.endsInstallRequest(state) {
+            driver.installsWhenStaged = false
+            driver.relaunchIsAutomatic = false
+        }
 
         if attemptCoordinator.isMonitoring {
             let action = attemptCoordinator.handleStateChange(state)

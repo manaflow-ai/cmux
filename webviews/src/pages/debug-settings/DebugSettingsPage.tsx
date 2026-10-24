@@ -2,11 +2,11 @@
 // sections with search, and the visible tunables under a toolbar with the exports and resets. The
 // app owns every value and the view state (DebugSettingsModel); this file renders what it sends and
 // turns clicks and plain keys into intents. Every row comes from the registry's data.
-import { useSyncExternalStore, type KeyboardEvent } from "react";
+import { Fragment, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import type { DebugSettingsStore } from "./store";
 import { TunableControlView } from "./TunableControl";
-import type { DebugSettingsState, TunableRow } from "./types";
+import type { DebugSettingsState, HangsInfo, TunableRow } from "./types";
 
 /** `%lld` and `%@` placeholders of the shared Swift catalog, in order. */
 export function fill(text: string, ...args: Array<string | number>): string {
@@ -83,6 +83,57 @@ function Row({ row, store, strings }: { row: TunableRow; store: DebugSettingsSto
         ↺
       </button>
     </div>
+  );
+}
+
+/** The watchdog's recent hang files (newest first), under the Hangs section's toggle. */
+function HangsCard({ hangs, store }: { hangs: HangsInfo; store: DebugSettingsStore }) {
+  return (
+    <section className="ds-card" aria-label={hangs.title} data-testid="ds.hangs">
+      <div className="ds-hangs-head">
+        <h2 className="ds-card-title">{hangs.title}</h2>
+        <span className="ds-row-key">{hangs.folder}</span>
+        <button
+          type="button"
+          className="ds-button"
+          onClick={() => void store.revealHang()}
+          data-testid="ds.hangs.folder"
+        >
+          {hangs.show_folder}
+        </button>
+      </div>
+      <div className="ds-card-body">
+        {hangs.items.length === 0 ? <p className="ds-none">{hangs.empty}</p> : null}
+        {hangs.items.map((item) => (
+          <div
+            key={item.path}
+            className="ds-row ds-hang"
+            data-testid="ds.hang"
+            data-ongoing={item.ongoing ? "true" : undefined}
+          >
+            <div className="ds-row-text">
+              <div className="ds-row-label">
+                {item.started_text}
+                <span className="ds-hang-duration">{item.duration_text}</span>
+              </div>
+              {item.frames.map((frame, index) => (
+                <div key={index} className="ds-hang-frame">
+                  {frame}
+                </div>
+              ))}
+            </div>
+            <div className="ds-hang-actions">
+              <button type="button" className="ds-button" onClick={() => void store.revealHang(item.path)}>
+                {hangs.reveal}
+              </button>
+              <button type="button" className="ds-button" onClick={() => void store.copyHang(item.path)}>
+                {hangs.copy}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -206,14 +257,17 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
             </p>
           ) : null}
           {state.groups.map((group) => (
-            <section key={group.id} className="ds-card" aria-label={group.title}>
-              <h2 className="ds-card-title">{group.title}</h2>
-              <div className="ds-card-body">
-                {group.rows.map((row) => (
-                  <Row key={row.key} row={row} store={store} strings={strings} />
-                ))}
-              </div>
-            </section>
+            <Fragment key={group.id}>
+              <section className="ds-card" aria-label={group.title}>
+                <h2 className="ds-card-title">{group.title}</h2>
+                <div className="ds-card-body">
+                  {group.rows.map((row) => (
+                    <Row key={row.key} row={row} store={store} strings={strings} />
+                  ))}
+                </div>
+              </section>
+              {state.hangs && group.id === state.hangs.section ? <HangsCard hangs={state.hangs} store={store} /> : null}
+            </Fragment>
           ))}
           <p className="ds-footer">{t("debugSettings.footer")}</p>
         </div>

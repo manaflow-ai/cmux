@@ -31,6 +31,12 @@
       "de": "Tab is the standard German UI word for a tab (Apple and browsers use it), spelled as in English."
     }
   },
+  "store.feature.category.layout": {
+    "source": "Layout",
+    "identityLocales": {
+      "de": "Layout is the standard German UI term; cmux NEXT's German strings use it for the same window and pane layout features (menu.folder.layout, settings.diff.layout, layout.title)."
+    }
+  },
   "store.feature.category.chief": {
     "source": "Chief",
     "identityLocales": {
@@ -4335,6 +4341,12 @@
       "de": "\"Tabs\" is the standard German plural for browser or app tabs."
     }
   },
+  "settings.tabs.commandDigits.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
   "accounts.group.anthropic": {
     "class": "brand",
     "source": "Anthropic"
@@ -6625,6 +6637,77 @@
       "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
     }
   },
+  "devices.platform.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.platform.ios": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "macScreen.keys.missionControl": {
+    "source": "Mission Control (⌃↑)",
+    "identityLocales": {
+      "de": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "fr": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ar": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "es": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ko": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ja": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.hub.unknownDevice": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.history.host": {
+    "source": "Host",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "devices.nameField": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.relays.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.section.relays": {
+    "source": "Relays",
+    "identityLocales": {
+      "de": "Relays is the German plural used for network relay servers."
+    }
+  },
+  "devices.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in German."
+    }
+  },
+  "devices.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in German."
+    }
+  },
   "importSuggestions.request.chief": {
     "class": "brand",
     "source": "Chief"
@@ -6694,6 +6777,48 @@
     "source": "Updates",
     "identityLocales": {
       "de": "Updates is the standard German UI word for software updates, spelled as in English."
+    }
+  },
+  "home.chief.backend.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "home.chief.backend.codex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "home.chief.backend.unii": {
+    "class": "brand",
+    "source": "UniiChat"
+  },
+  "home.chief.backend.muse": {
+    "class": "brand",
+    "source": "Muse Code"
+  },
+  "home.engine.reactions.prompt": {
+    "source": "Instructions",
+    "identityLocales": {
+      "fr": "Instructions is the standard French noun for a prompt's instructions, spelled as in English; the translated entry is still required."
+    }
+  },
+  "addDevice.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
+  "addDevice.platform.phone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "devices.state.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline is the standard German UI word for a device that is not connected (macOS and iOS use it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "textbox.action.textEntry": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun, spelled as in English; the translated entry is still required."
     }
   }
 }

@@ -19,7 +19,7 @@ extension WorkspaceRowView {
             return
         }
         // The icon, the cleared unread badge and the idle activity are set in `configure`.
-        if timeText == nil, shown.workingSince == nil, let time = shown.badgeTime {
+        if timeText == nil, let time = shown.badgeTime {
             timeText = time
             timeLabel.setString(time)
         }

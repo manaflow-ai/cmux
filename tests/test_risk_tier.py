@@ -61,6 +61,7 @@ class ClassifyTests(unittest.TestCase):
             "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/TokenStores/FileStackTokenStore.swift",
             "Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/Models/Session.swift",
             NEXT + "CmuxNextApp/WebAuth/WebAuthSession.swift",
+            NEXT + "CmuxNextPopups/WebAuth/WebAuthSessionBroker.swift",
             "web/services/auth/hexclave/verify.ts",
             "cmux.nightly.entitlements",
             NEXT + "CmuxNextControl/ControlAuthorizer.swift",
@@ -197,6 +198,47 @@ class ClassifyTests(unittest.TestCase):
                 self.assertEqual(self.tier(wf, patches={wf: inline}), "high")
         self.assertEqual(self.tier(wf, patches={wf: "+    if: github.event_name == 'pull_request_target'"}), "normal")
         self.assertEqual(self.tier(wf, patches={wf: "+  push:  # not pull_request_target"}), "normal")
+
+    def test_agent_pane_host_ops_and_allowlists_are_high(self):
+        # #22646 added the page op chat.asks.pending, whose handler read another chat's permission
+        # asks over the host's own acpmux connection and reached a peer daemon until review caught it.
+        # It graded normal by path. What a pane page may make the host do or read is access policy.
+        pane = NEXT + "CmuxNextAgentPane/"
+        for path in (
+            pane + "AgentPageProvider.swift",
+            pane + "AcpmuxPaneMethods.swift",
+            pane + "AcpmuxPaneMethods+Params.swift",
+            pane + "AcpmuxPaneMethods+Answers.swift",
+            pane + "AgentPaneEnvironmentRequest.swift",
+            pane + "AgentPaneReplyRequest.swift",
+            pane + "AgentPaneTransport+Check.swift",
+            pane + "AcpmuxPathPolicy.swift",
+            pane + "AgentPanePendingAsks.swift",
+            pane + "AgentPaneTransport+Frames.swift",
+            pane + "AgentPaneGestureIntent.swift",
+            pane + "AgentPaneUserGestures.swift",
+            pane + "AgentPaneModel+Actions.swift",
+            pane + "AgentPaneTransport+RelayedAllow.swift",
+            pane + "AgentPaneTransport+PickedFolder.swift",
+            pane + "AgentPaneTransport+FullAccess.swift",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+            "cmux-tui/crates/cmux-agent-pane-policy/src/params.rs",
+            "cmux-tui/crates/acpmux/src/server/remote_guard.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_ordinary_agent_pane_ui_and_policy_tests_stay_below_high(self):
+        pane = NEXT + "CmuxNextAgentPane/"
+        for path in (pane + "AgentPaneView.swift", pane + "AgentPageProvider+Scroll.swift",
+                     pane + "AgentPaneModel+Composer.swift", pane + "AgentPaneTransportPacer.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+        for path in ("cmux-tui/crates/cmux-agent-pane-policy/tests/cases/params.json",
+                     "cmux-tui/crates/cmux-agent-pane-policy/tests/swift.rs",
+                     "cmux-tui/crates/acpmux/tests/remote_guard.rs"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "low")
 
     def test_audit_sample_of_real_pull_requests(self):
         # Each case is a merged pull request from the audit (docs/ci/risk-tiers.md), with its files.

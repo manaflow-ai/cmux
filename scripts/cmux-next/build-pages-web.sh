@@ -87,5 +87,11 @@ for page in $PAGES; do
     echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
   fi
 done
+# The native interface version the bundles need (webviews/src/web-abi.json, plans/cmux-next/web-ota.md):
+# the app compares a web update's abi with this copy before it serves the update.
+if [ "$MODE" != "--check" ]; then
+  mkdir -p "$OUT_ROOT"
+  cp "$ROOT/webviews/src/web-abi.json" "$OUT_ROOT/web-abi.json"
+fi
 [ "$MODE" = "--check" ] && [ "$status" -eq 0 ] && echo "page bundles build"
 exit "$status"

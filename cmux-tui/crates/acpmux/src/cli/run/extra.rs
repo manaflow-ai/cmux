@@ -47,6 +47,43 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::LimitsCmd { session, max, clear } => {
+            let client = connect(true).await?;
+            crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
+        }
+        Command::ResumeQueue { session } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
+            let held = info["queue"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|q| q["held"] == true)
+                .and_then(|q| q["promptId"].as_str())
+                .map(str::to_owned);
+            let resumed = match held {
+                Some(prompt_id) => {
+                    let v = client
+                        .request(
+                            method::MUX_QUEUE_EDIT,
+                            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
+                        )
+                        .await?;
+                    v["ok"] == true
+                }
+                None => false,
+            };
+            if json_out {
+                print_json(&json!({"sessionId": id, "resumed": resumed}));
+            } else if resumed {
+                println!("resumed");
+            } else {
+                println!("nothing is held");
+            }
+            Ok(())
+        }
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -306,6 +343,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "web:      {}",
                         v.get("webUrl").and_then(Value::as_str).unwrap_or("-")
                     );
+                    if let Some(line) = host_pressure_line(&v["host_pressure"]) {
+                        println!("host:     {line}");
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",
@@ -404,7 +444,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
-                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle };
+                    // Run from a session, `--if-idle` never waits on that session's own turn.
+                    let caller = match std::env::var("ACPMUX_SESSION_ID") {
+                        Ok(session) if if_idle && !session.is_empty() => {
+                            let status = client.request(method::MUX_STATUS, json!({})).await?;
+                            status.get("personInstance").and_then(Value::as_str).map(|d| {
+                                crate::cli::hosts::Caller { session, daemon: d.to_owned() }
+                            })
+                        }
+                        _ => None,
+                    };
+                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle, caller };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {

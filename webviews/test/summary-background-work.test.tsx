@@ -2,8 +2,8 @@
 // Background work is visible (Leo: "where is the background showing?"). With the Inspector off
 // (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
 // (inspector/processes.ts `backgroundCommands`, whose merge chat-inspector-tasks.test.tsx covers),
-// running ones first with their time and Stop, the finished folded into one row; the chats the
-// agent started sit under Subagents with their state; an empty card draws one quiet line instead
+// running ones first with their time and Stop, and finished work as compact status cards; the chats
+// the agent started sit under Subagents with their state; an empty card draws one quiet line instead
 // of "None" under every title. The running turn's line counts started chats. What still runs
 // between turns shows in the tray above the composer (subagent-tray.test.tsx).
 import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
@@ -100,7 +100,7 @@ const emptySummary = (fields: Partial<SessionSummary> = {}): SessionSummary => (
   ...fields,
 });
 
-test("the card lists running commands with their time and Stop, and folds the finished into one row", async () => {
+test("the card keeps mixed running, completed and failed task cards visible", async () => {
   // The running times tick on a clock the test moves.
   jest.useFakeTimers();
   setSystemTime(new Date(100_000));
@@ -133,14 +133,14 @@ test("the card lists running commands with their time and Stop, and folds the fi
   expect(rows()).toEqual([
     ["bun run dev", "1m 16s"],
     ["tsc --watch", "1h 2m 3s"],
-  ]);
-  const fold = section.querySelector<HTMLButtonElement>(".acpmux-summary-finished")!;
-  expect(fold.textContent).toBe("2 finished");
-  expect(fold.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => fold.click());
-  expect(rows().slice(2)).toEqual([
     ["cargo test", "Finished"],
     ["npm run lint", "Failed"],
+  ]);
+  expect([...section.querySelectorAll<HTMLElement>(".acpmux-summary-task")].map((row) => row.dataset.state)).toEqual([
+    "running",
+    "running",
+    "completed",
+    "failed",
   ]);
   // Stop only on running rows the registry lists.
   const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-stop")];
@@ -150,6 +150,29 @@ test("the card lists running commands with their time and Stop, and folds the fi
   // The time ticks: two seconds on, the row reads two seconds more.
   await act(async () => void jest.advanceTimersByTime(2_000));
   expect(rows()[0]).toEqual(["bun run dev", "1m 18s"]);
+});
+
+test("a running card keeps its key and detail when the process completes", async () => {
+  const container = installDom();
+  const running = {
+    id: "call-a",
+    command: "bun test",
+    description: "Run the focused tests",
+    state: "running" as const,
+    startedAt: 1_000,
+    toolCallId: "call-a",
+  };
+  await render(container, <SummaryBody summary={emptySummary()} commands={[running]} />);
+  const before = container.querySelector<HTMLElement>(".acpmux-summary-task")!;
+  expect(before.dataset.state).toBe("running");
+  expect(before.querySelector(".acpmux-summary-task__description")?.textContent).toBe("Run the focused tests");
+  expect(before.querySelector(".acpmux-summary-task__command")?.textContent).toBe("bun test");
+  const completed = { ...running, state: "completed" as const, endedAt: 3_000 };
+  await render(container, <SummaryBody summary={emptySummary()} commands={[completed]} />);
+  const after = container.querySelector<HTMLElement>(".acpmux-summary-task")!;
+  expect(after).toBe(before);
+  expect(after.dataset.state).toBe("completed");
+  expect(after.querySelector(".acpmux-summary-meta")?.textContent).toBe("Finished");
 });
 
 test("a card with nothing draws no empty sections, one quiet line and Attach files or folders", async () => {
@@ -255,5 +278,5 @@ test("the running turn's line counts the started chats that run", () => {
       <WorkingFor row={status} now={() => 26_000} />
     </WorkingCountsContext.Provider>,
   );
-  expect(text(html)).toBe("Working for 26s · 2 commands · 3 sessions");
+  expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
 });

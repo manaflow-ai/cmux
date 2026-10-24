@@ -646,6 +646,15 @@
    ]
   },
   {
+   "name": "panel.right",
+   "meaning": "Show or hide the chat's right-side panel (the summary, the Inspector)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4.75' width='18' height='14.5' rx='2.5'/><path d='M15 4.75v14.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-panel-right' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='#000'><rect x='3.75' y='5.5' width='10.5' height='13' rx='1.75'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' mask='url(#cmxs-panel-right)'><rect x='3' y='4.75' width='18' height='14.5' rx='2.5'/></g></svg>",
+   "alts": [],
+   "note": "Claude and ChatGPT desktop's panel toggle: a window frame and one divider, no fill. Solid (the panel open): the panel's column fills, the chat's side stays a window.",
+   "replaces": []
+  },
+  {
    "name": "pane.split.up",
    "meaning": "Split up / drop zone top",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='5.885' y='6.791' width='12.231' height='4.53' rx='0.906' fill='currentColor' stroke='none'/></svg>",

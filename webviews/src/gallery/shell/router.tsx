@@ -138,7 +138,14 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     component: Outlet,
   });
   const routeTree = rootRoute.addChildren([indexRoute, entryRoute, variantRoute]);
-  const router = createRouter({ history: history ?? createHashHistory(), routeTree, parseSearch, stringifySearch });
+  const router = createRouter({
+    history: history ?? createHashHistory(),
+    routeTree,
+    parseSearch,
+    stringifySearch,
+    // Every cmux router preloads a link's route on intent (hover or keyboard focus).
+    defaultPreload: "intent",
+  });
   return { router, variantRoute };
 }
 

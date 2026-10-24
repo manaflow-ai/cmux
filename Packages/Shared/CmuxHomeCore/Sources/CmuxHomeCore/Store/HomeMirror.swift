@@ -18,6 +18,15 @@ public struct HomeMirror: Hashable, Sendable {
     /// Streams known to be behind their owner (a gap, or a newer revision in
     /// a snapshot) until a fetch catches them up. Nothing settles against them.
     public private(set) var stale: Set<HomeStream> = []
+    /// Transcripts shown nowhere now, kept so switching back to one draws it at once instead of
+    /// an empty transcript while the owner answers (the user, 2026-10-21: "switching between
+    /// different chiefs and messages/conversations needs instant loading of messages"). Not live
+    /// windows: no event or page reaches them, so ``restoreKept(_:)`` brings one back stale and
+    /// the open's read catches it up. Least recently closed first, at most ``keptLimit``.
+    private var kept: [ConversationID: TranscriptWindow] = [:]
+    private var keptOrder: [ConversationID] = []
+    /// How many closed transcripts stay in memory: the conversations a person switches between.
+    public static let keptLimit = 20
 
     public init() {}
 
@@ -46,6 +55,8 @@ public struct HomeMirror: Hashable, Sendable {
         }
         conversations = next
         windows = windows.filter { next[$0.key] != nil }
+        keptOrder.removeAll { next[$0] == nil }
+        kept = kept.filter { next[$0.key] != nil }
         revisions[.inbox] = snapshot.rev
         stale.remove(.inbox)
         return refetch
@@ -104,9 +115,27 @@ public struct HomeMirror: Hashable, Sendable {
 
     /// The transcript left the screen: its window goes, so nothing is
     /// fetched for it until it opens again, and that open loads its tail.
+    /// What it held is kept (``kept``), so that open draws it at once.
     public mutating func endTranscript(_ conversation: ConversationID) {
+        if let window = windows[conversation], !window.messages.isEmpty {
+            kept[conversation] = window
+            keptOrder.removeAll { $0 == conversation }
+            keptOrder.append(conversation)
+            while keptOrder.count > Self.keptLimit { kept[keptOrder.removeFirst()] = nil }
+        }
         windows[conversation] = nil
         stale.remove(.conversation(conversation))
+    }
+
+    /// Brings back the transcript kept when `conversation` last closed, as its window, stale until
+    /// a read catches it up. False when none is kept (or a window is already there).
+    @discardableResult
+    public mutating func restoreKept(_ conversation: ConversationID) -> Bool {
+        guard windows[conversation] == nil, let window = kept.removeValue(forKey: conversation) else { return false }
+        keptOrder.removeAll { $0 == conversation }
+        windows[conversation] = window
+        stale.insert(.conversation(conversation))
+        return true
     }
 
     /// A refetch failed: the stream stays stale until a later fetch succeeds.
@@ -129,6 +158,8 @@ public struct HomeMirror: Hashable, Sendable {
             if outcome == .ignoredStale { return outcome }
             conversations[id] = nil
             windows[id] = nil
+            kept[id] = nil
+            keptOrder.removeAll { $0 == id }
             return outcome
         case .message(let message, let rev):
             return apply(message: message, rev: rev)

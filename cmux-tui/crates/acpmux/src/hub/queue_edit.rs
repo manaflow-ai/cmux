@@ -166,11 +166,13 @@ impl Hub {
             let text = prompt_text(&blocks);
             q.run = Arc::new(PromptRun {
                 blocks,
+                display_parts: None,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
                 agent: None,
+                supersede: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -180,6 +182,17 @@ impl Hub {
         let images = super::prompt_images::keep(&run.blocks);
         if !images.is_empty() {
             msg["images"] = Value::Array(images);
+        }
+        let inline_parts = super::prompt_images::inline_parts(
+            &run.blocks,
+            msg.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            run.display_parts.as_ref(),
+        );
+        if !inline_parts.is_empty() {
+            msg["inlineParts"] = Value::Array(inline_parts);
+        }
+        if let Some(display_parts) = &run.display_parts {
+            msg["displayParts"] = display_parts.clone();
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         self.append(session, "mux", "queue_updated", msg);
@@ -236,10 +249,12 @@ impl Hub {
                 };
                 let run = PromptRun {
                     blocks: q.run.blocks.clone(),
+                    display_parts: q.run.display_parts.clone(),
                     control,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    supersede: q.run.supersede.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

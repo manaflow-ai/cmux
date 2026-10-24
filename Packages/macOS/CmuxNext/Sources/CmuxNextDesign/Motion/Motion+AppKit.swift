@@ -2,6 +2,7 @@ public import AppKit
 public import QuartzCore
 import SwiftUI
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
 /// animation is retargetable: a new change starts from the view's current

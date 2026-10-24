@@ -4,7 +4,9 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextSettings
+import CmuxNextUpdater
 import os
 
 /// The App's `ActionRegistry.confirmationPresenter`: the sheet a keyboard,
@@ -17,9 +19,10 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, profile delete, agent extension access
-/// and remote install still ask. A target that does not resolve is not asked about: the
-/// handler then refuses it with the usual typed reason.
+/// no question. The Cloud deletes, profile delete, Delete Chief, agent extension access,
+/// remote install and Roll Back (it quits into the kept build) still ask.
+/// A target that does not resolve is not asked about: the handler then
+/// refuses it with the usual typed reason.
 enum DestructiveConfirmation {
     struct Prompt: Equatable {
         var title: String
@@ -43,8 +46,8 @@ enum DestructiveConfirmation {
                 return
             }
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
+                guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
             }
         }
     }
@@ -69,6 +72,9 @@ enum DestructiveConfirmation {
             guard let group = try? context.group(invocation) else { return nil }
             return await WorkspaceBulkClose.prompt(WorkspaceGroupClose.members(of: group, context), warn: warn,
                                                    title: ConfirmationStrings.closeGroupWorkspacesTitle(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name))
+        case let id where StashHandlers.workspaceActions.contains(id):
+            // Save and Close of workspaces asks as their close does: only while a program runs.
+            return await StashHandlers.prompt(id, invocation, context, warn: warn)
         case let id where WorkspaceBulkClose.ids.contains(id):
             return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
         case "browserProfile.delete":
@@ -79,6 +85,8 @@ enum DestructiveConfirmation {
             return await RoomConfirmation.prompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
+        case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back
+            return Prompt(title: UpdateDropBack.confirmation.title, body: UpdateDropBack.confirmation.body, button: UpdateDropBack.confirmation.button)
         case "tabGroup.close":
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.
@@ -90,6 +98,11 @@ enum DestructiveConfirmation {
             guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
             let question = services.taskManager.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
+        case "home.deleteChief":
+            // A Chief not listed (or the default one) is refused by the action with its reason.
+            guard let id = invocation["chief"]?.stringValue, let chief = services.home.deletableChief(id: id) else { return nil }
+            return Prompt(title: HomeStrings.deleteChiefTitle(chief.name), body: HomeStrings.deleteChiefBody,
+                          button: HomeStrings.deleteChiefButton, returnConfirms: false)
         case "home.leaveConversation":
             // The group's name in the question; a conversation not listed is refused by the action.
             let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown

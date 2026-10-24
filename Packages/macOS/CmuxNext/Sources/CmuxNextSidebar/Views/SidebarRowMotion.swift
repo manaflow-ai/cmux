@@ -4,14 +4,17 @@ import CmuxNextDesign
 /// The rows one `SidebarListView.apply` animates, all on one spring
 /// (cx-bqm6): like a browser's vertical tabs, existing rows move, new rows
 /// open their slot and removed rows close theirs, so no row overlaps another
-/// or waits for it. Group lines run in the same block, so a line ends at its
-/// group's last row in every frame (cx-ai79).
+/// or waits for it. Group lines and the chat history blocks move on the same
+/// render-server springs from the same begin time (`animate`), so a line ends
+/// at its group's last row in every frame (cx-ai79).
 @MainActor
 struct RowMotion {
     var targets: [(SidebarRowView, NSRect)]
     var appearing: [(SidebarRowView, NSRect)]
     var leaving: [(SidebarRowView, NSRect)]
-    var lines: (changes: () -> Void, leaving: [NSView])
+    var lines: SidebarGroupLineViews.LineMotion
+    /// The chat history blocks with their frames (`SidebarChatHistoryViews.place`): they move with the rows.
+    var companions: [(NSView, NSRect)] = []
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -20,11 +23,15 @@ struct RowMotion {
                 view.animator().alphaValue = 1
             }
         }
+        // A change without motion also ends a move still running from an earlier one: its springs come off,
+        // so every row shows its slot now (`SidebarDragSpring.stop`).
+        let views = targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0)
         guard animated else {
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
             }
+            SidebarDragSpring.stop(views)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -41,6 +48,9 @@ struct RowMotion {
                     view.clipsToBounds = false
                 }
             }
+            SidebarDragSpring.stop(views)
+            // Movement off: the lines and history blocks land too, their earlier springs off (`move`'s snap).
+            SidebarDragSpring.move(lines.springs + companions, in: list)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -48,25 +58,83 @@ struct RowMotion {
         passOver(in: list, from: old, to: layout)
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
-        Motion.sidebar.animate(.move, in: list, {
-            moves()
-            lines.changes()
-            for (view, target) in appearing {
-                view.animator().frame = target
-                view.animator().alphaValue = 1
-            }
-            for (view, end) in leaving {
-                view.animator().alphaValue = 0
-                view.animator().frame = end
-            }
-        }, settleAtSleep: Self.settle(list), completion: { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
+        list.rowMoves &+= 1
+        let move = list.rowMoves
+        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
             for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { Self.closed(view, in: list) }
+            if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
-        })
+        }
+        Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended)
+    }
+
+    /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,
+    /// a closing row to 0. A handful whatever the list's length (a target already opaque is left out).
+    private static func fades(targets: [(SidebarRowView, NSRect)], appearing: [(SidebarRowView, NSRect)],
+                              leaving: [(SidebarRowView, NSRect)]) -> [(NSView, CGFloat)] {
+        var fades: [(NSView, CGFloat)] = []
+        for (view, _) in targets where view.alphaValue != 1 { fades.append((view, 1)) }
+        for (view, _) in appearing { fades.append((view, 1)) }
+        for (view, _) in leaving { fades.append((view, 0)) }
+        return fades
+    }
+
+    /// One move of the rows (perf step 4, Leo 2026-10-21: "adding a workspace at the top ... it pushes all the stuff
+    /// down"): every frame goes on the render server's `.move` spring from one begin time (`SidebarDragSpring`), so
+    /// the rows below an insert move as one with the row opening above them, and no row's frame is written on the
+    /// main thread per display frame (AppKit's SwiftUI spring wrote each moving row's frame every frame). Only the
+    /// opacity of the few rows that open, close or still fade runs on AppKit's `.move` spring, with the group lines'
+    /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
+    /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
+    /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
+    private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
+                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd) {
+        let settle = Self.settle(list)
+        // Nothing draws while the display sleeps: the rows, group lines and history blocks show their places now, the
+        // springs gone with the move. Both legs carry it, and it runs once: the opacity leg alone ends at once when
+        // nothing fades (a reorder of opaque rows), while the springs still run.
+        let settleAtSleep: @MainActor () -> Void = { [weak list] in
+            guard !ended.isDone else { return }
+            SidebarDragSpring.stop(frames.map(\.0))
+            if let list {
+                list.groupLineViews.stopSprings()
+                SidebarDragSpring.stop(list.chatHistory.all)
+            }
+            settle()
+            ended.finish()
+        }
+        let springsEnded = Motion.sidebar.trackMove(.move, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        CATransaction.begin()
+        // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list)
+        Motion.sidebar.animate(.move, in: list, {
+            for (view, alpha) in fades { view.animator().alphaValue = alpha }
+            lines()
+        }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        CATransaction.commit()
+    }
+
+    /// Puts every row and group line exactly on its layout frame once the last move ended. A move on
+    /// the render server's springs (`animate`) set the model frames at once, so this changes nothing
+    /// after one; a frame AppKit's SwiftUI spring wrote stops within its rest tolerance, not on the
+    /// target: rows stayed half a point off on a 1x screen (aws-m4pro-8), a fraction on Retina.
+    /// A drag, a settling drop or a card's flight owns the frames until it ends.
+    static func land(_ list: SidebarListView) {
+        guard list.drag == nil, list.settling == nil, list.landing == nil else { return }
+        Motion.withoutAnimation {
+            for (key, view) in list.rowViews where view.closingEnd == nil {
+                guard let row = list.displayed.row(for: key) else { continue }
+                let target = list.frame(for: row)
+                if view.frame != target { view.frame = target }
+            }
+            list.groupLineViews.land()
+        }
     }
 
     /// Moves every row by `dy` at once, with the scroll offset (the anchor step of
@@ -82,10 +150,13 @@ struct RowMotion {
                 view.closingEnd?.origin.y += dy
             }
         }
-        guard !closing.isEmpty else { return }
+        // A close on the render server's spring (`animate`) already has its frame at its end, which moved with it:
+        // its spring keeps running on top. Only a close whose frame is not at its end re-targets here.
+        let retargeted = closing.filter { view in view.closingEnd.map { view.frame != $0 } ?? false }
+        guard !retargeted.isEmpty else { return }
         // The close's own completion (`run`) still recycles each row.
         Motion.sidebar.animate(.move, in: list, {
-            for view in closing {
+            for view in retargeted {
                 guard let end = view.closingEnd else { continue }
                 view.animator().alphaValue = 0
                 view.animator().frame = end
@@ -116,12 +187,13 @@ struct RowMotion {
         }
         view.opens += 1
         let open = view.opens
-        Motion.sidebar.animate(.move, in: list, {
-            view.animator().frame = target
-            view.animator().alphaValue = 1
-        }, settleAtSleep: Self.settle(list), completion: { [view] in
+        list.rowMoves &+= 1
+        let move = list.rowMoves
+        let ended = RowMotionEnd { [view, weak list] in
             if view.opens == open { view.clipsToBounds = false }
-        })
+            if let list, list.rowMoves == move { Self.land(list) }
+        }
+        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended)
     }
 
     /// When the display sleeps mid-move (no frame draws, so the move never ends), the rows
@@ -181,5 +253,33 @@ struct RowMotion {
             default: return false
             }
         }
+    }
+}
+
+/// A row move's end (`RowMotion.animate`), run once: when both its legs have ended (the render server's
+/// frame springs and AppKit's opacity spring), or at once when the display sleeps (`finish`), which
+/// either leg's sleep settle runs (the first one; `isDone` skips the other). One per move,
+/// with nothing to cancel: a later move makes its own, and the end lands rows only for the newest move.
+@MainActor
+final class RowMotionEnd {
+    private var waiting = 2
+    private var body: (@MainActor () -> Void)?
+
+    init(_ body: @escaping @MainActor () -> Void) { self.body = body }
+
+    /// One leg ended; the second runs the end.
+    func arrive() {
+        waiting -= 1
+        if waiting <= 0 { finish() }
+    }
+
+    /// The end ran (both legs arrived, or the display slept).
+    var isDone: Bool { body == nil }
+
+    /// Runs the end now, once (a later arrival does nothing).
+    func finish() {
+        let body = self.body
+        self.body = nil
+        body?()
     }
 }

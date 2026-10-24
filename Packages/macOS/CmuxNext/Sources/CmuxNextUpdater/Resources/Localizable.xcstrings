@@ -1704,6 +1704,530 @@
         }
       }
     },
+    "updater.channels.goBack": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go Back to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العودة إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati se na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå tilbage til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück zu %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Torna a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に戻る"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រឡប់ទៅ %@ វិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 돌아가기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå tilbake til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wróć do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вернуться на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลับไปที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kanalına dön"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повернутися на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quay lại %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回 %@"
+          }
+        }
+      }
+    },
+    "updater.channels.goBackDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarts once into %@, kept on this Mac. Settings and sessions stay."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُعاد التشغيل مرة واحدة إلى %@ المحفوظ على هذا الـ Mac. تبقى الإعدادات والجلسات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo se pokreće jednom u %@, sačuvanu na ovom Macu. Postavke i sesije ostaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genstarter én gang til %@, gemt på denne Mac. Indstillinger og sessioner bevares."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet einmal neu in %@, auf diesem Mac aufbewahrt. Einstellungen und Sitzungen bleiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reinicia una vez en %@, guardada en este Mac. Los ajustes y las sesiones se conservan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarre une fois sur %@, conservée sur ce Mac. Les réglages et les sessions restent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si riavvia una volta in %@, conservata su questo Mac. Impostazioni e sessioni restano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacに保存された%@で一度だけ再起動します。設定とセッションはそのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមឡើងវិញម្ដងទៅ %@ ដែលរក្សាទុកលើ Mac នេះ។ ការកំណត់ និងវគ្គនៅដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 보관된 %@(으)로 한 번 재시작합니다. 설정과 세션은 그대로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter på nytt én gang i %@, lagret på denne Macen. Innstillinger og økter beholdes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchamia się ponownie raz w %@, zachowanej na tym Macu. Ustawienia i sesje zostają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinicia uma vez em %@, guardada neste Mac. Os ajustes e as sessões continuam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один раз перезапускается в %@, сохранённой на этом Mac. Настройки и сеансы остаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีสตาร์ตหนึ่งครั้งเข้าสู่ %@ ที่เก็บไว้ใน Mac เครื่องนี้ การตั้งค่าและเซสชันยังคงอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te saklanan %@ sürümüne bir kez yeniden başlar. Ayarlar ve oturumlar kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один раз перезапускається в %@, збережену на цьому Mac. Налаштування й сеанси залишаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động lại một lần vào %@ được giữ trên máy Mac này. Cài đặt và phiên vẫn giữ nguyên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新启动一次，进入此 Mac 保留的 %@。设置和会话保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動一次，進入此 Mac 保留的 %@。設定和工作階段保持不變。"
+          }
+        }
+      }
+    },
+    "updater.channels.waits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac stays on %1$@ until %2$@ reaches a newer build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقى هذا الـ Mac على %1$@ حتى تصل %2$@ إلى إصدار أحدث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac ostaje na %1$@ dok %2$@ ne dobije noviju verziju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac bliver på %1$@, indtil %2$@ når et nyere build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac bleibt auf %1$@, bis %2$@ einen neueren Build erreicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac se queda en %1$@ hasta que %2$@ llegue a una compilación más nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac reste sur %1$@ jusqu'à ce que %2$@ atteigne une version plus récente."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac resta su %1$@ finché %2$@ non raggiunge una build più recente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@がより新しいビルドに達するまで、このMacは%1$@のままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះនៅលើ %1$@ រហូតដល់ %2$@ ទៅដល់កំណែថ្មីជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@에 더 새로운 빌드가 올 때까지 이 Mac은 %1$@에 머뭅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen blir på %1$@ til %2$@ når en nyere build."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac zostaje na %1$@, dopóki %2$@ nie osiągnie nowszej kompilacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac fica em %1$@ até que %2$@ chegue a uma build mais nova."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac остаётся на %1$@, пока %2$@ не получит более новую сборку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้จะอยู่ที่ %1$@ จนกว่า %2$@ จะมีบิลด์ที่ใหม่กว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac, %2$@ daha yeni bir derlemeye ulaşana kadar %1$@ sürümünde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac залишається на %1$@, доки %2$@ не отримає новішу збірку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này giữ ở %1$@ cho đến khi %2$@ có bản dựng mới hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 会停留在 %1$@，直到 %2$@ 有更新的版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 會停留在 %1$@，直到 %2$@ 有更新的版本。"
+          }
+        }
+      }
+    },
+    "updater.channels.goBackGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That kept build is no longer the way back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد ذلك الإصدار المحفوظ طريق العودة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta sačuvana verzija više nije put nazad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det gemte build er ikke længere vejen tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser aufbewahrte Build ist nicht mehr der Weg zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa compilación guardada ya no es el camino de vuelta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version conservée n'est plus le chemin du retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella build conservata non è più la via del ritorno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その保存済みビルドはもう戻り先ではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែដែលរក្សាទុកនោះ មិនមែនជាផ្លូវត្រឡប់វិញទៀតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관된 그 빌드는 더 이상 돌아갈 곳이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den lagrede builden er ikke lenger veien tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta zachowana kompilacja nie jest już drogą powrotu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa build guardada não é mais o caminho de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта сохранённая сборка больше не путь назад."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์ที่เก็บไว้นั้นไม่ใช่ทางกลับอีกต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklanan o derleme artık geri dönüş yolu değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця збережена збірка більше не шлях назад."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản dựng được giữ đó không còn là đường quay lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "那个保留的版本已不再是返回的途径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "那個保留的版本已不再是返回的途徑。"
+          }
+        }
+      }
+    },
     "updater.channels.ring.stable": {
       "extractionState": "manual",
       "localizations": {
@@ -2486,6 +3010,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        }
+      }
+    },
+    "updater.rollback.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roll Back to the Previous Version?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرجوع إلى الإصدار السابق؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vratiti na prethodnu verziju?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå tilbage til den forrige version?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die vorherige Version zurücksetzen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Volver a la versión anterior?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir à la version précédente ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornare alla versione precedente?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のバージョンに戻しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រឡប់ទៅកំណែមុនវិញឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 버전으로 되돌릴까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå tilbake til forrige versjon?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywrócić poprzednią wersję?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar para a versão anterior?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вернуться к предыдущей версии?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้อนกลับไปเวอร์ชันก่อนหน้าไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki sürüme geri dönülsün mü?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повернутися до попередньої версії?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quay lại phiên bản trước?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回退到上一个版本？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回復到上一個版本？"
+          }
+        }
+      }
+    },
+    "updater.rollback.confirm.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيُغلق cmux ويُعيد فتح الإصدار الذي احتفظ به جهاز Mac هذا. تستمر الطرفيات والوكلاء في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se zatvara i ponovo otvara verziju koju je ovaj Mac sačuvao. Vaši terminali i agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lukker og åbner den version, denne Mac har gemt. Dine terminaler og agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wird beendet und öffnet den Build, den dieser Mac aufbewahrt hat. Deine Terminals und Agenten laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cierra y abre la compilación que este Mac guardó. Tus terminales y agentes siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se ferme et rouvre la version conservée sur ce Mac. Vos terminaux et agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux si chiude e riapre la build conservata su questo Mac. I terminali e gli agenti continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了し、この Mac に保管されているビルドを開き直します。ターミナルとエージェントは実行を続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នឹងបិទ ហើយបើកកំណែដែល Mac នេះបានរក្សាទុកឡើងវិញ។ ទែមីណល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 종료하고 이 Mac에 보관된 빌드를 다시 엽니다. 터미널과 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux avslutter og åpner versjonen denne Macen har tatt vare på. Terminalene og agentene dine fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux zamknie się i otworzy wersję zachowaną na tym Macu. Terminale i agenci nadal działają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux fecha e reabre a versão que este Mac guardou. Seus terminais e agentes continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux закроется и откроет сборку, сохранённую на этом Mac. Терминалы и агенты продолжат работу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux จะปิดและเปิดบิลด์ที่ Mac เครื่องนี้เก็บไว้ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanır ve bu Mac'in sakladığı derlemeyi yeniden açar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux закриється й відкриє збірку, збережену на цьому Mac. Термінали й агенти продовжать працювати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sẽ thoát và mở lại bản dựng mà máy Mac này đã giữ. Terminal và agent của bạn vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 将退出并重新打开这台 Mac 保留的版本。你的终端和代理会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 將結束並重新開啟這台 Mac 保留的版本。你的終端機和代理會繼續執行。"
           }
         }
       }
@@ -22136,6 +22922,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 即將重新啟動。你的終端機和代理會繼續執行。"
+          }
+        }
+      }
+    },
+    "updater.notice.checkingNewVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストーラが新しいバージョンを確認しています（%lld 秒）。完了すると cmux が再起動します。ターミナルとエージェントは実行を続けます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتحقق المثبّت من الإصدار الجديد (%lld ث). ستتم إعادة تشغيل cmux عند الانتهاء. تستمر الطرفيات والوكلاء في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaler provjerava novu verziju (%lld s). cmux se ponovo pokreće kada završi. Vaši terminali i agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installationsprogrammet tjekker den nye version (%lld s). cmux genstarter, når det er færdigt. Dine terminaler og agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Installationsprogramm prüft die neue Version (%lld s). cmux startet neu, sobald es fertig ist. Deine Terminals und Agenten laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El instalador comprueba la nueva versión (%lld s). cmux se reinicia cuando termina. Tus terminales y agentes siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le programme d’installation vérifie la nouvelle version (%lld s). cmux se relance une fois terminé. Vos terminaux et agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il programma di installazione controlla la nuova versione (%lld s). cmux si riavvia al termine. Terminali e agenti continuano a funzionare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%lld វិនាទី)។ cmux នឹងបើកឡើងវិញពេលរួចរាល់។ ទែមីណាល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%lld초). 완료되면 cmux가 다시 실행됩니다. 터미널과 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installasjonsprogrammet sjekker den nye versjonen (%lld s). cmux starter på nytt når det er ferdig. Terminalene og agentene dine fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalator sprawdza nową wersję (%lld s). cmux uruchomi się ponownie po zakończeniu. Terminale i agenci nadal działają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O instalador verifica a nova versão (%lld s). O cmux reabre quando terminar. Seus terminais e agentes continuam em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установщик проверяет новую версию (%lld с). cmux перезапустится, когда проверка завершится. Терминалы и агенты продолжают работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวติดตั้งกำลังตรวจสอบเวอร์ชันใหม่ (%lld วินาที) cmux จะเปิดใหม่เมื่อเสร็จ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleyici yeni sürümü denetliyor (%lld sn). Bittiğinde cmux yeniden başlar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інсталятор перевіряє нову версію (%lld с). cmux перезапуститься, коли перевірку завершено. Термінали й агенти продовжують працювати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%lld giây). cmux khởi chạy lại khi xong. Terminal và agent của bạn vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装器正在检查新版本（%lld 秒）。完成后 cmux 将重新启动。你的终端和代理会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝程式正在檢查新版本（%lld 秒）。完成後 cmux 會重新啟動。你的終端機和代理程式會繼續執行。"
+          }
+        }
+      }
+    },
+    "updater.notice.waitingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to Relaunch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動を待機中"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في انتظار إعادة التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeka se ponovno pokretanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på genstart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Neustart"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando para reiniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de relance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa del riavvio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំបើកឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재실행 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på omstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oczekiwanie na ponowne uruchomienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando para Reabrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание перезапуска"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอเปิดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden Başlatma Bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування перезапуску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ khởi chạy lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待重新启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待重新啟動"
+          }
+        }
+      }
+    },
+    "updater.notice.waitingDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Busy agents: %1$lld. Running commands: %2$lld. cmux relaunches when they finish, or now with Relaunch."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のエージェント: %1$lld。実行中のコマンド: %2$lld。終わると cmux が再起動します。「再起動」で今すぐ再起動できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء المشغولون: %1$lld. الأوامر قيد التشغيل: %2$lld. ستتم إعادة تشغيل cmux عند انتهائها، أو الآن باستخدام «إعادة التشغيل»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zauzeti agenti: %1$lld. Pokrenute komande: %2$lld. cmux se ponovo pokreće kada završe, ili odmah uz „Ponovo pokreni”."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travle agenter: %1$lld. Kørende kommandoer: %2$lld. cmux genstarter, når de er færdige, eller nu med Genstart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beschäftigte Agenten: %1$lld. Laufende Befehle: %2$lld. cmux startet neu, wenn sie fertig sind, oder sofort mit „Neu starten“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes ocupados: %1$lld. Comandos en ejecución: %2$lld. cmux se reinicia cuando terminen, o ahora con Reiniciar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents occupés : %1$lld. Commandes en cours : %2$lld. cmux se relance quand elles sont terminées, ou maintenant avec Relancer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti occupati: %1$lld. Comandi in esecuzione: %2$lld. cmux si riavvia quando finiscono, oppure subito con Riavvia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារកំពុងរវល់៖ %1$lld។ ពាក្យបញ្ជាកំពុងដំណើរការ៖ %2$lld។ cmux នឹងបើកឡើងវិញពេលវារួចរាល់ ឬឥឡូវនេះដោយ «បើកឡើងវិញ»។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 에이전트: %1$lld. 실행 중인 명령: %2$lld. 끝나면 cmux가 다시 실행되며, 재실행으로 지금 바로 실행할 수도 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptatte agenter: %1$lld. Kjørende kommandoer: %2$lld. cmux starter på nytt når de er ferdige, eller nå med Start på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zajęci agenci: %1$lld. Uruchomione polecenia: %2$lld. cmux uruchomi się ponownie, gdy skończą, lub od razu przez Uruchom ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes ocupados: %1$lld. Comandos em execução: %2$lld. O cmux reabre quando terminarem, ou agora com Reabrir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Занятые агенты: %1$lld. Выполняемые команды: %2$lld. cmux перезапустится, когда они завершатся, или сразу по кнопке «Перезапустить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ที่กำลังทำงาน: %1$lld คำสั่งที่กำลังรัน: %2$lld cmux จะเปิดใหม่เมื่อเสร็จ หรือทันทีด้วย เปิดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meşgul ajanlar: %1$lld. Çalışan komutlar: %2$lld. Bittiklerinde cmux yeniden başlar ya da Yeniden Başlat ile hemen başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зайняті агенти: %1$lld. Виконувані команди: %2$lld. cmux перезапуститься, коли вони завершаться, або одразу через «Перезапустити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent đang bận: %1$lld. Lệnh đang chạy: %2$lld. cmux khởi chạy lại khi chúng xong, hoặc ngay bằng Khởi chạy lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忙碌的代理：%1$lld。正在运行的命令：%2$lld。它们结束后 cmux 将重新启动，也可点按“重新启动”立即重启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忙碌的代理程式：%1$lld。正在執行的指令：%2$lld。它們結束後 cmux 會重新啟動，也可按「重新啟動」立即重啟。"
+          }
+        }
+      }
+    },
+    "updater.notice.stalledTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Did Not Relaunch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート後に再起動しませんでした"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم إعادة التشغيل بعد التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje se nije ponovo pokrenulo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringen genstartede ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update hat nicht neu gestartet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La actualización no se reinició"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à jour ne s’est pas relancée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’aggiornamento non si è riavviato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បច្ចុប្បន្នភាពមិនបានបើកឡើងវិញទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 후 재실행되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringen startet ikke på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacja nie uruchomiła się ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Atualização Não Reabriu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление не перезапустилось"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตไม่ได้เปิดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme Yeniden Başlamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення не перезапустилося"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản cập nhật không khởi chạy lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新后未重新启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新後未重新啟動"
+          }
+        }
+      }
+    },
+    "updater.notice.stalledDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux waited %lld min for the installer. Your windows are back. Details shows the update log."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はインストーラを %lld 分待ちました。ウインドウは元に戻りました。「詳細」でアップデートのログを確認できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتظر cmux المثبّت لمدة %lld دقيقة. عادت نوافذك. يعرض «التفاصيل» سجل التحديث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux je čekao instaler %lld min. Vaši prozori su vraćeni. Detalji prikazuju zapisnik ažuriranja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ventede %lld min. på installationsprogrammet. Dine vinduer er tilbage. Detaljer viser opdateringsloggen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat %lld Min. auf das Installationsprogramm gewartet. Deine Fenster sind zurück. „Details“ zeigt das Update-Protokoll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux esperó al instalador %lld min. Tus ventanas han vuelto. Detalles muestra el registro de la actualización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a attendu le programme d’installation %lld min. Vos fenêtres sont revenues. Détails affiche le journal de mise à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ha atteso il programma di installazione per %lld min. Le finestre sono tornate. Dettagli mostra il registro dell’aggiornamento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បានរង់ចាំកម្មវិធីដំឡើង %lld នាទី។ បង្អួចរបស់អ្នកបានត្រឡប់មកវិញ។ «ព័ត៌មានលម្អិត» បង្ហាញកំណត់ហេតុបច្ចុប្បន្នភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 설치 프로그램을 %lld분 동안 기다렸습니다. 윈도우가 다시 표시됩니다. 세부사항에서 업데이트 로그를 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ventet %lld min på installasjonsprogrammet. Vinduene dine er tilbake. Detaljer viser oppdateringsloggen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux czekał na instalator %lld min. Okna wróciły. Szczegóły pokazują dziennik aktualizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux esperou o instalador por %lld min. Suas janelas voltaram. Detalhes mostra o registro da atualização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ждал установщик %lld мин. Окна снова на экране. В разделе «Подробнее» есть журнал обновления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux รอตัวติดตั้งไป %lld นาที หน้าต่างของคุณกลับมาแล้ว รายละเอียดแสดงบันทึกการอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yükleyiciyi %lld dk bekledi. Pencereleriniz geri geldi. Ayrıntılar güncelleme günlüğünü gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux чекав на інсталятор %lld хв. Вікна знову на екрані. «Докладніше» показує журнал оновлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux đã chờ trình cài đặt %lld phút. Cửa sổ của bạn đã trở lại. Chi tiết hiển thị nhật ký cập nhật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 等待安装器 %lld 分钟。你的窗口已恢复。“详细信息”中可查看更新日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 等待安裝程式 %lld 分鐘。你的視窗已恢復。「詳細資訊」中可查看更新記錄。"
           }
         }
       }

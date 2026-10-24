@@ -30,8 +30,12 @@ impl Hub {
                         }
                     }
                     "agent_message_chunk" => {
-                        if let Some(t) =
-                            e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+                        if let Some(t) = e
+                            .msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str)
                         {
                             agent_buf.push_str(t);
                         }

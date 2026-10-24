@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""The cmux-next "Tour the app" job runs on merges, on opted-in pull requests, and on
-pull requests whose Swift UI change a specific tour covers.
+"""The cmux-next "Tour the app" job runs on merges and once per `media-tour` label.
 
 It ran on every push to every feat-cmux-next pull request that touched UI
 paths: on 2026-10-14 it had 32 queued and 8 running jobs on the owned Macs'
-gui runners, one per mini, which saturated them. It now runs for a push to
-feat-cmux-next (a merge: one tour at a time, the newest merge waiting) and for
-a pull request labeled `media-tour`. Since 2026-10-19 a pull request without the
-label gets a tour too when scripts/ci/media_auto_tour.py says a specific tour
-covers its Swift UI change (tests/test_media_auto_tour.py); the route job asks
-it, and with no tour wanted no Mac is taken and nothing is posted. A label
-event for another label starts no job and cancels no tour.
+gui runners, one per mini, which saturated them. Then it ran for a labeled
+pull request on every push, and from 2026-10-19 for an unlabeled one whose
+Swift UI change a specific tour covered. Since 2026-10-21 (Leo: only on a merge
+or on demand) it runs for a push to feat-cmux-next (a merge), a dispatch, and
+the `labeled` event that adds `media-tour`. No push of a pull request starts a
+run, labeled or not; to tour a newer head, re-add the label. A
+label event for another label starts no job and cancels no tour.
 
 This evaluates the workflow's own trigger, concurrency and job conditions for
 each event, runs the publish job's pull request lookup with a fake gh, and
@@ -142,7 +141,8 @@ def main():
     jobs = workflow["jobs"]
 
     pr_trigger = triggers["pull_request"]
-    _check("labeled" in pr_trigger["types"], "adding the label starts a tour")
+    _check(pr_trigger["types"] == ["labeled"],
+           f"only a label event starts a pull request run; no push does ({pr_trigger['types']})")
     push = triggers.get("push") or {}
     _check(push.get("branches") == ["feat-cmux-next"], "a merge to feat-cmux-next starts a tour")
     _check(push.get("paths") == pr_trigger["paths"], "merges and pull requests share the UI path filter")
@@ -150,18 +150,20 @@ def main():
     route_if = jobs["route"]["if"]
     group = workflow["concurrency"]["group"]
     cancel = workflow["concurrency"]["cancel-in-progress"]
-    opted_group = expression(group, pr_event("synchronize", [LABEL]))
+    opted_group = expression(group, pr_event("labeled", [LABEL], label=LABEL))
     cases = [
-        ("a pull request push without the label asks whether a tour covers it",
-         pr_event("synchronize", ["dev-build"]), True),
-        ("an opened pull request without the label asks too", pr_event("opened", []), True),
-        ("a pull request push with the label tours", pr_event("synchronize", [LABEL]), True),
+        ("a pull request push without the label tours nothing", pr_event("synchronize", ["dev-build"]), False),
+        ("an opened pull request without the label tours nothing", pr_event("opened", []), False),
+        ("a later push of a labeled pull request does not tour again", pr_event("synchronize", [LABEL]), False),
+        ("reopening a labeled pull request does not tour again", pr_event("reopened", [LABEL]), False),
         ("adding the label tours", pr_event("labeled", [LABEL], label=LABEL), True),
+        ("adding media-tour-mac alone tours nothing",
+         pr_event("labeled", ["media-tour-mac"], label="media-tour-mac"), False),
         ("adding another label to a labeled pull request tours nothing",
          pr_event("labeled", [LABEL, "dev-build"], label="dev-build"), False),
         ("adding no-media-tour reaches the route, which cancels the running tour and posts nothing",
          pr_event("labeled", ["no-media-tour"], label="no-media-tour"), True),
-        ("a fork pull request never tours", pr_event("synchronize", [LABEL], fork=True), False),
+        ("a fork pull request never tours", pr_event("labeled", [LABEL], label=LABEL, fork=True), False),
         ("a merge to feat-cmux-next tours", push_event(), True),
         ("a batch dispatch with a base tours", dispatch_event("d" * 40), True),
         ("a dispatch without a base tours nothing", dispatch_event(""), False),
@@ -174,8 +176,8 @@ def main():
             other = expression(group, context)
             _check(other != opted_group, f"{why}, and cancels no tour of the pull request ({other!r})")
 
-    _check(expression(cancel, pr_event("synchronize", [LABEL])) is True,
-           "a newer opted-in push still cancels the pull request's older tour")
+    _check(expression(cancel, pr_event("labeled", [LABEL], label=LABEL)) is True,
+           "re-adding the label cancels the pull request's older tour")
     _check(not expression(cancel, push_event()), "a merge tour in progress is never cancelled")
     merge_group = expression(group, push_event())
     _check(merge_group != expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
@@ -313,7 +315,7 @@ def main():
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         sys.exit(1)
-    print("PASS: the tour runs on merges, media-tour pull requests and Swift UI a tour covers")
+    print("PASS: the tour runs on merges, dispatches and the event that adds media-tour")
 
 
 if __name__ == "__main__":

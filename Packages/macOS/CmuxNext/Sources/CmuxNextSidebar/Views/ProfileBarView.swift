@@ -9,7 +9,8 @@ import CmuxNextDesign
 /// show better"): the strip is centered on the sidebar, each space shows its
 /// icon, emoji or initial in its color, the current space sits on a
 /// selection-fill chip that slides to the new space on a switch, and the "+"
-/// (on hover) sits at the bar's trailing edge so it never moves the strip.
+/// (on hover) sits right after the last space, in a slot the strip always
+/// leaves free, so it never moves the strip (Lawrence 2026-10-21).
 /// Too many spaces narrow the slots, then turn compact (small dots, the
 /// current one full). Layers, back to front: the hover chip (this view),
 /// the current-space chip (`indicator`), the marks (`marks`).

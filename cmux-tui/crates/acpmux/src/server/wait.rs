@@ -4,6 +4,7 @@
 //! between "list" and "subscribe" cannot be missed.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use std::collections::HashMap;
 
 /// What a caller can wait for.
@@ -38,18 +39,21 @@ impl Until {
         // An accepted turn whose agent is still starting is not ready yet
         // (its status turns running only once the prompt goes out).
         let turn = s.get("turn").is_some_and(|t| !t.is_null());
+        // A sub-session whose prompt waits for a run slot (`hub/subsession_runs.rs`) has work
+        // to do: it is not ready, nor done.
+        let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
         match self {
-            Self::Ready => status != "running" && status != "waiting" && !pending && !turn,
+            Self::Ready => status != "running" && status != "waiting" && !pending && !turn && !slot,
             Self::Permission => pending || status == "waiting",
             Self::Closed => status == "closed",
-            Self::Done => unread && status != "running" && status != "waiting",
+            Self::Done => unread && status != "running" && status != "waiting" && !slot,
             Self::Running => status == "running" || status == "waiting" || turn,
         }
     }
 }
 
 /// Params: `sessions` (keys; empty = every running or waiting session on
-/// every host), `until` (list; default ready+permission), `all` (wait for
+/// every host, and every sub-session waiting for a run slot), `until` (list; default ready+permission), `all` (wait for
 /// every target instead of the first), `afterSeq` (map of session id to a
 /// state sequence the resolution must exceed), `timeoutMs`.
 pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
@@ -84,7 +88,8 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     let mut ids: Vec<String> = Vec::new();
     if keys.is_empty() {
         for s in hub.all_session_summaries() {
-            if Until::Running.matches(&s)
+            let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
+            if (Until::Running.matches(&s) || slot)
                 && let Some(id) = s.get("sessionId").and_then(Value::as_str)
             {
                 ids.push(id.to_owned());
@@ -124,13 +129,16 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                 .unwrap_or(true);
             let hit = seq_ok && until.iter().any(|u| u.matches(&s));
             let mut row = s.clone();
-            row["resolved"] = json!(hit);
-            row["matched"] = json!(
-                until
-                    .iter()
-                    .filter(|u| seq_ok && u.matches(&s))
-                    .map(|u| format!("{u:?}").to_lowercase())
-                    .collect::<Vec<_>>()
+            row.set("resolved", json!(hit));
+            row.set(
+                "matched",
+                json!(
+                    until
+                        .iter()
+                        .filter(|u| seq_ok && u.matches(&s))
+                        .map(|u| format!("{u:?}").to_lowercase())
+                        .collect::<Vec<_>>()
+                ),
             );
             if hit {
                 resolved.push(row.clone());

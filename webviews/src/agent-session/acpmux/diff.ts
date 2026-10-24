@@ -1,4 +1,11 @@
-import { contentsUnknown, plainEditLabels, type AcpmuxActivity, type AcpmuxFileDiff, type AcpmuxRow } from "./model";
+import {
+  contentsUnknown,
+  pathKey,
+  plainEditLabels,
+  type AcpmuxActivity,
+  type AcpmuxFileDiff,
+  type AcpmuxRow,
+} from "./model";
 import { opensTurn } from "./turnStart";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -15,6 +22,9 @@ export type DiffHunk = {
 export type DiffEdit = { toolId: string; hunks: DiffHunk[]; numbered: boolean };
 export type TurnFile = {
   path: string;
+  /// The file's canonical path (model.ts `pathKey`): what acpmux recorded for a tool call's file,
+  /// or a turn checkpoint's `${root}/${path}`. Absent for a path recorded without one.
+  canonical?: string;
   displayPath: string;
   edits: DiffEdit[];
   additions: number;
@@ -190,18 +200,37 @@ export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
   );
 }
 
+/// The last activity row whose tool calls changed the file at `path` (one of its spellings: the same
+/// canonical path, model.ts `pathKey`), and the file's path in that row's turn, where its diff opens.
+/// Undefined when no diff names it.
+export function lastChange(rows: readonly AcpmuxRow[], path: string): { rowId: string; path: string } | undefined {
+  const diffs = (row: AcpmuxRow) =>
+    row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool?.diffs ?? []) : [];
+  const canonical = rows.flatMap(diffs).find((diff) => diff.path === path && diff.canonical)?.canonical;
+  const isIt = (file: PathRef) => file.path === path || (canonical !== undefined && file.canonical === canonical);
+  const row = [...rows].reverse().find((candidate) => diffs(candidate).some(isIt));
+  if (!row) return undefined;
+  const file = turnFiles(turnRows([...rows], row.id)).find(isIt);
+  return { rowId: row.id, path: file?.path ?? path };
+}
+
 /// The paths the turn's edits changed with no diff `turnFiles` counts: an edit whose call carried
 /// none, and a file a Write rewrote with old contents unknown. A checkpoint file at one of them is
 /// still a tool call's change (turnCheckpoint.ts `turnDisplay`), not one made outside them. Not a
 /// path only failed calls named: they changed nothing (the card still lists it, as failed).
-export function turnPathsOnly(rows: readonly AcpmuxRow[]): string[] {
+export function turnPathsOnly(rows: readonly AcpmuxRow[]): PathRef[] {
   const edits = rows.flatMap((row) =>
     row.kind === "activity"
       ? (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
       : [],
   );
-  return plainEditLabels(edits).flatMap((entry) => (entry.path && !entry.failed ? [entry.path] : []));
+  return plainEditLabels(edits).flatMap(({ path, canonical, failed }) =>
+    path && !failed ? [canonical ? { path, canonical } : { path }] : [],
+  );
 }
+
+/// A tool call's path as the agent wrote it, with its canonical path when acpmux recorded one.
+export type PathRef = { path: string; canonical?: string };
 
 /// The files these tool calls changed, each edit in turn, named from their shared directory.
 /// `known`: without a file a Write rewrote with old contents unknown, whose net change is unknown
@@ -216,18 +245,21 @@ export function toolFiles(tools: readonly Tool[], { known = false }: { known?: b
       ? tools.flatMap((tool) =>
           tool.status === "failed"
             ? []
-            : changes(tool).flatMap((change) => (contentsUnknown(change) ? [change.path] : [])),
+            : changes(tool).flatMap((change) => (contentsUnknown(change) ? [pathKey(change)] : [])),
         )
       : [],
   );
+  // One file per canonical path (model.ts `pathKey`), under the spelling its first edit used.
   const files = new Map<string, TurnFile>();
   for (const tool of tools)
     for (const change of changes(tool)) {
-      if (unknown.has(change.path) || (known && tool.status === "failed" && contentsUnknown(change))) continue;
-      let file = files.get(change.path);
+      const key = pathKey(change);
+      if (unknown.has(key) || (known && tool.status === "failed" && contentsUnknown(change))) continue;
+      let file = files.get(key);
       if (!file) {
         file = {
           path: change.path,
+          ...(change.canonical ? { canonical: change.canonical } : {}),
           displayPath: change.path,
           edits: [],
           additions: 0,
@@ -235,7 +267,7 @@ export function toolFiles(tools: readonly Tool[], { known = false }: { known?: b
           // A fragment has no whole-file text, so a missing old text is not proof of a new file.
           created: change.oldText == null && !change.fragment,
         };
-        files.set(change.path, file);
+        files.set(key, file);
       }
       file.edits.push(fileEdit(tool.id, change));
     }

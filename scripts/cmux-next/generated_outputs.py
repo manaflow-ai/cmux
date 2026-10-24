@@ -45,6 +45,12 @@ SETTINGS_INPUTS = (
     r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
 )
 SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/bindings/rust/scripts/sync-resource-api\.py"
+CAPABILITY_INPUTS = (
+    r"Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift$"
+    r"|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift$"
+    r"|scripts/cmux-next/check-daemon-capabilities-fresh\.py$"
+    r"|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh$"
+)
 
 # An input regex that no path matches: only the base autofix writes the output.
 BOT_ONLY = r"(?!)"
@@ -57,6 +63,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
     # added a target. The base autofix regenerates it after each merge.
     (("Packages/macOS/CmuxNext/ci-target-graph.json",), BOT_ONLY,
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
+    (("plans/cmux-next/daemon-capabilities.json",), CAPABILITY_INPUTS,
+     "scripts/cmux-next/check-daemon-capabilities-fresh.py --write (the autofix)"),
     (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
     (("schemas/settings/settings-schema.json", "schemas/settings-export/settings-schema.sources.sha256",

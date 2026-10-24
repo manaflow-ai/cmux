@@ -43,7 +43,26 @@ extension AppActions {
                 homePage(services)?.presentNewChief()
                 return
             }
-            runHome(services) { await services.home.createChief(named: name) }
+            let backendName = invocation["harness"]?.stringValue
+                ?? invocation["engine"]?.stringValue
+                ?? ChiefBackend.claude.id
+            guard let backend = ChiefBackend(id: backendName) else {
+                return registry.refuse("unknown Chief harness: \(backendName)")
+            }
+            // A headless caller (CLI, MCP, or an agent acting for the person)
+            // needs the created Chief's durable id, not an empty `created` list.
+            registry.track(result: Task { @MainActor in
+                switch await services.home.createChiefForAction(named: name, backend: backend) {
+                case .success(let chief):
+                    return .success([
+                        "id": .string(chief.id),
+                        "name": .string(chief.name),
+                        "conversation": .string(chief.mainConversation ?? ""),
+                    ])
+                case .failure(let outcome):
+                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: outcome.message ?? ""))
+                }
+            })
         })
         registry.bind("home.archiveChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
@@ -56,11 +75,23 @@ extension AppActions {
             }
             registry.track(work)
         })
-        // Cmd-Shift-[ / ] on Home: the previous or next conversation in the list; stops at the ends.
+        registry.bind("home.deleteChief", invoke: { invocation in
+            guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
+                registry.refuse(HomeStrings.deleteFailed)
+                return
+            }
+            let work = ActionWork {
+                guard let reason = await services.home.deleteChief(chief) else { return nil }
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
+            }
+            registry.track(work)
+        })
+        // Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ on Home: the next or previous conversation in
+        // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.
         for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
             registry.bind(id) {
                 let step: @MainActor (TopHomePageView) -> Void = { page in
-                    guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
+                    guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset, wrapping: true) else { return }
                     page.open(next)
                 }
                 // The docked Home steps its Messages list, or asks the Channels page to move through
@@ -84,6 +115,25 @@ extension AppActions {
                 step(page)
             }
         }
+        // Ctrl-1…9 on Home: the nth conversation in the list, 9 the last (as Select Tab 1…9).
+        registry.bind("home.selectConversationByNumber", invoke: { invocation in
+            guard let number = invocation["index"]?.intValue else { return registry.refuse(RefusalStrings.indexRequired) }
+            let pick: @MainActor (TopHomePageView) -> Void = { page in
+                guard let id = page.sidebar.model().conversation(number: number) else { return }
+                page.open(id)
+            }
+            guard services.home.dock.isClassic else {
+                return withDock(services) { dock in
+                    // The Channels page keeps its own list; it has no numbered pick.
+                    guard dock.mode != .channels, let page = dock.messages else {
+                        return registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)
+                    }
+                    pick(page)
+                }
+            }
+            guard let page = homePage(services) else { return }
+            pick(page)
+        })
         registry.bind("home.switchView", invoke: { switchHomeView(services, $0) })
         registry.bind("home.openConversation", invoke: { invocation in
             guard let id = invocation["conversation"]?.stringValue, !id.isEmpty else {

@@ -1,7 +1,7 @@
 // The chat's transcript as the agent pane lays it out (App.tsx): VirtualTranscript fills a fixed
 // height. The test hands it rows (`window.__showRows`), as a chat's snapshots do while a reply streams.
 import { createRoot } from "react-dom/client";
-import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
+import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
@@ -38,20 +38,44 @@ const view = createRoot(root);
 // "Worked for" lines open and close as the pane's do: a click toggles the turn in `expanded`.
 let shown: AcpmuxRow[] = [];
 let expanded = new Set<string>();
+// Prompts "sent" from the pane's composer (App's `chat.send`), which put the view at its latest message.
+let sends = 0;
+// Where the chat reopens (`__openAt`, the reader's saved place). Its row is in an older page that never
+// lands, so the open keeps paging back for it, unseen, until it gives up or a prompt is sent.
+let openAt: ScrollAnchor | undefined;
+// The chat shown (`__showSession`), as the pane's tab switches chats.
+let sessionId = "session-1";
 const draw = () =>
   view.render(
     <VirtualTranscript
       rows={turnView(shown, expanded)}
-      sessionId="session-1"
+      sessionId={sessionId}
       onToggleActivity={(id) => {
         expanded = new Set(expanded);
         if (!expanded.delete(id)) expanded.add(id);
         draw();
       }}
       expanded={expanded}
+      sends={sends}
+      openAt={openAt}
+      canLoadOlder={openAt !== undefined}
+      onLoadOlder={() => new Promise<void>(() => {})}
     />,
   );
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
   shown = rows;
+  draw();
+};
+(window as unknown as { __showSession: (id: string, rows: AcpmuxRow[]) => void }).__showSession = (id, rows) => {
+  sessionId = id;
+  shown = rows;
+  draw();
+};
+(window as unknown as { __send: () => void }).__send = () => {
+  sends += 1;
+  draw();
+};
+(window as unknown as { __openAt: (anchor: ScrollAnchor) => void }).__openAt = (anchor) => {
+  openAt = anchor;
   draw();
 };

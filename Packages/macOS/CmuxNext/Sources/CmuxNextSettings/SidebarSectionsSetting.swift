@@ -16,6 +16,8 @@ public nonisolated enum SidebarSectionsSetting {
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
     public static let densityPath = ["sidebar", "density"]
+    /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
+    public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
@@ -26,6 +28,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
+    public static let showColorsPath = ["sidebar", "showColors"]
+    public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
 
@@ -56,6 +60,24 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
                           keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
+    static func showLocalMachineDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showLocalMachinePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showLocalMachine", "Mark This Mac's Workspaces"),
+                          help: SettingsText.keyed("settings.sidebar.showLocalMachine.help",
+                                                   "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showLocalMachine),
+                          keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"])
+    }
+
+    static func showColorsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showColorsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showColors", "Show Workspace Colors"),
+                          help: SettingsText.keyed("settings.sidebar.showColors.help",
+                                                   "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showColors),
+                          keywords: ["sidebar", "color", "colors", "colour", "tint", "swatch", "group", "workspace", "hide", "plain"])
     }
 
     static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -99,6 +121,19 @@ public nonisolated enum SidebarSectionsSetting {
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
                           keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
+    }
+
+    static func styleDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(stylePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.style", "Sidebar Style"),
+                          help: SettingsText.keyed("settings.sidebar.style.help",
+                                                   "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."),
+                          kind: .choice([
+                              SettingChoice(SidebarLayoutStyle.standard.rawValue, SettingsText.keyed("settings.choice.sidebarStandard", "Standard")),
+                              SettingChoice(SidebarLayoutStyle.rail.rawValue, SettingsText.keyed("settings.choice.sidebarRail", "Rail")),
+                          ]),
+                          default: .string(SidebarSectionsPreferences.defaults.style.rawValue),
+                          keywords: ["sidebar", "style", "rail", "thin", "narrow", "minimal", "strip", "hide", "hover", "overlay", "auto hide"])
     }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
@@ -242,6 +277,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
+        result.showColors = flag(root, showColorsPath, fallback: result.showColors, &diagnostics)
+        result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)
@@ -260,6 +297,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: stylePath) {
+            if let text = value.stringValue, let style = SidebarLayoutStyle(rawValue: text) {
+                result.style = style
+            } else {
+                let choices = SidebarLayoutStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.style", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: showChatsPath) {

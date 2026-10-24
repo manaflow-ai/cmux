@@ -23,12 +23,21 @@ pub struct Skill {
 }
 
 /// The skills cmux ships, as `(name, SKILL.md text)`.
-pub const BUILTIN: [(&str, &str); 2] = [
+pub const BUILTIN: [(&str, &str); 5] = [
     (
         "chief-auth-escalation",
         include_str!("../skills/chief-auth-escalation/SKILL.md"),
     ),
+    (
+        "cmux-adoption",
+        include_str!("../skills/cmux-adoption/SKILL.md"),
+    ),
     ("cmux-setup", include_str!("../skills/cmux-setup/SKILL.md")),
+    (
+        "github-signin",
+        include_str!("../skills/github-signin/SKILL.md"),
+    ),
+    ("paid-plans", include_str!("../skills/paid-plans/SKILL.md")),
 ];
 
 /// The front-matter line that marks a skill the host may rewrite.

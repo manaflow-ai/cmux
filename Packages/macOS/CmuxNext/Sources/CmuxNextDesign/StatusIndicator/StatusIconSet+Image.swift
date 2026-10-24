@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// A set's mark for one state as a still image, from the same geometry and
 /// mark drawing the indicator layer uses, so a notification attachment

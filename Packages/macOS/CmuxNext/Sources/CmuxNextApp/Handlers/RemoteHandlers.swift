@@ -114,6 +114,11 @@ enum RemoteHandlers {
         // The Add Machine card (plans/cmux-next/add-machine-DESIGN.md). A destination (the CLI, MCP)
         // only fills the card: the enroll starts when the person presses Add, never from outside the
         // app alone (trust policy, the conservative default until it is decided).
+        // Add Device (plans/cmux-next/add-device-DESIGN.md): the one entry; Add Machine and Add Server are its ways.
+        registry.bind("device.add", run: { invocation in
+            let way = invocation["way"]?.stringValue.flatMap(AddDeviceWay.init(rawValue:))
+            context.services.addDevice.open(way: way, over: CloudHandlers.window(context))
+        })
         CloudHandlers.bind("machine.add", registry, reason: available) { invocation in
             let card = context.services.addMachine
             card.open(destination: invocation["destination"]?.stringValue, name: invocation["name"]?.stringValue,

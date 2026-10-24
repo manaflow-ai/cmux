@@ -19,7 +19,9 @@
 # legacy-app rule in skills/cmux-architecture/references/swift-6-0-compatibility.md)
 # does not apply to this package.
 #
-# Usage: scripts/cmux-next/check-release-compile.sh [derived-data-path]
+# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]
+#   --archs: the architecture to compile (default arm64). nightly-next ships an
+#   x86_64 app too, so `--archs x86_64` checks the Intel compile the same way.
 #   default derived data: a new directory in $TMPDIR (per fleet step), removed
 #   when the script ends. Never a host-shared fixed path: explicit precompiled
 #   modules (SwiftExplicitPrecompiledModules/*.pcm) are keyed by the compile
@@ -41,6 +43,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet check-release-compile.sh "xcodebuild" "cmux-next Release compile (Xcode 26)"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+archs=arm64
+if [[ "${1:-}" == --archs ]]; then
+  case "${2:-}" in
+    arm64|x86_64) archs="$2" ;;
+    *) echo "check-release-compile: --archs takes arm64 or x86_64, got '${2:-}'" >&2; exit 2 ;;
+  esac
+  shift 2
+fi
+# --archs comes first; anything else after the path would be ignored silently.
+if (( $# > 1 )); then
+  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]" >&2
+  exit 2
+fi
 kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
@@ -48,12 +63,28 @@ if [[ -n "${1:-}" ]]; then
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-release-compile.XXXXXX")"
 fi
-log="$(mktemp)"
-if (( kept_path )); then
-  trap 'rm -f "$log"' EXIT
+metrics_dir="${CMUX_BUILD_METRICS_DIR:-}"
+if [[ -n "$metrics_dir" ]]; then
+  if mkdir -p "$metrics_dir"; then
+    log=""
+  else
+    echo "warning: cannot create CMUX_BUILD_METRICS_DIR=$metrics_dir; continuing without timing artifacts" >&2
+    metrics_dir=""
+    log="$(mktemp -t cmux-next-release-build.XXXXXX.log)"
+  fi
 else
-  trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
+  log="$(mktemp)"
 fi
+if (( kept_path )); then
+  [[ -n "$metrics_dir" ]] || trap 'rm -f "$log"' EXIT
+else
+  if [[ -n "$metrics_dir" ]]; then
+    trap 'rm -rf -- "$derived_data"' EXIT
+  else
+    trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
+  fi
+fi
+build_attempt=0
 
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   xcode_app="${CMUX_RELEASE_COMPILE_XCODE:-}"
@@ -68,18 +99,23 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs)"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
+  build_attempt=$((build_attempt + 1))
+  if [[ -n "$metrics_dir" ]]; then
+    log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
+  fi
   "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild -scheme CmuxNextApp -configuration Release \
     -destination 'generic/platform=macOS' \
     -derivedDataPath "$derived_data" \
-    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+    ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-    build 2>&1 | tee "$log"
+    -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
+SECONDS=0
 if (( kept_path )); then
   # A binary target's headers changed since the last build there: build cold
   # (scripts/ci/swiftpm-binary-module-guard.sh, xcode_binary_module_guard).
@@ -94,5 +130,13 @@ if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-ne
   "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
   status=0
   build || status=$?
+fi
+if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
+  cp -f "$log" "$derived_data/cmux-next-build.log" 2>/dev/null || true
+  metrics_args=(--output "$CMUX_BUILD_METRICS_OUTPUT" --compile-seconds "$SECONDS")
+  metrics_args+=(--compile-outcome "$([[ "$status" == 0 ]] && echo success || echo failure)")
+  [[ -n "${CMUX_BUILD_METRICS_SUMMARY:-}" ]] && metrics_args+=(--summary "$CMUX_BUILD_METRICS_SUMMARY")
+  python3 "$repo_root/scripts/ci/build_metrics.py" "$derived_data" "${metrics_args[@]}" \
+    || echo "check-release-compile: warning: could not write build metrics" >&2
 fi
 exit "$status"

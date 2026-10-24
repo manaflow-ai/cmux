@@ -84,25 +84,6 @@
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text);
 }
-.cv-subagent-avatar__dot {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--cv-card-fill);
-  background: var(--cv-text-muted);
-}
-.cv-subagent-avatar[data-state="running"] .cv-subagent-avatar__dot {
-  background: var(--agent-accent);
-}
-.cv-subagent-avatar[data-state="completed"] .cv-subagent-avatar__dot {
-  background: var(--agent-success, var(--cv-text-muted));
-}
-.cv-subagent-avatar[data-state="failed"] .cv-subagent-avatar__dot {
-  background: var(--agent-danger);
-}
 /* A listed subagent: one 48px line inside the list's border. */
 .cv-subagent {
   box-sizing: border-box;
@@ -177,7 +158,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   cursor: pointer;
 }
-.cv-subagent__stop:hover {
+.cv-subagent__stop:hover:not(:disabled) {
   background: var(--agent-control-hover);
   color: var(--cv-text);
 }
@@ -192,8 +173,9 @@ button.cv-subagent > :last-child {
   opacity: 0.5;
   cursor: default;
 }
-.cv-subagent__stop[data-state="failed"] {
-  color: var(--agent-danger);
+.cv-subagent__stop[data-state="failed"],
+.cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
+  color: var(--agent-status-failure);
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. A click goes back to the parent's view. */
@@ -241,13 +223,22 @@ button.cv-subagent > :last-child {
   font-weight: 600;
   color: var(--cv-text);
 }
-.cv-subagent-of__parent {
+.cv-subagent-of__parent,
+.cv-subagent-of__task {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.cv-subagent-of__parent::before {
-  content: "· ";
+.cv-subagent-of__parent {
+  flex: 0 1 auto;
+  color: var(--cv-text);
+}
+.cv-subagent-of__dot {
+  flex: none;
+}
+.cv-subagent-of__task {
+  flex: 1 1 auto;
 }
 /* Each subagent's color (agentTones.ts): its dot in the agents list and its name in the
    transcript. The theme's terminal colors, so a theme recolors them. Red stays for failure and
@@ -402,7 +393,7 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
 }
 .acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agents-list__time {
   flex: none;
@@ -424,10 +415,13 @@ button.cv-subagent > :last-child {
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
 /* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
    strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
-   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both. */
+   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both.
+   No padding: a line's hover fills it to the tray's own edges, which round it (one inset, never a
+   pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
   box-sizing: border-box;
-  padding: 2px;
+  padding: 0;
+  overflow: hidden;
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
@@ -449,8 +443,17 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--agent-muted);
 }
+/* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__list {
+  padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+/* The overflow control for ended cards, dim beside what runs. */
+.acpmux-running-tray__finished {
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__finished > svg {
+  flex: none;
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
    stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
@@ -471,10 +474,69 @@ button.cv-subagent > :last-child {
 .acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
 }
+/* Quiet at rest: no line, header or button in the tray has a fill or a corner of its own. Hover is
+   the composer chips' wash (--acpmux-pill-hover, the text at 11% over the glass, never opaque) on
+   the whole line, its stop button included, and only on a line that opens something; with the
+   hand, as a link. A line with nothing to open (a disabled button) has no hover at all. Its stop
+   button only brightens: a fill of its own would be a box inside the line's. */
+.acpmux-running-tray .acpmux-summary-row,
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
+.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
+  border-radius: 0;
+  background: none;
+}
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+.acpmux-running-tray .acpmux-running-tray__head:hover {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
+  cursor: pointer;
+}
+/* What the line is ("Command", "Subagent"), dim before its name. */
+.acpmux-agent-line__kind {
+  margin-right: 6px;
+  color: var(--agent-muted);
+}
+/* A line that opens something ends in a chevron. */
+.acpmux-agent-line__chevron {
+  flex: none;
+  display: inline-flex;
+  margin-left: -2px;
+  color: var(--agent-muted);
+}
 /* Running work's icon is the theme's accent, never a brand color. */
 .acpmux-agent-line .acpmux-lineage__icon[data-state="running"],
 .acpmux-running-tray__head .acpmux-lineage__icon {
   color: var(--agent-accent);
+}
+/* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
+   now, then its task, dim; a failed one's state in the danger color. */
+.ui-card.acpmux-agent-card__popup {
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.acpmux-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acpmux-agent-card__name {
+  color: var(--agent-text, var(--cmux-text));
+  overflow-wrap: anywhere;
+}
+.acpmux-agent-card__state,
+.acpmux-agent-card__task {
+  color: var(--agent-muted, var(--cmux-text-secondary));
+}
+.acpmux-agent-card__state[data-status="failed"] {
+  color: var(--agent-status-failure);
+}
+.acpmux-agent-card__task {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */
@@ -483,5 +545,33 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .cv-subagent-done[data-state="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
+}
+/* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
+   button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
+.cv-subagent-done-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.cv-subagent-done-row > .cv-subagent-done {
+  width: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.cv-subagent-done__actions {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-inline-start: 4px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-subagent-done__actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-subagent-done-row:hover .cv-subagent-done__actions,
+.cv-subagent-done__actions:focus-within {
+  opacity: 1;
 }

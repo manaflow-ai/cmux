@@ -1,4 +1,4 @@
-// The full-height thread minimap (the `thread-minimap-layout` experiment's default arm): the rail
+// The full-height thread minimap (the `thread-minimap-layout` experiment's `full` arm): the rail
 // spans the transcript's viewport and maps the whole scroll height onto it. Each prompt is a longer,
 // brighter tick and a tab stop; each reply a shorter, dimmer one set in a little; a bar shows what
 // is on screen and follows the scroll on its own frame without a render. Hovering grows the marks
@@ -35,6 +35,7 @@ import {
   mapProgress,
   mapThumb,
   markAt,
+  marksIn,
   scrollTopAt,
   type MapMark,
 } from "./mapGeometry";
@@ -47,18 +48,6 @@ const AGENT_LENGTH = [5, 15] as const;
 
 type PromptMarks = ReturnType<typeof usePromptMarks>;
 type Press = { pointer: number; y: number; moved: boolean; mark?: string };
-
-/// The first and last place in `marks` (top to bottom) whose y lies in [top, bottom].
-function marksIn(marks: readonly MapMark[], top: number, bottom: number) {
-  let first = -1;
-  let last = -1;
-  marks.forEach((mark, index) => {
-    if (mark.y < top || mark.y > bottom) return;
-    if (first < 0) first = index;
-    last = index;
-  });
-  return first < 0 ? undefined : { first, last };
-}
 
 const within = (element: Element | null, to: EventTarget | null) =>
   !!element && !!to && "nodeType" in to && element.contains(to as Node);
@@ -344,6 +333,8 @@ export function ScrollMap({
           id={cardId}
           x={RAIL_LEFT + ROW_WIDTH}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
+          scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           bookmark={

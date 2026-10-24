@@ -1,7 +1,8 @@
 /* What's New / changelog page (cx-urd.61). Colors only from the app theme (`--page-*` from
    pageBase.css, which read WebTheme.swift's `--cmux-*`), sizes only from the type scale
    (`--text-*`, desktop.css). One background (html); blocks are separated by space and hairlines.
-   No gradients, no colored chips, no shadows. The accent marks only the update's span. */
+   No gradients, no colored chips. The accent marks only the update's span. Glass, never opaque
+   (Leo 2026-10-21): a picture's frame is the hover tint over a blur, with a lit top rim. */
 /* The document scrolls (Space, Page Down and the arrows work with nothing focused); only the
    rail design keeps two scrolling columns. */
 html[data-cmux-page="changelog"] { scroll-padding-top: 24px; }
@@ -44,10 +45,54 @@ html[data-cmux-page="changelog"] body {
   border-radius: 10px;
   overflow: hidden;
   background: var(--page-hover);
-  box-shadow: 0 0 0 1px var(--page-separator);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+  box-shadow:
+    0 0 0 1px var(--page-separator),
+    inset 0 1px 0 color-mix(in srgb, var(--page-text) 8%, transparent);
 }
 .cl-media img,
 .cl-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+/* A picture opens enlarged: the whole frame is the button, with no chrome of its own. */
+.cl-media-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.cl-media-open:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
+.cl-lightbox-backdrop {
+  background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cl-lightbox.ui-dialog {
+  inset: 24px;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: transparent;
+  box-shadow: none;
+}
+.cl-lightbox-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cl-lightbox-alt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-lightbox-stage { display: grid; flex: 1; min-height: 0; place-items: center; }
+.cl-lightbox-stage :is(img, video) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--page-separator);
+}
 .cl-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }
 .cl-button {
   height: 26px;
@@ -62,7 +107,8 @@ html[data-cmux-page="changelog"] body {
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-more, .cl-reel):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more,
+    .cl-reel):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -102,9 +148,8 @@ html[data-cmux-page="changelog"] body {
   font-size: var(--text-detail);
   cursor: default;
 }
-.cl-row-action:hover,
-.cl-row-link:hover { color: var(--page-text); }
-.cl-row-link { color: var(--page-text-2); font-size: var(--text-detail); text-decoration: none; white-space: nowrap; }
+.cl-row-action:hover { color: var(--page-text); }
+.cl-row-link { color: var(--cmux-accent, currentColor); font-size: var(--text-detail); text-decoration: none; white-space: nowrap; }
 .cl-row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .cl-changes { margin-top: 18px; color: var(--page-text-2); }
@@ -129,7 +174,7 @@ html[data-cmux-page="changelog"] body {
   display: flex;
   gap: 8px;
   align-items: baseline;
-  padding: 3px 0;
+  padding: 2px 0;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
@@ -143,8 +188,33 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-area ul { margin-top: 2px; }
 .cl-hood { margin-top: 12px; }
-.cl-pr { flex: none; margin-left: auto; color: var(--page-text-3); text-decoration: none; font-variant-numeric: tabular-nums; }
-.cl-pr:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
+/* A change with a pull request links it from its title and its number, in the theme's accent. */
+.cl-change-link { min-width: 0; color: var(--cmux-accent, currentColor); text-decoration: none; }
+/* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
+   pull request hover card (ChangePullRequest.tsx). */
+.cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cl-pr:hover { cursor: pointer; }
+/* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
+   the page theme. */
+html[data-cmux-page="changelog"] {
+  --agent-text: var(--page-text);
+  --agent-muted: var(--page-text-2);
+  --agent-soft: var(--page-text-3);
+  --agent-border: var(--page-separator);
+  --agent-link: var(--cmux-accent, currentColor);
+  --cv-text: var(--page-text);
+  --cv-link: var(--cmux-accent, currentColor);
+  --agent-danger: var(--cmux-app-danger, #e5484d);
+  /* The shared pull-request card uses terminal status ink. Changelog has no agent-pane bridge, so
+     give it the same bright ANSI-first fallbacks over the page's glass surface. */
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  --agent-diff-add: var(--agent-status-success);
+  --agent-diff-del: var(--agent-status-failure);
+}
 .cl-more {
   margin-top: 6px;
   padding: 0;
@@ -211,6 +281,106 @@ html[data-cmux-page="changelog"] body {
   padding: 48px 32px 40px;
 }
 .clw > main > .clj-span + .clj { padding-top: 0; }
+
+/* The update as happy news (SpanNews.tsx): the lead changes side by side with their pictures or
+   clips, the rest of New and Improved as glass cards in a grid, Fixed folded into one line. Every
+   gap is a step of 4 px; every size is a type token. */
+.cln-lead-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin: 24px 0 0;
+}
+.cln-lead { display: flex; flex-direction: column; min-width: 0; }
+.cln-lead-media { margin: 0 0 12px; aspect-ratio: 16 / 10; }
+.cln-lead-row[data-count="1"] .cln-lead-media { aspect-ratio: 16 / 9; }
+.cln-lead-title {
+  margin: 0 0 4px;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.cln-lead-row[data-count="3"] .cln-lead-title { font-size: var(--text-title); line-height: var(--text-title--line-height); }
+.cln-lead-summary {
+  margin: 0 0 8px;
+  max-width: 62ch;
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: var(--text-title--line-height);
+  text-wrap: pretty;
+}
+.cln-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cln-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 16px 16px;
+  border-radius: 12px;
+  background: var(--page-hover);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cln-card-kind {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.cln-card-title {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+  text-wrap: balance;
+}
+.cln-card-summary {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-wrap: pretty;
+}
+.cln-card-media { margin: 8px 0 0; aspect-ratio: 16 / 10; }
+.cln-card .cl-row-actions { margin: auto 0 0; padding-top: 8px; opacity: 1; }
+/* Fixed as one line, "Fixed 23 ›", that opens to its list. */
+.cln-fixed { margin-top: 24px; }
+.cln-fixed + .cl-changes { margin-top: 8px; }
+.cln-fixed summary {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  cursor: default;
+  list-style: none;
+}
+.cln-fixed summary::-webkit-details-marker { display: none; }
+.cln-fixed summary::after { content: "›"; display: inline-block; transition: transform 120ms ease; }
+.cln-fixed[open] > summary::after { transform: rotate(90deg); }
+.cln-fixed summary:hover { color: var(--page-text); }
+.cln-fixed summary:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.cln-fixed ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.cln-fixed li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.cln-fixed li:hover .cl-row-actions { opacity: 1; }
 .clj {
   padding: 48px max(32px, calc((100% - 640px) / 2)) 96px;
 }
@@ -233,7 +403,7 @@ html[data-cmux-page="changelog"] body {
   letter-spacing: -0.01em;
   text-wrap: balance;
 }
-.clj-section { padding-bottom: 32px; margin-bottom: 32px; border-bottom: 1px solid var(--page-separator); }
+.clj-section { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--page-separator); }
 .clj-section:last-child { border-bottom: 0; }
 .clj-span { padding-bottom: 40px; }
 .clj-span .cl-builds { margin-bottom: 18px; }
@@ -242,12 +412,15 @@ html[data-cmux-page="changelog"] body {
 .clj-placeholder { height: 96px; }
 
 /* ---------- Ledger (default; u5099, design/changelog-variations-gallery #01) ----------
-   conductor.build/changelog: the column keeps the journal's measure and moves right of a margin
-   where each day's newest version (a small mono tag) and its date stay sticky while it scrolls.
-   Groups read as Conductor's headings over bullet lists. No motion. */
-.cll { padding-left: max(200px, calc((100% - 640px) / 2 + 80px)); }
+   conductor.build/changelog: each day's newest version (a small mono tag) and its date stay sticky
+   in a compact margin while it scrolls. The changes take the rest of the pane (Leo 2026-10-21: use
+   the width, modest margins, no column cap): each row its whole description, and its picture
+   beside it where the pane has room. Groups read as Conductor's headings over bullet lists. No
+   motion. */
+.cll { --cll-gutter: 112px; padding: 40px 32px 96px calc(32px + var(--cll-gutter) + 24px); }
 .cll-release { position: relative; }
-.cll-gutter { position: absolute; top: 0; bottom: 0; left: -168px; width: 140px; }
+.cll-body { container-type: inline-size; }
+.cll-gutter { position: absolute; top: 0; bottom: 0; left: calc(-24px - var(--cll-gutter)); width: var(--cll-gutter); }
 .cll-gutter-in {
   position: sticky;
   top: 24px;
@@ -274,16 +447,33 @@ html[data-cmux-page="changelog"] body {
 }
 .cll .cl-group:first-child { margin-top: 0; }
 .cll .cl-group h3 {
-  margin: 18px 0 4px;
+  margin: 14px 0 2px;
   color: var(--page-text);
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
 }
 .cll .cl-group:first-child h3 { margin-top: 0; }
-.cll .cl-group ul { list-style: disc outside; padding-left: 20px; }
-.cll .cl-group li { display: list-item; padding: 3px 0; }
-.cll .cl-row-text { display: inline; }
+/* A tight rhythm: rows read as one list, not a stack of paragraphs (Leo 2026-10-21: "WAY too much room
+   to breathe"). */
+.cll .cl-group ul { display: flex; flex-direction: column; gap: 4px; }
+/* A row is a grid so its picture can stand beside it; the bullet is drawn, as a grid has no marker. */
+.cll .cl-group li.cl-wide-row { position: relative; display: grid; gap: 8px 24px; padding: 0 0 0 18px; }
+.cll .cl-group li.cl-wide-row::before { content: "•"; position: absolute; left: 4px; color: var(--page-text-2); }
+.cll .cl-row-text { max-width: 76ch; }
+/* The lead change's picture stays a picture, not a wall: it stops growing at a large card. */
+.cll-body > .cl-media { max-width: 720px; }
+.cll .cl-row-summary { margin: 2px 0 0; text-wrap: pretty; }
 .cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
+@container (min-width: 720px) {
+  /* Text and picture stay together on the left, not split to the pane's two edges. */
+  .cll .cl-group li.cl-has-media {
+    /* The text keeps a readable measure first; the picture takes what is left, up to 480 px. */
+    grid-template-columns: minmax(36ch, 64ch) minmax(240px, 480px);
+    justify-content: start;
+    align-items: start;
+  }
+  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; max-width: none; }
+}
 .cll-body .cl-builds { margin-top: 14px; }
 /* The release title (its curated headline) and, when it already names the lead change, that
    change as the first row's bold title above its picture. */
@@ -296,11 +486,11 @@ html[data-cmux-page="changelog"] body {
   text-wrap: balance;
 }
 .cll-lead { margin: 0 0 2px; font-size: var(--text-body); }
-/* A change's own picture under its row: a visual per feature, smaller than the lead one. */
-.cl-row-media { margin: 8px 0 6px; max-width: 420px; }
+/* A change's own picture: beside its row when the pane has room, else under it. */
+.cl-row-media { margin: 6px 0 4px; max-width: 560px; }
 /* A narrow tab: the margin folds above the release, Conductor's mobile layout. */
 @media (max-width: 760px) {
-  .cll { padding-left: 32px; }
+  .cll { padding: 32px 24px 80px; }
   .cll-gutter { position: static; width: auto; margin-bottom: 10px; }
   .cll-gutter-in { position: static; flex-direction: row; align-items: baseline; gap: 10px; }
 }
@@ -352,5 +542,6 @@ html[data-cmux-page="changelog"] body {
 .cld-thumb { margin: 0; width: 76px; border-radius: 5px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cl-changes summary::before { transition: none; }
+  .cl-changes summary::before,
+  .cln-fixed summary::after { transition: none; }
 }

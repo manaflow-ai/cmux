@@ -34,7 +34,7 @@ extension HomeChiefSettingsView {
         hostSwitch.isBordered = false
         hostSwitch.bezelStyle = .inline
         hostSwitch.font = Typography.caption
-        hostSwitch.contentTintColor = Palette.accent
+        hostSwitch.contentTintColor = Palette.litGlyph
         hostSwitch.target = self
         hostSwitch.action = #selector(switchHost)
         hostSwitch.isHidden = true

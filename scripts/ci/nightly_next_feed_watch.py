@@ -32,6 +32,7 @@ import urllib.parse
 import urllib.request
 
 FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
+CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
 RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
@@ -145,6 +146,81 @@ class GitHub:
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
+    def workflow_runs(self, workflow: str, branch: str | None = None) -> list[dict]:
+        runs: list[dict] = []
+        for page in range(1, 11):
+            query = {"per_page": 100, "page": page}
+            if branch:
+                query["branch"] = branch
+            batch = self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+            runs.extend(batch)
+            if len(batch) < 100:
+                break
+        return runs
+
+    def ref_sha(self, branch: str) -> str:
+        return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
+
+    def dispatch(self, workflow: str, ref: str, inputs: dict[str, str] | None = None) -> None:
+        self.call("POST", f"/actions/workflows/{workflow}/dispatches", {"ref": ref, "inputs": inputs or {}})
+
+
+ACTIVE = {"queued", "requested", "waiting", "pending", "in_progress"}
+
+
+def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool:
+    if run.get("status") not in ACTIVE:
+        return False
+    # nightly.yml's 17 */6 schedule is a cache seed, not a publication. Do
+    # not let a long cache warm suppress the 25-minute classic starvation
+    # dispatch. The 08:47 catch-up schedule publishes and remains a blocker.
+    if workflow == "nightly.yml" and branch == "main" and run.get("event") == "schedule":
+        title = run.get("display_title", "")
+        if "17 */6" in title:
+            return False
+        if "47 8" in title:
+            return True
+        # An older run without the schedule marker is conservatively treated
+        # as active publication. This avoids ever dispatching a duplicate
+        # while the marker rolls out; the next run carries an explicit name.
+        return True
+    return True
+
+
+def published_commit_for_release(gh: GitHub, tag: str) -> str:
+    try:
+        body = gh.call("GET", f"/releases/tags/{tag}").get("body") or ""
+    except OSError:
+        return ""
+    match = PUBLISHED_MARKER.search(body)
+    return match.group(1).lower() if match else ""
+
+
+def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | None,
+                        published_sha: str, branch: str, workflow: str,
+                        ref: str, inputs: dict[str, str] | None = None,
+                        active_workflows: list[tuple[str, str | None]] | None = None,
+                        minutes: float = 25.0) -> str:
+    """Start one current-tip build after 25 minutes of no publication.
+
+    GitHub concurrency is deliberately not used as the starvation guard: a
+    newer run may queue behind an active one, but it never cancels that run.
+    The guard dispatches only when the branch moved past the published marker
+    and no build/publish run is active.
+    """
+    if feed is None or (now - feed).total_seconds() < minutes * 60:
+        return "fresh"
+    tip = gh.ref_sha(branch)
+    if not tip or tip == published_sha:
+        return "unchanged"
+    active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
+              for run in gh.workflow_runs(name, run_branch)
+              if is_active_delivery_run(name, run_branch, run)]
+    if active:
+        return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
+    gh.dispatch(workflow, ref, inputs)
+    return f"dispatched {workflow} for {tip}"
+
 
 def published_commit(gh: GitHub) -> str:
     try:
@@ -205,6 +281,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--max-lag-hours", type=float, default=4.0)
     parser.add_argument("--feed-url", default=FEED_URL)
+    parser.add_argument("--classic-feed-url", default=CLASSIC_FEED_URL)
     parser.add_argument("--run-url", default="this check")
     parser.add_argument("--dry-run", action="store_true", help="read and decide, never write issues")
     args = parser.parse_args(argv)
@@ -224,6 +301,11 @@ def main(argv: list[str]) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     try:
         published_sha = published_commit(gh)
+        try:
+            classic_newest = read_feed(args.classic_feed_url)
+        except OSError as error:
+            print(f"::warning::could not read classic feed {args.classic_feed_url}: {error}")
+            classic_newest = None
         oldest = oldest_waiting_push(gh, published_sha, newest)
         stage = assess(
             now, newest,
@@ -238,6 +320,19 @@ def main(argv: list[str]) -> int:
         if stage.stale:
             print(f"::warning title=nightly-next feed stale::{stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
+        # Explicit coalescing/starvation guards. A running build is never
+        # cancelled; each guard reads the branch tip when it dispatches.
+        print("next starvation: " + starvation_dispatch(
+            gh, now, feed=newest, published_sha=published_sha,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            inputs={"sha": gh.ref_sha("feat-cmux-next")},
+            active_workflows=[("nightly-next-tick.yml", "main"), ("nightly-next-train.yml", "feat-cmux-next"),
+                              ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]))
+        classic_sha = published_commit_for_release(gh, "nightly")
+        print("classic starvation: " + starvation_dispatch(
+            gh, now, feed=classic_newest, published_sha=classic_sha,
+            branch="main", workflow="nightly.yml", ref="main",
+            inputs={"force": "false"}))
     except OSError as error:  # urllib.error.URLError and HTTPError; the next check runs in 30 minutes
         print(f"::warning::GitHub API error, skipped this check: {error}")
     return 0

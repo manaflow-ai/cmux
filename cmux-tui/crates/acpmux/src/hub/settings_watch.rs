@@ -2,7 +2,9 @@
 //! start-mode setting (`agents.defaultPermissionMode`, `start_mode.rs`):
 //! when its value changes, local `_acpmux/watch` connections get
 //! `_acpmux/start_mode_changed`, so a pending chat's start-mode chip asks
-//! acpmux again only then, never each time its pane is shown again.
+//! acpmux again only then, never each time its pane is shown again. Any
+//! change also wakes the sub-sessions waiting for a run slot, which read
+//! `agents.subsessions.maxRunning` again (`subsession_runs.rs`).
 //!
 //! One non-recursive watcher over the folder of each settings file
 //! `user_settings::read` looks at, and its symlink target's folder (or the
@@ -78,6 +80,11 @@ impl Hub {
         let task = handle.spawn(async move {
             while wake.recv().await.is_some() {
                 while wake.try_recv().is_ok() {}
+                // `agents.subsessions.maxRunning` may have changed: sub-sessions waiting for a run
+                // slot look again (`subsession_runs.rs`).
+                if let Some(hub) = hub.upgrade() {
+                    hub.subsession_runs.wake();
+                }
                 let Ok(now) =
                     tokio::task::spawn_blocking(super::start_mode::setting_snapshot).await
                 else {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import ImageIO
 import Foundation
@@ -34,6 +35,10 @@ final class CEFRuntime {
     /// Profiles Chromium opened in this process (their files stay open
     /// until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
+    /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
+    var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
+    /// Profiles whose proxy changed since the shim last took it (a clear included).
+    var unappliedProfileProxies: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
@@ -45,6 +50,10 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
+    private(set) lazy var accessibility = CEFAccessibility(
+        apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
+        browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
@@ -96,6 +105,9 @@ final class CEFRuntime {
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
+    /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
+    /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
+    private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -248,7 +260,10 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
-                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                observeDisplays()
+                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                onReady?()
             }
             self.trigger = trigger
             loadDuration = library.loadDuration
@@ -379,7 +394,7 @@ final class CEFRuntime {
         // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.appThemeARGB)
-        ThemeStore.shared.addResponder(self)
+        ThemeScope.app.store.addResponder(self)
         // Extension popup windows keep their window id (CEFPopupWindows).
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
@@ -418,6 +433,7 @@ final class CEFRuntime {
             throw .initialize
         }
         shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
+        shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
@@ -471,4 +487,20 @@ nonisolated struct CEFPaneKey: Hashable, Sendable {
 nonisolated struct CEFDevToolsKey: Hashable, Sendable {
     var browser: Int32
     var message: Int32
+}
+
+extension CEFRuntime {
+    /// Starts the one display-change observer (no effect when it exists): a display added, removed or with
+    /// another rate reaches every pane's and every docked DevTools' host view.
+    func observeDisplays() {
+        guard displayObservation == nil else { return }
+        displayObservation = MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in
+            self?.displaysChanged()
+        }
+    }
+
+    private func displaysChanged() {
+        for host in hosts.values { host.hostView.layerHosting.displaysChanged() }
+        for tab in tabsByBrowser.values { tab.devToolsController.views?.host.layerHosting.displaysChanged() }
+    }
 }

@@ -11,8 +11,10 @@ Real capture, any one of:
   - the marker `cmux-ci capture` prints into the body, `<!-- cmux-capture sha=<40 hex> ...-->`,
     with an image from this pull request's pr-media folder right after it (a fleet build, driven
     on a capture mini, text-checked);
-  - the `media-tour` or `media-tour-mac` label (cmux-next-media.yml tours the head on a Mac and
-    posts the shots in the status comment; the label is taken on trust, the tour reports itself);
+  - the `media-tour` or `media-tour-mac` label (adding `media-tour` makes cmux-next-media.yml
+    tour the head at that moment on a Mac and post the shots in the status comment; a later
+    push does not tour again, so re-add the label or run `cmux-ci capture` for a newer head;
+    the label is taken on trust, the tour reports itself);
   - a line saying why none applies: `No capture: <reason>` (a refactor with no visible change).
 
 A capture of an older commit passes with a warning. Prints GitHub annotations; exits 1 when the

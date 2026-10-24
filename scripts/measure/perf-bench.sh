@@ -7,8 +7,9 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
-#     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari] [--arg=gate=1]
+#     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
+#     [--arg=budgets=scripts/perf-bench/budgets.json]
 # tabswitch= (default on; tabswitch=off skips it) also builds a tagged Debug app at this checkout and
 # runs scripts/cmux-next/tab-switch-matrix.py: real-window tab switch end to end (input event to
 # commit) per tab kind at each count, as a "Tab switch" section of BENCH.md and gate rows.
@@ -21,8 +22,8 @@
 # artifacts/perf-bench/{results.json,BENCH.md}.
 set -euo pipefail
 rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4
-tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on
-browsers="cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari"
+tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
+browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
     rounds=*) rounds="${arg#rounds=}" ;;
@@ -37,6 +38,7 @@ for arg in "$@"; do
     tabswitch=*) tabswitch="${arg#tabswitch=}" ;;
     tabcounts=*) tabcounts="${arg#tabcounts=}" ;;
     palette=*) palette="${arg#palette=}" ;;
+    budgets=*) budgets="${arg#budgets=}" ;;
     *) echo "perf-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -101,7 +103,7 @@ fi
 status=0
 python3 scripts/perf-bench/xbench.py run --out "$work/run" ${apps[@]+"${apps[@]}"} --browsers "$browsers" \
   --rounds "$rounds" --launches "$launches" --idle "$idle" --active "$active" --settle "$settle" \
-  --max-load "$maxload" --cmux-ref "$sha" || status=$?
+  --max-load "$maxload" --cmux-ref "$sha" --budgets "$budgets" || status=$?
 switch_json=""
 if [ "$debug" = 1 ]; then
   # The matrix and the palette timing drive debug.key / debug.tab_switch / debug.timings, which only a

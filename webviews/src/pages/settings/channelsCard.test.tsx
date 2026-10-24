@@ -1,7 +1,7 @@
 // Settings > Updates: its own category with the updates rows and the Channels card, which draws
 // every channel's track from the host's `cmux.settings.channels.state` and no text of its own.
 import { afterAll, expect, test } from "bun:test";
-import { mockChannels } from "./mockChannels";
+import { mockChannels, mockGoBack } from "./mockChannels";
 import { installDom } from "./testDom";
 
 const restore = installDom();
@@ -65,6 +65,33 @@ test("each build shows its health and pull reason and links to its commit, PRs a
   // The installed build compares with nothing.
   expect(element.querySelector('[data-channel-build="3419"] [data-channel-compare]')).toBeNull();
   expect(element.querySelector('[data-channel-build="3418"]')?.textContent).toContain("Kept on This Mac");
+  page.unmount();
+});
+
+test("picking Nightly on a Dev build Nightly has not reached offers Go Back into the kept Nightly build", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channelSwitch = mockGoBack;
+    },
+  });
+  await settle();
+  await run(() => page.store.set("updates.channel", "dev"));
+  await settle();
+  expect(card(page.container)?.querySelector("[data-channel-switch]")).toBeNull();
+  await run(() => page.store.set("updates.channel", "nightly"));
+  await settle();
+  const way = card(page.container)!.querySelector<HTMLElement>('[data-channel-switch="nightly"]')!;
+  expect(way.textContent).toContain("Restarts once into 1.0.0-nightly.3418, kept on this Mac.");
+  const button = way.querySelector<HTMLButtonElement>("[data-channel-go-back]")!;
+  expect(button.textContent).toBe("Go Back to Nightly");
+  await run(() => button.click());
+  await settle();
+  expect(page.provider.wentBack).toBe("3418");
+  // A reply that carries another channel's way back (a read for an earlier pick) offers no button.
+  await run(() => page.store.set("updates.channel", "dev"));
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-go-back]")).toBeNull();
   page.unmount();
 });
 

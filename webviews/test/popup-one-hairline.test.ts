@@ -158,7 +158,6 @@ describe("web popups draw one hairline edge", () => {
   const GLASS_POPUPS = [
     ".ui-popup",
     ".ui-context-menu",
-    ".acpmux-context-pop",
     ".acpmux-menu",
     ".acpmux-slash-menu",
     ".acpmux-mp",
@@ -170,6 +169,7 @@ describe("web popups draw one hairline edge", () => {
     ".acpmux-file-menu-list",
     ".acpmux-needs-you",
     ".acpmux-agents-list",
+    ".md-link-popover",
   ];
   test("a glass popup's elevation is the drop alone, under the glass's one rim", () => {
     const elevations = css.flatMap(({ text }) =>

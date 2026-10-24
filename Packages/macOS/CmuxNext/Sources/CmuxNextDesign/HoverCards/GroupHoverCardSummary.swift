@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// What a group's hover card says: its title and one block of lines per shown section, in the
 /// order `GroupHoverCardOptions` picks. Pure: the sidebar's group headers and the tab strip's

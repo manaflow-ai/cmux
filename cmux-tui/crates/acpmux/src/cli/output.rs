@@ -33,13 +33,21 @@ pub(crate) struct PromptId {
     pub resend: bool,
     /// `--from`: the prompt is this agent's message (`_meta.acpmux.fromAgent`, `hub/digest.rs`).
     pub from_agent: Option<String>,
+    /// `--supersede`: the same sender's prompt still queued under this key is replaced
+    /// (`_meta.acpmux.supersede`, `hub/supersede.rs`).
+    pub supersede: Option<String>,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self { id, resend: true, from_agent: None },
-            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false, from_agent: None },
+            Some(id) => Self { id, resend: true, from_agent: None, supersede: None },
+            None => Self {
+                id: uuid::Uuid::now_v7().to_string(),
+                resend: false,
+                from_agent: None,
+                supersede: None,
+            },
         }
     }
 
@@ -58,6 +66,9 @@ impl PromptId {
         }
         if let Some(name) = &self.from_agent {
             mux["fromAgent"] = json!(name);
+        }
+        if let Some(key) = &self.supersede {
+            mux["supersede"] = json!(key);
         }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
@@ -125,6 +136,22 @@ pub(crate) async fn queue_prompt(
             }
         }
     }
+}
+
+/// What `acpmux send --no-wait` prints for its acceptance.
+/// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
+pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
+    let steered = accepted.get("steer") == Some(&json!(true));
+    let mut lines = vec![if steered { "steered" } else { "queued" }.to_owned()];
+    if supersede {
+        // An older daemon (or a peer running one) ignores the key and says nothing.
+        lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
+            Some(n) => format!("replaced {n} queued"),
+            None => "replaced ? queued (the daemon did not report it; it may predate --supersede)"
+                .to_owned(),
+        });
+    }
+    lines
 }
 
 pub(crate) fn print_json(v: &Value) {
@@ -878,6 +905,66 @@ mod prompt_tests {
         (hub, client, dir)
     }
 
+    /// `acpmux send --supersede KEY`: the same sender's queued prompt under KEY is replaced, and
+    /// the sender is told how many.
+    #[tokio::test]
+    async fn a_send_with_supersede_replaces_the_senders_queued_prompt_under_that_key() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let keyed = |key: &str| {
+            let mut p = PromptId::new(None);
+            p.from_agent = Some("lane-a".into());
+            p.supersede = Some(key.into());
+            p
+        };
+        // "slow" streams for about a second, so the two after it queue.
+        queue_prompt(client.clone(), &id, "slow", false, None, &PromptId::new(None)).await.unwrap();
+        let old = keyed("cause-1b");
+        let first = queue_prompt(client.clone(), &id, "order", false, None, &old).await.unwrap();
+        assert_eq!(first["queued"], true, "{first}");
+        assert_eq!(sent_lines(&first, true), ["queued", "replaced 0 queued"]);
+        let new = keyed("cause-1b");
+        let second =
+            queue_prompt(client.clone(), &id, "correction", false, None, &new).await.unwrap();
+        assert_eq!(second["replaced"], 1, "{second}");
+        assert_eq!(second["replacedPromptIds"], json!([old.id]), "{second}");
+        assert_eq!(sent_lines(&second, true), ["queued", "replaced 1 queued"]);
+        // Without --supersede the output is as before.
+        assert_eq!(sent_lines(&second, false), ["queued"]);
+        let removed = hub
+            .events(&id, 0, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "queue_removed")
+            .map(|e| e.msg)
+            .collect::<Vec<_>>();
+        assert_eq!(removed.len(), 1, "{removed:?}");
+        assert_eq!(removed[0]["promptId"], old.id.as_str());
+        assert_eq!(removed[0]["reason"], "superseded");
+        drop(dir);
+    }
+
+    /// A daemon that predates the key says nothing about it: the count is unknown, not 0.
+    #[test]
+    fn an_unreported_count_is_unknown() {
+        let lines = sent_lines(&json!({"queued": true}), true);
+        assert_eq!(lines[0], "queued");
+        assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_supersede_key_goes_in_the_prompts_meta() {
+        let mut p = PromptId::new(None);
+        assert!(p.params("s", "t", false, None).pointer("/_meta/acpmux/supersede").is_none());
+        p.supersede = Some("k".into());
+        let params = p.params("s", "t", false, None);
+        assert_eq!(params.pointer("/_meta/acpmux/supersede"), Some(&json!("k")));
+    }
+
     #[tokio::test]
     async fn queue_prompt_returns_on_acceptance_while_the_turn_runs() {
         let (hub, client, dir) = daemon().await;
@@ -894,8 +981,7 @@ mod prompt_tests {
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
-        let again =
-            PromptId { id: prompt.id.clone(), resend: true, from_agent: prompt.from_agent.clone() };
+        let again = PromptId { resend: true, ..prompt.clone() };
         let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =

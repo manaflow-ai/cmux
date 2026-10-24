@@ -1,25 +1,35 @@
 // The Inspector: the right-hand panel of an agent chat, Chief included, opened by the header's
 // top-right toggle (Claude Code desktop calls its own the session rail, ChatGPT its pinned
 // summary). Leo, 2026-10-20: take the facts Claude Code's panel shows and ChatGPT's subagents row.
-// Top to bottom, each section folding:
+// Top to bottom, in three blocks with no box around a section (`RAIL_LAYOUT`):
 //
-// - Environment: the machine, the folder, the repository, the branch or worktree (EnvironmentSection).
-// - Context: how much of the context window the chat used, with a bar; open, the token counts.
-// - Connectors: the MCP servers its harness loaded, with how many need reconnecting.
-// - Changes: the pull requests it opened or touched (ChangesSection).
-// - Servers: the dev servers it runs in the background (ServersSection).
-// - Subagents: an avatar row with live counts that opens into the list: the harness's subagents and
-//   the chats its agent started, a Cloud VM's or another machine's included (SubagentsSection).
-// - Background tasks: its other background commands, the ones only the transcript knows included,
-//   and its wakeups (TasksSection).
-// - Outputs: the files, artifacts and links it produced (OutputsSection).
+// - Where it runs: the Environment's rows, the machine, the folder, the repository, the branch or
+//   worktree (EnvironmentSection); then Context, how much of the context window the chat used, with a
+//   bar, open the token counts; then Connectors, the MCP servers its harness loaded, with how many
+//   need reconnecting. Context and Connectors are one row each until opened.
+// - What it made: Changes, the pull requests it opened, touched or named, in any repository
+//   (ChangesSection); Outputs, the files, artifacts and links it produced (OutputsSection).
+// - What it runs: Subagents, each running subagent and started chat on its own line, the ended ones
+//   folded into one row: the harness's subagents and the chats its agent started, a Cloud VM's or
+//   another machine's included (SubagentsSection); Background tasks, the dev servers it runs first
+//   (ServersSection), then its other background commands, the ones only the transcript knows
+//   included, and its wakeups (TasksSection).
 //
-// Open, it pushes the chat aside and the chat reflows (Settings > Agent Chat > Inspector), unless
-// the pane is too narrow for the chat beside it, when it lies over the chat instead; Overlay
-// always lies over it. Its left edge drags to resize it. Open, width and folds are the viewer's
+// Open, it floats under the header's toggle in the pane's right gutter, beside the transcript's
+// centered column, so opening, closing or updating it never reflows the chat. When that gutter has
+// no room for it, it pushes the chat aside and the chat reflows, so it never lies over the
+// transcript's text (Leo, 2026-10-21: "a popup ... that DOESN'T shift the layout. OR it shifts the
+// layout if there isn't enough space"). Settings > Agent Chat > Inspector: Push always pushes.
+// It shows only over the chat, where its toggle is: while a view takes the pane in the chat's place
+// (a turn's diff in place, the event Inspector) it steps aside and comes back when that view closes,
+// and with the side panel open beside the chat it floats in the chat's gutter, never over the
+// document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
+// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are the viewer's
 // and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
+// While the pane shows a subagent's own view, it lists that subagent's things alone, under
+// "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import {
   useCallback,
   useEffect,
@@ -30,24 +40,33 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
+import { opensProcessTerminal } from "../processTerminal";
+import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/SubagentStatusList";
+import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
+import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
   INSPECTOR_WIDTH,
   setInspectorOpen,
@@ -58,41 +77,104 @@ import {
   type InspectorSectionId,
   type InspectorSections,
 } from "./inspectorState";
-import { OutputsSection, outputLinks, type OutputLink } from "./OutputsSection";
+import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import type { Subagent } from "../subagents/subagentFold";
+import { subagentProgress } from "../subagents/subagentProgress";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 export type InspectorPlacement = "push" | "overlay";
 
-/// The narrowest chat column the Inspector pushes aside; below it, it lies over the chat.
+/// The narrowest chat the Inspector pushes aside: a pushed panel narrows to keep it, down to the
+/// panel's own narrowest width.
 export const PUSH_MIN_CHAT = 440;
+/// The room the panel keeps from the pane's right edge, floating or pushing, and from the
+/// transcript's column when it floats (inspector.css --acpmux-inspector-inset).
+export const FLOAT_MARGIN = 8;
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
 
-/// Whether the Inspector pushes the chat: the setting, unless the pane can't keep a readable chat
-/// beside it.
-export const pushes = (placement: InspectorPlacement, paneWidth: number, width: number) =>
-  placement === "push" && (paneWidth <= 0 || paneWidth - width >= PUSH_MIN_CHAT);
+/// Whether the Inspector pushes the chat: with Settings Push always; by default only when the
+/// pane's right gutter, beside the transcript's centered column (model.ts transcriptColumn), has
+/// no room for the panel and its margins, so the panel never lies over the transcript's text.
+/// Unmeasured, it pushes.
+export const pushes = (placement: InspectorPlacement, paneWidth: number, width: number, column?: ChatColumn) =>
+  placement === "push" || paneWidth <= 0 || transcriptColumn(paneWidth, column).inset < width + 2 * FLOAT_MARGIN;
 
-/// The pane's width, followed as it resizes; 0 before it is measured.
-function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): number {
-  const [width, setWidth] = useState(0);
+/// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
+/// right margin, down to the panel's narrowest.
+export const pushedWidth = (paneWidth: number, width: number) =>
+  paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
+
+/// The overlay handoff starts moving the chat before the panel reaches the transcript column. This
+/// keeps a resize across the float/push boundary continuous: at the boundary the overlay's shift is
+/// exactly the room the pushed panel will take, so the pushed layout lands on the same chat center.
+export const CHAT_SHIFT_RANGE = 64;
+export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn) => {
+  if (paneWidth <= 0 || width <= 0) return 0;
+  const inset = transcriptColumn(paneWidth, column).inset;
+  const boundary = width + 2 * FLOAT_MARGIN;
+  const progress = Math.max(0, Math.min(1, (boundary + CHAT_SHIFT_RANGE - inset) / CHAT_SHIFT_RANGE));
+  return progress * ((width + FLOAT_MARGIN) / 2);
+};
+
+/// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
+/// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
+/// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
+export const inspectorShown = ({
+  on,
+  open,
+  suppressed = false,
+  covered = false,
+}: {
+  on: boolean;
+  open: boolean;
+  suppressed?: boolean;
+  covered?: boolean;
+}) => on && open && !suppressed && !covered;
+
+/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
+const SIDE_PANEL = ":scope > .acpmux-artifact";
+
+/// The chat's room in the pane: the pane's width less the side panel's beside the chat, and that
+/// panel's width, which the floating Inspector keeps clear of.
+export type PaneRoom = { width: number; side: number };
+const UNMEASURED: PaneRoom = { width: 0, side: 0 };
+export function paneRoom(shell: HTMLElement): PaneRoom {
+  const side = shell.querySelector<HTMLElement>(SIDE_PANEL)?.offsetWidth ?? 0;
+  return { width: Math.max(0, shell.clientWidth - side), side };
+}
+
+/// The chat's room, followed as the pane resizes and as the side panel opens, closes or resizes
+/// (`beside` changes with it); width 0 before it is measured. A resize draws in the frame that has
+/// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
+/// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
+/// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
+  const [room, setRoom] = useState(UNMEASURED);
   useLayoutEffect(() => {
     if (!shell || !live) return;
-    const measure = () => setWidth(shell.clientWidth);
+    const measure = () => {
+      const next = paneRoom(shell);
+      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+    };
     measure();
     if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => flushSync(measure));
     observer.observe(shell);
+    const side = shell.querySelector<HTMLElement>(SIDE_PANEL);
+    if (side) observer.observe(side);
     return () => observer.disconnect();
-  }, [shell, live]);
-  return width;
+  }, [shell, live, beside]);
+  return room;
 }
+
+/// How long a revealed section stays lit.
+const REVEAL_LIT_MS = 1200;
 
 /// The header's toggle and the Inspector for the chat's pane. `on` is Debug Settings
 /// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
@@ -104,23 +186,46 @@ export function useChatInspector({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenDocument,
   processes: registry,
   onStopProcess,
   subagents,
   sessions,
+  onOpenFolder,
+  onSaveEnvironment,
+  onShowCall,
+  subagent,
+  covered = false,
+  onUncover,
+  beside,
+  wide = false,
 }: {
   snapshot: AcpmuxSnapshot;
+  /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
+  /// the panel steps aside, its open state kept, and is back when that view closes.
+  covered?: boolean;
+  /// Closes that view: opening the Inspector (its toggle, the palette, a running line's count)
+  /// brings the chat back first.
+  onUncover?: () => void;
+  /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
+  /// the panel measures the chat's room without it.
+  beside?: unknown;
+  /// What the chat shows under its header is wider than the transcript's column (App.tsx: a handoff
+  /// review's form): the panel pushes it aside, never floats over it, and its toggle stays in reach.
+  wide?: boolean;
   /// This Mac's name from the handshake, for a local chat.
   machineName?: string;
   /// The chat folder's GitHub repository (`git.githubRepository`), `owner/name`.
   repository?: string;
-  /// The pane's shell: the Inspector measures it to choose push or overlay.
+  /// The pane's shell: the Inspector measures it to float or push.
   shell?: HTMLElement | null;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  /// Opens a document the chat produced in the side panel beside the chat (App.tsx openArtifact).
+  onOpenDocument?: (artifact: Artifact) => void;
   /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
   /// which the running line and the summary card read too, so it is listed once.
   processes?: ProcessRegistry;
@@ -134,6 +239,14 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
+  onOpenFolder?: (path: string) => void;
+  /// Saves the chat's machine and folder as an environment (`environment.save`).
+  onSaveEnvironment?: () => Promise<unknown>;
+  /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
+  onShowCall?: (toolCallId: string) => boolean;
+  /// The subagent whose own view the pane shows: the Inspector lists its things, not the chat's.
+  subagent?: SubagentScope;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -149,28 +262,62 @@ export function useChatInspector({
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
-  const shown = on && open && !suppressed;
+  const shown = inspectorShown({ on, open, suppressed, covered });
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
   const openedOutputAt = useRef(0);
   const label = t("chatInspector.title");
+  // Opening it while a view covers the chat closes that view first. The palette's opener outlives a
+  // render, so it reads the latest from a ref.
+  const bringBack = covered ? onUncover : undefined;
+  const uncover = useRef(bringBack);
+  useLayoutEffect(() => {
+    uncover.current = bringBack;
+  }, [bringBack]);
   useEffect(() => {
     if (!on) return;
     return registerPicker(label, () => {
+      uncover.current?.();
       setSuppressed(false);
       setInspectorOpen(true);
     });
   }, [on, label]);
+  // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
+  // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
+  // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
+  // that stops the turn (escapeStop.ts), which an Esc claimed here never reaches. An open popover,
+  // menu or dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
+  useEffect(() => {
+    if (!shown) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      const focus = document.activeElement;
+      if (!(focus instanceof HTMLElement) || !focus.closest(`aside.acpmux-chat-inspector, ${INSPECTOR_TOGGLE}`)) return;
+      if (focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return;
+      if (
+        document.querySelector(
+          'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup',
+        )
+      )
+        return;
+      event.preventDefault();
+      closeInspector();
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [shown]);
   if (!on) return { on: false };
   const toggle = () => {
     if (shown) setInspectorOpen(false);
     else {
+      bringBack?.();
       setSuppressed(false);
       setInspectorOpen(true);
     }
   };
   const reveal = (section: InspectorSectionId) => {
+    bringBack?.();
     setSuppressed(false);
     setInspectorSection(section, true);
     setInspectorOpen(true);
@@ -185,18 +332,7 @@ export function useChatInspector({
   return {
     on: true,
     reveal,
-    button: (
-      <button
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="pane.split.right" size={15} />
-      </button>
-    ),
+    button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
         shown={shown}
@@ -205,8 +341,11 @@ export function useChatInspector({
         machineName={machineName}
         repository={repository}
         shell={shell}
+        beside={beside}
+        wide={wide}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
+        onClose={closeInspector}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
@@ -216,13 +355,28 @@ export function useChatInspector({
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
+        onOpenDocument={onOpenDocument}
+        onShowCall={onShowCall}
+        scope={subagent}
       />
     ),
   };
 }
 
-/// The Inspector while it is drawn: its presence, its width and folds, its push or overlay and what
-/// it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
+const INSPECTOR_TOGGLE = "button.acpmux-chat-inspector-toggle";
+
+/// Closes the Inspector from its x or Esc and gives the keyboard to its header toggle, so focus is
+/// not dropped on the page when the panel it was in leaves. Over a diff in place the header, and the
+/// toggle with it, is hidden and cannot take focus: the page gets it, as before.
+const closeInspector = () => {
+  document.querySelector<HTMLElement>(INSPECTOR_TOGGLE)?.focus({ preventScroll: true });
+  setInspectorOpen(false);
+};
+
+/// The Inspector while it is drawn: its presence, its width and folds, whether it floats or pushes,
+/// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
 /// times in a frame).
 function InspectorPresence({
@@ -232,8 +386,11 @@ function InspectorPresence({
   machineName,
   repository,
   shell,
+  beside,
+  wide,
   openedOutputAt,
   onSuppress,
+  onClose,
   registry,
   subagents,
   sessions,
@@ -243,6 +400,11 @@ function InspectorPresence({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenFolder,
+  onSaveEnvironment,
+  onOpenDocument,
+  onShowCall,
+  scope,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -251,10 +413,15 @@ function InspectorPresence({
   machineName?: string;
   repository?: string;
   shell?: HTMLElement | null;
+  /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
+  beside?: unknown;
+  /// The chat shows something wider than the transcript's column: the panel pushes.
+  wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
-  /// That diff's split left no room to push the chat: the Inspector steps aside.
+  /// That diff's split left no room for the chat beside the Inspector: the Inspector steps aside.
   onSuppress: () => void;
+  onClose: () => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -268,65 +435,126 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  onOpenFolder?: (path: string) => void;
+  onSaveEnvironment?: () => Promise<unknown>;
+  onOpenDocument?: (artifact: Artifact) => void;
+  onShowCall?: (toolCallId: string) => boolean;
+  /// The subagent it lists, while the pane shows one's own view.
+  scope?: SubagentScope;
 }) {
   const { width, sections } = useInspectorState();
-  const placement = useChatDisplay().inspector;
+  const display = useChatDisplay();
+  const column = chatColumnOf(useChatWidth(), display);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown, "right");
   const drawn = presence.present;
-  const paneWidth = usePaneWidth(shell, drawn);
-  const push = pushes(placement, paneWidth, width);
+  // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
+  // panel keeps clear of, so it never lies over the document.
+  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const push = pushes(wide ? "push" : display.inspector, paneWidth, width, column);
+  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column);
   const tabRowHeight = useTabRow().height;
-  const rows = snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows) : undefined), [drawn, rows]);
+  // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
+  // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
+  // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
+  useLayoutEffect(() => {
+    if (!shell) return;
+    if (!drawn) {
+      delete shell.dataset.inspectorChatPlacement;
+      shell.style.removeProperty("--acpmux-chat-shift");
+      return;
+    }
+    shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
+  }, [shell, drawn, push, chatShift]);
+  useLayoutEffect(() => {
+    if (!shell) return;
+    return () => {
+      delete shell.dataset.inspectorChatPlacement;
+      shell.style.removeProperty("--acpmux-chat-shift");
+    };
+  }, [shell]);
+  // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
+  const rows = scope?.rows ?? snapshot.rows;
+  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
+  const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
   const views = subagents?.views;
   const asks = subagents?.asks;
-  const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
+  const scopedAgents = scope?.agents;
+  const agents = useMemo(
+    () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
+    [drawn, scopedAgents, rows, views],
+  );
+  const scopedAgent = scope?.agent;
+  const summary = useMemo(
+    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+    [drawn, scopedAgent, snapshot.summary, rows],
+  );
+  const chatRows = snapshot.rows;
+  const transcriptTasks = useMemo(
+    () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
+    [scope, made, chatRows],
+  );
+  const allProcesses = registry?.processes;
+  const processes = useMemo(
+    () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
+    [drawn, scope, allProcesses, rows],
+  );
   const waiting = useMemo(
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
     [drawn, asks, views],
   );
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
-  // An output's diff opens beside the chat. When that split leaves too little room to push the
-  // chat, the Inspector would cover it, so it steps aside until the toggle opens it again.
-  const pushRef = useRef(push);
+  // An output's diff opens beside the chat. When that split leaves too little room for a readable
+  // chat beside the Inspector, it steps aside until the toggle opens it again.
+  const roomy = paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
+  const roomyRef = useRef(roomy);
   useEffect(() => {
-    const was = pushRef.current;
-    pushRef.current = push;
-    if (was && !push && placement === "push" && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) onSuppress();
-  }, [push, placement, openedOutputAt, onSuppress]);
+    const was = roomyRef.current;
+    roomyRef.current = roomy;
+    if (was && !roomy && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) onSuppress();
+  }, [roomy, openedOutputAt, onSuppress]);
   if (!drawn) return null;
   return (
     <InspectorPanel
-      width={width}
+      title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
+      width={push ? pushedWidth(paneWidth, width) : width}
       placement={push ? "push" : "overlay"}
-      // Over the chat it starts under the chat header (styles.css --acpmux-header-height; in the
+      // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
+      side={push ? 0 : side}
       presence={presence}
+      onClose={onClose}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
-        key={snapshot.sessionId}
-        summary={snapshot.summary}
+        key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
+        banner={
+          scope && SUBAGENT_HEADER !== "title" ? <SubagentBanner scope={scope} variant={SUBAGENT_HEADER} /> : undefined
+        }
+        agent={scope?.agent}
+        summary={summary}
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
         made={made}
         links={links}
         artifacts={artifacts}
+        documents={documents}
         rows={rows}
         agents={agents}
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
-        processes={registry?.processes}
+        processes={processes}
         listed={registry?.listed}
-        transcriptTasks={made?.backgroundTasks}
-        sessions={sessions?.list}
+        transcriptTasks={transcriptTasks}
+        // The chats the chat's agent started are the chat's.
+        sessions={scope ? undefined : sessions?.list}
         onOpenSession={sessions?.onOpen}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -336,26 +564,46 @@ function InspectorPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        // Save keeps the chat's machine and folder, not a subagent's.
+        onSaveEnvironment={scope ? undefined : onSaveEnvironment}
+        onOpenDocument={onOpenDocument}
+        onShowCall={onShowCall}
       />
     </InspectorPanel>
   );
 }
 
-/// The panel's frame: its width, its place beside or over the chat, and the drag handle on its
-/// left edge (a double-click puts the width back). With `presence`, it enters from and leaves toward
-/// the pane's right edge. Over the chat it starts `under` (a CSS length: the chat header's height)
-/// below the pane's top, at the top by default.
+/// The panel's frame: its width, its place beside the chat (push) or floating in the chat's right
+/// gutter (overlay), and the drag handle on its left edge (a double-click puts the width back). With
+/// `presence`, it enters from and leaves toward the pane's right edge. The main panel keeps only a
+/// floating close control; a scoped subagent may supply a title as its own breadcrumb. Either way,
+/// it starts `under` (a CSS length: the chat header's height) below the pane's top, at the top by default.
 export function InspectorPanel({
   width,
   placement,
   under,
+  side = 0,
   presence,
+  onClose,
+  title,
+  chrome = "close",
   children,
 }: {
   width: number;
   placement: InspectorPlacement;
   under?: string;
+  /// Floating, how far from the pane's right edge the chat ends (the side panel's width): the panel
+  /// floats in the chat's gutter, left of the side panel.
+  side?: number;
   presence?: Presence;
+  /// Its own close button: over a diff in place the chat header, with the toggle, is out of reach.
+  onClose?: () => void;
+  /// Its head's title in place of "Inspector": a subagent's panel names the subagent (SubagentTitle).
+  title?: ReactNode;
+  /// The main panel uses a close-only control, while the gallery compares it with the old title row
+  /// and a compact close-only row. A scoped subagent supplies its own title.
+  chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
   const t = useT();
@@ -369,9 +617,18 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className={placement === "overlay" ? "ui-glass acpmux-chat-inspector" : "acpmux-chat-inspector"}
+      className="ui-glass ui-glass-floats acpmux-chat-inspector"
       data-placement={placement}
-      style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
+      data-chrome={onClose ? (title ? "title" : chrome) : "none"}
+      style={
+        {
+          width,
+          // Pushing, its enter and exit run its right margin from minus this (inspector.css).
+          "--acpmux-inspector-width": `${width}px`,
+          ...(under ? { "--acpmux-inspector-top": under } : {}),
+          ...(side > 0 ? { "--acpmux-inspector-side": `${side}px` } : {}),
+        } as CSSProperties
+      }
       aria-label={t("chatInspector.title")}
     >
       <div
@@ -399,10 +656,51 @@ export function InspectorPanel({
         }}
         onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH.fallback)}
       />
+      {onClose &&
+        (title || chrome === "title" || chrome === "compact-close" ? (
+          <div className="acpmux-chat-inspector__head">
+            {title ??
+              (chrome === "title" ? (
+                <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
+              ) : null)}
+            <button
+              type="button"
+              className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
+              aria-label={t("chatInspector.close")}
+              {...tooltipProps(t("chatInspector.close"), undefined)}
+              onClick={onClose}
+            >
+              <Icon name="action.close" size={12} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close acpmux-chat-inspector__close--floating"
+            aria-label={t("chatInspector.close")}
+            {...tooltipProps(t("chatInspector.close"), undefined)}
+            onClick={onClose}
+          >
+            <Icon name="action.close" size={12} />
+          </button>
+        ))}
       {children}
     </aside>
   );
 }
+
+/// How the panel lays out its sections. Leo, 2026-10-22: "and this session rail is tmi and too many
+/// boxes?". It drew eight hairline cards: two of them one line each (Context, Connectors), two of them
+/// the same kind of thing (Servers and Background tasks, both background commands). No section is a
+/// card now, and Servers' rows head Background tasks. The three ways the gallery shows
+/// (`agent-pane.chat-inspector` `layout-*`):
+/// - `glance`, shipped: three blocks with a hairline between them and no box. Where it runs: the
+///   Environment's rows with no title over them, then Context and Connectors as one row each, which
+///   open in place. What it made: Changes, Outputs. What it runs: Subagents, Background tasks.
+/// - `rules`: every section keeps its title, Environment's too, with a hairline between each.
+/// - `groups`: the same three blocks as `glance`, each one hairline card.
+export type RailLayout = "glance" | "rules" | "groups";
+export const RAIL_LAYOUT: RailLayout = "glance";
 
 /// The sections for one chat.
 export function ChatInspector({
@@ -413,6 +711,7 @@ export function ChatInspector({
   made,
   links = [],
   artifacts = 0,
+  documents = [],
   rows = [],
   agents = [],
   waiting = new Set(),
@@ -431,8 +730,14 @@ export function ChatInspector({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenDocument,
   remoteControl,
   onSaveEnvironment,
+  onOpenFolder,
+  onShowCall,
+  banner,
+  agent,
+  layout = RAIL_LAYOUT,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -442,6 +747,10 @@ export function ChatInspector({
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled">;
   links?: readonly OutputLink[];
   artifacts?: number;
+  /// The documents the chat produced (OutputsSection `outputArtifacts`).
+  documents?: readonly OutputArtifact[];
+  /// Opens a document in the side panel beside the chat.
+  onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
   agents?: readonly Subagent[];
@@ -472,9 +781,21 @@ export function ChatInspector({
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  onSaveEnvironment?: () => void;
+  onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Opens one of the chat's folders in the Files tree beside the chat.
+  onOpenFolder?: (path: string) => void;
+  /// Shows the Bash call that started a background command in the transcript: what its row opens
+  /// in a chat whose terminal cannot open here (TasksSection).
+  onShowCall?: (toolCallId: string) => boolean;
+  /// The body's first line: whose panel it is (a subagent's, SubagentBanner).
+  banner?: ReactNode;
+  /// The subagent it lists: its Context is the tokens and tool uses the harness reports for it.
+  agent?: Subagent;
+  /// How its sections are laid out (`RAIL_LAYOUT`); the gallery shows the others.
+  layout?: RailLayout;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const stored = useInspectorState().sections;
   const state = sections ?? stored;
   const fold = (id: InspectorSectionId) => (next: boolean) => (onSection ?? setInspectorSection)(id, next);
@@ -483,165 +804,223 @@ export function ChatInspector({
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const { servers, tasks: commands } = inspectorLists(processes, transcriptTasks, listed);
+  // A chat on this Mac opens a task's terminal; elsewhere a row shows the call that started it,
+  // when the loaded transcript holds it. Read only then, so a local chat adds no pass over its rows.
+  const local = opensProcessTerminal(summary);
+  const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
+  const calls = useMemo(
+    () =>
+      showsCalls
+        ? new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))))
+        : undefined,
+    [showsCalls, rows],
+  );
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
+  // The section lights for a moment (inspector.css `[data-revealed]`), so a reveal of a section already
+  // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
+  // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
+  const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
+  const unlight = () => {
+    if (!lit.current) return;
+    window.clearTimeout(lit.current.timer);
+    delete lit.current.section.dataset.revealed;
+    lit.current = undefined;
+  };
+  useEffect(() => unlight, []);
   useEffect(() => {
     if (!revealed) return;
-    body.current
-      ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
+    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
+    section?.scrollIntoView?.({ block: "nearest" });
     onRevealed?.();
+    if (!section) return;
+    unlight();
+    section.dataset.revealed = "";
+    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
-  const pullRequests = made?.pullRequests ?? [];
+  const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
+  const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
-  return (
-    <div ref={body} className="acpmux-chat-inspector__body">
+  const glance = layout === "glance";
+  // In the top block (glance), Context and Connectors are rows like the Environment's: an icon first.
+  const rowIcon = (name: string) => (glance ? name : undefined);
+  const environment = (
+    <InspectorSection
+      id="environment"
+      title={t("rail.environment")}
+      open={glance || state.environment}
+      onOpenChange={fold("environment")}
+      bare={glance}
+    >
+      <EnvironmentSection
+        summary={summary}
+        machineName={machineName}
+        peerKinds={peerKinds}
+        repository={repository}
+        rows={rows}
+        remoteControl={remoteControl}
+        onSave={onSaveEnvironment}
+        onOpenFolder={onOpenFolder}
+      />
+    </InspectorSection>
+  );
+  const context = known ? (
+    <InspectorSection
+      id="context"
+      title={t("rail.context")}
+      icon={rowIcon("context.usage")}
+      open={state.context}
+      onOpenChange={fold("context")}
+      meta={
+        <>
+          {value(t("rail.percent", { percent }))}
+          <span className="acpmux-chat-inspector-meter" aria-hidden="true">
+            <span style={{ width: `${percent}%` }} />
+          </span>
+        </>
+      }
+    >
+      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
+    </InspectorSection>
+  ) : (
+    progress.length > 0 && (
       <InspectorSection
-        id="environment"
-        title={t("rail.environment")}
-        open={state.environment}
-        onOpenChange={fold("environment")}
-      >
-        <EnvironmentSection
-          summary={summary}
-          machineName={machineName}
-          peerKinds={peerKinds}
-          repository={repository}
-          remoteControl={remoteControl}
-          onSave={onSaveEnvironment}
+        id="context"
+        title={t("rail.context")}
+        icon={rowIcon("context.usage")}
+        open
+        meta={value(progress.join(" · "))}
+      />
+    )
+  );
+  const connectors = mcp.length > 0 && (
+    <InspectorSection
+      id="connectors"
+      title={t("rail.connectors")}
+      icon={rowIcon("extension")}
+      open={state.connectors}
+      onOpenChange={fold("connectors")}
+      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      meta={value(
+        reconnect > 0
+          ? t("chatInspector.connectors.reconnect", { count: reconnect })
+          : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
+      )}
+    >
+      <ul className="acpmux-chat-inspector-list">
+        {mcp.map((server) => (
+          <li key={server.name} className="acpmux-chat-inspector-row">
+            <Icon name="extension" size={12} row />
+            <span className="acpmux-chat-inspector-row__name">{server.name}</span>
+            <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
+              {t(
+                server.status === "failed"
+                  ? "chatInspector.connectors.needsReconnect"
+                  : server.status === "pending"
+                    ? "rail.connectorPending"
+                    : "composer.envConnected",
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </InspectorSection>
+  );
+  const changes = pullRequests.length > 0 && (
+    <InspectorSection
+      id="changes"
+      title={t("header.changes")}
+      open={state.changes}
+      onOpenChange={fold("changes")}
+      meta={value(String(pullRequests.length))}
+    >
+      <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+    </InspectorSection>
+  );
+  const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
+  const outputsSection = outputsShown && (
+    <InspectorSection id="outputs" title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
+      <OutputsSection
+        files={outputs}
+        links={links}
+        artifacts={artifacts}
+        documents={documents}
+        onOpenDocument={onOpenDocument}
+        onOpenFile={onOpenOutput}
+        onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+      />
+    </InspectorSection>
+  );
+  const subagentsSection = agents.length + sessions.length > 0 && (
+    <InspectorSection
+      id="subagents"
+      title={t("summary.subagents")}
+      open={state.subagents}
+      onOpenChange={fold("subagents")}
+      meta={value(subagentCounts(t, agents, waiting, sessions))}
+    >
+      <SubagentsSection
+        agents={agents}
+        waiting={waiting}
+        onOpen={onOpenSubagent}
+        sessions={sessions}
+        onOpenSession={onOpenSession}
+      />
+    </InspectorSection>
+  );
+  // The dev servers are background commands too: their rows head the one Background tasks section
+  // (they were a card of their own, most often one row). Every server runs.
+  const running = runningTasks + servers.length;
+  const tasks = servers.length + commands.length + scheduled.length > 0 && (
+    <InspectorSection
+      id="tasks"
+      title={t("summary.backgroundTasks")}
+      open={state.tasks}
+      onOpenChange={fold("tasks")}
+      meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
+    >
+      {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
+      {commands.length + scheduled.length > 0 && (
+        <TasksSection
+          commands={commands}
+          scheduled={scheduled}
+          onStop={onStopProcess}
+          local={local}
+          calls={calls}
+          onShowCall={onShowCall}
         />
-      </InspectorSection>
-      {known && (
-        <InspectorSection
-          id="context"
-          title={t("rail.context")}
-          open={state.context}
-          onOpenChange={fold("context")}
-          meta={
-            <>
-              {value(t("rail.percent", { percent }))}
-              <span className="acpmux-chat-inspector-meter" aria-hidden="true">
-                <span style={{ width: `${percent}%` }} />
-              </span>
-            </>
-          }
-        >
-          <ul className="acpmux-chat-inspector-list">
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.used")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {t("context.tokens", { used: tokens.format(usage.used), size: tokens.format(usage.size) })}
-              </span>
-            </li>
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.left")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {tokens.format(Math.max(0, usage.size - usage.used))}
-              </span>
-            </li>
-          </ul>
-        </InspectorSection>
       )}
-      {mcp.length > 0 && (
-        <InspectorSection
-          id="connectors"
-          title={t("rail.connectors")}
-          open={state.connectors}
-          onOpenChange={fold("connectors")}
-          meta={value(
-            [
-              t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
-              reconnect > 0 && t("chatInspector.connectors.reconnect", { count: reconnect }),
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          )}
-        >
-          <ul className="acpmux-chat-inspector-list">
-            {mcp.map((server) => (
-              <li key={server.name} className="acpmux-chat-inspector-row">
-                <Icon name="extension" size={12} row />
-                <span className="acpmux-chat-inspector-row__name">{server.name}</span>
-                {server.status !== "connected" && (
-                  <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
-                    {t(
-                      server.status === "failed" ? "chatInspector.connectors.needsReconnect" : "rail.connectorPending",
-                    )}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </InspectorSection>
+    </InspectorSection>
+  );
+  return (
+    <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
+      {banner}
+      {/* Where it runs. */}
+      <div className="acpmux-chat-inspector-group" data-group="about">
+        {environment}
+        {context}
+        {connectors}
+      </div>
+      {/* What it made. */}
+      {(changes || outputsSection) && (
+        <div className="acpmux-chat-inspector-group" data-group="made">
+          {changes}
+          {outputsSection}
+        </div>
       )}
-      {pullRequests.length > 0 && (
-        <InspectorSection
-          id="changes"
-          title={t("header.changes")}
-          open={state.changes}
-          onOpenChange={fold("changes")}
-          meta={value(String(pullRequests.length))}
-        >
-          <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
-        </InspectorSection>
-      )}
-      {servers.length > 0 && (
-        <InspectorSection
-          id="servers"
-          title={t("chatInspector.servers")}
-          open={state.servers}
-          onOpenChange={fold("servers")}
-          meta={value(t("rail.running", { count: servers.length }))}
-        >
-          <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />
-        </InspectorSection>
-      )}
-      {agents.length + sessions.length > 0 && (
-        <InspectorSection
-          id="subagents"
-          title={t("summary.subagents")}
-          open={state.subagents}
-          onOpenChange={fold("subagents")}
-          meta={value(subagentCounts(t, agents, waiting, sessions))}
-        >
-          <SubagentsSection
-            agents={agents}
-            waiting={waiting}
-            onOpen={onOpenSubagent ?? (() => undefined)}
-            sessions={sessions}
-            onOpenSession={onOpenSession}
-          />
-        </InspectorSection>
-      )}
-      {(commands.length > 0 || scheduled.length > 0) && (
-        <InspectorSection
-          id="tasks"
-          title={t("summary.backgroundTasks")}
-          open={state.tasks}
-          onOpenChange={fold("tasks")}
-          meta={runningTasks > 0 ? value(t("rail.running", { count: runningTasks })) : undefined}
-        >
-          <TasksSection commands={commands} scheduled={scheduled} onStop={onStopProcess} />
-        </InspectorSection>
-      )}
-      {outputs.length + links.length + artifacts > 0 && (
-        <InspectorSection id="outputs" title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
-          <OutputsSection
-            files={outputs}
-            links={links}
-            artifacts={artifacts}
-            onOpenFile={onOpenOutput}
-            onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
-          />
-        </InspectorSection>
+      {/* What it runs. */}
+      {(subagentsSection || tasks) && (
+        <div className="acpmux-chat-inspector-group" data-group="running">
+          {subagentsSection}
+          {tasks}
+        </div>
       )}
       {gallery && (
         <GalleryDialog

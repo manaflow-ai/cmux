@@ -9,8 +9,16 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var bottomPadding: CGFloat
     public var sectionHeaderHeight: CGFloat
     public var sectionSpacing: CGFloat
-    /// A group or folder header: always the one-line workspace row height, never a number of its own.
-    public var groupHeaderHeight: CGFloat { rowHeight }
+    /// A group or folder header: always the density's workspace row height (`rowStep`), never a
+    /// number of its own (Lawrence 2026-10-19 and 2026-10-22: a header is exactly as tall as a
+    /// workspace row at every density).
+    public var groupHeaderHeight: CGFloat { rowStep }
+    /// Expanded density (`sidebar.density` expanded, not Minimal Mode): every workspace row has a
+    /// second line, so rows and group headers take two lines (`expanded`).
+    public var twoLineRows = false
+    /// The one height a group header and a workspace row with the density's usual lines share:
+    /// one line, or two in Expanded. A row with more lines (a meta line, a status block) grows from it.
+    public var rowStep: CGFloat { twoLineRows ? rowHeightWithSubtitle : rowHeight }
     /// Workspace row with one line.
     public var rowHeight: CGFloat
     /// Workspace row with a secondary detail line.
@@ -55,10 +63,26 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         return m
     }
 
-    /// One line, two, or three (an expanded row's meta line adds one more line's height).
+    /// Expanded density's metrics: rows and group headers are two lines tall (`rowStep`).
+    public var expanded: SidebarLayoutMetrics {
+        var m = self
+        m.twoLineRows = true
+        return m
+    }
+
+    /// The metrics a layout under `o` uses: Minimal Mode's shorter rows, or Expanded's two-line
+    /// rows (not with workspaces as tabs, whose rows are one line at any density). Every place
+    /// that sizes list rows reads this, so a header and a row cannot take different steps.
+    public func resolved(for o: SidebarLayoutOptions) -> SidebarLayoutMetrics {
+        if o.minimal { return minimal }
+        return o.expanded && !o.workspacesAsTabs ? expanded : self
+    }
+
+    /// One line, two, or three (an expanded row's meta line adds one more line's height), never
+    /// shorter than `rowStep`: in Expanded a row without a preview line keeps the two-line height.
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
-        return rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight) + statusHeight(content)
+        return max(rowStep, rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight)) + statusHeight(content)
     }
 
     /// The status block under the title lines: its text lines, the bar's
@@ -103,6 +127,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
     public var machineStatusLabels: [MachineID: String] = [:]
+    /// The machines whose rows carry their mark (SidebarMachineMark), when more than one is
+    /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
+    /// where a mark would tell nothing.
+    public var machines: [MachineID: SidebarMachine] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
@@ -129,14 +157,16 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// compact row's dim time on the name's line. Off by default (Lawrence 2026-10-19): no row
     /// draws a time unless the user picks the Last Activity element.
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
+    public var showsColors = true
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
     public var hidesWorkspaces = false
-    /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
-    /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
-    public var groupsByFolder = false
+    /// `sidebar.groupBy`. Group by Folder: the only machine's loose rows sit under a header per
+    /// `SidebarWorkspace.folder`, in first-seen order. Group by Status: `SidebarLayout+Status`.
+    public var grouping = SidebarGrouping()
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
@@ -147,6 +177,14 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
+    /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
+    public var foldsDone = false
+    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    public var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
+    public var rowLimit = 0
+    /// The lists whose "Show N more" row the person opened.
+    public var openShowMore: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -166,12 +204,21 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
         if let sessionTree { content.keycap = keycaps[ws.id] }
-        content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
+        // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
+        // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
+        // off by default. The hover card keeps the pull request.
+        if workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
+            content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
+        } else {
+            content.badge = nil
+        }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
-        // What the agent needs outranks the row's age and one-line status on the name's line; the
-        // row view words it (localized on the main actor, so the layout stays nonisolated).
-        if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
+        if !showsColors { content.icon = content.icon?.uncolored }
+        // What the agent needs, for the row's accessibility label only: a row draws no status words
+        // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
+        if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
         if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
@@ -186,8 +233,9 @@ nonisolated extension SidebarLayoutOptions {
             return content
         }
         if expanded && !minimal {
-            return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
-                                       showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
+            let shown = workspaceRow.resolved(for: ws.rowKind)
+            return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
+                                       showsPullRequest: shown.shows(.pullRequest))
         }
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
@@ -195,5 +243,24 @@ nonisolated extension SidebarLayoutOptions {
         content.badgeTime = nil
         content.status = nil
         return content
+    }
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Whether the list draws workspace `ws`: not dragged out, and a match while filtering.
+    func visible(_ ws: SidebarWorkspace) -> Bool {
+        !excludedWorkspaces.contains(ws.id) && (filterMatches?.contains(ws.id) ?? true)
+    }
+
+    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
+    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
+    }
+
+    /// A workspace row's tab disclosure; nil when the list shows no tabs.
+    func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+        guard showWorkspaceTabs else { return nil }
+        if ws.tabs.isEmpty { return .empty }
+        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }

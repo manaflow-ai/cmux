@@ -8,7 +8,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChiefPage } from "../../home-channels/ChiefPage";
 import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
-import { chiefBackend, chiefBackendLabel, DEFAULT_CHIEF_BACKEND, type HomeChief } from "../../home-channels/types";
+import { chiefEffortName, chiefModelName } from "../../home-channels/chiefNames";
+import {
+  chiefBackend,
+  chiefBackendLabel,
+  DEFAULT_CHIEF_BACKEND,
+  type HomeChief,
+  type HomeChiefBackend,
+} from "../../home-channels/types";
 import { formatString, type Strings } from "../../shared/i18n";
 import { useRowState, useStore } from "../context";
 import { locale, t } from "../strings";
@@ -22,13 +29,21 @@ function settingsStrings(): Strings {
 }
 
 /** A row's backend: the engine's name as Home's chip shows it (an absent or "default" harness
- * is the default engine), then its model and effort. The default engine with neither reads
- * `chief.backend.default` ("Default (Chief's usual)"), as the editor's backend picker does. */
-function backendLine(chief: HomeChief): string {
+ * is the default engine), then its model and effort by name (chiefNames.ts: "Opus 5.5", "Extra
+ * High"), never by id. The default engine with neither reads `chief.backend.default` ("Default
+ * (Chief's usual)"), as the editor's backend picker does. */
+function backendLine(chief: HomeChief, backends: readonly HomeChiefBackend[], strings: Strings): string {
   const engine = chief.engine;
   if (chiefBackend(engine?.harness) === DEFAULT_CHIEF_BACKEND && !engine?.model && !engine?.effort)
     return t("chief.backend.default");
-  return [chiefBackendLabel(t, engine?.harness), engine?.model, engine?.effort].filter(Boolean).join(" · ");
+  const models = backends.find((backend) => backend.id === chiefBackend(engine?.harness))?.models;
+  return [
+    chiefBackendLabel(t, engine?.harness),
+    engine?.model && chiefModelName(engine.model, models, strings),
+    engine?.effort && chiefEffortName(engine.effort, strings),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function ChiefsCard() {
@@ -40,6 +55,8 @@ export function ChiefsCard() {
   const [chiefs, setChiefs] = useState<HomeChief[] | undefined>();
   const [pictures, setPictures] = useState<ReadonlyMap<string, string>>(new Map());
   const [unavailable, setUnavailable] = useState(false);
+  // The harnesses' model catalogs, for the rows' model names; none yet (or none listed) reads ids.
+  const [backends, setBackends] = useState<readonly HomeChiefBackend[]>([]);
   const [error, setError] = useState<string | undefined>();
   const [open, setOpen] = useState<Open>(null);
   const load = useCallback(async () => {
@@ -67,6 +84,16 @@ export function ChiefsCard() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    let live = true;
+    host.backends().then(
+      (list) => live && setBackends(list),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [host]);
   const editor = useMemo(
     () =>
       new HostChiefEditor(
@@ -82,7 +109,7 @@ export function ChiefsCard() {
   const editing = open?.kind === "edit" ? chiefs?.find((chief) => chief.id === open.id) : undefined;
   if (open && (open.kind === "new" || editing))
     return (
-      <section className="group chiefs-card editing" data-card="chiefs">
+      <section className="group chiefs-card editing ui-glass" data-card="chiefs">
         <ChiefPage
           key={editing?.id ?? "new"}
           service={editor}
@@ -99,7 +126,7 @@ export function ChiefsCard() {
       </section>
     );
   return (
-    <section className="group chiefs-card" data-card="chiefs">
+    <section className="group chiefs-card ui-glass" data-card="chiefs">
       <div className="accounts-header">
         <h3 className="group-title m-0 flex-1">{t("chief.settings.title")}</h3>
         <button
@@ -144,7 +171,7 @@ export function ChiefsCard() {
                   {chief.role && <span className="row-help">{chief.role}</span>}
                 </span>
               </span>
-              <span className="row-help chiefs-backend">{backendLine(chief)}</span>
+              <span className="row-help chiefs-backend">{backendLine(chief, backends, strings)}</span>
               {chief.locked && <span className="badge">{t("chief.settings.locked")}</span>}
             </button>
           ))}

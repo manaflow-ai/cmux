@@ -58,6 +58,29 @@ extension HostView {
         needsLayout = true
     }
 
+    /// cmux (Leo 2026-10-21: "why is there a top banner? ... we don't even need this"): no header.
+    /// No avatar, no name pill and no band over the transcript: the rows start `bareTopInset` under
+    /// the pane's top and fade out over the last `bareTopInset` points as they scroll away, so nothing
+    /// ever sits on text (`placeNativeViews` hands the window view the inset and the fade). Replaces
+    /// `useHeaderGlass`; once per pane.
+    func useBareTop() {
+        guard !bareTop, headerGlass == nil else { return }
+        bareTop = true
+        paneHeader.bare = true
+        headerBackdrop.isHidden = true
+        needsLayout = true
+    }
+
+    /// The rows' top at rest, and the fade over it, in a pane with no header.
+    static let bareTopInset: CGFloat = 16
+
+    /// The rows' top at rest with no header: under the top-right controls when the pane has them.
+    var bareRowsTop: CGFloat {
+        guard let accessory = paneHeader.trailingAccessory else { return Self.bareTopInset }
+        let height = accessory.intrinsicContentSize.height
+        return PaneHeaderView.bareAccessoryTop + (height == NSView.noIntrinsicMetric ? accessory.frame.height : height) + 8
+    }
+
     /// Follows the pane's width (called from `placeNativeViews`).
     func placeHeaderGlass() {
         guard let headerGlass else { return }
@@ -76,4 +99,8 @@ extension MessagesLabHomeView {
 
     /// The header's glass band (nil before `setHeaderGlass`).
     var headerGlass: HeaderGlassView? { controller.host.headerGlass }
+
+    /// cmux: no header (`HostView.useBareTop`): the rows start near the top and fade out there.
+    /// Use instead of ``setHeaderGlass()``, not after it.
+    public func setBareTop() { controller.host.useBareTop() }
 }

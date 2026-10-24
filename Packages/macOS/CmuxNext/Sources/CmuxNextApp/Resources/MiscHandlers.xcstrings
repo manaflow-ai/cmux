@@ -12379,6 +12379,137 @@
         }
       }
     },
+    "handlers.screenshot.browserNeedsREPL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser page's screenshot for automation comes from the browser REPL, which hides the secrets on the page: browser_repl_eval with page.screenshot()"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقطة شاشة صفحة المتصفح للأتمتة تأتي من REPL المتصفح، الذي يخفي الأسرار في الصفحة: browser_repl_eval مع page.screenshot()"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak ekrana stranice preglednika za automatizaciju dolazi iz REPL-a preglednika, koji skriva tajne na stranici: browser_repl_eval sa page.screenshot()"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et skærmbillede af en browserside til automatisering kommer fra browserens REPL, som skjuler hemmelighederne på siden: browser_repl_eval med page.screenshot()"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Bildschirmfoto einer Browserseite für die Automatisierung kommt aus der Browser-REPL, die die Geheimnisse auf der Seite verbirgt: browser_repl_eval mit page.screenshot()"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La captura de una página del navegador para la automatización viene del REPL del navegador, que oculta los secretos de la página: browser_repl_eval con page.screenshot()"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une capture d’une page du navigateur pour l’automatisation vient du REPL du navigateur, qui masque les secrets de la page : browser_repl_eval avec page.screenshot()"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo screenshot di una pagina del browser per l’automazione arriva dal REPL del browser, che nasconde i segreti della pagina: browser_repl_eval con page.screenshot()"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化でのブラウザページのスクリーンショットは、ページ上の秘密情報を隠すブラウザ REPL から取得します: browser_repl_eval で page.screenshot()"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថតអេក្រង់នៃទំព័រកម្មវិធីរុករកសម្រាប់ស្វ័យប្រវត្តិកម្ម មកពី REPL របស់កម្មវិធីរុករក ដែលលាក់អាថ៌កំបាំងនៅលើទំព័រ៖ browser_repl_eval ជាមួយ page.screenshot()"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동화용 브라우저 페이지 스크린샷은 페이지의 비밀 정보를 가리는 브라우저 REPL에서 가져옵니다: browser_repl_eval에서 page.screenshot()"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et skjermbilde av en nettleserside for automatisering kommer fra nettleserens REPL, som skjuler hemmelighetene på siden: browser_repl_eval med page.screenshot()"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu strony przeglądarki dla automatyzacji pochodzi z REPL przeglądarki, który ukrywa sekrety na stronie: browser_repl_eval z page.screenshot()"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A captura de uma página do navegador para automação vem do REPL do navegador, que oculta os segredos da página: browser_repl_eval com page.screenshot()"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок экрана страницы браузера для автоматизации делает REPL браузера, который скрывает секреты на странице: browser_repl_eval с page.screenshot()"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพหน้าจอของหน้าเบราว์เซอร์สำหรับระบบอัตโนมัติมาจาก REPL ของเบราว์เซอร์ ซึ่งซ่อนข้อมูลลับบนหน้า: browser_repl_eval กับ page.screenshot()"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomasyon için bir tarayıcı sayfasının ekran görüntüsü, sayfadaki gizli bilgileri saklayan tarayıcı REPL'inden gelir: page.screenshot() ile browser_repl_eval"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок екрана сторінки браузера для автоматизації робить REPL браузера, який приховує секрети на сторінці: browser_repl_eval з page.screenshot()"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ảnh chụp màn hình trang trình duyệt cho tự động hóa lấy từ REPL của trình duyệt, nơi ẩn các bí mật trên trang: browser_repl_eval với page.screenshot()"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动化获取浏览器页面截图须通过浏览器 REPL，它会隐藏页面上的机密信息：在 browser_repl_eval 中使用 page.screenshot()"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化取得瀏覽器頁面截圖須透過瀏覽器 REPL，它會隱藏頁面上的機密資訊：在 browser_repl_eval 中使用 page.screenshot()"
+          }
+        }
+      }
+    },
     "handlers.layoutTemplate.delete": {
       "extractionState": "manual",
       "localizations": {
@@ -15395,6 +15526,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "儲存"
+          }
+        }
+      }
+    },
+    "home.headerPanels.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Inspector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリインスペクタ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفتش الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspektor memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hukommelsesinspektør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Speicher-Inspektor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspector de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspecteur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ispettore della memoria"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីត្រួតពិនិត្យអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메모리 인스펙터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minneinspektør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspektor pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inspetor de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инспектор памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวตรวจสอบหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bellek Denetçisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інспектор пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình kiểm tra bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "记忆检查器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "記憶檢查器"
+          }
+        }
+      }
+    },
+    "home.headerPanels.rightSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشريط الجانبي الأيمن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desna bočna traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højre sidepanel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechte Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra lateral derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barre latérale droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra laterale destra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារចំហៀងខាងស្ដាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오른쪽 사이드바"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyre sidefelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prawy pasek boczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra lateral direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правая боковая панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบด้านข้างขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sağ Kenar Çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Права бічна панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "右側邊欄"
           }
         }
       }

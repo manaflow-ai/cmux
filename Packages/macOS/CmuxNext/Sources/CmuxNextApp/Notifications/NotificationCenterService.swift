@@ -11,6 +11,7 @@ import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
+import CmuxNextFeed
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
@@ -31,6 +32,9 @@ final class NotificationCenterService {
     /// The daemon session the dismissed ids belong to: ids restart with a
     /// new session, so the dismissals apply only within this one.
     var dismissedHighlightSession: String?
+    /// Marked-unread rings the user dismissed: per tab id, the
+    /// ``TabModel/markedUnreadGeneration`` hidden. Marking the tab again rings again.
+    var dismissedMarks: [String: UInt64] = [:]
     @ObservationIgnored weak var services: AppServices?
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
@@ -48,6 +52,10 @@ final class NotificationCenterService {
     /// Ring generations for ``agentFinished``, above any notification id, so a new finish
     /// restarts the ring's arrival and never equals a notification's mark.
     @ObservationIgnored private var agentFinishGeneration: UInt64 = 1 << 62
+    /// When an agent chat's ring last pulsed, for coalescing a burst of turn ends.
+    @ObservationIgnored private var lastAgentPulse: ContinuousClock.Instant?
+    /// Agent chats whose ring arrives at rest, with no pulse: a later finish in a burst.
+    @ObservationIgnored var quietAgentFinishes: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
@@ -287,13 +295,25 @@ final class NotificationCenterService {
         if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
+            quietAgentFinishes.remove(tab.id)
             if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         }
+        readMark(trigger, tab: tab)
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
         if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         acknowledge(tab)
+    }
+
+    /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
+    /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
+    /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
+    private func readMark(_ trigger: NotificationTrigger, tab: TabModel) {
+        guard tab.markedUnread, trigger == .click || trigger == .keystroke, let services else { return }
+        note("\(trigger.rawValue) read mark \(tab.id)")
+        if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
+        try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
     }
 
     /// Whether reading a pane by `trigger` flashes its ring as it goes: going
@@ -320,6 +340,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         if agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
+        quietAgentFinishes.remove(tab.id)
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
@@ -336,17 +357,38 @@ final class NotificationCenterService {
         }
     }
 
-    /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    /// An agent chat's turn ended: with `notifications.attention.agentChats` on (off by default),
+    /// ring the panes that show its tab until the person goes in. Off, nothing rings: acpmux reads
+    /// a turn that ends in a shown chat at once, as before #22678. A chat the person is looking at
+    /// (the focused content of the key window) never rings, and a burst pulses once: a finish
+    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        for workspace in services.daemon.store.workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
+        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+    }
+
+    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel],
+                        rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
+                        viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
+        guard rings else { return }
+        for workspace in workspaces {
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+            where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
                 agentFinishGeneration &+= 1
                 agentFinished[tab.id] = agentFinishGeneration
+                if let last = lastAgentPulse, now - last < Self.burstWindow {
+                    quietAgentFinishes.insert(tab.id)
+                } else {
+                    quietAgentFinishes.remove(tab.id)
+                    lastAgentPulse = now
+                }
                 note("agent turn ended \(tab.id)")
             }
         }
     }
+
+    /// Turn ends closer together than this pulse once; the rest ring at rest.
+    static let burstWindow: Duration = .milliseconds(900)
 
     // MARK: Arrival
 

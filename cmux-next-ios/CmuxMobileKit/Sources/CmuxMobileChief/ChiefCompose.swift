@@ -14,13 +14,15 @@ public enum HomeConversationRoute: Hashable, Sendable {
     case chief(ChiefRoute.Place)
     case chiefComposing(ChiefRoute.Place)
     case agent(AgentChatDestination)
+    /// A conversation of the Mac's Home list other than the Mac Chief's.
+    case mac(MacConversationRoute)
 
     /// The navigation value to push for Chief, nil for an agent.
     public var chiefRoute: ChiefRoute? {
         switch self {
         case let .chief(place): ChiefRoute(place: place)
         case let .chiefComposing(place): ChiefRoute(focusesComposer: true, place: place)
-        case .agent: nil
+        case .agent, .mac: nil
         }
     }
 }

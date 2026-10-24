@@ -161,6 +161,8 @@ def run_wait(owner, script=None, **fake):
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
                "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
                "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
+        env["TREE_READY"] = "true" if env.get("FAKE_TREE_PUBLISHED") == "1" else "false"
+        env["DAEMON_TESTED"] = "false" if env["TREE_READY"] == "true" and env.get("FAKE_MARKER", "1") != "1" else "true"
         result = subprocess.run(["bash", "-e", "-c", script or wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 
@@ -340,6 +342,9 @@ def main():
                                     FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
                f"an unmarked tree whose {branch} owner ended is re-tested ({out.strip()!r})")
+    result, out, log = run_wait("", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "unmarked=true" in out,
+           f"a published unmarked tree with no live owner leaves a takeover marker ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="fail")
     _check(result.returncode == 0 and "unmarked=true" in out,
            f"an unmarked tree whose owner cannot be read is re-tested ({out.strip()!r})")

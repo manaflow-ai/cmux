@@ -20,6 +20,22 @@ struct NewTabWidgetsTests {
         #expect(page.widgets == (AgentPaneTunables.newTabWidgets.value ? true : nil))
     }
 
+    /// `tabs.newTabWidgets.*` (NewTabWidgetSettings): the page context names the widgets on, an empty
+    /// list for none; nil (a context from before them) is left out.
+    @Test func thePageContextCarriesThePageWidgets() throws {
+        #expect(try json(AgentPaneNewTab(kind: .agent, pageWidgets: ["greeting", "chats"]))["pageWidgets"] as? [String] == ["greeting", "chats"])
+        #expect(try json(AgentPaneNewTab(kind: .agent, pageWidgets: []))["pageWidgets"] as? [String] == [])
+        #expect(try json(AgentPaneNewTab(kind: .agent))["pageWidgets"] == nil)
+    }
+
+    /// `headlineOff` is in the context only when the greeting is set to false in cmux.json.
+    @Test func thePageContextCarriesHeadlineOffOnlyWhenSet() throws {
+        var page = AgentPaneNewTab(kind: .agent, pageWidgets: [])
+        #expect(try json(page)["headlineOff"] == nil)
+        page.headlineOff = true
+        #expect(try json(page)["headlineOff"] as? Bool == true)
+    }
+
     private func json(_ page: AgentPaneNewTab) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
     }

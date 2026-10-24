@@ -125,22 +125,33 @@ final class HomeFirstRunView: NSView {
         applySpacing()
     }
 
-    /// Lists only the agent rows that fit above the field, dropping the
-    /// least urgent first (and the heading with the last one): the panel
-    /// never runs under the compose field. Measured from the rows' fixed
-    /// heights, and a row's `isHidden` changes only when the count that fits
-    /// does (hidden arranged views leave the stack's layout).
+    /// Shows only what fits above the field, so the panel never runs under
+    /// the compose field (a long draft grows it up into the panel): agent
+    /// rows go first, least urgent first (the heading with the last one),
+    /// then the hero, then the Switching card, then the action rows together.
+    /// Measured from the parts' fixed heights, and a view's `isHidden`
+    /// changes only when what fits does (hidden arranged views leave the
+    /// stack's layout).
     private func fitAgentRows() {
         let row = HomeFirstRunRow.height * scale, gap = 6 * scale, group = 14 * scale
-        let card = switchCard.isHidden ? 0 : group + cardHeight.constant
         let actions = CGFloat(actionRows.count) * row + CGFloat(actionRows.count - 1) * gap
-        // The hero goes before any action row does: it shows only when it fits with them and the card.
+        let actionsFit = actions <= bounds.height
+        if stack.isHidden != !actionsFit { stack.isHidden = !actionsFit }
+        // The card's keys are set (Hide clears them); it shows when it fits under the rows.
+        let cardPart = group + cardHeight.constant
+        let wantsCard = !switchCard.lineViews.isEmpty
+        let cardFits = wantsCard && actionsFit && actions + cardPart <= bounds.height
+        if switchCard.isHidden != !cardFits { switchCard.isHidden = !cardFits }
+        let card = cardFits ? cardPart : 0
+        // The hero goes before the card or any action row does: it shows only when it fits with
+        // them, and only while a card that has keys still shows (a tall card can outsize it).
         let heroPart = heroHeight.constant + Self.heroGap * scale
-        let heroFits = showsHero && actions + card + heroPart <= bounds.height
+        let heroFits = showsHero && actionsFit && cardFits == wantsCard && actions + card + heroPart <= bounds.height
         if hero.isHidden != !heroFits { hero.isHidden = !heroFits }
         let base = actions + card + (heroFits ? heroPart : 0)
         let header = group + ceil(agentsHeader.intrinsicContentSize.height)
-        var shown = agentRows.count
+        // Agent rows go first: none while the hero or the card it wants has gone.
+        var shown = heroFits == showsHero && cardFits == wantsCard ? agentRows.count : 0
         while shown > 0, base + header + CGFloat(shown) * (gap + row) > bounds.height { shown -= 1 }
         for (index, view) in agentRows.enumerated() where view.isHidden != (index >= shown) { view.isHidden = index >= shown }
         if agentsHeader.isHidden != (shown == 0) { agentsHeader.isHidden = shown == 0 }

@@ -12,10 +12,11 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 /// Tools that only read (the OptChat memory, the versions): allowed without asking.
-pub const MEMORY_TOOLS: [&str; 3] = [
+pub const MEMORY_TOOLS: [&str; 4] = [
     "mcp__optchat__zoom",
     "mcp__optchat__date",
     "mcp__optchat__version",
+    "mcp__optchat__transcript",
 ];
 
 /// The Chief's own tools: Chief talking to the person and to its

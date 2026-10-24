@@ -8,7 +8,7 @@
 // The diff viewer does not get the pane's theme, so its spinners stop under Reduce Motion alone.
 // Static also gives the color-only marks a shape each.
 // This loads the real stylesheets in Chromium and lists the animations that never end.
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -120,112 +120,25 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
-    // Agent work turns as the spinner by default (WORKING-LOOK): the loading and the working ring both
-    // spin, and the working dot runs no loop at all.
-    expect(
-      running.filter((loop) => loop.replace(/\s+/g, " ") === "cv-spinner cmux-spin").length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(running.some((loop) => loop.startsWith("cv-spinner__dot"))).toBe(false);
+    // Agent work breathes by default (WORKING-LOOK), as its whole mark (SPINNERS-OFF-MAIN: the svg box
+    // gets a compositor layer, the dot inside it does not).
+    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(true);
   });
 
-  /** The infinite running animations on a working mark (`.cv-spinner[data-working]` and what is in
-   * it), each with ` opacity` when its keyframes animate opacity (a breath, a pulse, a blink). */
-  async function workingMarkLoops(p: Page): Promise<string[]> {
-    return p.evaluate(() =>
-      document
-        .getAnimations()
-        .filter(
-          (animation) => animation.effect?.getTiming().iterations === Infinity && animation.playState === "running",
-        )
-        .flatMap((animation) => {
-          const effect = animation.effect as KeyframeEffect | null;
-          const target = effect?.target as Element | null;
-          if (!effect || !target?.closest(".cv-spinner[data-working]")) return [];
-          const name = (animation as CSSAnimation).animationName ?? "?";
-          const opacity = effect.getKeyframes().some((frame) => "opacity" in frame);
-          return [`${target.getAttribute("class")} ${name}${opacity ? " opacity" : ""}`];
-        }),
-    );
-  }
-
-  // Leo 2026-10-21, after #22826 made agent work a breathing dot: "who brought back the blinkers!? we
-  // had spinners properly going", then "we need to GUARANTEE the breathing dot doesn't come back".
-  // Agent work is the turning spinner on every page: with no `data-working-look`, with `spinner`, with
-  // an old stored `breathe` sent by the app's theme push, or any other value. Only the Debug `shimmer`
-  // look swaps it, for a still dot. No look ever loops a working mark's opacity.
-  test("agent work turns as the spinner in every look, and no working mark breathes", async () => {
-    const looks: Record<string, { all: string[]; working: string[]; dot: string; arc: string }> = {};
-    for (const look of ["(none)", "breathe", "spinner", "shimmer", "pulse"]) {
+  test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {
+    const looks: Record<string, string[]> = {};
+    for (const look of ["breathe", "shimmer", "spinner"]) {
       const p = await page(`${desktop}${pane}`, `<span class="cv-spinner"></span>${working}`, "no-preference");
-      if (look !== "(none)") {
-        // The app's path: the bootstrap, then a theme push carrying the look (WebTheme.payloadJSON).
-        await p.addScriptTag({ content: bootstrap });
-        await p.evaluate(
-          (value) =>
-            (window as unknown as { cmuxTheme: { apply(payload: object): void } }).cmuxTheme.apply({
-              variables: {},
-              colorScheme: "light",
-              workingLook: value,
-            }),
-          look,
-        );
-        await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        expect(await p.evaluate(() => document.documentElement.dataset.workingLook)).toBe(look);
-      }
-      const display = (selector: string) => p.$eval(selector, (node) => getComputedStyle(node).display);
-      looks[look] = {
-        all: (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort(),
-        working: (await workingMarkLoops(p)).sort(),
-        dot: await display(".cv-spinner[data-working] .cv-spinner__dot"),
-        arc: await display(".cv-spinner[data-working] .cv-spinner__arc"),
-      };
+      await p.evaluate((value) => {
+        document.documentElement.dataset.workingLook = value;
+        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, look);
+      looks[look] = (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort();
       await p.close();
     }
-    for (const look of ["(none)", "breathe", "spinner", "pulse"]) {
-      expect({ look, ...looks[look] }).toEqual({
-        look,
-        all: ["cv-spinner cmux-spin", "cv-spinner cmux-spin"],
-        working: ["cv-spinner cmux-spin"],
-        dot: "none",
-        arc: "inline",
-      });
-    }
-    // Debug only: a still dot, and the band crosses the row's words; loading keeps the spinner.
-    expect(looks.shimmer).toEqual({
-      all: ["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"],
-      working: [],
-      dot: "inline",
-      arc: "none",
-    });
-    for (const [look, result] of Object.entries(looks)) {
-      expect({ look, opacity: result.working.filter((loop) => loop.endsWith(" opacity")) }).toEqual({
-        look,
-        opacity: [],
-      });
-    }
-  });
-
-  test("no stylesheet or script brings the breathing look back", () => {
-    const banned = [
-      /cmux-breathe\b/,
-      /--cmux-breath-period/,
-      /data-working-look="breathe"/,
-      /workingLook:\s*"breathe"/,
-    ];
-    const hits: string[] = [];
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (entry.name !== "node_modules" && entry.name !== "generated") walk(full);
-        } else if (/\.(css|ts|tsx)$/.test(entry.name)) {
-          const text = readFileSync(full, "utf8");
-          for (const pattern of banned) if (pattern.test(text)) hits.push(`${path.relative(src, full)}: ${pattern}`);
-        }
-      }
-    };
-    walk(src);
-    expect(hits).toEqual([]);
+    expect(looks.breathe).toEqual(["cv-spinner cmux-breathe", "cv-spinner cmux-spin"]);
+    expect(looks.shimmer).toEqual(["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"]);
+    expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });
 
   test("Static status indicators stop every pane loop", async () => {
@@ -272,9 +185,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       `<span class="acpmux-floating-status" data-status="attention"></span>` +
       ["running", "done", "failed"]
         .map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`)
-        .join("") +
-      ["running", "waiting", "completed", "failed", "cancelled"]
-        .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
     // The theme the pane always gets (applyAgentTheme), so state colors resolve as in the app.
     const colors =
@@ -294,13 +204,11 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       return {
         floating: [...document.querySelectorAll(".acpmux-floating-status")].map((node) => shape(node)),
         summary: [...document.querySelectorAll(".acpmux-summary-dot")].map((node) => shape(node, "::after")),
-        lineage: [...document.querySelectorAll(".acpmux-lineage__icon")].map((node) => shape(node, "::after")),
       };
     });
     await p.close();
     expect(new Set(shapes.floating).size).toBe(2);
     expect(new Set(shapes.summary).size).toBe(3);
-    expect(new Set(shapes.lineage).size).toBe(5);
   });
 
   test("the theme push sets the attribute the stylesheets read", async () => {

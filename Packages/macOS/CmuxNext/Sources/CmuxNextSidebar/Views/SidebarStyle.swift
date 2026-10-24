@@ -6,9 +6,12 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
-    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
-    static var rowTrailingTrim: CGFloat { Metrics.space4 }
+    /// How much shorter than the list's inset a row ends on the right: none. #22733 stopped the
+    /// pills `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back
+    /// the length, so we can have more content per sidebar row"). Pinned rows and list blocks
+    /// read it too, so every row still ends at one x. (Kept when #23783's corner close was
+    /// reverted, Lawrence 2026-10-23: only the close's look went back.)
+    static var rowTrailingTrim: CGFloat { 0 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -21,6 +24,17 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// Where a list row's title text starts when its leading icon slot begins at `leading`.
+    ///
+    /// No icon (`iconSide` 0): at `leading`, as far left as the row allows (Lawrence 2026-10-23: "text
+    /// needs to be as left as possible (how it originally was)"; c779988d57d had kept an empty slot).
+    /// An icon: a Chrome-like 6 pt after the glyph's drawing (it draws at `kindGlyphSize`, centered in its
+    /// box). A color swatch: 6 pt after the swatch's box.
+    static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
+        guard iconSide > 0 else { return leading }
+        if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
+        return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
+    }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
@@ -40,9 +54,10 @@ enum SidebarStyle {
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control's circle at compact density (the icon box). The
-    /// avatar lives in the row-height square, so its click target scales with
-    /// the display density.
+    /// The profile control's circle at compact density (the icon box, 16 pt). The avatar lives in
+    /// the row-height square, so its click target scales with the display density. #23757 grew it
+    /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
+    /// thing too big, revert to old icon sizes".
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
@@ -64,8 +79,9 @@ enum SidebarStyle {
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
     static var titleFont: NSFont { Typography.body }
-    /// Length of the fade that ends a clipped row title (no ellipsis).
-    static var titleFadeWidth: CGFloat { Metrics.space6 }
+    /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
+    /// 16 pt the fade ended at a word gap and read as a hard cut.
+    static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
     static var subtitleFont: NSFont { Typography.caption }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
@@ -81,9 +97,6 @@ enum SidebarStyle {
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
     static var titleLeading: CGFloat { horizontalInset }
-    /// How far a group member's content moves in past the row's own
-    /// leading edge, which already starts right of the line (`groupGutter`).
-    static var groupMemberIndent: CGFloat { Metrics.space1 }
     /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
     /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
@@ -101,14 +114,37 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
-    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
+    static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
-    /// A member row starts right of its group's line (cx-q5jw, the Edge
-    /// group line): its hover and selection fills never cover the line, so
-    /// the line runs unbroken from the header to the last member.
+    /// One nesting step: a nested group's rows move in this far per level below the top.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
-    /// The group header's color dot, on the line's x (cx-25az).
+    /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
+    /// A top-level group's header and members line up with ungrouped rows: same leading x, same
+    /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
+    /// THIS INDENT"). Only a nested group's rows step in, one gutter per level below the first.
+    static func groupOffset(depth: Int) -> CGFloat { SidebarIndent(step: groupGutter).offset(level: depth, width: .greatestFiniteMagnitude) }
+    /// The members' line sits just left of their rows, in the list's leading inset for a
+    /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
+    /// the ungrouped rows' left edge.
+    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - groupRailReach) }
+    /// How far left of its members' x a group's rail starts: its width and the gap to the rows. A group
+    /// header's bar reaches left by the same amount, so the rail's left edge is the bar's left edge at
+    /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
+    /// header part left side"), while the header's name keeps the rows' text column.
+    static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
+    /// cut line"). A `joined` line has none.
+    static var groupLineCut: CGFloat { Metrics.space3 }
+    /// The Debug `sidebar.groupLineLayout` choice.
+    static var groupLineLayout: SidebarGroupLineLayout { SidebarGroupLineLayout.tunable.value }
+    /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
+    /// edge meets the end of the bar's corner arc.
+    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
+    /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
+    static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
+    /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
     /// The count: tabular digits in the system face (a monospaced face read

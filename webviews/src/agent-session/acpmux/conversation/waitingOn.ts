@@ -47,7 +47,9 @@ export function waitingOn(asks: {
 /// The chat's asks as App.tsx has them, read as the line's wait. Only asks the stack draws count
 /// (the trust question holds the others out of it), only open ones (answered permission groups stay
 /// listed as receipts; a card at work asks nothing), and trust only while no turn runs: it holds
-/// new prompts, not a turn already going.
+/// new prompts, not a turn already going. acpmux sends an agent's question (AskUserQuestion, Codex
+/// user input) as a permission request, so the pending ask that carries one is a question, never
+/// "allow this?" (Leo, 2026-10-21, in a Full access chat).
 export function chatWaitsOn(chat: {
   trust?: FolderTrustAsk;
   /// The trust question holds the chat's other asks (useFolderTrustAsk.ts `holdsAsks`).
@@ -55,7 +57,9 @@ export function chatWaitsOn(chat: {
   /// Trust's read is in flight or its answer blocks Send (`blocked`): a secret waits behind it.
   trustBlocks: boolean;
   isWorking: boolean;
-  individualPermission: boolean;
+  /// The pending ask on the chat's own card, when one is open: a tool's permission, or a question
+  /// when it carries one (direct.ts `permissionFromMessage`, question/model.ts `questionFromPermission`).
+  individualPermission?: { question?: unknown };
   permissionGroups?: readonly { state: PermissionGroupState }[];
   secret: boolean;
   cards: readonly { state: string }[];
@@ -63,14 +67,16 @@ export function chatWaitsOn(chat: {
   silent?: boolean;
 }): WaitingOn | undefined {
   const shown = !chat.holdsAsks;
+  const ask = chat.individualPermission;
+  const asksQuestion = ask?.question !== undefined;
   return waitingOn({
     trust: chat.isWorking ? undefined : chat.trust,
     permission:
       shown &&
-      (chat.individualPermission ||
+      ((ask !== undefined && !asksQuestion) ||
         (chat.permissionGroups ?? []).some((group) => group.state === "pending" || group.state === "collecting")),
     secret: shown && !chat.trustBlocks && chat.secret,
-    question: shown && chat.cards.some((card) => card.state === "ask"),
+    question: shown && (asksQuestion || chat.cards.some((card) => card.state === "ask")),
     model: chat.isWorking && chat.silent === true,
   });
 }

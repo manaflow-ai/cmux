@@ -90,12 +90,12 @@ describe("slider rows", () => {
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: OPACITY, value: 0.55 }]);
   });
 
-  test("over a background picture the window opacity slider stops at 95%", async () => {
+  test("over a background picture the window opacity slider reaches 100%", async () => {
     page = await renderPage({
       path: "/settings/appearance",
       mock: { values: { "appearance.background": "friedrich-forest-moonlight" } },
     });
-    expect(slider(OPACITY).max).toBe("0.95");
+    expect(slider(OPACITY).max).toBe("1");
   });
 
   // Leo, 10-20: readability over a picture comes from opacity, blur and glass, never from the
@@ -109,7 +109,7 @@ describe("slider rows", () => {
     const olderHost = { ...page!.provider.host, derived_min: { [OPACITY]: 0.62 } };
     await run(() => page!.provider.setHost(olderHost));
     expect(slider(OPACITY).min).toBe("0");
-    expect(slider(OPACITY).max).toBe("0.95");
+    expect(slider(OPACITY).max).toBe("1");
     expect(slider(OPACITY).disabled).toBe(false);
   });
 

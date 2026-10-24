@@ -112,10 +112,17 @@ final class SidebarFooterBand {
     /// difference under a shorter one, which the button overhangs.
     func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
         guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
-        return max(0, (Self.searchButtonSide - rowHeight) / 2)
+        return max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
     }
 
-    /// Places the Search button (plans/cmux-next/sidebar-search.md) after the
+    /// How far the Search button sits under the avatar's center line: one device pixel. The eye
+    /// centers the magnifying glass on its lens, which rides above the glyph's middle with the
+    /// handle hanging below (half a point at 14 pt, measured in #23717's capture), so a button
+    /// centered on the line read as floating high (Leo 2026-10-21: "move the magnifying glass a
+    /// bit lower").
+    var searchLensDrop: CGFloat { 1 / (host?.window?.backingScaleFactor ?? 2) }
+
+    /// Places the Search button (plans/cmux-next/sidebar-search.md) right after the
     /// footer band's first-row items (the profile avatar), on their line, or
     /// leading in the footer when the band shows none. Returns its maxX in the
     /// sidebar's coordinates, or nil when `sidebar.showSearchButton` hides it.
@@ -131,14 +138,18 @@ final class SidebarFooterBand {
         let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
-            (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
+            // Flush after the avatar's square, the lens on its center: the two controls' own
+            // insets are the gap between them, as a toolbar's buttons (Leo 2026-10-21: "this
+            // stupid space").
+            (x, midY) = (row.itemsMaxX, row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
             (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
-        button.frame = NSRect(x: x, y: (midY - side / 2).rounded(), width: side, height: side)
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: x, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
         return button.frame.maxX
     }
 

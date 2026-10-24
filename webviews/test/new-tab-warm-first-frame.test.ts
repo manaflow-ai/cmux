@@ -45,7 +45,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   const ATLAS = `${HOME}/src/atlas`;
   const BILLING = `${HOME}/src/billing`;
   // Hours old, so no age label turns over while a test runs. Two sessions and one device chat fill
-  // the three cards of the default (Cards) template (templates.ts), so the device chat is on the page.
+  // the three cards of the Cards template (templates.ts), so the device chat is on the page.
   const now = Date.now();
   const hours = (count: number) => now - count * 3_600_000 - 600_000;
   const sessions = [
@@ -240,7 +240,15 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
     return painted;
   }
 
-  const base = { kind: "agent", hotkeys: {}, home: HOME, projects: [ATLAS, BILLING], host: "cosmic-gray" };
+  // Cards, the template these frames were drawn on (an unset one is Minimal, which has no cards).
+  const base = {
+    kind: "agent",
+    hotkeys: {},
+    home: HOME,
+    projects: [ATLAS, BILLING],
+    host: "cosmic-gray",
+    template: "cards",
+  };
   /// Each way a New Tab opens, as NewTabPage.page() makes its context.
   const entries: [string, Context][] = [
     // Cmd-T from a chat in atlas: the tab's folder and location.

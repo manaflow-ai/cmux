@@ -157,6 +157,17 @@ try {
     expect(toggle()).toBeNull();
   });
 
+  // Leo 2026-10-21: prompts drew as empty grey bubbles. A prompt with no text to read draws no
+  // bubble; one of images alone is its images (agent-pane-blank-prompt.test.ts covers the ingest).
+  test("a prompt of images alone draws its images and no empty bubble", () => {
+    resetTranscriptDisclosure();
+    render(prompt("user-6", "", { images: [{ id: "img-1", mimeType: "image/png", name: "screen.png" }] }));
+    expect(host.querySelector(".cv-user__images")).not.toBeNull();
+    expect(host.querySelector(".cv-user__bubble")).toBeNull();
+    render(prompt("user-7", " \n "));
+    expect(host.querySelector(".cv-user__bubble")).toBeNull();
+  });
+
   test("Find opens a collapsed prompt whose text holds the current match", () => {
     resetTranscriptDisclosure();
     const row = prompt("user-5", lines(300));

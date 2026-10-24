@@ -1,21 +1,25 @@
-// The Inspector's Changes (Claude Code desktop's Changes): every pull request the chat opened or
-// touched, newest first. A row is a link to the pull request and shows its state icon, title and
-// `repo #N`, then what the App has read of it: the lines it changes (a hover splits them into Code,
-// Tests, Generated and Docs), its failing checks with how many already fail on its base branch
-// (dimmed: those are not this pull request's), and its owner. Its ⋯ menu copies the link or the
-// reference and opens it beside the chat. The list scrolls inside the section; no row is hidden
-// behind a cap.
+// The Inspector's Changes, after Claude Code desktop's: every pull request the chat opened or
+// touched, open ones first, then the ended ones, newest first within each. A row is its
+// title, then `repo #N`, the lines it changes (a hover splits them into Code, Tests, Generated and
+// Docs), its comments, and at the end its failing checks (with how many already fail on its base
+// branch, dimmed: those are not this pull request's) or a green dot when they pass. Its state is
+// the glyph's shape and color alone (PullRequestGlyph), never a word. A click opens it beside the
+// chat; its ⋯ menu also copies the link or the reference. Five rows show, then Show more.
 import { Counts } from "../changes/Counts";
 import { copyText } from "../conversation/clipboard";
 import { pullRequestStateSince, type HeaderPullRequest } from "../header/headerState";
+import { useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
+import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
 
 const ROW_ICON = rowIconSize(12);
+/// Rows shown before Show more (Claude Code desktop's Changes shows five).
+export const CHANGES_SHOWN = 5;
 
 /// Lines a pull request adds and removes in one kind of file.
 export type LineCounts = { readonly additions: number; readonly deletions: number };
@@ -33,6 +37,8 @@ export type InspectorPullRequestStatus = {
   title?: string;
   /// `open`, `draft`, `merged` or `closed`.
   state?: string;
+  /// `mergeable`, `conflicting`, or empty while GitHub works it out.
+  mergeable?: string;
   additions?: number;
   deletions?: number;
   /// The same lines split by the kind of file they are in.
@@ -42,6 +48,8 @@ export type InspectorPullRequestStatus = {
   /// How many checks fail, and how many of those fail on the base branch's head too.
   failing?: number;
   failingOnBase?: number;
+  /// How many comments and reviews it has.
+  comments?: number;
   /// Who owns it: the agent or person the App names (a login, a lane's callsign).
   owner?: string;
   /// When the App first read it in `state` (epoch ms).
@@ -56,6 +64,7 @@ export function headerStatus(pr: HeaderPullRequest | undefined): Record<string, 
     [pr.url]: {
       title: pr.title || undefined,
       state: pr.state || undefined,
+      mergeable: pr.mergeable || undefined,
       checks: pr.checks.state,
       ...(failing > 0 ? { failing } : {}),
       since: pullRequestStateSince(pr.url),
@@ -68,11 +77,13 @@ const CHECK_LABELS: Record<string, StringKey> = {
   pending: "rail.checksPending",
 };
 
-const STATE_LABELS: Record<string, StringKey> = {
+/// The state glyph's label, for screen readers only: the row shows no state word.
+const STATE_LABELS: Record<PullRequestGlyphState, StringKey> = {
   open: "chatInspector.changes.open",
   draft: "chatInspector.changes.draft",
   merged: "header.prBadge.merged",
   closed: "header.prBadge.closed",
+  conflicting: "header.prConflicts",
 };
 
 /// What the row shows of `pr`: the App's read when it is newer than what the chat did.
@@ -86,24 +97,71 @@ export function rowState(pr: SummaryPullRequest, live: InspectorPullRequestStatu
   return pr.state !== "open" ? pr.state : (live.state ?? "open");
 }
 
+/// The glyph a row draws: its state, and an open one GitHub can't merge for conflicts is red.
+export function glyphState(pr: SummaryPullRequest, live: InspectorPullRequestStatus): PullRequestGlyphState {
+  const state = rowState(pr, live);
+  if (state === "merged" || state === "closed" || state === "draft") return state;
+  return live.mergeable === "conflicting" ? "conflicting" : "open";
+}
+
+const ended = (state: PullRequestGlyphState) => state === "merged" || state === "closed";
+
+/// The pull requests Changes lists: one the agent only named in a reply (`#N` can be an issue)
+/// once the App has read it as a pull request.
+export const visibleChanges = (
+  pullRequests: readonly SummaryPullRequest[],
+  statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
+): SummaryPullRequest[] => pullRequests.filter((pr) => !pr.mentioned || statuses[pr.url]?.state !== undefined);
+
+/// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,
+/// then the merged and closed, the most recently touched or named first within each.
+export function changesOrder(
+  pullRequests: readonly SummaryPullRequest[],
+  statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
+): SummaryPullRequest[] {
+  const newest = pullRequests
+    .map((pr, index) => ({ pr, index, at: pr.touched ?? index }))
+    .sort((a, b) => b.at - a.at || b.index - a.index)
+    .map(({ pr }) => pr);
+  const done = (pr: SummaryPullRequest) => ended(glyphState(pr, statuses[pr.url] ?? {}));
+  return [...newest.filter((pr) => !done(pr)), ...newest.filter(done)];
+}
+
 export function ChangesSection({
   pullRequests,
   statuses,
   onOpenBeside,
 }: {
-  /// Oldest first, as sessionSummary reads them.
+  /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
-  /// Opens a pull request in the browser beside the chat; the menu item hides without it.
+  /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a
+  /// row's click follows its link instead.
   onOpenBeside?: (url: string) => void;
 }) {
-  const newest = [...pullRequests].reverse();
+  const t = useT();
+  const [all, setAll] = useState(false);
+  const ordered = changesOrder(pullRequests, statuses);
+  const folds = ordered.length > CHANGES_SHOWN;
+  const shown = folds && !all ? ordered.slice(0, CHANGES_SHOWN) : ordered;
   return (
-    <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="changes">
-      {newest.map((pr) => (
-        <PullRequestRow key={pr.url} pr={pr} live={statuses[pr.url] ?? {}} onOpenBeside={onOpenBeside} />
-      ))}
-    </ul>
+    <>
+      <ul className="acpmux-chat-inspector-list" data-section="changes">
+        {shown.map((pr) => (
+          <PullRequestRow key={pr.url} pr={pr} live={statuses[pr.url] ?? {}} onOpenBeside={onOpenBeside} />
+        ))}
+      </ul>
+      {folds && (
+        <button
+          type="button"
+          className="acpmux-chat-inspector-fold acpmux-chat-inspector-pr-fold"
+          aria-expanded={all}
+          onClick={() => setAll(!all)}
+        >
+          {t(all ? "chatInspector.changes.showLess" : "chatInspector.changes.showMore")}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -117,33 +175,57 @@ function PullRequestRow({
   onOpenBeside?: (url: string) => void;
 }) {
   const t = useT();
-  const state = rowState(pr, live);
+  const state = glyphState(pr, live);
   const title = live.title ?? pr.title;
   const repoName = pr.repo.split("/").pop() ?? pr.repo;
   const reference = `${pr.repo}#${pr.number}`;
-  const ended = state === "merged" || state === "closed";
-  const checks = ended ? undefined : live.checks;
-  const failing = ended ? 0 : (live.failing ?? (checks === "failing" ? -1 : 0));
+  const checks = ended(state) ? undefined : live.checks;
+  const failing = ended(state) ? 0 : (live.failing ?? (checks === "failing" ? -1 : 0));
   const onBase = Math.min(Math.max(0, live.failingOnBase ?? 0), Math.max(0, failing));
-  const stateLabel = t(STATE_LABELS[state] ?? "chatInspector.changes.open");
+  const comments = live.comments ?? 0;
+  const stateLabel = t(STATE_LABELS[state]);
   return (
     <li className="acpmux-chat-inspector-pr" data-state={state}>
-      <a className="acpmux-chat-inspector-pr__link" href={pr.url}>
-        {/* tooltip-allow: the state icon shows no text; its label is for screen readers only */}
+      <a
+        className="acpmux-chat-inspector-pr__link"
+        href={pr.url}
+        onClick={(event) => {
+          if (!onOpenBeside || event.metaKey || event.ctrlKey || event.shiftKey) return;
+          event.preventDefault();
+          onOpenBeside(pr.url);
+        }}
+      >
+        {/* tooltip-allow: the state glyph shows no text; its label is for screen readers only */}
         <span className="acpmux-chat-inspector-pr__icon" title={stateLabel}>
-          <Icon name="git.pullrequest" size={ROW_ICON} row />
+          <PullRequestGlyph state={state} size={ROW_ICON} />
           <span className="acpmux-chat-inspector-sr-only">{stateLabel}</span>
         </span>
         <span className="acpmux-chat-inspector-pr__text">
-          <span className="acpmux-chat-inspector-pr__title">{title || `#${pr.number}`}</span>
+          {/* The owner sits beside the title, so the line under it keeps the row's whole width. */}
+          <span className="acpmux-chat-inspector-pr__head">
+            <span className="acpmux-chat-inspector-pr__title">{title || `#${pr.number}`}</span>
+            {live.owner && (
+              <span className="acpmux-chat-inspector-pr__owner">
+                <span className="acpmux-chat-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
+                {live.owner}
+              </span>
+            )}
+          </span>
           <span className="acpmux-chat-inspector-pr__line">
             <span className="acpmux-chat-inspector-pr__ref">{`${repoName} #${pr.number}`}</span>
             {live.additions !== undefined && live.deletions !== undefined && (
               <LineTotals additions={live.additions} deletions={live.deletions} breakdown={live.breakdown} />
             )}
-            {ended ? (
-              <span className="acpmux-chat-inspector-pr__state">{stateLabel}</span>
-            ) : failing !== 0 ? (
+            {comments > 0 && (
+              <span className="acpmux-chat-inspector-pr__comments">
+                <Icon name="agent.chat" size={12} />
+                <span aria-hidden="true">{comments}</span>
+                <span className="acpmux-chat-inspector-sr-only">
+                  {t("chatInspector.changes.comments", { count: comments })}
+                </span>
+              </span>
+            )}
+            {failing !== 0 ? (
               <span className="acpmux-chat-inspector-pr__checks" data-checks="failing">
                 {failing > 0 ? t("chatInspector.changes.failing", { count: failing }) : t("rail.checksFailing")}
                 {onBase > 0 && (
@@ -162,12 +244,6 @@ function PullRequestRow({
           </span>
         </span>
       </a>
-      {live.owner && (
-        <span className="acpmux-chat-inspector-pr__owner">
-          <span className="acpmux-chat-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
-          {live.owner}
-        </span>
-      )}
       <Menu>
         <MenuButton
           className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-pr__more"

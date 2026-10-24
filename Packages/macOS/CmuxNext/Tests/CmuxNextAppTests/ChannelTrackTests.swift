@@ -23,8 +23,8 @@ struct ChannelTrackTests {
         let tracks = Self.tracks(followed: .canary)
         #expect(tracks.map(\.ring) == [.stable, .nightly, .canary, .dev])
         #expect(tracks.filter(\.isFollowed).map(\.ring) == [.canary])
-        // Only Nightly has published builds until CI tags items for the other rings.
-        #expect(tracks.map(\.builds.count) == [0, 3, 0, 0])
+        // Dev takes every published build; Stable and Canary have none until CI publishes them.
+        #expect(tracks.map(\.builds.count) == [0, 3, 0, 3])
     }
 
     @Test func eachBuildCarriesItsVerdictPullAndKeptCopy() throws {

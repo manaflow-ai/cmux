@@ -1,0 +1,39 @@
+# weft-coord, staging. One machine: the state is one SQLite file on a volume.
+app = "cmux-weft-coord-staging"
+primary_region = "sjc"
+
+[processes]
+  app = "/usr/local/bin/weft-coord"
+
+[env]
+  WEFT_DB = "/data/weft.sqlite"
+  PORT = "8080"
+  WEFT_RELAYS = "sjc=wss://cmux-weft-relay-staging.fly.dev/v1/relay/sjc,iad=wss://cmux-weft-relay-staging.fly.dev/v1/relay/iad,fra=wss://cmux-weft-relay-staging.fly.dev/v1/relay/fra,nrt=wss://cmux-weft-relay-staging.fly.dev/v1/relay/nrt"
+
+[mounts]
+  source = "weft_data"
+  destination = "/data"
+
+[http_service]
+  processes = ["app"]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 2000
+    hard_limit = 4000
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "15s"
+  method = "GET"
+  path = "/healthz"
+  timeout = "3s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

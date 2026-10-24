@@ -247,7 +247,7 @@ export function safeLink(url: string): boolean {
   return /^(https?|cmux(-[a-z0-9-]+)?):\/\/\S+$/.test(url);
 }
 
-/** "$0.04": a run's cost, when the owner knows it. */
+/** "$0.04": a run's cost at pay-per-token API prices (the harness's estimate), when the owner knows it. */
 export function runCost(usd: number | undefined): string | undefined {
   if (usd === undefined) return undefined;
   return usd < 0.01 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`;

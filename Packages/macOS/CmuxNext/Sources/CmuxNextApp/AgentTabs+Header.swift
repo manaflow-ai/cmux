@@ -22,12 +22,14 @@ extension AgentTabStore {
         // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
         // and its new watch must push without waiting for another read.
         watch.read()
+        // The page names the chat's folder once its session summary came; until then (and for a
+        // split beside another split) the chat's exact folder from here (terminalFolder).
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
-            toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, toggle: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
-            toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
@@ -48,6 +50,13 @@ extension AgentTabStore {
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
         }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }) // a chat streams in one tab: an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown; a chat opens only its family (startedBy)
+        // Changes with the chat's turn (D1, D2): the diff beside the chat offers it as Last turn.
+        model.header?.diffTurn = { [weak self] cwd, turn, toggle in
+            let chat = self?.resolve(provisional) ?? provisional
+            let store = self?.lookup(chat)?.store, id = AgentChatSplitToggles.changes, extra = DiffTurnArgument.arguments(turn)
+            if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
+            else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
+        }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

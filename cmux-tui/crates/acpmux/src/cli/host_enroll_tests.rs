@@ -6,17 +6,27 @@ use super::*;
 use crate::cli::hosts::RemoteOut;
 use std::cell::RefCell;
 
-/// A host that answers each script through `answer` and logs every
-/// call; `push` only records.
+/// A host that answers each script through `answer` (a script fenced for
+/// the update lock by the script inside it) and logs every call; `push`
+/// only records. Its update lock is free unless `locked`.
 struct Fake<F: Fn(&str, Option<&[u8]>) -> RemoteOut> {
     answer: F,
     calls: RefCell<Vec<(String, bool)>>,
+    /// The scripts that ran fenced for the update lock.
+    fenced: RefCell<Vec<String>>,
     pushes: RefCell<Vec<String>>,
+    locked: std::cell::Cell<bool>,
 }
 
 impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Fake<F> {
     fn new(answer: F) -> Self {
-        Self { answer, calls: RefCell::default(), pushes: RefCell::default() }
+        Self {
+            answer,
+            calls: RefCell::default(),
+            fenced: RefCell::default(),
+            pushes: RefCell::default(),
+            locked: Default::default(),
+        }
     }
 }
 
@@ -25,12 +35,34 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         "leo@box.tail"
     }
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        let script = match crate::cli::hosts::unfence(script) {
+            Some(inner) => {
+                self.fenced.borrow_mut().push(inner.to_owned());
+                inner
+            }
+            None => script,
+        };
         self.calls.borrow_mut().push((script.to_owned(), stdin.is_some()));
         Ok((self.answer)(script, stdin))
     }
     fn push(&self, _local: &Path, remote: &str) -> Result<()> {
         self.pushes.borrow_mut().push(remote.to_owned());
         Ok(())
+    }
+    /// The host's update lock (`hosts::lock_updates`): free, or `locked`.
+    fn spawn(&self, _script: &str) -> Result<std::process::Child> {
+        use std::process::{Command, Stdio};
+        let answer = if self.locked.get() {
+            "echo ACPMUX_UPDATE_RUNNING"
+        } else {
+            "echo ACPMUX_UPDATE_LOCKED; exec cat >/dev/null"
+        };
+        let child = Command::new("sh")
+            .args(["-c", answer])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        Ok(child)
     }
 }
 
@@ -93,6 +125,10 @@ fn ssh_stderr_is_classified() {
     }
     assert!(SshFailure::KeyRejected.fix("leo@box").contains("ssh-copy-id leo@box"));
     assert!(SshFailure::HostKeyChanged.fix("leo@box").contains("ssh-keygen -R box"));
+    let tailnet_fix = SshFailure::NoRoute.fix("leo@huge-blue.tail9.ts.net");
+    assert!(tailnet_fix.contains("Tailscale SSH isn't allowed to this machine"));
+    assert!(tailnet_fix.contains("\"dst\": [\"huge-blue.tail9.ts.net\"]"));
+    assert!(!tailnet_fix.contains("token") && !tailnet_fix.contains("key="));
 }
 
 #[test]
@@ -588,6 +624,9 @@ impl Remote for Sh {
     fn push(&self, _local: &Path, _remote: &str) -> Result<()> {
         unreachable!()
     }
+    fn spawn(&self, _script: &str) -> Result<std::process::Child> {
+        unreachable!()
+    }
 }
 
 #[test]
@@ -708,12 +747,34 @@ fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
     assert!(fake.pushes.borrow().is_empty());
     assert!(!fake.calls.borrow().iter().any(|(s, _)| s.contains("uname")));
 
+    assert!(
+        fake.fenced.borrow().iter().any(|s| s.contains(&format!("ln -s {TUI_BIN} {DAEMON_BIN}"))),
+        "the link holds the host's update lock"
+    );
+
     // Linked: the next check passes as it is.
     let fake = tui_only_host(&linked);
     let r = install(&fake, "box", DAEMON_BIN, true);
     assert_eq!(r.state, StepState::Ok, "{r:?}");
     assert_eq!(r.detail, format!("{DAEMON_BIN} is build {build}"));
     assert_read_only(&fake);
+}
+
+#[test]
+fn enroll_never_relinks_the_daemon_binary_while_another_update_runs() {
+    // Re-review of #24232: `enroll --fix` linked ~/.local/bin/acpmux to the
+    // app's cmux-tui while another update of the host was mid-way; that
+    // update then checked the wrong binary and rolled a healthy build back.
+    // The link now takes the host's update lock.
+    let linked = RefCell::new(false);
+    let fake = tui_only_host(&linked);
+    fake.locked.set(true);
+    let r = install(&fake, "box", DAEMON_BIN, true);
+    assert_eq!(r.state, StepState::Fail, "{r:?}");
+    assert!(r.detail.contains("another update of leo@box.tail is running"), "{r:?}");
+    assert!(!*linked.borrow(), "nothing was linked");
+    assert!(!fake.calls.borrow().iter().any(|(s, _)| s.contains("ln -s")));
+    assert!(fake.pushes.borrow().is_empty());
 }
 
 #[test]

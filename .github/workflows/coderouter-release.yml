@@ -115,7 +115,7 @@ jobs:
             npm_target: darwin-x64
             executable: coderouter
             maturin_container: "off"
-          - runner: blacksmith-4vcpu-ubuntu-2404
+          - runner: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
             rust_target: x86_64-unknown-linux-gnu
             npm_target: linux-x64
             executable: coderouter
@@ -459,7 +459,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.4"
       - name: Download native build outputs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

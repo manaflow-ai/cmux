@@ -21,9 +21,16 @@ public protocol UpdateActionDelegate: AnyObject {
 
     /// Sparkle is about to install `build` over the running bundle (keep it for rollback).
     func updaterWillInstallUpdate(build: String)
+
+    /// An idle-policy install is about to start with nobody clicking: run what a click runs
+    /// first (preflight, records). False keeps the update staged for the user.
+    func updaterPrepareAutomaticInstall() -> Bool
 }
 
 extension UpdateActionDelegate {
     /// Hosts without rollback ignore it.
     public func updaterWillInstallUpdate(build: String) {}
+
+    /// Hosts with nothing to prepare let the automatic install start.
+    public func updaterPrepareAutomaticInstall() -> Bool { true }
 }

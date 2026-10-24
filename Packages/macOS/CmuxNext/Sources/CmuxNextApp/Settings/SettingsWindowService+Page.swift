@@ -3,7 +3,9 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
+import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
 /// Spaces (nil when this daemon has no profiles), saved machines, browser profiles, and the
@@ -13,10 +15,14 @@ extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
-        _ = ThemeStore.shared.generation
+        _ = services.themeStore.generation
         return [
+            // The Development category (dev_only) shows only in DEV builds.
+            "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
-            "machines": .array(machines.map(Self.listRow)),
+            "machines": .array(machines.map(Self.machineRow)),
+            // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
+            "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
@@ -46,6 +52,9 @@ extension SettingsWindowService {
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
+            "web_updates": WebUpdates.shared.pageJSON,
+            // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
+            "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
@@ -99,6 +108,17 @@ extension SettingsWindowService {
     static func listRow(_ row: SettingsListRow) -> JSONValue {
         ["id": .string(row.id), "title": .string(row.title), "subtitle": row.subtitle.map(JSONValue.string) ?? .null,
          "icon": .string(row.icon.wire), "active": .bool(row.isActive)]
+    }
+
+    /// A machine's row with its color (`appearance.machineColors`): `color`, the color its marks draw
+    /// in now (the person's pick, else the automatic one), and `color_key`, the key its pick is under.
+    /// Reading the color observes the store's picks, so the host lists are sent again after a pick.
+    static func machineRow(_ row: SettingsListRow) -> JSONValue {
+        guard case .object(var members) = listRow(row) else { return .null }
+        let color = MachineColor(name: row.title)
+        members["color"] = .string(hex(color.color))
+        members["color_key"] = .string(color.key)
+        return .object(members)
     }
 
     static func hex(_ color: NSColor) -> String {

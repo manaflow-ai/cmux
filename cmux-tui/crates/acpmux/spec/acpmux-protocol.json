@@ -309,6 +309,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/app_reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/stats",
       "params": true,
       "result": true
@@ -328,6 +334,18 @@
     {
       "kind": "request",
       "name": "_acpmux/prompt_withdraw",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/send_queue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/send_status",
       "params": true,
       "result": true
     },
@@ -585,6 +603,66 @@
     {
       "kind": "request",
       "name": "_acpmux/file_put",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_chunk",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/dispatch",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/briefs",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_range",
       "params": true,
       "result": true
     },
@@ -1876,16 +1954,26 @@
           ]
         },
         "recipient": {
-          "type": "string"
+          "description": "Session recipient for ordinary mail. Omit when target is supplied.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sender": {
           "type": "string"
+        },
+        "target": {
+          "description": "Quiet reports alias (reports:<person>). Omit for session mail.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "id",
         "sender",
-        "recipient",
         "body"
       ],
       "type": "object"
@@ -2884,6 +2972,10 @@
             "null"
           ]
         },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
           "type": [
@@ -3303,6 +3395,10 @@
             "string",
             "null"
           ]
+        },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",

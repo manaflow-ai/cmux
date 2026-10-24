@@ -1,9 +1,10 @@
 public import AppKit
 
-/// Every scroller in cmux is thin and shows only while it scrolls, whatever
-/// the macOS "Show scroll bars" setting (SCROLLBARS-THIN, Leo 2026-10-12:
-/// "never a permanent gray track"). Native scroll views call `follow(_:)`
-/// once and get ``nativeStyle`` (overlay), also after the setting changes.
+/// Every scroller in cmux is thin and never a gray track, whatever the macOS
+/// "Show scroll bars" setting (SCROLLBARS-THIN, Leo 2026-10-12: "never a
+/// permanent gray track"). Native scroll views call `follow(_:)` once and get
+/// ``nativeStyle`` (overlay), also after the setting changes; `followThin(_:)`
+/// adds the shared ``ThinScroller``.
 /// Pages read `pageValue`, the setting itself: WebKit draws legacy bars for
 /// "Always", which the shared web rules (webviews/src/scrollers.ts) thin.
 /// The setting is tracked live through
@@ -37,12 +38,24 @@ public struct SystemScrollers {
         startObserving()
     }
 
-    /// Gives a card's scroll view the shared super-thin ``CardScroller`` and follows it like
-    /// ``follow(_:)``: every scrollable card (hover cards, the update card's popover) scrolls with
-    /// this one style.
-    public static func followAsCard(_ scrollView: NSScrollView) {
-        if !(scrollView.verticalScroller is CardScroller) { scrollView.verticalScroller = CardScroller() }
+    /// Gives `scrollView` the shared ``ThinScroller`` and follows it like ``follow(_:)``: the
+    /// sidebar and every scrollable card (hover cards, the update card's popover) scroll with this
+    /// one style, the native twin of the chat's (webviews/src/scrollers.ts).
+    public static func followThin(_ scrollView: NSScrollView) {
+        if !(scrollView.verticalScroller is ThinScroller) { scrollView.verticalScroller = ThinScroller() }
         follow(scrollView)
+    }
+
+    /// The auto-hide of every ``ThinScroller``: true (the default, Lawrence 2026-10-23 msg 11494)
+    /// fades its knob out at rest and in while the view scrolls or the pointer nears its edge;
+    /// false keeps it shown for as long as the content overflows (Leo 2026-10-21's look).
+    public static var thinScrollersAutoHide = true {
+        didSet {
+            followed.removeAll { $0.value == nil }
+            for entry in followed {
+                (entry.value?.verticalScroller as? ThinScroller)?.autoHides = thinScrollersAutoHide
+            }
+        }
     }
 
     /// Calls `onChange` with the system's new style on every later change while `owner` lives (the

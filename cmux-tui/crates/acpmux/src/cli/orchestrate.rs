@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 pub(crate) const SKILL: &str = include_str!("../../skills/acpmux/SKILL.md");
 mod presets;
+#[cfg(test)]
+mod wait_tests;
 pub(crate) use presets::{defaults, preset};
 
 /// The guide text: the skill file without its frontmatter.
@@ -142,17 +144,11 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
             String::new()
         };
         code = code.max(session_exit_code(s));
-        rows.push(json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "unread": s.get("unread"), "matched": s.get("matched"), "reply": reply}));
+        let row = json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "waitingOn": s.get("waitingOn"), "waitingPrompt": s.get("waitingPrompt"), "unread": s.get("unread"), "matched": s.get("matched"), "reply": reply});
         if opts.notify {
-            terminal_notify(
-                "acpmux",
-                &if pending > 0 {
-                    format!("{name} needs a permission")
-                } else {
-                    format!("{name} finished")
-                },
-            );
+            terminal_notify("acpmux", &wait_notice(&name, &row));
         }
+        rows.push(row);
     }
     if timed_out {
         code = 3;
@@ -162,10 +158,7 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
     } else {
         for r in &rows {
             let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-            let pend = r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-            let state =
-                if pend > 0 { format!("waiting for permission ({pend})") } else { g("status") };
-            println!("{:<24} {}", g("name"), state);
+            println!("{:<24} {}", g("name"), wait_state(r));
             if opts.print && !g("reply").is_empty() {
                 println!("{}", g("reply"));
                 println!();
@@ -179,6 +172,35 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         std::process::exit(code);
     }
     Ok(())
+}
+
+/// What a waited-on session's row says it is at: an agent's question reads as
+/// a question (the summary's `waitingOn`, `hub/subsession_send.rs`), never as
+/// a permission, though acpmux carries it as a permission request.
+fn wait_state(r: &Value) -> String {
+    let pending = r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
+    match (
+        r.get("waitingOn").and_then(Value::as_str),
+        r.get("waitingPrompt").and_then(Value::as_str),
+    ) {
+        (Some("question"), Some(prompt)) if !prompt.is_empty() => {
+            format!("asks a question: {prompt}")
+        }
+        (Some("question"), _) => "asks a question".to_owned(),
+        _ if pending > 0 => format!("waiting for permission ({pending})"),
+        _ => r.get("status").and_then(Value::as_str).unwrap_or("").to_owned(),
+    }
+}
+
+/// The `--notify` line for a waited-on session's row.
+fn wait_notice(name: &str, r: &Value) -> String {
+    if r.get("waitingOn").and_then(Value::as_str) == Some("question") {
+        format!("{name} asks a question")
+    } else if r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
+        format!("{name} needs a permission")
+    } else {
+        format!("{name} finished")
+    }
 }
 
 /// Exit code a waited-on session contributes: 2 while it waits for a

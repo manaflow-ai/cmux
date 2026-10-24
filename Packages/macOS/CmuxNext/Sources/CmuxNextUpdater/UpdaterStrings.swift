@@ -61,6 +61,11 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
     }
+    // The question every rollback entrypoint asks (UpdateDropBack.confirmation)
+    static var rollbackConfirmTitle: String { text("updater.rollback.confirm.title", "Roll Back to the Previous Version?") }
+    static var rollbackConfirmBody: String {
+        text("updater.rollback.confirm.body", "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running.")
+    }
 
     // Test feed
     static var testFeedRefused: String {
@@ -122,6 +127,20 @@ nonisolated enum UpdaterStrings {
     static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
     static var relaunchingDetail: String {
         text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
+    }
+    static func checkingNewVersion(seconds: Int) -> String {
+        format("updater.notice.checkingNewVersion",
+               "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
+               seconds)
+    }
+    static var waitingToRelaunch: String { text("updater.notice.waitingTitle", "Waiting to Relaunch") }
+    static func waitingDetail(agents: Int, commands: Int) -> String {
+        format("updater.notice.waitingDetail", "Busy agents: %1$lld. Running commands: %2$lld. cmux relaunches when they finish, or now with Relaunch.",
+               agents, commands)
+    }
+    static var installStalled: String { text("updater.notice.stalledTitle", "Update Did Not Relaunch") }
+    static func installStalledDetail(minutes: Int) -> String {
+        format("updater.notice.stalledDetail", "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.", minutes)
     }
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }

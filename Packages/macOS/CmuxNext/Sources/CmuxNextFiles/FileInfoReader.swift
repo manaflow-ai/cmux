@@ -2,8 +2,21 @@ public import Foundation
 
 /// Reads and changes what Get Info shows, off the main actor.
 public struct FileInfoReader: Sendable {
-    /// Makes a reader.
-    public init() {}
+    /// What a volume reports as free: for important use, and plain. Either may be missing.
+    public typealias VolumeCapacity = @Sendable (URL) -> (important: Int64?, plain: Int64?)
+
+    private let volumeCapacity: VolumeCapacity
+
+    /// Makes a reader. Tests pass `volumeCapacity` so they don't read the machine's real disk.
+    public init(volumeCapacity: @escaping VolumeCapacity = FileInfoReader.systemVolumeCapacity) {
+        self.volumeCapacity = volumeCapacity
+    }
+
+    /// The volume's free space as Foundation reports it.
+    public static func systemVolumeCapacity(of url: URL) -> (important: Int64?, plain: Int64?) {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        return (values?.volumeAvailableCapacityForImportantUsage, values?.volumeAvailableCapacity.map(Int64.init))
+    }
 
     /// Reads `url`'s Get Info record.
     /// - Throws: ``FileBrowserError/missing(_:)`` when the item is gone.
@@ -54,11 +67,12 @@ public struct FileInfoReader: Sendable {
         return total
     }
 
-    /// The space free for new files on `url`'s volume (the status line's "X available").
+    /// The space free for new files on `url`'s volume (the status line's "X available"), or nil when
+    /// unknown. Some volumes report 0 for important use, and a 0 overall reads as unknown, not a full disk.
     @concurrent
     public func availableCapacity(of url: URL) async -> Int64? {
-        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
-        return values?.volumeAvailableCapacityForImportantUsage ?? values?.volumeAvailableCapacity.map(Int64.init)
+        let reported = volumeCapacity(url)
+        return [reported.important, reported.plain].lazy.compactMap { $0 }.first { $0 > 0 }
     }
 
     /// Sets the Locked box.

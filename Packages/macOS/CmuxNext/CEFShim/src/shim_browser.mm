@@ -135,8 +135,17 @@ void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
   host().focus_request = handler;
 }
 
+void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler) {
+  host().unhandled_key = handler;
+}
+
 void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
+}
+
+void cmux_shim_set_accessibility(int browser_id, int enabled) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
+    host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
 }
 
 int cmux_shim_print(int browser_id) {

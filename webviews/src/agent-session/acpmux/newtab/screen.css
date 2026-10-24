@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -7,8 +7,10 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%}
-/* The box (Leo 10-13, coherence pass; Lawrence 10-14): the composer's surface (composerStates.css: lighter than the page in a light theme, one small step toward the text in a dark one), solid, so on a wallpaper it sits as chrome, not a film over the art and not a gray slab. Its rim (--acpmux-card-ring, which the location strip's seam redraws) is one device pixel in the composer's edge, clear under appearance.borders none; focus keeps that rim and only lifts its tone a little, never a wider ring or the accent. Its shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
-.nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;background:var(--acpmux-composer-surface,var(--cmux-surface-solid,var(--acpmux-base)));position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring),var(--acpmux-composer-shadow,var(--elevation-1))}
+/* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
+   backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
+   borders-none and Reduce Transparency preserve the existing card contract. */
+.nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
 .nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
@@ -111,7 +113,9 @@
    no fill, a small gap, the card's rim whole (Lucas #21133, Lawrence's pick 2026-10-16). The
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
-  gap: 6px;
+  /* Read by the Codex tray's mask too (composerStates.css). */
+  --nt-composer-gap: 6px;
+  gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
   --acpmux-strip-height: 26px;
@@ -323,10 +327,25 @@
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
+/* Claude Code's split (NewTabScreen `split`): the mic and Send end the field's row, centred on its
+   first line (52px row, 34px buttons) and staying at the bottom as a draft grows, so the empty box
+   is one line tall (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */
+.nt-input > .acpmux-chrome-area > .nt-pickers {
+  flex: none;
+  align-self: flex-end;
+  margin: 0 -8px 9px 0;
+  flex-wrap: nowrap;
+  padding: 0;
+}
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
   width: 24px;
   height: 24px;
+}
+/* Send is the mic's plain glyph at the mic's size (Leo 2026-10-21: no disc; composerStates.css). */
+.nt-pickers .acpmux-send .acpmux-icon {
+  width: 18px;
+  height: 18px;
 }
 /* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
    the rest dim on the text ink and the current one under the accent dot that slides to a pick. A
@@ -339,12 +358,12 @@
 .nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
 .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
-.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default}
+.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default;font-size:var(--text-detail)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
 .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
 .nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,180ms) var(--agent-ease-out,ease-out)}
 .nt-style-name{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:2px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out)}
-.nt-style-name[data-shown]{opacity:1;transition-duration:var(--agent-motion-hover,80ms)}
+.nt-style-name[data-shown]{opacity:1;transition-duration:0s}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
@@ -358,7 +377,6 @@
   cursor: default;
 }
 .nt-box {
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
   /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
   --acpmux-attach-inset: 18px;
   --acpmux-attach-gap: 6px;
@@ -496,6 +514,12 @@
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
    one, as the page's other rows do. A chat's state reads in the theme's amber (input) or red. */
+.nt-extras{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 4px 8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:18px}
+.nt-extra-warm{flex:1 0 100%;color:var(--agent-soft)}
+.nt-extra-clock,.nt-extra-timer{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nt-extra-quote{flex:1 0 100%;margin:0;color:var(--agent-soft)}
+.nt-extra-quote blockquote{margin:0;font:inherit}
+.nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail)}
 .nt-widgets{display:flex;flex-direction:column;gap:10px;margin-top:8px}
 .nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
 .nt-widget-row{display:flex;align-items:center;gap:12px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;cursor:default}
@@ -519,6 +543,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-widget-tip-title{color:var(--agent-text)}
 .nt-widget-tip-detail{color:var(--acpmux-composer-dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 @media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
+/* The page's column is the chat's (conversation.css --cv-column: 720 px, widening to 800 px on a wide
+   pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
@@ -531,6 +557,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding-top: 0;
   padding-bottom: 16px;
 }
+/* With Claude Code's split the quiet row ends the page, a few px over its bottom edge as in the chat
+   pane (the row's own margin, composerLocation.css): the page adds no band under it. The template
+   dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
+   tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
+.nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 0; }
+.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 22px; }
 .nt-screen[data-layout="stage"] .nt-stage {
   flex: 1;
   min-height: 0;
@@ -684,7 +716,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 /* A chat row's hover card (Leo 2026-10-19): a floating glass hover card (desktop.css
    .ui-card.ui-glass) offset from the row (Tooltip's gap), clamped to the window by the positioner,
-   with the tooltip's short fade. */
+   drawn at once on the New Tab (noEntry.css); it fades only as it goes. */
 .nt-hovercard {
   max-width: min(320px, calc(100vw - 24px));
   padding: 8px 10px;
@@ -709,11 +741,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    rim. Under it, outside the pill, one quiet row: the project strip on the left, the agent's chips
    and the mic on the right, no Send disc (Return sends).
    Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
-   grid that show more of each chat's last reply. Wider than the other templates' 720px column. */
+   grid that show more of each chat's last reply. Its column is every template's, the chat's
+   (--cv-column, Leo 2026-10-21: no extra left and right padding), so its composer is as wide as the
+   chat composer in the same pane. */
 .nt-screen[data-template="cards"] {
   gap: 10px;
   padding-top: clamp(24px, 8vh, 96px);
-  padding-inline: max(var(--cv-edge, 18px), calc((100% - 880px) / 2));
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
@@ -797,4 +830,258 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
+}
+/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): the composer,
+   nothing else (no greeting, Leo 2026-10-22). It sits about the window's middle at a fixed place (a
+   pasted image or a long draft grows it downward, never moves it); the headline, when on, sits a
+   little over it. */
+.nt-screen[data-minimal] {
+  padding-top: max(32px, calc(50vh - 150px));
+}
+/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the headline
+   over it is. */
+.nt-screen[data-minimal] .nt-create {
+  justify-content: center;
+}
+/* Minimal's headline slot (NewTabScreen.tsx): the old greeting's box (its heading line and 6px
+   under it), there with the headline on or off, so the composer sits where it sat under the greeting
+   and turning the headline on never moves it. The headline sits on the slot's floor and a taller
+   one (Hero, or Choose project under the question) grows up into the page's top padding. */
+.nt-headline-slot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(var(--text-heading--line-height) + 6px);
+}
+/* The headline (NewTabHeadline.tsx; off by default): "What should we work on in <project>?", the
+   project an inline picker. Hero (the shipped look) is a new chat's hero question; Quiet is where the
+   old greeting sat; Chip draws the project as the composer's folder chip (headline.experiment.ts). */
+.nt-headline {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  text-align: center;
+}
+.nt-headline-text {
+  margin: 0;
+  max-width: 560px;
+  /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
+     heading step is that 20px. */
+  font-size: var(--text-heading);
+  line-height: calc(28px * var(--cmux-interface-scale, 1));
+  font-weight: 400;
+  color: var(--agent-text);
+  overflow-wrap: anywhere;
+}
+.nt-headline[data-look="quiet"] {
+  margin-bottom: 6px;
+}
+.nt-headline[data-look="quiet"] .nt-headline-text {
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 500;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+}
+.nt-headline[data-look="chip"] .nt-headline-text .acpmux-project {
+  display: inline-flex;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.nt-headline-choose .acpmux-project-button {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--agent-muted);
+}
+.nt-headline-choose .acpmux-project-button > span {
+  text-decoration: none;
+}
+
+/* The ambient widgets (newtab/AmbientWidgets.tsx): one quiet row under the field, in the greeting's
+   dim color, so the page stays calm and the field never moves. */
+.nt-ambient {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 16px;
+  margin-top: 10px;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  user-select: none;
+}
+.nt-ambient-weather {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.nt-ambient-weather[data-stale] {
+  opacity: 0.55;
+}
+.nt-ambient-temp {
+  color: var(--agent-soft);
+  font-variant-numeric: tabular-nums;
+}
+.nt-ambient-range {
+  font-variant-numeric: tabular-nums;
+}
+.nt-ambient-machines {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.nt-ambient-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+}
+.nt-ambient-machine-icon {
+  flex: none;
+  display: inline-flex;
+  /* This Mac stays quiet; another machine wears its identity color (machineColor.ts, inline). */
+  color: var(--agent-soft);
+}
+.nt-ambient-machine-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-ambient-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.nt-ambient-machine[data-online] .nt-ambient-dot {
+  background: var(--agent-ansi-2);
+  box-shadow: none;
+}
+/* Minimal's edit mode (WidgetEditing.tsx; right-click > Edit New Tab, as an iPhone's home screen).
+   Out of it a widget's slot draws nothing of its own, so the page lays out as it always did. */
+.nt-menu-host,
+.nt-widget-slot:not([data-editing]) {
+  display: contents;
+}
+/* A slot's content is the stage's own item: full width, and the first and last center the stage. */
+.nt-stage > .nt-widget-slot > *,
+.nt-widget-content > * {
+  width: 100%;
+}
+.nt-stage > .nt-widget-slot:not([data-editing]):first-child > :first-child,
+.nt-stage > .nt-widget-slot[data-editing]:first-child {
+  margin-top: auto;
+}
+.nt-stage > .nt-widget-slot:not([data-editing]):last-child > :last-child,
+.nt-stage > .nt-widget-slot[data-editing]:last-child {
+  margin-bottom: auto;
+}
+.nt-screen[data-editing] {
+  position: relative;
+}
+.nt-edit-bar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: var(--layer-sticky, 10);
+  display: flex;
+  /* Not the full width every other child of .nt-screen takes: a bar in the top right corner. */
+  width: auto;
+  gap: 6px;
+}
+.nt-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-control);
+  cursor: default;
+}
+.nt-edit-button:hover {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.nt-edit-button[data-primary] {
+  background: var(--agent-accent, var(--agent-text));
+  color: var(--agent-on-accent, var(--acpmux-base));
+}
+.nt-edit-button:focus-visible,
+.nt-widget-frame:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: 2px;
+}
+/* An edited widget: its content takes no clicks (inert), it takes the drag and the keyboard. */
+.nt-widget-frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border-radius: 14px;
+  cursor: grab;
+}
+.nt-widget-content {
+  display: contents;
+}
+.nt-widget-frame[data-dragging] {
+  opacity: 0.4;
+}
+.nt-widget-frame[data-drop="before"] {
+  box-shadow: 0 -2px 0 var(--agent-accent, var(--agent-text));
+}
+.nt-widget-frame[data-drop="after"] {
+  box-shadow: 0 2px 0 var(--agent-accent, var(--agent-text));
+}
+.nt-widget-remove {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: var(--layer-raised, 1);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--agent-soft, var(--agent-text));
+  color: var(--acpmux-base);
+  box-shadow: var(--elevation-1);
+  cursor: default;
+}
+.nt-widget-remove:hover {
+  background: var(--agent-text);
+}
+/* The wiggle: small, alternate widgets out of step. Still with Reduce Motion or animations off. */
+@media (prefers-reduced-motion: no-preference) {
+  .nt-widget-frame:not([data-dragging]) {
+    animation: nt-widget-wiggle 0.28s ease-in-out infinite alternate; /* motion-allow: the edit-mode wiggle is a loop, not a transition; still under Reduce Motion and animations off */
+  }
+  .nt-widget-frame:nth-of-type(even) {
+    animation-delay: -0.14s;
+  }
+}
+:root[data-agent-motion="off"] .nt-widget-frame {
+  animation: none;
+}
+@keyframes nt-widget-wiggle {
+  from {
+    transform: rotate(-0.4deg);
+  }
+  to {
+    transform: rotate(0.4deg);
+  }
 }

@@ -47,7 +47,7 @@ export function zoomAbout(view: View, scale: number, point: { x: number; y: numb
 
 /// The image as a `data:` URL, the form the host's image actions take (a composer attachment can be
 /// a `blob:` URL).
-async function dataUrl(src: string): Promise<string> {
+export async function dataUrl(src: string): Promise<string> {
   if (src.startsWith("data:")) return src;
   const blob = await (await fetch(src)).blob();
   return await new Promise((resolve, reject) => {

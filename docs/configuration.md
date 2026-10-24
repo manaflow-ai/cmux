@@ -89,6 +89,21 @@ Customize split-workspace pane boundaries controlled by cmux.
 
 Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to use the default. These settings apply to cmux's multi-surface pane layout. When `paneBorderColor` is unset, the divider uses Ghostty's `split-divider-color` if one is configured.
 
+## `ui.reducedBackgrounds`
+
+Draws windows in the plain theme color.
+
+```json
+{
+  "ui": { "reducedBackgrounds": true }
+}
+```
+
+- `false` (default): windows draw the background you chose (`appearance.background`, a workspace's or a pane's own picture) and the window material (`appearance.backgroundOpacity`, `appearance.backgroundBlur`).
+- `true`: no painting, shuffled painting, desktop or system wallpaper, and no glass, frost or see-through window: every window is opaque in its theme's background color, as with macOS Reduce Transparency. This also overrides Ghostty's own `background-opacity` and `background-blur` while on.
+
+It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -169,6 +184,21 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
 
+## `tabs.commandDigits`
+
+What Cmd-1 to Cmd-9 select.
+
+```json
+{
+  "tabs": { "commandDigits": "tabs" }
+}
+```
+
+- `"workspaces"` (default): Cmd-1…9 go to sidebar items (`sidebar.numbering` decides which count) and Ctrl-1…9 go to the focused pane's tabs.
+- `"tabs"`: the two trade keys. Cmd-1…9 go to the focused pane's tabs (Cmd-9 is the last tab) and Ctrl-1…9 go to sidebar items.
+
+A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
+
 ## Tab bar (removed: `tabs.tabBar`)
 
 Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
@@ -205,7 +235,7 @@ To put one new tab in a specific place, whatever the setting, use these commands
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
+The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
 
 ```json
 {
@@ -213,7 +243,8 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 }
 ```
 
-- `cards` (the default): one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
+- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
+- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
 - `threads`: the field and the recent chats as a list.
@@ -222,6 +253,26 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 - `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+
+## `tabs.newTabWidgets`
+
+The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
+
+```json
+{
+  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
+}
+```
+
+| Key | Default | Shows |
+| --- | --- | --- |
+| `greeting` | `true` | A short greeting by the time of day over the composer. |
+| `projects` | `false` | A card of this Mac and its recent projects. |
+| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
+| `chats` | `false` | The recent chats, as rows under the composer. |
+| `styleDots` | `false` | The template dots under the page. |
+
+With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -882,6 +933,21 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 
 acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
 reads the other keys at each call, so a change applies to the next session or call.
+
+## `media.pictureInPicture.enabled`
+
+Whether cmux offers Picture in Picture for a web page's video.
+
+```json
+{
+  "media": { "pictureInPicture": { "enabled": false } }
+}
+```
+
+- `true` (default): the tab's menu and the Now Playing card's menu offer Picture in Picture for a page playing a video, as do the command palette, `cmux media picture-in-picture` and MCP, the card's button and the toolbar media hub's button.
+- `false`: none of those offer it, and `cmux media picture-in-picture` answers that it is turned off. A video already floating stays until its window closes.
+
+A site's own video controls (a player's Picture in Picture button, the page's `requestPictureInPicture`) are the page's, not cmux's, and are not affected. Change it in **Settings > Browser > Media** or with `cmux settings set media.pictureInPicture.enabled false`.
 
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 

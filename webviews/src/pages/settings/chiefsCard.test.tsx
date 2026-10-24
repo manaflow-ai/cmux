@@ -21,7 +21,10 @@ test("Chiefs lists every Chief: picture, name, role, backend and lock", async ()
   expect(rows[0]!.textContent).toContain("Runs the team's agents");
   expect(rows[0]!.textContent).toContain("Default (Chief's usual)");
   expect(rows[0]!.querySelector(".chiefs-picture")).not.toBeNull();
-  expect(rows[1]!.textContent).toContain("Codex · gpt-6-astra · high");
+  // One glass card, as every card on the page.
+  expect(card(page.container).classList.contains("ui-glass")).toBe(true);
+  // Named as people say them (the harness's model catalog, the composer's effort names), never by id.
+  expect(rows[1]!.querySelector(".chiefs-backend")!.textContent).toBe("Codex · GPT-6 Astra · High");
   expect(rows[1]!.textContent).toContain("Locked");
   expect(rows[0]!.textContent).not.toContain("Locked");
   page.unmount();
@@ -40,6 +43,36 @@ test("a row names the backend the way Home and the Chief editor do, never by its
   // "default" is the default engine (Claude), as Home's chip reads it.
   expect(backend(rows[0]!)).toBe("Claude · opus");
   expect(backend(rows[1]!)).toBe("UniiChat");
+  page.unmount();
+});
+
+test("a model the catalog does not name reads off its id, and an effort by its level name", async () => {
+  const page = await renderPage({
+    path: "/settings/chief",
+    setup: (provider) => {
+      provider.chiefs[0]!.engine = { harness: "claude", model: "claude-opus-5-5", effort: "xhigh" };
+      provider.chiefs[1]!.engine = { harness: "codex", model: "gpt-9-unlisted", effort: "medium" };
+    },
+  });
+  const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
+  const backend = (row: HTMLElement) => row.querySelector(".chiefs-backend")!.textContent;
+  expect(backend(rows[0]!)).toBe("Claude · Opus 5.5 · Extra High");
+  // No name anywhere: the id itself, rather than a guess.
+  expect(backend(rows[1]!)).toBe("Codex · gpt-9-unlisted · Medium");
+  page.unmount();
+});
+
+test("the editor's pickers name models and efforts, and keep their ids as values", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await act(async () => card(page.container).querySelector<HTMLElement>('[data-chief="agent_release"]')!.click());
+  await settle();
+  const editor = card(page.container).querySelector<HTMLElement>("section.chief-editor")!;
+  const model = editor.querySelector<HTMLSelectElement>('select[aria-label="Model"]')!;
+  expect(model.value).toBe("gpt-6-astra");
+  expect(model.selectedOptions[0]!.textContent).toBe("GPT-6 Astra");
+  const effort = editor.querySelector<HTMLSelectElement>('select[aria-label="Effort"]')!;
+  expect(effort.value).toBe("high");
+  expect([...effort.options].map((option) => option.textContent)).toEqual(["Default", "Low", "Medium", "High"]);
   page.unmount();
 });
 

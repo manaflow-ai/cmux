@@ -2,8 +2,11 @@
 // path like a reply image (`media.load`) and answers a `cmux-agent://pane/__media/` URL that the
 // pane's scheme handler serves in byte ranges (CSP `media-src 'self'`). A player mounts only
 // once it nears the viewport and asks for metadata only, so a long transcript loads no media it
-// does not show. A video plays inline with controls (muted while the pointer rests on it);
-// Expand shows it large over the pane. Nothing opens a browser. Until the host answers, or when
+// does not show. A video first draws as its thumbnail (Leo 2026-10-21: "id like to be able to watch
+// .mp4s direclty in cmux next"): its poster frame, a play button and its length. The pointer
+// resting on it previews it muted; a click plays it with sound and controls. Expand shows it large
+// over the pane (paused until Play), and Open in tab opens it in a tab the way a link opens (the host's link setting):
+// a file in cmux's file pages, a web video in a cmux browser tab. Until the host answers, or when
 // it will not play the file, the file shows as its name.
 // Web media (a GitHub user attachment or an https media link, alone on its line or as an image)
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
@@ -13,7 +16,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
-import { Close, Expand } from "../conversation/icons";
+import { Close, Expand, OpenTab, PlayTriangle } from "../conversation/icons";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
@@ -43,6 +46,29 @@ export function isRemoteMedia(src: string): boolean {
   const url = webURL(src);
   if (!url) return false;
   return (url.hostname === "github.com" && ATTACHMENT.test(url.pathname)) || mediaKind(url.pathname) !== undefined;
+}
+
+/// The host request that opens `source` in a tab, as a link to it would open: a web video
+/// (https only) in a cmux browser tab (`browser.openIn` with `cmux`), a file through the path
+/// chip's `link.openPath` (cmux's file pages, which play video and run nothing). The host checks
+/// either again and places the tab by the link setting. Nil for anything else.
+export function mediaOpenRequest(source: string): { method: string; params: Record<string, string> } | undefined {
+  if (webURL(source)) return { method: "browser.openIn", params: { url: source, browserId: "cmux" } };
+  // A path or a local `file://` URL; any other scheme (and a file URL on another host) opens nothing.
+  const path = linkPath(source);
+  if (!path || isDeniedPath(path)) return undefined;
+  return { method: "link.openPath", params: { path } };
+}
+
+/// A video's length as the thumbnail shows it: `m:ss`, or `h:mm:ss` from an hour. Nil when the
+/// length is unknown (a live stream, metadata not read yet).
+export function formatDuration(seconds: number): string | undefined {
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  const total = Math.max(1, Math.round(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
 /// The host's answer per source, so a re-render or a second mention plays the same URL.
@@ -86,7 +112,7 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const near = useNearViewport(frame);
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
+  if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
   if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
@@ -104,7 +130,7 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   const near = useNearViewport(frame);
   const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
+  if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
   if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
@@ -120,15 +146,21 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   );
 }
 
-function MediaPlayer({
+export function MediaPlayer({
   src,
+  source,
   kind,
   name,
+  path,
   onError,
 }: {
   src: string;
+  /** The path or link the reply named, for Open in tab (never the granted `src`). */
+  source: string;
   kind: "video" | "audio";
   name: string;
+  /// The file it plays: its right-click menu's Copy, Save As… and Reveal in Finder act on it.
+  path?: string;
   onError(): void;
 }) {
   const t = useT();
@@ -136,40 +168,41 @@ function MediaPlayer({
   const close = useRef<HTMLButtonElement>(null);
   if (kind === "audio")
     return (
-      <span className="cv-media is-audio">
-        <span className="cv-media__name">{name}</span>
+      <span className="cv-media is-audio" data-path={path}>
+        {/* The name drags out as the file itself (conversation/dragOut.ts). */}
+        <span className="cv-media__name" draggable={Boolean(path)}>
+          {name}
+        </span>
         {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
         <audio src={src} controls preload="metadata" aria-label={name} onError={onError} />
       </span>
     );
+  const open = mediaOpenRequest(source);
   return (
-    <span className="cv-media is-video">
-      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
-      <video
-        src={src}
-        controls
-        muted
-        playsInline
-        preload="metadata"
-        aria-label={name}
-        onError={onError}
-        onMouseEnter={(event) => {
-          const video = event.currentTarget;
-          if (video.paused && video.currentTime === 0) void video.play().catch(() => {});
-        }}
-        onMouseLeave={(event) => {
-          const video = event.currentTarget;
-          if (video.muted) video.pause();
-        }}
-      />
-      <button
-        type="button"
-        className="cv-media__expand"
-        aria-label={t("media.expand")}
-        onClick={() => setExpanded(true)}
-      >
-        <Expand size={14} />
-      </button>
+    <span className="cv-media is-video" data-path={path}>
+      <VideoThumbnail src={src} name={name} onError={onError} />
+      <span className="cv-media__actions">
+        {open && (
+          <button
+            type="button"
+            className="ui-glass cv-media__action"
+            aria-label={t("media.openInTab")}
+            title={t("media.openInTab")}
+            onClick={() => void callChipHost(open.method, open.params)}
+          >
+            <OpenTab size={14} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="ui-glass cv-media__action cv-media__expand"
+          aria-label={t("media.expand")}
+          title={t("media.expand")}
+          onClick={() => setExpanded(true)}
+        >
+          <Expand size={14} />
+        </button>
+      </span>
       {expanded && (
         <Dialog
           open
@@ -195,11 +228,77 @@ function MediaPlayer({
               </button>
             </div>
             <div className="cv-media-stage">
-              {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
-              <video src={src} controls autoPlay playsInline aria-label={name} />
+              {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
+              <VideoThumbnail src={src} name={name} onError={onError} />
             </div>
           </div>
         </Dialog>
+      )}
+    </span>
+  );
+}
+
+/// A video before it plays: its poster frame (the frame just after the start, read with the
+/// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
+/// it previews it muted, as before; a click plays it from the start with sound and the player's
+/// controls. Every part a click lands on shows the pointing hand.
+export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
+  const t = useT();
+  const video = useRef<HTMLVideoElement>(null);
+  const [started, setStarted] = useState(false);
+  const [duration, setDuration] = useState<string | undefined>();
+  const play = () => {
+    const element = video.current;
+    setStarted(true);
+    if (!element) return;
+    element.muted = false;
+    element.currentTime = 0;
+    void element.play()?.catch(() => {});
+  };
+  return (
+    <span className={started ? "cv-media__frame is-playing" : "cv-media__frame"}>
+      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
+      <video
+        ref={video}
+        src={src}
+        controls={started}
+        muted={!started}
+        playsInline
+        preload="metadata"
+        aria-label={name}
+        onError={onError}
+        onLoadedMetadata={(event) => {
+          const element = event.currentTarget;
+          setDuration(formatDuration(element.duration));
+          // The poster: seeking a hair past the start makes the player draw that frame (with
+          // preload="metadata" it otherwise shows black until it plays).
+          if (element.paused && element.currentTime === 0 && element.duration > 0.2) element.currentTime = 0.1;
+        }}
+      />
+      {!started && (
+        <button
+          type="button"
+          className="cv-media__poster"
+          aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
+          onClick={play}
+          onMouseEnter={() => {
+            const element = video.current;
+            if (element?.paused) void element.play()?.catch(() => {});
+          }}
+          onMouseLeave={() => {
+            const element = video.current;
+            if (element?.muted) element.pause();
+          }}
+        >
+          <span className="ui-glass cv-media__play" aria-hidden="true">
+            <PlayTriangle size={18} style={{ color: "inherit" }} />
+          </span>
+          {duration && (
+            <span className="cv-media__duration" aria-hidden="true">
+              {duration}
+            </span>
+          )}
+        </button>
       )}
     </span>
   );

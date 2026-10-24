@@ -48,6 +48,22 @@ import Testing
         await #expect(throws: FileBrowserError.self) { try await commands.rename(Self.item(file), to: "b.png", undo: nil) }
     }
 
+    /// Rename's sheet is begun on the main thread (#24760: `async let` ran
+    /// `beginSheetModal` off main and AppKit threw NSGenericException).
+    @Test func renameSheetBeginsOnTheMainThread() async throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: RecordingFiles())
+        commands.perform(.rename, on: [Self.item(URL(fileURLWithPath: "/s/a.png"))], in: window)
+        var sheet: NSWindow?
+        for _ in 0..<200 where sheet == nil {
+            try await Task.sleep(for: .milliseconds(10))
+            sheet = window.attachedSheet
+        }
+        let attached = try #require(sheet)
+        window.endSheet(attached, returnCode: .alertSecondButtonReturn)
+    }
+
     /// Move to Trash runs the Files operation (no real Trash in a test) and Undo puts the items back.
     @Test func trashGoesThroughFilesAndUndoPutsBack() async throws {
         let files = RecordingFiles()

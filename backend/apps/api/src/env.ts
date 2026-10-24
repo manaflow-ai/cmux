@@ -133,6 +133,8 @@ export interface Env {
   readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
+  /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
+  readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -329,6 +331,14 @@ export interface Env {
   readonly CHIEF_CC_TURN_FILES?: string
   /** Secret: the GitHub token the agent user's gh and git use on each turn machine (fine-grained, the Chief's repos only). */
   readonly CHIEF_CC_GITHUB_TOKEN?: string
+  /** The shortest `chief-wake` timer in seconds (chief-brain-cc/wake.ts; default 30, tests 0). */
+  readonly CHIEF_CC_WAKE_MIN_SECONDS?: string
+  /** The Freestyle plan of CHIEF_CC_FREESTYLE_API_KEY's account (free, hobby or pro; default pro): its per-VM maximums bound the Chief's sandbox sizes. */
+  readonly CHIEF_CC_FREESTYLE_PLAN?: string
+  /** How many live sandbox VMs each Chief may keep (default 2, at most 10). */
+  readonly CHIEF_CC_SANDBOX_CAP?: string
+  /** Per-Chief caps over CHIEF_CC_SANDBOX_CAP: "agent_id=N,agent_id=N". */
+  readonly CHIEF_CC_SANDBOX_CAPS?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */

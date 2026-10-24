@@ -47,8 +47,9 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
 /// pulled list, the update notice card says so and offers two choices: "Wait for the Fix"
 /// (the default: the fix-forward build installs through the normal background update) and
 /// "Roll Back" to the build this Mac kept (``UpdateDropBack/failure(to:stateDirectories:)``),
-/// shown only when that rollback would run. The list is read at launch and after every Sparkle
-/// update cycle (scheduled, launch, wake, or asked for); nothing polls.
+/// shown only when that rollback would run and asked about first (``confirmRollBack``). The list
+/// is read at launch and after every Sparkle update cycle (scheduled, launch, wake, or asked for);
+/// nothing polls.
 @MainActor
 @Observable
 public final class PulledBuildWatch {
@@ -62,6 +63,10 @@ public final class PulledBuildWatch {
     public private(set) var rollbackFailure: String?
     /// The daemons' state roots for the rollback's store check (set by the App).
     @ObservationIgnored public var stateDirectories: () -> [URL?] = { [nil] }
+    /// Asks the person before Roll Back quits into the kept build (set by the App: the registry's
+    /// confirmation presenter for `updates.rollback`, the same question as the palette and menu).
+    /// Calls `proceed` only when confirmed; the default has nobody to ask, so nothing runs.
+    @ObservationIgnored public var confirmRollBack: @MainActor (_ proceed: @escaping @MainActor () -> Void) -> Void = { _ in }
     @ObservationIgnored let build: String
     @ObservationIgnored let feedURL: () -> String
     @ObservationIgnored let fetch: @Sendable (URL) async -> Data?
@@ -159,20 +164,27 @@ public final class PulledBuildWatch {
         switch action {
         case .rollBack:
             guard let target = rollbackTarget, !rollingBack else { return }
-            rollbackFailure = nil
-            rollingBack = true
-            let directories = stateDirectories(), rollBack = rollBack
-            Task { [weak self] in
-                // Success relaunches into the kept build; only a failure comes back.
-                let failure = await rollBack(target.build, directories)
-                self?.rollingBack = false
-                if let failure { self?.rollbackFailure = failure }
-            }
+            // Destructive (it quits and relaunches): asks first; Cancel leaves the banner as it was.
+            confirmRollBack { [weak self] in self?.startRollBack(to: target) }
         case .waitForFix:
             waitingBuild = pulled.build
             defaults.set(pulled.build, forKey: Self.waitingKey)
-        case .update, .releaseNotes, .retry, .details:
+        case .update, .releaseNotes, .retry, .details, .relaunchNow:
             break
+        }
+    }
+
+    /// Runs the confirmed rollback to `target`; a second confirmed press while one runs is ignored.
+    private func startRollBack(to target: KeptVersion) {
+        guard !rollingBack else { return }
+        rollbackFailure = nil
+        rollingBack = true
+        let directories = stateDirectories(), rollBack = rollBack
+        Task { [weak self] in
+            // Success relaunches into the kept build; only a failure comes back.
+            let failure = await rollBack(target.build, directories)
+            self?.rollingBack = false
+            if let failure { self?.rollbackFailure = failure }
         }
     }
 

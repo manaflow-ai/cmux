@@ -199,6 +199,10 @@ public final class AgentChatStore {
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
     public var withdrawnDraft: ReturnedDraft?
+    /// What this phone attached to each prompt it sent, by prompt id: the Mac's record of the
+    /// prompt names its images only (and no files), so the sent bubble keeps what was sent.
+    @ObservationIgnored private var sentAttachments: [String: [AgentAttachment]] = [:]
+    @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
@@ -206,6 +210,22 @@ public final class AgentChatStore {
     private var seenPromptIDs: Set<String> = []
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
+    /// Turn and row ids (`TurnRow.id`) that came in as replayed history (a `.batch`: the
+    /// transcript on open, or what a reattach caught up on). They are drawn in place: no
+    /// insert animation, no haptic. Only what arrives after the replay boundary animates.
+    /// Not observed: it changes only with `turns`, which the views already observe.
+    @ObservationIgnored private var replayedIDs: Set<String> = []
+    /// What the chat's first batch (its history on open) held: an ask in it was already
+    /// waiting and does not buzz; one a later batch (a reattach) brings is news.
+    @ObservationIgnored private var openingIDs: Set<String>?
+    /// Asks a decision or an answer resolved (not a turn that ended under them).
+    @ObservationIgnored private var decidedAsks: Set<String> = []
+    /// The newest change was a replayed batch: views that animate on a value change
+    /// (the permission bar, the queue) draw it in place.
+    @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// Set by the composer when it took its place without motion (the chat opened on its
+    /// history): the bottom stack's next height lands at once too (then cleared).
+    @ObservationIgnored var placeBottomStackInstantly = false
     private var currentMessageID: String?
     private var task: Task<Void, Never>?
 
@@ -268,8 +288,10 @@ public final class AgentChatStore {
             pending.text == text && pending.attachments.map(\.id) == attachments.map(\.id) ? pending.promptID : nil
         }
         resendable = nil
+        let promptID = resend ?? UUID().uuidString.lowercased()
+        keepSent(attachments, promptID: promptID)
         source.send(.prompt(text: text, attachments: attachments, steer: steer,
-                            promptID: resend ?? UUID().uuidString.lowercased(), resend: resend != nil))
+                            promptID: promptID, resend: resend != nil))
     }
 
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
@@ -326,17 +348,49 @@ public final class AgentChatStore {
         source.send(.moveQueued(promptId: id, index: from + offset))
     }
 
+    /// The most prompts whose attachments wait for the Mac's record (each holds its bytes).
+    static let maxSentAttachmentPrompts = 8
+
+    /// Keeps what a prompt sent until its record arrives; a returned draft sent again under a new
+    /// id drops the old id's entry, and the oldest go past the cap.
+    private func keepSent(_ attachments: [AgentAttachment], promptID: String) {
+        let ids = Set(attachments.map(\.id))
+        if !ids.isEmpty {
+            for (id, kept) in sentAttachments where id != promptID && Set(kept.map(\.id)) == ids { sentAttachments[id] = nil }
+        }
+        sentOrder.removeAll { $0 == promptID || sentAttachments[$0] == nil }
+        guard !attachments.isEmpty else { return }
+        sentAttachments[promptID] = attachments
+        sentOrder.append(promptID)
+        while sentOrder.count > Self.maxSentAttachmentPrompts { sentAttachments[sentOrder.removeFirst()] = nil }
+    }
+
+    /// Kept prompts in the order they were sent (the cap drops the oldest).
+    var sentAttachmentPromptCount: Int { sentAttachments.count }
+
     // MARK: Reducer
+
+    /// A turn's attachments: what this phone sent (with their bytes), else what the Mac's record
+    /// names (its images, whose bytes `AgentSessionSource.attachmentData` reads on demand).
+    static func sentAttachments(_ sent: [AgentAttachment]?, recorded: [AgentAttachment]) -> [AgentAttachment] {
+        guard let sent, !sent.isEmpty else { return recorded }
+        return sent
+    }
 
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
+        lastChangeWasReplay = false
+        placeBottomStackInstantly = false
         switch event {
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
-                turns.append(AgentTurn(id: turnId, prompt: text, attachments: attachments, promptAt: at))
+                turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                                       promptAt: at))
             }
+            // The turn holds them now.
+            sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
             queue.append(QueuedPrompt(id: promptId, text: text))
@@ -391,13 +445,16 @@ public final class AgentChatStore {
             }
             applyUpdate(update)
         case .permissionRequest(let request):
+            guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
             summary.status = .waiting
         case .question(let question):
+            guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
             summary.status = .waiting
         case .permissionDecision(let permissionId, let optionId):
             approvingOptionID = nil
+            decidedAsks.insert(permissionId)
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
@@ -415,6 +472,7 @@ public final class AgentChatStore {
             }
             summary.status = isRunning ? .running : .idle
         case .questionAnswered(let questionId, let answer):
+            decidedAsks.insert(questionId)
             updateItems { item in
                 guard case .question(var question) = item, question.id == questionId else { return nil }
                 question.state = .answered(answer)
@@ -443,6 +501,8 @@ public final class AgentChatStore {
             applySubagent(change)
         case .batch(let events):
             for event in events { apply(event) }
+            markReplayed()
+            lastChangeWasReplay = true
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)
@@ -452,6 +512,23 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,
+    /// so its view appears without an insert transition (and its ask without a haptic).
+    public func isReplayed(_ id: String) -> Bool { replayedIDs.contains(id) }
+
+    /// Whether `id` (a `TurnRow.id`) was already there when the chat opened (its first batch).
+    public func wasOpenOnArrival(_ id: String) -> Bool { openingIDs?.contains(id) ?? false }
+
+    /// Everything shown now is history: what a batch brought, and anything before it.
+    private func markReplayed() {
+        for turn in turns {
+            replayedIDs.insert(turn.id)
+            for row in turn.rows { replayedIDs.insert(row.id) }
+        }
+        // The opening set is the first batch that brought the transcript.
+        if openingIDs == nil, !turns.isEmpty { openingIDs = replayedIDs }
+    }
 
     private func applySubagent(_ change: AgentSubagentChange) {
         if let index = subagents.firstIndex(where: { $0.id == change.id }) {
@@ -548,6 +625,26 @@ public final class AgentChatStore {
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
+    }
+
+    /// An ask seen again (shown from an attach reply's pending list, then its own record
+    /// came with its turn): not decided, it leaves its old place for the newest turn (a
+    /// turn that ended under it only cancelled it here); decided, the repeat is dropped.
+    /// False: drop the repeat.
+    private func takeOpenAsk(_ id: String) -> Bool {
+        guard !decidedAsks.contains(id) else { return false }
+        for turnIndex in turns.indices {
+            guard let itemIndex = turns[turnIndex].items.firstIndex(where: { item in
+                switch item {
+                case .permission(let record): record.request.id == id
+                case .question(let question): question.id == id
+                default: false
+                }
+            }) else { continue }
+            turns[turnIndex].items.remove(at: itemIndex)
+            return true
+        }
+        return true
     }
 
     private func appendItem(_ item: TurnItem) {

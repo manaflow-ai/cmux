@@ -8,9 +8,13 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     public var unreadCount: Int
     /// The sidebar group the workspace is in, or nil.
     public var groupName: String?
+    /// The machine the workspace runs on, while more than one is listed (machine identity): the
+    /// row's subtitle leads with it, and typing its name finds its workspaces.
+    public var machineName: String?
 
     public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
-                groupName: String? = nil) {
+                groupName: String? = nil, machineName: String? = nil) {
+        self.machineName = machineName
         self.id = id
         self.title = title
         self.directory = directory

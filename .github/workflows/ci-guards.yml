@@ -413,6 +413,7 @@ jobs:
           python3 scripts/whats-new/test_validate.py
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
+          python3 tests/test_release_notes_pr_media.py
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -631,6 +632,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
+      - name: Validate Linux SwiftPM rolling cache keys
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_swift_packages_linux_cache.py
+
       - name: Validate Swift package result reuse
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_result_reuse.py
@@ -715,6 +720,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gallery_select.py
 
+      - name: Validate that gallery health renders a pull request merged with its base
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gallery_health_merge_ref.py
+
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_pr_merge_tree.py
@@ -726,6 +735,10 @@ jobs:
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
+
+      - name: Validate the starved fleet runner label alert
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_starved_labels.py
 
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -865,6 +878,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
 
+      - name: Validate superseded pull request runs are cancelled
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_runs_cancel_superseded.py
+
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
@@ -888,6 +905,10 @@ jobs:
       - name: Validate cmux-tui macOS routes avoid the nightly label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+
+      - name: Validate pin pushes run the cmux_next_ daemon tests on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_daemon_tests_linux.py
 
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -975,8 +996,9 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v tesseract >/dev/null && [ "${GITHUB_ACTIONS:-}" = true ] && command -v apt-get >/dev/null; then
-            sudo apt-get update -qq || sudo apt-get update -qq
-            sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
+            # Wait for an unattended-upgrades or runner apt run instead of failing on the dpkg lock.
+            sudo apt-get -o DPkg::Lock::Timeout=120 update -qq || sudo apt-get -o DPkg::Lock::Timeout=120 update -qq
+            sudo apt-get -o DPkg::Lock::Timeout=120 install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
           fi
           python3 tests/test_ci_pr_media_privacy.py -v SeededTermEndToEndTests
 
@@ -1223,11 +1245,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
 
-      - name: Validate when the cmux-next tour runs (merges, media-tour, Swift UI a tour covers)
+      - name: Validate when the cmux-next tour runs (merges, dispatches, adding media-tour)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
-      - name: Validate which pull requests get a native media tour
+      - name: Validate that a pull request tours once, when media-tour is added
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_auto_tour.py
 
@@ -1325,6 +1347,16 @@ jobs:
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
 
+      # .github/nightly-step-coverage.json: every step only the nightly runs
+      # names its pull-request dry run here or elsewhere, or a reviewed reason.
+      - name: Validate every nightly step has a pull request counterpart
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_step_coverage.py
+
+      - name: Dry-run the nightly's tested-DMG gate for the old feed
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: bash tests/test_nightly_next_legacy_tested_digest.sh
+
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_route.py
@@ -1352,6 +1384,14 @@ jobs:
       - name: Validate the nightly-next feed rollback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
+
+      - name: Validate the nightly-next release-ring tags
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the cmux NEXT Edge feed composer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_edge_feed.py
 
       - name: Validate the nightly-next canary mode and its one-week flip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1470,6 +1510,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
+      - name: Validate Linux compile jobs run on the 16 or 32 vCPU size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_linux_compile_runners.py
+
       - name: Validate the macOS cross-compile shadow jobs stay compare-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_cross_shadow_jobs.py
@@ -1569,8 +1613,8 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
           if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y zsh
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
           fi
           python3 tests/test_issue_15067_bash_watcher_churn.py
           python3 tests/test_issue_1138_sidebar_pr_polling.py

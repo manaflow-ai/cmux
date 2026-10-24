@@ -27,6 +27,10 @@ import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
+import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
+import { wakeFire } from "../chief-brain-cc/wake.ts"
+import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
+import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -442,12 +446,68 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
   async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
+    // A turn machine outlives an evicted object: its post must start the object (onStart resumes the running
+    // turn, which waits for this post), else the post meets no running turn (401) and the ready reply is lost.
+    await this.lifecycle.start()
     return ccNotes(this, token, body)
+  }
+
+  /** The Chief's own tools (chief-brain-cc/tools.ts), on its `<agent>/tools` object only: one `chief-tools` call. */
+  async ccTools(req: unknown): Promise<{ status: number; json: unknown }> {
+    return toolsCall(this.sql, req)
+  }
+
+  /** The Chief's own tools as path -> text, for its next turn machine (chief-brain-cc/turn.ts). */
+  async ccToolFiles(): Promise<Record<string, string>> {
+    return toolFiles(this.sql)
+  }
+
+  /** The Chief's GitHub login (chief-brain-cc/github.ts), on its `<agent>/github` object only: one `chief-github` call or settings change. */
+  async ccGithub(agent: string, req: unknown, machine: boolean): Promise<{ status: number; json: unknown }> {
+    await this.lifecycle.start()
+    return githubCall(this.githubHost(), agent, req, machine)
+  }
+
+  /** The token and status a turn machine of this Chief gets (chief-brain-cc/turn.ts). */
+  async ccGithubTurn(agent: string): Promise<{ token: string | null; status: GithubStatus }> {
+    return githubTurn(this.githubHost(), agent)
+  }
+
+  /** Its rows as stored (tests: no token in clear). */
+  async ccGithubDump(): Promise<Array<{ name: string; value: string }>> {
+    return githubDump(this.sql)
+  }
+
+  private githubHost(): GithubHost {
+    return { sql: this.sql, env: this.env, schedule: (at) => this.schedule("gh-poll", "gh-poll", at) }
+  }
+
+  /**
+   * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   */
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy)
+  }
+
+  /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
+  async ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }> {
+    return ccSandboxRetire(this)
+  }
+
+  /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
+  async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
+    return ccSandboxPurge(this)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
     return turnLoop.wake(this, w)
+  }
+
+  /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
+  async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+    return turnLoop.peerNote(this, w)
   }
 
   /**
@@ -710,6 +770,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
       return next === null ? undefined : { rescheduleAt: next }
     }
     if (job.fn === "drain") return void this.kick()
+    if (job.fn === "self-wake") return wakeFire(this, String(job.id))
+    if (job.fn === "gh-poll") {
+      const next = await githubPoll(this.githubHost())
+      return next === null ? undefined : { rescheduleAt: next }
+    }
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()

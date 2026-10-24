@@ -4,6 +4,7 @@
 //! jitter, forever; a slow peer is `degraded`, a lost one `reconnecting`
 //! (`peer_link.rs`).
 
+use crate::no_panic::LockExt;
 use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
@@ -23,6 +24,14 @@ static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 /// reconnect/update would prefix the name with another peer hop.
 fn is_mirrored_session(summary: &Value) -> bool {
     summary.get("peer").and_then(Value::as_str).is_some()
+}
+
+/// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
+/// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
+/// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
+/// log in one frame, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
+pub fn hidden_attach(id: &str) -> Value {
+    json!({"sessionId": id, "limit": 0, "visible": false, "maxBytes": crate::hub::page_bytes(&json!({}))})
 }
 
 /// What the hub receives from a peer, tagged with the peer's name and
@@ -74,6 +83,8 @@ pub struct Peer {
     trust_gate: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
+    media_read: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -119,6 +130,7 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            media_read: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -256,7 +268,7 @@ impl Peer {
     }
 
     pub fn remote_build(&self) -> Option<String> {
-        self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
+        self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
 
     /// The daemon run the peer named at its last handshake.
@@ -273,20 +285,25 @@ impl Peer {
         self.file_put.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it serves the media reader.
+    pub fn supports_media_read(&self) -> bool {
+        self.media_read.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
         json!({
             "name": self.name,
             "url": self.url,
             "connected": self.connected.load(Ordering::SeqCst),
-            "error": self.last_error.lock().unwrap().clone(),
-            "remoteVersion": self.remote_version.lock().unwrap().as_ref().map(|(v, _)| v.clone()),
-            "remoteBuild": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone()),
+            "error": self.last_error.lock_or_recover().clone(),
+            "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
+            "remoteBuild": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone()),
             "localBuild": crate::hub::BUILD,
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
@@ -297,7 +314,7 @@ impl Peer {
     /// Remember that local clients want this session's stream, so it is
     /// re-attached after a reconnect.
     pub fn mark_attached(&self, session_id: &str) -> bool {
-        self.attached.lock().unwrap().insert(session_id.to_owned())
+        self.attached.lock_or_recover().insert(session_id.to_owned())
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
@@ -336,7 +353,11 @@ impl Peer {
     /// Run the connect loop until `stop`.
     pub async fn run(self: Arc<Self>) {
         let mut backoff = Backoff::default();
-        let mut out_rx = self.out_rx.lock().await.take().expect("peer run called twice");
+        let Some(mut out_rx) = self.out_rx.lock().await.take() else {
+            // A second run: the first owns the outbound queue and the link.
+            tracing::warn!(peer = %self.name, "peer link already running");
+            return;
+        };
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
             self.connected.store(false, Ordering::SeqCst);
@@ -347,7 +368,7 @@ impl Peer {
                 backoff.reset();
             }
             if let Err(e) = outcome {
-                *self.last_error.lock().unwrap() = Some(e.clone());
+                *self.last_error.lock_or_recover() = Some(e.clone());
                 let notice = PeerNotice::Disconnected(e);
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
@@ -379,9 +400,14 @@ impl Peer {
                 Some(&token),
                 peer_token.as_deref(),
             )?;
+            // A peer forwards the pane's prompts and their images: the listener's limits.
             let (ws, _) = tokio::time::timeout(
                 self.timings.connect,
-                tokio_tungstenite::client_async(req, stream),
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    stream,
+                    Some(crate::server::ws_config()),
+                ),
             )
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))?
@@ -399,11 +425,16 @@ impl Peer {
             other => other,
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
-        let (ws, _) =
-            tokio::time::timeout(self.timings.connect, tokio_tungstenite::connect_async(req))
-                .await
-                .map_err(|_| connect_timed_out(self.timings.connect))?
-                .map_err(|e| e.to_string())?;
+        // A peer forwards the pane's prompts and their images: the listener's limits.
+        let connect = tokio_tungstenite::connect_async_with_config(
+            req,
+            Some(crate::server::ws_config()),
+            false,
+        );
+        let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
+            .await
+            .map_err(|_| connect_timed_out(self.timings.connect))?
+            .map_err(|e| e.to_string())?;
         self.serve(ws, out_rx).await
     }
 
@@ -441,7 +472,7 @@ impl Peer {
         use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
         self.connected.store(true, Ordering::SeqCst);
-        *self.last_error.lock().unwrap() = None;
+        *self.last_error.lock_or_recover() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "connected to {}", self.url);
 
@@ -464,7 +495,7 @@ impl Peer {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_owned();
-            *me.remote_version.lock().unwrap() = Some((v, b));
+            *me.remote_version.lock_or_recover() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
@@ -476,13 +507,13 @@ impl Peer {
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
-            let file_put = init
-                .pointer("/_meta/acpmux/features")
-                .and_then(Value::as_array)
-                .is_some_and(|features| {
-                    features.iter().any(|f| f.as_str() == Some(crate::hub::FILE_PUT_FEATURE))
-                });
-            me.file_put.store(file_put, Ordering::SeqCst);
+            let lists = |feature: &str| {
+                init.pointer("/_meta/acpmux/features")
+                    .and_then(Value::as_array)
+                    .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
+            };
+            me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -498,10 +529,9 @@ impl Peer {
                 .await;
             me.with_link(|l| l.ready(crate::store::now_ms()));
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
-            let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
+            let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
             for sid in attached {
-                let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
-                let _ = me.request(method::MUX_ATTACH, attach).await;
+                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
             Ok::<(), RpcError>(())
         });
@@ -768,7 +798,8 @@ pub fn carries_peer_token(url: &str) -> bool {
 /// (None when absent or not a 64-digit hex token).
 pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
     let Some(at) = out.iter().position(|b| *b == 0) else { return (out, None) };
-    (&out[..at], peer_token_text(&out[at + 1..]))
+    let (config, rest) = out.split_at_checked(at).unwrap_or((out, &[]));
+    (config, peer_token_text(rest.get(1..).unwrap_or_default()))
 }
 
 /// A daemon's `run/peer.token` file: the token, trimmed, when it is 64 hex
@@ -838,6 +869,15 @@ impl Drop for ForgetPending {
 #[cfg(test)]
 mod remote_config_tests {
     use super::*;
+
+    #[test]
+    fn the_links_own_attach_names_its_byte_limit() {
+        let attach = hidden_attach("s");
+        assert_eq!(attach["sessionId"], "s");
+        assert_eq!(attach["limit"], 0);
+        assert_eq!(attach["visible"], false);
+        assert_eq!(attach["maxBytes"], crate::hub::page_bytes(&json!({})));
+    }
 
     #[test]
     fn a_remote_config_gives_its_token_and_listen_address() {

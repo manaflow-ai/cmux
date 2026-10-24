@@ -172,7 +172,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc on the card while the turn runs is the double press's first: Stop shows the Esc hint, the next Esc stops", async () => {
+    test("Esc on the card while the turn runs is the double press's first: Stop is armed, the next Esc stops", async () => {
       // The card's Esc falls through to the composer's double press (escapeStop.ts), so a card Esc
       // and one more stop the turn: never three presses, and never an answer.
       const page = await pendingQuestion();

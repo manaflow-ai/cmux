@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// A one-line chrome label whose clipped end fades out (no ellipsis) and
 /// whose hover marquee reveals the rest (`TitleFade`). Passive: it takes no

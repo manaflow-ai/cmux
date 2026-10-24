@@ -19,6 +19,10 @@ extension WorkspaceRowView {
             let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
             actions.append(NSAccessibilityCustomAction(name: name) { onToggleTabs(); return true })
         }
+        if let treeFold, let onToggleTree {
+            let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
+            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTree(); return true })
+        }
         if let onMore {
             actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
         }
@@ -26,13 +30,22 @@ extension WorkspaceRowView {
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence)
+    }
+
+    /// The row's label: what it draws, in reading order. `tabCount` and `presence` are what the
+    /// row's tab count and presence dots show (nil and empty when hidden).
+    static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
+                                  presence: [SidebarPresence]) -> String {
         var parts = [ws.title]
-        if let s = content.now.map(Strings.rowNow) ?? content.detail { parts.append(s) }
-        // The chip's word takes the one-line status's place, as drawn.
+        let detail = content.now.map(Strings.rowNow) ?? content.detail
+        if let detail { parts.append(detail) }
+        // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
         if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
+        if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
@@ -42,7 +55,14 @@ extension WorkspaceRowView {
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
-        if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
+        // A one-list row on another computer leads its second line with the computer's name
+        // (`SidebarLayout.machineLabel`): VoiceOver says it once. The whole name is compared, so a
+        // name with " · " in it still counts.
+        if let machine = content.machine,
+           !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
+            parts.append(machine.name)
+        }
+        parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
     }
 }

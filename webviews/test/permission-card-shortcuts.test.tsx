@@ -92,7 +92,7 @@ async function mount(shortcuts?: boolean) {
 
 test("deny answers with the first deny option, and only its button shows the keycap", async () => {
   const card = await mount();
-  expect(card.keycaps()).toEqual(["Yes: ⌥⌘1", "No, and tell Codex what to do differently: ⌥⌘3"]);
+  expect(card.keycaps()).toEqual(["Allow once: ⌥⌘1", "Deny: ⌥⌘3"]);
   await card.press("permissionDeny");
   expect(card.answers).toEqual(["abort"]);
   await card.unmount();

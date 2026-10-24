@@ -36,6 +36,10 @@ const EVERY_OPTION: Required<DiffViewerOptions> & { collapsedFiles: string[] } =
   diffIndicators: "bars",
   expandUnchanged: true,
   groupByKind: true,
+  hideWhitespace: true,
+  hideImports: true,
+  loadFullFiles: true,
+  richPreview: true,
   layout: "split",
   lineNumbers: true,
   showBackgrounds: true,
@@ -56,8 +60,29 @@ test("every diff pref the page persists is a key the host accepts", async () => 
 
 test("a session-local option is never persisted", async () => {
   const persisted = Object.keys(sanitizeViewerPrefs(EVERY_OPTION));
-  // `collapsed` is session-local by design; `groupByKind` is session-local until it has a
-  // `diff.groupByKind` schema row, and the test above is what lets it become persisted safely.
+  // The collapse-all toggle is session-local by design: it is a way of reading this diff now, not
+  // a preference about every diff.
   expect(persisted).not.toContain("collapsed");
-  expect(persisted).not.toContain("groupByKind");
+  // Hide imports lasts for the tab: it has no settings row, and the host would refuse the key.
+  expect(persisted).not.toContain("hideImports");
+  expect(persisted).not.toContain("richPreview");
+  expect(persisted).not.toContain("loadFullFiles");
+});
+
+test("the file grouping is kept, because the host now has a row for it", async () => {
+  // It shipped as a toolbar toggle that reset itself on every reopen: the page sent
+  // `diff.groupByKind`, the host had no schema row for it, and `saveViewerPrefs` swallowed the
+  // refusal. Both halves are asserted here, because either one alone is the silent bug again.
+  const accepted = await hostKeys();
+  expect(accepted.has("groupByKind")).toBe(true);
+  expect(sanitizeViewerPrefs(EVERY_OPTION).groupByKind).toBe(true);
+  expect(sanitizeViewerPrefs({ groupByKind: "yes" })).toEqual({});
+});
+
+test("Hide white space is kept, because the host has a row for it", async () => {
+  // The "..." menu's Hide white space writes `diff.hideWhitespace`; without its row in
+  // DiffPrefKey.booleans the host would refuse it and the toggle would reset on every reopen.
+  const accepted = await hostKeys();
+  expect(accepted.has("hideWhitespace")).toBe(true);
+  expect(sanitizeViewerPrefs(EVERY_OPTION).hideWhitespace).toBe(true);
 });

@@ -14,6 +14,9 @@ extension ChatsFeed {
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
+        // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
+        AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
+        AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)
         startChiefTurnStates(tag: services.environment.tag)

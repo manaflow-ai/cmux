@@ -198,6 +198,16 @@ public final class CEFEngine: BrowserEngine {
         return store
     }
 
+    /// Sets `profile`'s proxy (nil: direct, #24432). A page made later uses it from its
+    /// first request; a context Chromium already made takes it now.
+    public func setProxy(_ proxy: BrowserProfileProxy?, for profile: BrowserProfileID) {
+        let runtime = CEFRuntime.shared
+        guard runtime.profileProxies[profile] != proxy else { return }
+        runtime.profileProxies[profile] = proxy
+        runtime.unappliedProfileProxies.insert(profile)
+        if runtime.shim != nil { _ = runtime.applyProfileProxy(profile) }
+    }
+
     /// Where Chromium keeps every profile's directory.
     public var storageRoot: URL { CEFRuntime.shared.storage.root }
 
@@ -230,6 +240,9 @@ public final class CEFEngine: BrowserEngine {
 
     /// External message pump counters (for `debug.cef`); nil before CEF runs.
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
+
+    /// What the fork's page tracker read from host views (for `debug.cef`).
+    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
@@ -269,6 +282,12 @@ public final class CEFEngine: BrowserEngine {
     public var openOffTheRecord: ((URL?, (any BrowserTab)?) -> Void)? {
         get { CEFRuntime.shared.openOffTheRecord.map { handler in { url, tab in handler(url, tab as? CEFTab) } } }
         set { CEFRuntime.shared.openOffTheRecord = newValue.map { handler in { url, tab in handler(url, tab) } } }
+    }
+
+    /// Whether an assistive client (VoiceOver, an automation driver) asks for the app's
+    /// accessibility tree: Chromium pages build theirs only while one does (`CEFAccessibility`).
+    public func setAssistiveClientActive(_ active: Bool) {
+        CEFRuntime.shared.accessibility.setEnabled(active)
     }
 
     /// Chromium never opens a window of its own: what the window requests,

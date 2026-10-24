@@ -654,7 +654,7 @@ impl Hub {
             if profile.kind == crate::config::HarnessKind::ClaudeStdio {
                 crate::claude_stdio::MODES
                     .iter()
-                    .map(|(id, name)| ((*id).to_owned(), Some((*name).to_owned())))
+                    .map(|(id, name, _)| ((*id).to_owned(), Some((*name).to_owned())))
                     .collect()
             } else {
                 Vec::new()

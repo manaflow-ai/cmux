@@ -28,8 +28,22 @@ pub(super) async fn agent_prompt(
     turn_id: &str,
     steer: bool,
 ) -> Result<Value, RpcError> {
+    agent_prompt_hook(session, child, params, turn_id, steer, || {}).await
+}
+
+/// The same request, with a synchronous hook after the prompt is written to the child and before
+/// its answer is awaited. The first-message title path uses this gap so a harness title update can
+/// win without waiting for the whole turn.
+pub(super) async fn agent_prompt_hook<F: FnOnce()>(
+    session: &Session,
+    child: &ChildAgent,
+    params: Value,
+    turn_id: &str,
+    steer: bool,
+    on_sent: F,
+) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
-    let request = child.request(method::SESSION_PROMPT, params);
+    let request = child.request_with_hook(method::SESSION_PROMPT, params, on_sent);
     tokio::pin!(request);
     loop {
         tokio::select! {
@@ -81,10 +95,16 @@ impl Hub {
         let text = prompt_text(&blocks);
         let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
-        self.append_prompt(session, msg, &blocks);
-        accept(
-            json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
-        );
+        self.append_prompt(session, msg, &blocks, opts.display_parts.as_ref());
+        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true});
+        // Steered in: the sender's prompts still queued under its key are replaced (`supersede.rs`).
+        if let Some(key) = opts.supersede.as_deref() {
+            let sender =
+                super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+            let gone = self.supersede_queued(session, key, sender.as_deref(), &prompt_id);
+            super::queue::supersede::mark(&mut accepted, Some(&gone));
+        }
+        accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
@@ -118,6 +138,9 @@ impl Hub {
                     interrupt: opts.interrupt,
                     provenance: opts.provenance,
                     agent: opts.agent,
+                    // Queued under its key, so a later correction still replaces it.
+                    supersede: opts.supersede,
+                    display_parts: opts.display_parts,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

@@ -34,7 +34,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
-                category: .agents, symbol: "bubble.left.and.text.bubble.right",
+                category: .agents, symbol: "bubble.left.and.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
             ActionDescriptor(
@@ -42,7 +42,26 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
                 keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ContextMenuPlacement(.agentChat, .inspect, 0, folder: .tools),
+                ])
+            ),
+            ActionDescriptor(
+                id: "agentPane.togglePointerInspector",
+                title: "Inspect UI Element",
+                keywords: ["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+                category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
+                cliName: "agent toggle-ui-pointer",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Inspect Element"),
+                    ContextMenuPlacement(.tab, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.pane, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.workspaceRow, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.sidebarItem, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.sidebarSection, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.windowBackground, .inspect, 510, label: "Inspect Element"),
+                ])
             ),
             ActionDescriptor(
                 id: "palette.quickAgentChat",
@@ -233,49 +252,49 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "palette.forkAgentConversationRight",
                 title: String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module),
                 keywords: ["agent", "fork", "branch", "split"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
-                category: .agents, symbol: "arrow.triangle.branch",
+                category: .agents, symbol: "rectangle.righthalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-right"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationLeft",
                 title: String(localized: "action.palette.forkAgentConversationLeft", defaultValue: "Fork Conversation to the Left", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.lefthalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-left"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTop",
                 title: String(localized: "action.palette.forkAgentConversationTop", defaultValue: "Fork Conversation Above", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.tophalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-above"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationBottom",
                 title: String(localized: "action.palette.forkAgentConversationBottom", defaultValue: "Fork Conversation Below", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.bottomhalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
                 title: String(localized: "action.palette.forkAgentConversationNewTab", defaultValue: "Fork Conversation to New Tab", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                keywords: ["agent", "fork"], category: .agents, symbol: "plus.square",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-tab"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewWorkspace",
                 title: String(localized: "action.palette.forkAgentConversationNewWorkspace", defaultValue: "Fork Conversation to New Workspace", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.stack.badge.plus",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-workspace"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewWindow",
                 title: String(localized: "action.palette.forkAgentConversationNewWindow", defaultValue: "Fork Conversation to New Window", bundle: .module),
-                keywords: ["agent", "fork", "window"], category: .agents, symbol: "arrow.triangle.branch",
+                keywords: ["agent", "fork", "window"], category: .agents, symbol: "macwindow.badge.plus",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-window"
             ),
@@ -368,6 +387,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "edit", "delete", "forget", "inspector"],
                 category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The Home header's Memory toggle (top right, like Claude desktop's panel buttons): closes
+            // the window's Memory Inspector tabs when one shows, else opens one as the action above
+            // (the same `chief` and `server` arguments).
+            ActionDescriptor(
+                id: "chief.toggleMemoryInspector",
+                title: String(localized: "action.chief.toggleMemoryInspector", defaultValue: "Chief: Toggle Memory Inspector", bundle: .module),
+                keywords: ["chief", "memory", "inspector", "panel", "show", "hide", "close"],
+                category: .agents, symbol: "brain", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
             // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The

@@ -27,6 +27,15 @@
   --agent-link: color-mix(in oklab, var(--agent-link-base) 80%, var(--agent-ansi-12, var(--agent-link-base)));
   --agent-accent-soft: color-mix(in srgb, var(--agent-text) 20%, transparent);
   --agent-danger: var(--cmux-app-danger, #ff8d7e);
+  /* Status and diff text uses the terminal palette. AgentPaneTheme lifts every ANSI slot to
+     4.5:1 over the elevated glass surface; bright slots keep yellow and red readable on light
+     themes. The light-dark fallbacks cover first paint and pages without a palette. */
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  --agent-diff-add: var(--agent-status-success);
+  --agent-diff-del: var(--agent-status-failure);
   --agent-shadow: rgba(0, 0, 0, 0.2);
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);

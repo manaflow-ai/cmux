@@ -18,8 +18,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: labels-sync
-  cancel-in-progress: false
+  # Pull request runs only validate the manifest, each in its own pull request's
+  # group, and a newer push cancels the older one. Push and dispatch runs write
+  # labels and keep the one shared, never-cancelled group.
+  group: labels-sync${{ github.event_name == 'pull_request' && format('-pr-{0}', github.event.pull_request.number) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:

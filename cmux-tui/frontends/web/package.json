@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vp dev",
     "build": "vp check --no-fmt --no-lint && vp build",
-    "check": "vp check",
+    "check": "vp fmt --check && vp lint && vp check --no-fmt --no-lint",
     "check:fix": "vp check --fix",
     "fmt": "vp fmt",
     "lint": "vp lint",
@@ -28,10 +28,14 @@
     "@vitejs/plugin-react": "^5.1.2",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
-    "vite-plus": "1.0.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0",
+    "vite-plus": "1.3.0"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
+    "baseline-browser-mapping": "^2.11.0",
+    "browserslist": "^4.28.7",
+    "source-map-js": "^1.2.2",
+    "undici": "^7.29.1",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0"
   }
 }

@@ -46,6 +46,10 @@ mod session_scope;
 #[path = "turn_usage.rs"]
 mod turn_usage;
 
+// A fork of a chat whose turn runs, which shares these helpers too.
+#[path = "fork_running.rs"]
+mod fork_running;
+
 const FORK_OP: &str = "acp.session.fork";
 
 #[tokio::test]
@@ -299,6 +303,8 @@ async fn a_claude_fork_through_a_turn_after_a_failed_one_holds_that_turn_and_no_
     std::fs::create_dir_all(&claude).unwrap();
     let (hub, mut c) =
         claude_setup(&claude, &[("FAKE_CLAUDE_DIE_IF", &die.to_string_lossy())]).await;
+    // The turn whose agent dies stays failed: no continuation runs before "second".
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let s = c
         .request(
             method::SESSION_NEW,

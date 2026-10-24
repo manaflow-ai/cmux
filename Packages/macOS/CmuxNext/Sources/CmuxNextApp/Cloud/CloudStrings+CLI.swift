@@ -17,4 +17,9 @@ extension CloudStrings {
                defaultValue: "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead.",
                table: "Cloud", bundle: .module)
     }
+
+    /// `cloud set-idle-pause` with a `minutes` value the server does not take.
+    static func idlePauseMustBeOneOf(_ list: String) -> String {
+        String(format: String(localized: "cloud.cli.idlePauseMustBeOneOf", defaultValue: "Minutes must be one of: %@.", table: "Cloud", bundle: .module), list)
+    }
 }

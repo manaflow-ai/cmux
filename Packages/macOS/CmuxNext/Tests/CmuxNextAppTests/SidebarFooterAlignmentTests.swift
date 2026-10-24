@@ -7,7 +7,8 @@ import Testing
 /// each other's line, the magnifying glass floating above the avatar's center. The footer is one
 /// line: the account chip, its avatar and the Search button share one center, and the line's
 /// taller control ends `SidebarStyle.bottomInset` (#22663's 8 pt) above the window's bottom edge,
-/// at every density.
+/// at every density. Leo 2026-10-21: the avatar is as big as its square allows and the Search
+/// button sits right after it, its lens on the avatar's center.
 @MainActor @Suite(.serialized) struct SidebarFooterAlignmentTests {
     struct Harness {
         let sidebar: SidebarView
@@ -64,13 +65,25 @@ import Testing
         let search = h.frame(of: h.sidebar.searchButton)
         try #require(!h.sidebar.searchButton.isHidden, "the search button shows")
 
-        // One center line: the chip, its avatar and the Search button.
-        #expect(abs(search.midY - circle.midY) <= 0.25, "search \(search) off the avatar's center \(circle)")
-        #expect(abs(search.midY - chip.midY) <= 0.25, "search \(search) off the chip's center \(chip)")
+        // One center line: the chip, its avatar and the magnifying glass's lens, which rides a
+        // device pixel above the Search button's middle (Leo 2026-10-21: "move the magnifying glass
+        // a bit lower").
+        let lens = search.midY - h.sidebar.footerBand.searchLensDrop
+        #expect(h.sidebar.footerBand.searchLensDrop > 0, "the button sits under the line by its lens")
+        #expect(abs(lens - circle.midY) <= 0.25, "search's lens \(lens) off the avatar's center \(circle)")
+        #expect(abs(circle.midY - chip.midY) <= 0.25, "the avatar \(circle) off the chip's center \(chip)")
         if control.titleFrame.height > 0 {
             let title = h.sidebar.convert(control.titleFrame, from: control)
             #expect(abs(title.midY - circle.midY) <= 0.5, "name \(title) off the avatar's center \(circle)")
         }
+
+        // The avatar is the sidebar's icon box (16 pt at compact), as before #23757 (Lawrence
+        // 2026-10-21: "bottom footer thing too big, revert to old icon sizes"), centered in its
+        // square, and the Search button sits flush against that square: the two controls' own
+        // insets are the gap, as a toolbar's buttons.
+        #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
+        #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
+        #expect(abs(search.minX - chip.maxX) <= 0.25, "search \(search) flush after the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).
         let lineBottom = max(search.maxY, chip.maxY)

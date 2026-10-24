@@ -47,7 +47,8 @@ final class SettingsDeviceList {
 
     /// The Mac rows (see `SettingsDeviceRows.macs`); nil while loading.
     func macs(store: AppStore, hasService: Bool) -> [SettingsDevice]? {
-        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs))
+        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs),
+                                teamOf: store.teams.reduce(into: [:]) { out, team in for mac in team.macs where out[mac.id] == nil { out[mac.id] = team.id } })
     }
 
     var phones: [SettingsDevice] { SettingsDeviceRows.phones(service: devices) }
@@ -68,30 +69,37 @@ struct DevicesPage: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
-    @ScaledMetric(relativeTo: .body) private var iconColumn: CGFloat = 22
 
     var body: some View {
         List {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
-                    Label("Relay unavailable. Connections from outside your network may fail.", systemImage: "exclamationmark.triangle")
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
+                    CmuxMobileGutterRow {
+                        SettingsIcon("exclamationmark.triangle").accessibilityHidden(true)
+                    } content: {
+                        Text("Relay unavailable. Connections from outside your network may fail.")
+                    }
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                    .accessibilityElement(children: .combine)
                 }
             }
             Section {
                 if macs.isEmpty {
                     Text(loadedMacs == nil ? "Loading…" : "No Macs yet. Open cmux on your Mac and sign in with this account.")
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                        .cmuxMobileTextColumn()
                 }
                 ForEach(macs) { mac in
                     removableRow(mac)
                 }
                 .onDelete { offsets in pendingRemoval = offsets.first.map { macs[$0] } }
             } header: {
-                Text("Macs")
+                Text("Macs").cmuxMobileTextColumn()
             } footer: {
-                if directory != nil { Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.") }
+                if directory != nil {
+                    Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.").cmuxMobileTextColumn()
+                }
             }
             if directory != nil, !phones.isEmpty {
                 Section {
@@ -100,9 +108,10 @@ struct DevicesPage: View {
                     }
                     .onDelete { offsets in pendingRemoval = offsets.first.map { phones[$0] } }
                 } header: {
-                    Text("Phones")
+                    Text("Phones").cmuxMobileTextColumn()
                 } footer: {
                     Text(directory != nil ? "To remove this iPhone, use Remove This iPhone from My Macs below." : "Sign out to remove this iPhone.")
+                        .cmuxMobileTextColumn()
                 }
             }
             if directory != nil {
@@ -111,15 +120,17 @@ struct DevicesPage: View {
                         confirmingPhoneRemoval = true
                     } label: {
                         Text(removingPhone ? "Removing…" : "Remove This iPhone from My Macs")
+                            .cmuxMobileTextColumn()
                     }
                     .disabled(removingPhone)
                     .accessibilityIdentifier("settings.removeThisPhone")
                 } footer: {
                     Text("Signing out keeps this iPhone allowed on your Macs. Remove it to make each Mac ask again before it connects.")
+                        .cmuxMobileTextColumn()
                 }
             }
             if let loadError = list.loadError {
-                Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger) }
+                Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger).cmuxMobileTextColumn() }
             }
         }
         .settingsPage("Devices")
@@ -156,6 +167,8 @@ struct DevicesPage: View {
 
     private var loadedMacs: [SettingsDevice]? { list.macs(store: store, hasService: directory != nil) }
     private var macs: [SettingsDevice] { loadedMacs ?? [] }
+    /// Mac rows that are another cmux build of a listed Mac.
+    private var otherBuilds: Set<String> { SettingsDeviceRows.otherBuilds(macs) }
     private var phones: [SettingsDevice] { list.phones }
 
     /// Tags for Macs that share a name ("Aziz's MacBook Pro" twice), so
@@ -231,7 +244,8 @@ struct DevicesPage: View {
     }
 
     @ViewBuilder private func row(_ device: SettingsDevice) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
+        // The dot or glyph in the icon column; the name at the headers' x.
+        CmuxMobileGutterRow(alignment: .firstTextBaseline) {
             Group {
                 if device.kind == .mac {
                     // 8 pt at Large, growing with the text up to 16 pt.
@@ -241,10 +255,10 @@ struct DevicesPage: View {
                     SettingsIcon("iphone")
                 }
             }
-            .frame(width: min(iconColumn, theme.metrics.settingsIconFrame * 2))
             // Centered on the name's line, not the two-line block (the offset
             // from the baseline is about half the text's cap height).
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + dotLift }
+        } content: {
             VStack(alignment: .leading, spacing: 2) {
                 let tag = device.kind == .mac ? sameNames.tag(for: device.id) : nil
                 if typeSize.isAccessibilitySize {
@@ -286,9 +300,10 @@ struct DevicesPage: View {
         } else {
             presence = "Offline"
         }
+        let build = otherBuilds.contains(device.id) ? ["Another cmux build on this Mac"] : []
         // Same-name Macs: when each was added (the tag is next to the name).
-        guard let added = sameNames.added(for: device.id, addedAt: device.addedAt) else { return presence }
-        return "\(presence) · \(added)"
+        let added = sameNames.added(for: device.id, addedAt: device.addedAt).map { [$0] } ?? []
+        return ([presence] + build + added).joined(separator: " · ")
     }
 
     /// Presence plus this phone's own connection, for a Mac this phone knows:

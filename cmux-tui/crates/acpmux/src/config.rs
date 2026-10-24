@@ -719,7 +719,8 @@ impl Default for TuiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TitlesConfig {
-    /// `generate`: title such a chat after its first turn. Default on.
+    /// `generate`: title such a chat after its first user message. Default on; a thin first
+    /// message may get one refresh after its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     /// `command`: an argv that reads the request on stdin and prints the
@@ -793,6 +794,10 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `uploadsMaxAgeDays`: files dropped into a chat (`_acpmux/file_put`) are deleted once
+    /// older than this many days (`hub/file_uploads.rs`). Default 30; 0 keeps them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploads_max_age_days: Option<u64>,
     /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
     /// `initialize`, session load or new, config replay) may take. Past it
     /// the request fails with a `deadline_exceeded` error and the agent is
@@ -913,6 +918,14 @@ impl Config {
     /// `agentStartTimeoutMs`, or its 90 s default.
     pub fn agent_start_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
+    }
+
+    /// `uploadsMaxAgeDays`, or its 30-day default; None when it is 0 (keep them).
+    pub fn uploads_max_age(&self) -> Option<std::time::Duration> {
+        match self.uploads_max_age_days.unwrap_or(30) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(days.saturating_mul(24 * 60 * 60))),
+        }
     }
 
     /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).

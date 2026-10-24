@@ -4,6 +4,7 @@
 //! only after that commit and never for a replay. Rejects carry `error_code`
 //! `conversation_rejected` and the reason code as the error text.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use cmux_conversation::{Change, Op, Participant, Reject};
@@ -618,10 +619,10 @@ pub(super) fn op_reply(outcome: &OpOutcome, change: Value, transaction: Option<A
     let result = &outcome.result;
     let mut reply = json!({"rev": result.rev, "replayed": outcome.replayed, "change": change});
     if let Some(seq) = result.seq {
-        reply["seq"] = json!(seq);
+        reply.insert("seq", json!(seq));
     }
     if let Some(transaction) = transaction {
-        reply["transaction"] = json!(&*transaction);
+        reply.insert("transaction", json!(&*transaction));
     }
     reply
 }
@@ -655,10 +656,10 @@ pub(super) fn draft(mux: &Mux, client: u64, params: DraftParams) -> anyhow::Resu
         "kind": params.kind, "text": params.text, "fresh": params.fresh, "done": params.done,
     });
     if let Some(truncated) = params.truncated {
-        fields["truncated"] = json!(truncated);
+        fields.insert("truncated", json!(truncated));
     }
     if let Some(harness) = params.harness {
-        fields["harness"] = json!(harness);
+        fields.insert("harness", json!(harness));
     }
     let published =
         super::conversation_resource::publish_draft(mux, &params.conversation, &principal, &fields)

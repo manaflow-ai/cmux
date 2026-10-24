@@ -1,14 +1,15 @@
 //! Part of `Hub`; see `hub/mod.rs`. Harness profile hot reload
 //! (BRING-YOUR-OWN-HARNESS H2, slice 2b).
 //!
-//! One non-recursive watcher (FSEvents on macOS, inotify on Linux) over the
-//! profile sources: the managed folders, the user folder and cmux.json. On
-//! macOS a kqueue watch on the same folders (`record_watch::DirWatch`) also
-//! reports a profile file added, removed or renamed: FSEvents goes through
-//! fseventsd, which falls behind a burst of writes anywhere on the volume (a
-//! build) by many seconds or drops the events (cx-ckdxf), and the kernel's
-//! vnode events do not. FSEvents still reports an edit inside a file. The
-//! folder that holds the user folder is watched too, so a user folder that
+//! One non-recursive watch over the profile sources: the managed folders,
+//! the user folder and cmux.json. Linux and others: notify's watcher
+//! (inotify). macOS: kqueue vnode events (`record_watch::DirWatch`) on the
+//! folders and on each file in them, made again when the files change, and
+//! a change counts only when what the sources hold changed (`sources_print`).
+//! Not FSEvents: it goes through fseventsd, which falls behind a burst of
+//! writes anywhere on the volume (a build, a full test run) by many seconds
+//! or drops the events (cx-ckdxf), so a new profile was missed or its event
+//! came seconds after another reload. The folder that holds the user folder is watched too, so a user folder that
 //! `cmux harness add` creates later is picked up; nothing is created here.
 //! No timers and no polling: the event thread blocks until an event comes,
 //! gathers the burst (debounce) and only signals. One task on the runtime
@@ -25,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
+#[cfg(not(target_os = "macos"))]
 use notify::Watcher as _;
 
 use crate::config::ProfileSources;
@@ -65,10 +67,12 @@ impl Drop for HarnessWatchState {
 
 /// Keeps the watcher alive; dropping it stops the events and its thread.
 pub(crate) struct HarnessWatcher {
+    #[cfg(not(target_os = "macos"))]
     watcher: StdMutex<notify::RecommendedWatcher>,
     watched: StdMutex<Vec<PathBuf>>,
-    /// The kqueue watch on `watched` (macOS), made again when it changes; its
-    /// events reach the event thread as rescans through `events`.
+    /// The kqueue watch (macOS) on the watched folders, the files in the
+    /// source folders and cmux.json, made again on each refresh; its events
+    /// reach the event thread as rescans (`events`).
     #[cfg(target_os = "macos")]
     kernel: StdMutex<Option<crate::agent_host::record_watch::DirWatch>>,
     #[cfg(target_os = "macos")]
@@ -101,8 +105,7 @@ impl Hub {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        #[cfg(target_os = "macos")]
-        let events = tx.clone();
+        #[cfg(not(target_os = "macos"))]
         let watcher = match notify::recommended_watcher(move |event| {
             let _ = tx.send(event);
         }) {
@@ -113,12 +116,13 @@ impl Hub {
             }
         };
         let watch = Arc::new(HarnessWatcher {
+            #[cfg(not(target_os = "macos"))]
             watcher: StdMutex::new(watcher),
             watched: StdMutex::new(Vec::new()),
             #[cfg(target_os = "macos")]
             kernel: StdMutex::new(None),
             #[cfg(target_os = "macos")]
-            events,
+            events: tx,
         });
         watch.refresh(&sources);
         *self.harness_watch.watcher.lock().unwrap_or_else(|p| p.into_inner()) = Some(watch.clone());
@@ -199,30 +203,40 @@ impl HarnessWatcher {
         }
         wanted.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
-        let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
         // A removed folder's watch is gone with it: forget it so it returns.
-        #[cfg(target_os = "macos")]
-        let before = watched.clone();
         watched.retain(|dir| dir.is_dir());
-        for dir in wanted {
-            if dir.is_dir()
-                && !watched.contains(&dir)
-                && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
-            {
-                watched.push(dir);
+        #[cfg(not(target_os = "macos"))]
+        {
+            let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
+            for dir in wanted {
+                if dir.is_dir()
+                    && !watched.contains(&dir)
+                    && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
+                {
+                    watched.push(dir);
+                }
             }
         }
         #[cfg(target_os = "macos")]
-        if *watched != before {
+        {
+            for dir in wanted {
+                if dir.is_dir() && !watched.contains(&dir) {
+                    watched.push(dir);
+                }
+            }
+            let mut paths = watched.clone();
+            paths.extend(source_files(sources));
+            // Made again on every refresh (a burst that changed the sources):
+            // a file replaced by a rename is another file to watch under the
+            // same path. The old watch ends when dropped; the new one is
+            // armed before this returns, so the reload that follows a
+            // refresh reads every change it missed.
             let mut kernel = self.kernel.lock().unwrap_or_else(|p| p.into_inner());
-            // The old watch ends when dropped; the new one is armed before
-            // this returns, so the reload that follows a refresh reads every
-            // change it missed.
             *kernel = None;
             let events = self.events.clone();
             let sources = sources.clone();
             let mut last = sources_print(&sources);
-            *kernel = crate::agent_host::record_watch::DirWatch::start(&watched, move || {
+            *kernel = crate::agent_host::record_watch::DirWatch::start(&paths, move || {
                 // The folders also hold other files (cmux.json's folder):
                 // only a change to a profile source is a rescan.
                 let now = sources_print(&sources);
@@ -237,6 +251,23 @@ impl HarnessWatcher {
             });
         }
     }
+}
+
+/// The files the kqueue watch follows besides the folders: each file in a
+/// source folder (an edit inside one is no folder change) and cmux.json.
+#[cfg(target_os = "macos")]
+fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
+            .unwrap_or_default();
+        found.retain(|path| path.is_file());
+        found.sort();
+        files.extend(found);
+    }
+    files.extend(sources.cmux_json.iter().filter(|path| path.is_file()).cloned());
+    files
 }
 
 /// A path's size and modification time.

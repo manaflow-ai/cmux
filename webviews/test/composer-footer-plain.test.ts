@@ -4,8 +4,9 @@
 // the rest of the difference away:
 //   - the model's name is muted like its effort and the permission mode (the model button names
 //     both, "Opus 5.5  Medium": Leo 2026-10-20, one button, no effort chip of its own);
-//   - the model's brand mark and the mode's lock are hidden (each comes back when the row's fit
-//     steps take the model's name or the mode's label away, so no chip is a bare chevron).
+//   - the model's brand mark is hidden (it comes back when the row's fit steps take the model's
+//     name away, so no chip is a bare chevron); the mode keeps its symbol beside its label, as
+//     Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label").
 //     The mode's chevron stays; the model button, as Claude Code's, draws none.
 // No chip draws a fill, ring or border at rest; hover, keyboard focus and an open menu draw the
 // row's wash. Labels and keyboard behavior are the same; widths may shrink with the icons hidden,
@@ -294,8 +295,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         if (row.modelLabel && model?.leadingIcon) problems.push("the model's brand mark still draws beside its name");
         if (!row.modelLabel && !model?.leadingIcon) problems.push("the stepped-down model chip has no mark");
         const mode = chip(row, "mode");
-        if (row.accessLabel && mode?.leadingIcon) problems.push("the mode's lock still draws beside its label");
-        if (!row.accessLabel && !mode?.leadingIcon) problems.push("the stepped-down mode chip has no lock");
+        if (!mode?.leadingIcon) problems.push("the mode chip lost its symbol");
         problems.push(...overlaps(row));
         if (back.look !== "" || JSON.stringify(back.chips) !== JSON.stringify(before.chips))
           problems.push("turning the look off does not draw the chips as before");

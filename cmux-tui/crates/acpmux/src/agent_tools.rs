@@ -102,7 +102,26 @@ pub const OFF_ENV: &str = "ACPMUX_AGENT_TOOLS_OFF";
 /// `session_dir::CHIEF_CMUX_TOOLS`, which sets the same in its own presets.
 pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
-    agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render";
+    agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
+    agents_terminal_list,agents_terminal_send";
+/// What every agent chat is told about asking the person, in the cmux MCP
+/// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
+/// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
+/// multiple-choice question that read "Waiting for you: allow this?" (Leo
+/// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
+/// cmux skill say the same. Claude Code may cut server instructions past
+/// 2048 characters, so the code-mode text plus this rule stays under that.
+pub const ASKING_RULE: &str = "Asking the person: the person allows tools through the chat's \
+    mode and the harness's own permission prompts, never through your questions, and a chat in \
+    Full access (Claude Code bypassPermissions, Codex full access) has already allowed every \
+    tool call its harness would ask about. So never ask them to allow, confirm or approve a \
+    step, with AskUserQuestion or in text (\"should I go ahead?\"): decide, say why in one \
+    line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's \
+    own request (computer use, importing a browser's cookies, deleting their data) waits for \
+    that request, and a cmux consent panel is theirs to answer; leave such a step out and say \
+    so. Ask only about product taste you cannot settle from the request or the code, as that \
+    choice, never as a permission.";
+
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
@@ -269,11 +288,19 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 /// Anthropic's (our routers), and then sends every schema in every turn.
 pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
 
-/// The profile env that opts a harness in to cmux's code mode (two tools, `cmux_docs` and
-/// `cmux_exec`) instead of every tool: `1` turns it on. Off by default: on the agent evals
-/// (tests/agent-evals RESULTS, codemode-vs-all) every tool passed 8/12 Claude Code tasks to code
-/// mode's 6/12 at about half the cost, and tied for Codex.
+/// The profile env for cmux's code mode (one tool, `cmux_exec`): the default for every agent
+/// since Lawrence's 2026-10-23 call; `0` lists every tool instead. (The agent evals,
+/// tests/agent-evals RESULTS codemode-vs-all, had every tool pass 8/12 Claude Code tasks to code
+/// mode's 6/12, tied for Codex.)
 pub const CODE_MODE_ENV: &str = "CMUX_MCP_CODE_MODE";
+
+/// Whether a profile opted out of code mode (`CODE_MODE_ENV=0`): only then
+/// does its cmux server list every tool. Every other agent sees one cmux
+/// tool, `cmux_exec` (Lawrence 2026-10-23); on Claude Code 2.1.305 the 773
+/// names cost a bare request 11.4k of 36.3k prompt tokens.
+pub fn all_tools_opted_in(env: &BTreeMap<String, String>) -> bool {
+    env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "0")
+}
 
 /// Whether a harness defers MCP tools behind its own tool search, so its
 /// cmux server lists every tool (`cmux mcp serve --all-tools`) and the
@@ -294,8 +321,9 @@ pub fn lists_all_tools(
     env: &BTreeMap<String, String>,
     cwd: &Path,
 ) -> bool {
-    // The profile's opt-in to code mode wins (`CODE_MODE_ENV`).
-    if env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
+    // Code mode for every agent (Lawrence 2026-10-23: an agent sees only
+    // cmux_exec); a profile lists every tool only with `CODE_MODE_ENV=0`.
+    if !all_tools_opted_in(env) {
         return false;
     }
     if is_claude_code(name, profile) {
@@ -407,10 +435,7 @@ pub fn claude_args_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
-            .listing(
-                claude_lists_all_tools(env, cwd)
-                    && env.get(CODE_MODE_ENV).is_none_or(|v| v.trim() != "1"),
-            )
+            .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
             .without_off(env)
             .folded()
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))

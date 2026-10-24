@@ -41,11 +41,7 @@ struct AgentPaneTranscriptStepTests {
     }
 
     @Test func eachStepSendsItsPageCommand() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "transcript-step-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body></body></html>".utf8).write(to: file)
+        let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true))
         let provider = try #require(view.pageEvents, "the shared page host has no event stream")
         let received = Received()

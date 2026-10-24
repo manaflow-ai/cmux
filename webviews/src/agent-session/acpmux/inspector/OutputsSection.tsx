@@ -1,6 +1,12 @@
-// The Inspector's Outputs: what the chat produced. Its files (each opens its diff), its artifacts
-// (the images and renders its replies drew, which open the chat's gallery, GalleryDialog.tsx), and
-// the web links its replies gave, each once (a pull request's link is under Changes instead).
+// The Inspector's Outputs: what the chat produced, as Claude Code desktop lists them, each row with a
+// kind tag on the right and each opening what it names. Its artifacts (the pages its render calls
+// showed and the HTML, SVG and Markdown documents its replies drew, each by its title, which open in
+// the side panel beside the chat, ArtifactPanel.tsx), its gallery (the images and renders, which
+// open GalleryDialog.tsx), its files (each opens its diff), and the web links its replies gave, each
+// once (a pull request's link is under Changes instead).
+import { documentName, type Artifact } from "../conversation/artifactPreview";
+import { chatDocuments } from "../conversation/artifactVersions";
+import { renderPages } from "../conversation/renderCall";
 import type { TurnFile } from "../diff";
 import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
@@ -13,6 +19,28 @@ const LINK = /https?:\/\/[^\s"'<>)\]`]+/g;
 const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 
 export type OutputLink = { readonly url: string; readonly label: string };
+/// A document the chat produced, by its title when it has one.
+export type OutputArtifact = { readonly key: string; readonly title?: string; readonly artifact: Artifact };
+
+/// The chat's artifacts, oldest first: each render card's latest page (renderCall.ts `renderPages`;
+/// its title, else its page's), then each document its finished replies drew, each text once.
+export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
+  const found: OutputArtifact[] = [];
+  const seen = new Set<string>();
+  for (const page of new Set(renderPages(rows).values())) {
+    const call = page.calls.at(-1)!;
+    const artifact: Artifact = { kind: "html", lang: "html", code: call.html, render: page.first };
+    seen.add(call.html);
+    found.push({ key: `render:${page.first}`, title: call.title || documentName(artifact) || undefined, artifact });
+  }
+  const replies = rows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : []));
+  for (const artifact of chatDocuments(replies)) {
+    if (seen.has(artifact.code)) continue;
+    seen.add(artifact.code);
+    found.push({ key: `document:${found.length}`, title: documentName(artifact) || undefined, artifact });
+  }
+  return found;
+}
 
 /// Each reply's links, kept while the row is the same object (a streamed update replaces only the
 /// live row).
@@ -39,19 +67,39 @@ export function OutputsSection({
   files,
   links,
   artifacts,
+  documents = [],
   onOpenFile,
   onOpenArtifacts,
+  onOpenDocument,
 }: {
   files: readonly TurnFile[];
   links: readonly OutputLink[];
   /// How many images and renders the gallery holds.
   artifacts: number;
+  /// The documents the chat produced (`outputArtifacts`).
+  documents?: readonly OutputArtifact[];
   onOpenFile?: (path: string) => void;
   onOpenArtifacts?: () => void;
+  /// Opens a document in the side panel beside the chat.
+  onOpenDocument?: (artifact: Artifact) => void;
 }) {
   const t = useT();
   return (
     <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="outputs">
+      {onOpenDocument &&
+        documents.map((document) => (
+          <li key={document.key}>
+            <button
+              type="button"
+              className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
+              onClick={() => onOpenDocument(document.artifact)}
+            >
+              <Icon name={document.artifact.kind === "markdown" ? "file.text" : "code"} size={ROW_ICON} row />
+              <span className="acpmux-chat-inspector-row__name">{document.title ?? t("render.untitled")}</span>
+              <span className="acpmux-chat-inspector-row__end">{t("chatInspector.outputs.artifact")}</span>
+            </button>
+          </li>
+        ))}
       {artifacts > 0 && onOpenArtifacts && (
         <li>
           <button
@@ -94,6 +142,7 @@ export function OutputsSection({
           <a className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button" href={link.url}>
             <Icon name="link.web" size={ROW_ICON} row />
             <span className="acpmux-chat-inspector-row__name">{link.label}</span>
+            <span className="acpmux-chat-inspector-row__end">{t("chatInspector.outputs.link")}</span>
           </a>
         </li>
       ))}

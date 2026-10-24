@@ -73,9 +73,9 @@ afterAll(() => {
 
 const noop = () => {};
 
-test("Cards is a template and a style, and the page an unset template shows", () => {
+test("Cards is a template and a style", () => {
   expect(NEW_TAB_TEMPLATES).toContain("cards");
-  expect(PAGE_STYLES[0]).toBe("cards");
+  expect(PAGE_STYLES).toContain("cards");
   expect(parseNewTabTemplate("cards")).toBe("cards");
   expect(screenTemplate("cards")).toBe("cards");
   expect(screenSections("cards")).toEqual({
@@ -86,8 +86,8 @@ test("Cards is a template and a style, and the page an unset template shows", ()
     closed: false,
     stage: false,
   });
-  // Unset: Cards. Debug Settings design "a" still shows Classic; a saved pick always wins.
-  expect(shownTemplate({ layout: "b" })).toBe("cards");
+  // Unset: Minimal (Leo 2026-10-20). Debug Settings design "a" still shows Classic; a saved pick always wins.
+  expect(shownTemplate({ layout: "b" })).toBe("minimal");
   expect(shownTemplate({ layout: "a" })).toBe("classic");
   expect(shownTemplate({ layout: "b", template: "default" })).toBe("default");
 });

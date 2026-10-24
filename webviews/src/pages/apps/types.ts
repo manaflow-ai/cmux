@@ -15,6 +15,8 @@ export interface AppIconRef {
   path?: string;
   /** The manifest path of the image in the package, which `cmux.apps.asset.get` serves. */
   asset?: string;
+  /** A symbol name: the host draws cmux's own icon for it at `glyph/<symbol>` (never an SF Symbol). */
+  symbol?: string;
 }
 
 /** One row of `cmux.apps.catalog.list`. */
@@ -57,6 +59,13 @@ export interface AppVersion {
   yanked?: boolean;
 }
 
+/** One thing an app puts in cmux (the manifest's `contributes`): its kind and its title. */
+export interface AppContribution {
+  /** `section`, `command`, `statusItem`; another kind shows as its name. */
+  kind: string;
+  title: string;
+}
+
 /** `cmux.apps.catalog.get`. */
 export interface AppDetail extends CatalogApp {
   scopes: ScopeRequest[];
@@ -64,6 +73,8 @@ export interface AppDetail extends CatalogApp {
   repository?: string;
   screenshots: string[];
   notices?: string[];
+  /** "What it adds" on the app's page; absent until the owner sends it. */
+  contributes?: AppContribution[];
 }
 
 /** One row of `cmux.apps.installed.list`. */
@@ -147,6 +158,9 @@ export interface ConfirmedResult {
 
 /** The App Store's own app id: the store never lists itself (FIRST-PARTY-APPS). */
 export const APP_STORE_ID = "cmux/app-store";
+
+/** Home's app id: a place in cmux, not a listing (extensibility-DESIGN.md). */
+export const HOME_ID = "cmux/home";
 
 export const AppsOps = {
   catalogList: "cmux.apps.catalog.list",

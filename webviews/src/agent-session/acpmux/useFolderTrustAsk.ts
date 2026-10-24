@@ -9,7 +9,7 @@ import {
   type TrustSource,
 } from "./folderTrust";
 import type { StringKey } from "./i18n";
-import { isTrustRefusal } from "./direct";
+import { trustRefusal } from "./direct";
 
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
 /// the user's answer with its Undo, or "failed" when saving it didn't. `repo`: the repository
@@ -147,6 +147,9 @@ export function useFolderTrustAsk(
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string }>();
   const resend = useRef<(() => void) | undefined>(undefined);
+  /// What acpmux's last trust refusal for this chat said of its folder: the question draws from it
+  /// when the folder's read gets no answer in time (a peer's folder, read over the peer link).
+  const refusedTrust = useRef<{ sessionId?: string; cwd: string; level: TrustLevel } | undefined>(undefined);
   const { sessionId, family, prompts } = chat;
   const cwd = chat.cwd ?? (refusal && refusal.sessionId === sessionId ? refusal.cwd : undefined);
   // The chat a reply belongs to; a late reply for another one is dropped.
@@ -213,8 +216,15 @@ export function useFolderTrustAsk(
       // An answer saved since this read began is newer than it: the answer stands.
       if ((answers.current.get(cwd) ?? 0) !== answered) return;
       // A folder the pane can't read is not asked about (a known answer stays); acpmux still
-      // refuses its prompts.
-      if (!trust) return;
+      // refuses its prompts, and once it has, its refusal draws the question.
+      if (!trust) {
+        const said = refusedTrust.current;
+        if (said && said.sessionId === current.current.sessionId && said.cwd === cwd) {
+          const shown = shownTrust({ cwd, level: said.level }, cwd, familyNow.current, canAnswer);
+          setAsk((was) => (sameAsk(was, shown.ask) ? was : shown.ask));
+        }
+        return;
+      }
       if (remembers) rememberTrust(cwd, trust);
       lastRead.current = { cwd, trust };
       const shown = shownTrust(trust, cwd, familyNow.current, canAnswer);
@@ -250,6 +260,7 @@ export function useFolderTrustAsk(
       const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === asked.cwd;
       try {
         await source.set(recorded, level);
+        refusedTrust.current = undefined;
         for (const key of new Set([asked.cwd, recorded])) answers.current.set(key, (answers.current.get(key) ?? 0) + 1);
         // Undo leaves each agent's own level to answer: the next read says which.
         const where = { ...(repo ? { repo } : {}), ...(recorded !== asked.cwd ? { via: recorded } : {}) };
@@ -320,9 +331,14 @@ export function useFolderTrustAsk(
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(
       (error: unknown, again?: () => void): boolean => {
-        if (!isTrustRefusal(error)) return false;
-        const named = (error as { cwd?: unknown }).cwd;
-        if (typeof named === "string" && named) setRefusal({ sessionId, cwd: named });
+        const said = trustRefusal(error);
+        if (!said) return false;
+        const named = said.cwd;
+        if (named) setRefusal({ sessionId, cwd: named });
+        const refusedFolder = named ?? cwd;
+        refusedTrust.current = refusedFolder
+          ? { sessionId, cwd: refusedFolder, level: said.reason === "trust.untrusted" ? "untrusted" : "unknown" }
+          : undefined;
         // acpmux says the folder is not trusted now: its record is stale, and Send waits for the read.
         for (const folder of [named, cwd]) if (typeof folder === "string" && folder) rememberTrust(folder, undefined);
         lastRead.current = undefined;

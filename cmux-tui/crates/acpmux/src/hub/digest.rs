@@ -24,10 +24,14 @@
 //!
 //! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`): the person's wait for
 //! the person to resume them, since they were written for a turn that went well. Agent messages
-//! do not depend on that turn and nobody watches them: the chat's next completed turn releases
-//! them (`release_held_agent_messages`), and so does another agent's next message, which waits
-//! behind them to go in with them rather than overtake them. coord-deputy held 121 after one "agent process closed"
-//! (2026-10-21), behind every newer message, until someone pressed resume.
+//! do not depend on that turn and nobody watches them, so they never wait for a person: the
+//! chat's next completed turn releases them (`release_held_agent_messages`), and so does the
+//! `autoResumeDelaysMs` wait (`retry_held_agent_messages`), whichever comes first; another agent's
+//! next message waits behind them to go in with them rather than overtake them. Each hold of the
+//! same message waits the next wait, the last one again once they are used up, so a chat that
+//! keeps failing is not sent the same messages over and over. coord-deputy held 121 after one
+//! "agent process closed" (2026-10-21): a chat whose agent died completes no turn, so they waited
+//! until someone pressed resume.
 //!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that
@@ -177,6 +181,57 @@ impl Hub {
         }
     }
 
+    /// After a hold: the agent messages it held go in again by themselves after the
+    /// `autoResumeDelaysMs` wait for their hold count (the last wait once those are used up; the
+    /// default waits when it is `[]`), or once more while a continuation of the cut turn may
+    /// still answer (it releases them). Only these holds: a message released and held again
+    /// since waits its own next wait. Also run for the holds a daemon start restored
+    /// (`resume_queues`).
+    pub(super) fn retry_held_agent_messages(self: &Arc<Self>, session: &Arc<Session>) {
+        let held: Vec<(String, usize)> = session
+            .queue()
+            .iter()
+            .filter(|q| q.held && q.run.agent.is_some())
+            .map(|q| (q.prompt_id.clone(), q.retries))
+            .collect();
+        let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
+        let (hub, session) = (self.clone(), session.clone());
+        tokio::spawn(async move {
+            let delays = hub.config.read().await.auto_resume_delays_ms.clone();
+            let delays = delays
+                .filter(|d| !d.is_empty())
+                .unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec());
+            let delay = delays[retries.min(delays.len() - 1)];
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            if session.meta().status == SessionStatus::Closed {
+                return;
+            }
+            // A continuation of the cut turn releases what it held, the person's prompts too:
+            // going first would supersede it (`auto_resume.rs`). Wait again instead.
+            if hub.continuation_pending(&session) {
+                hub.retry_held_agent_messages(&session);
+                return;
+            }
+            let ids: Vec<String> = {
+                let mut queue =
+                    session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                queue
+                    .iter_mut()
+                    .filter(|q| {
+                        q.held && held.iter().any(|(id, n)| *id == q.prompt_id && *n == q.retries)
+                    })
+                    .map(|q| {
+                        q.retries += 1;
+                        q.prompt_id.clone()
+                    })
+                    .collect()
+            };
+            if !ids.is_empty() {
+                hub.resume_held(&session, &ids);
+            }
+        });
+    }
+
     /// With the turn lock held and the turn of the agent message `prompt_id` started: takes the
     /// agent messages waiting right behind it under the same rules out of the queue, oldest
     /// first, to go in with it. Held prompts wait where they are; anything else (the person's
@@ -260,10 +315,10 @@ impl Hub {
 
     /// After a turn of agent messages failed: the messages that joined it go back to the head of
     /// the queue, held, in order, so none is lost to a turn the agent may never have read. Their
-    /// waiting tasks wait again (`queue_slot`); the chat's next completed turn releases them
-    /// (`release_held_agent_messages`). An agent that read them before failing may read them
-    /// twice.
-    pub(super) fn requeue_joined(&self, session: &Arc<Session>, digest: &DigestTurn) {
+    /// waiting tasks wait again (`queue_slot`); the chat's next completed turn or the retry wait
+    /// releases them (`release_held_agent_messages`, `retry_held_agent_messages`). An agent that
+    /// read them before failing may read them twice.
+    pub(super) fn requeue_joined(self: &Arc<Self>, session: &Arc<Session>, digest: &DigestTurn) {
         let mut taken =
             std::mem::take(&mut *digest.taken.lock().unwrap_or_else(|e| e.into_inner()));
         // Once: a message that fails every turn it is in must not hold the queue again and again.
@@ -302,6 +357,7 @@ impl Hub {
         self.append(session, "mux", "queue_paused", json!({"held": ids, "requeued": true}));
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
+        self.retry_held_agent_messages(session);
     }
 }
 
@@ -336,10 +392,12 @@ mod tests {
     fn run(text: &str, agent: Option<&str>, provenance: Option<Value>) -> Arc<PromptRun> {
         Arc::new(PromptRun {
             blocks: vec![json!({"type": "text", "text": text})],
+            display_parts: None,
             control: Control::default(),
             trust_gate: false,
             provenance,
             agent: agent.map(str::to_owned),
+            supersede: None,
         })
     }
 

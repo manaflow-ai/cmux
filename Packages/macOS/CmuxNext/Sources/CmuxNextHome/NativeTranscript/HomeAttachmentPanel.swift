@@ -1,32 +1,24 @@
 import AppKit
-import CmuxNextWakeups
-import CoreGraphics
+import CmuxNextDesign
 
-/// The message box's file picker, made ahead of the click.
-///
-/// `NSOpenPanel()` costs 130 ms on the main thread, about 400 ms for the
-/// process's first one (frameworks and the panel service load), before
-/// `beginSheetModal` adds its own 270 ms (bench on macOS 27.0.1, a bare
-/// app, 2026-10-20). The "+" button made a new panel on every click and
-/// opened it a turn of the run loop later, so the sheet came up 0.7 s or
-/// more after the click. One panel is made while the person is idle and
-/// reused: a click pays only the sheet. The warm-up still costs that main-thread
-/// time once, at a pause or while cmux is in the background.
+/// The message box's file picker: the app's panel made ahead of the click
+/// (`MadeAheadOpenPanel`, shared with an agent composer's attach), so the "+"
+/// pays only the sheet. Home warms it when its transcript reaches a window.
 @MainActor
-enum HomeAttachmentPanel {
-    private static var made: NSOpenPanel?
+struct HomeAttachmentPanel {
+    /// The app's made-ahead panel (`AppServices.openPanel`).
+    let openPanel: MadeAheadOpenPanel
+
     /// Whether the panel was made ahead of a click.
-    static var isMade: Bool { made != nil }
+    var isMade: Bool { openPanel.isMade }
     /// The warm-up checks run so far, and whether another is pending.
-    private(set) static var warmChecks = 0
-    static var isWarming: Bool { timer.isScheduled }
+    var warmChecks: Int { openPanel.warmChecks }
+    var isWarming: Bool { openPanel.isWarming }
 
     /// A configured panel: the one made ahead when it is free, else a new one
-    /// (it shows on another window).
-    static func panel() -> NSOpenPanel {
-        let free = made.flatMap { $0.isVisible || $0.sheetParent != nil ? nil : $0 }
-        let panel = free ?? NSOpenPanel()
-        if made == nil { made = panel }
+    /// (it shows on another window). Nil when the new one came back dead (no GUI session).
+    func panel() -> NSOpenPanel? {
+        guard let panel = openPanel.panel() else { return nil }
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -36,43 +28,19 @@ enum HomeAttachmentPanel {
     }
 
     /// Opens the picker as a sheet on `window` at once (no task hop). A window
-    /// that already shows a sheet (the picker, a second click) opens none.
-    static func present(for window: NSWindow, done: @escaping (_ urls: [URL]?) -> Void) {
+    /// that already shows a sheet (the picker, a second click) opens none. A dead
+    /// panel shows no sheet and ends at once as a cancel (`done(nil)`).
+    func present(for window: NSWindow, done: @escaping (_ urls: [URL]?) -> Void) {
         guard window.attachedSheet == nil else { return }
-        let panel = panel()
+        guard let panel = panel() else {
+            done(nil)
+            return
+        }
         panel.beginSheetModal(for: window) { response in
             done(response == .OK ? panel.urls : nil)
         }
     }
 
-    /// Makes the panel once the person has paused (no input for a second), so
-    /// its cost never lands on a keystroke or the click itself. Bounded: after
-    /// ten busy checks it waits for the click.
-    static func warmWhenIdle() {
-        guard made == nil, !timer.isScheduled else { return }
-        check(after: .seconds(2), triesLeft: 10)
-    }
-
-    private static let timer = DemandTimer(owner: "home.attachmentPanel.warm")
-
-    private static func check(after delay: Duration, triesLeft: Int) {
-        timer.schedule(after: delay) { @MainActor in
-            warmChecks += 1
-            // Only in a running app: a process that never ran its event loop (a test host, a ci-step
-            // mini with no open-panel service) would wait 10 s per ViewBridge endpoint, then die.
-            // Checked here, not at schedule time: launch windows come before the loop runs.
-            guard made == nil, NSApp.isRunning else { return }
-            // In the background the person types elsewhere: nothing here waits on the main thread.
-            // In front, the time since the last input event (kCGAnyInputEventType, ~0).
-            let anyInput = CGEventType(rawValue: ~0) ?? .null
-            let idle = NSApp.isActive ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
-            // Never inside a tracking loop (a drag, a menu, a resize): those count as busy.
-            // RunLoop.current is unavailable in async code; this closure runs on the main actor.
-            guard idle >= 1, RunLoop.main.currentMode == .default else {
-                if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
-                return
-            }
-            made = NSOpenPanel()
-        }
-    }
+    /// Makes the panel once the person has paused (`MadeAheadOpenPanel.warmWhenIdle`).
+    func warmWhenIdle() { openPanel.warmWhenIdle() }
 }

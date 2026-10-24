@@ -503,6 +503,9 @@ pub(crate) fn public_terminal_snapshot(
     if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
         extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
     }
+    if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
+        extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
+    }
     if !extra.is_empty() {
         terminal["extra"] = Value::Object(extra);
     }

@@ -58,6 +58,9 @@ class SidebarItemRowView: NSView {
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
+    /// The blue unread dot of a workspace row (`info.unreadDot`, Home's unread): a row draws it on
+    /// the trailing column, as a workspace row does; an icon look dots its glyph with `badge`.
+    let rowBadge = RowBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).
     let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
@@ -97,7 +100,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [pin, icon, title, badge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -134,14 +137,17 @@ class SidebarItemRowView: NSView {
         title.isHidden = style.isIconOnly
         pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         title.alignment = style == .favorite ? .center : .natural
-        badge.configure(unreadState)
+        let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
+        rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
+        badge.notificationDot = info.unreadDot
+        badge.configure(trailingDot ? .none : unreadState)
         activity.configure(info.activity, style: info.activityStyle)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
-        // The profile control draws no name, so its tooltip names who it is.
-        themedToolTip = style.isIconOnly || info.avatar != nil ? info.toolTip : style == .favorite ? info.title : nil
+        // The profile control draws no name, so its tooltip says who it is: the email.
+        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
         setAccessibilityLabel(info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
@@ -256,15 +262,29 @@ class SidebarItemRowView: NSView {
         let trailing = b.width
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
-        let badgeX = style == .chip
+        var badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
             : b.width - inset * 2 - badgeWidth
+        if !rowBadge.isHidden { badgeX = layoutTrailingDot(in: b) }
         // A dot is round: as tall as it is wide, centered on the row.
         let badgeHeight = badge.state == .dot ? badgeWidth : bh
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+    }
+
+    /// Places the blue unread dot as a workspace row places its lone glyph: centered on the
+    /// trailing column (the group header chevron's x, `SidebarStyle+TrailingColumn`), or after a
+    /// chip's label. Returns where the title's room ends. A workspace row's bounds are its fill;
+    /// this row's fill is inset by `horizontalInset`, so the column is measured from the fill's end.
+    private func layoutTrailingDot(in b: NSRect) -> CGFloat {
+        let side = rowBadge.cellSide, width = rowBadge.preferredWidth
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: b.width - SidebarStyle.horizontalInset)
+        let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
+        rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
+        guard style != .chip else { return rowBadge.frame.minX }
+        return min(rowBadge.frame.minX, column - SidebarStyle.trailingSlotSide / 2)
     }
 
     /// A large tile: the glyph well centered over a one-line caption, the

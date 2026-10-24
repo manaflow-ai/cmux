@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 // A prompt's bubble (UserBubble.tsx) and an answer's footer (TurnRows.tsx TurnFooter), with their
-// hover rows as Claude Code desktop's: under the prompt its age, read receipt, Copy, Edit, Retry,
-// Fork and Pin; under the answer Copy, Fork, Pin, Read aloud and its age. Edit shows on a Claude
+// hover rows: under the prompt its read receipt, its age, a dot, Copy, Retry and Fork (Leo's spec),
+// then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
+// its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
 // name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
 // lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
@@ -55,6 +56,25 @@ const pastedPrompt = () => {
   );
 };
 
+/// A chat from 15 hours ago: its rows read "15 hours ago", their exact time above it on hover.
+const yesterday = () =>
+  claude(
+    chat([
+      user("Add retry with backoff to the uploader", 15 * 60 + 2, { seq: 1 }),
+      assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 15 * 60),
+      summary(15 * 60, { seq: 3, status: "completed" }),
+    ]),
+  );
+
+/// Hovers the `selector` time and waits for its exact date and time to show above it.
+const hoverTime = (selector: string) => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(selector));
+  await ctx.hover({ selector });
+  await ctx.waitFor(() =>
+    /\d{4}, \d/.test(ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent ?? ""),
+  );
+};
+
 /// Hovers the latest prompt's `label` button and waits for the pane's tooltip to name it.
 const hoverTooltip = (label: string) => async (ctx: PlayContext) => {
   const selector = `.cv-user__actions button[aria-label="${label}"]`;
@@ -84,7 +104,7 @@ export default agentPaneEntry({
       snapshot: turns(claude),
     },
     "prompt-hover": {
-      note: "Hovering the latest prompt shows its row under the bubble's right edge; nothing else shows.",
+      note: "Hovering the latest prompt shows its row under the bubble's right edge: read check, age, dot, Copy, Retry, Fork, Edit.",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: "Now cover it with a test that fakes two timeouts" }),
     },
@@ -92,6 +112,16 @@ export default agentPaneEntry({
       note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud, its age.",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: /uploader\.retry\.test\.ts/ }),
+    },
+    "prompt-time-tooltip": {
+      note: "Play: hover a prompt's age (15 hours ago); its exact date and time show above it (month, day, year, then the time).",
+      snapshot: yesterday(),
+      play: hoverTime("time.cv-user__time"),
+    },
+    "answer-time-tooltip": {
+      note: "Play: hover an answer's age at the end of its row; its exact time shows above it.",
+      snapshot: yesterday(),
+      play: hoverTime("time.cv-turn-time"),
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",

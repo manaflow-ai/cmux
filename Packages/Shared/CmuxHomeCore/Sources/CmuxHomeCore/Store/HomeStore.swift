@@ -33,6 +33,8 @@ public final class HomeStore {
     public private(set) var confirmed: Set<ConversationID> = []
     /// Conversations the cache seeded at launch.
     @ObservationIgnored var seeded: Set<ConversationID> = []
+    /// The cache was read into the mirror (once per store).
+    @ObservationIgnored var cacheRestored = false
     /// Conversations that got the text typed in a gone cache-only one, until their view says so.
     @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?

@@ -11,7 +11,8 @@ struct ChiefSettingsPageTests {
     @Test func settingsHasAChiefPageWithEveryChiefSetting() throws {
         let categories = SettingsPageLayout().categories()
         let chief = try #require(categories.first { $0.spec.id == "chief" }, "the sidebar has a Chief entry")
-        #expect(chief.spec.lead == [.chiefs, .chiefPet], "the Chiefs list opens the page, then the pet card")
+        #expect(chief.spec.lead == [.chiefs, .chiefPet, .voiceInput],
+                "the Chiefs list opens the page, then the pet card, then Voice input (only where home.voiceInput exists)")
         let rows = chief.groups.flatMap(\.rows)
         for key in Self.chiefRows { #expect(rows.contains(key), "\(key) is on the Chief page") }
     }

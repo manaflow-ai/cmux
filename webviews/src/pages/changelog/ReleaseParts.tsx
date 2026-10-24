@@ -1,18 +1,21 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
 // change rows and the folded commit list by area. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { Dialog } from "../../ui/Dialog";
+import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
 import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
+import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
-  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
 }
 
@@ -31,18 +34,74 @@ export function ReleaseMeta({ date, version, strings }: { date: string; version:
   );
 }
 
-/** The release's picture in the theme's scheme; the box keeps its ratio before the file arrives. */
-export function Media({ media, className }: { media: MediaRef; className?: string }) {
+/** The release's picture in the theme's scheme; the box keeps its ratio before the file arrives. It
+    loads as it nears the viewport. Given `strings`, a click (or Return) opens it enlarged. */
+export function Media({ media, className, strings }: { media: MediaRef; className?: string; strings?: Strings }) {
   const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
   const src = scheme === "dark" ? media.dark : media.light;
+  const [open, setOpen] = useState(false);
+  const picture = media.video ? (
+    <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+  ) : (
+    <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
+  );
   return (
     <figure className={`cl-media${className ? ` ${className}` : ""}`}>
-      {media.video ? (
-        <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+      {strings ? (
+        <button
+          type="button"
+          className="cl-media-open"
+          aria-label={
+            media.alt ? `${strings.t("changelog.page.enlarge")}: ${media.alt}` : strings.t("changelog.page.enlarge")
+          }
+          onClick={() => setOpen(true)}
+        >
+          {picture}
+        </button>
       ) : (
-        <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
+        picture
       )}
+      {strings && open && <MediaLightbox media={media} src={src} strings={strings} onClose={() => setOpen(false)} />}
     </figure>
+  );
+}
+
+/** A picture enlarged to the window, on glass over the page; Escape, Close or a press outside closes it. */
+function MediaLightbox({
+  media,
+  src,
+  strings,
+  onClose,
+}: {
+  media: MediaRef;
+  src: string;
+  strings: Strings;
+  onClose(): void;
+}) {
+  const close = useRef<HTMLButtonElement | null>(null);
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      label={media.alt}
+      className="cl-lightbox"
+      backdropClassName="cl-lightbox-backdrop"
+      initialFocus={close}
+    >
+      <header className="cl-lightbox-bar">
+        <span className="cl-lightbox-alt">{media.alt}</span>
+        <DialogButton ref={close} dialogKey="escape" className="cl-button" onClick={onClose}>
+          {strings.t("changelog.page.close")}
+        </DialogButton>
+      </header>
+      <div className="cl-lightbox-stage">
+        {media.video ? (
+          <video src={src} aria-label={media.alt} muted loop playsInline autoPlay controls />
+        ) : (
+          <img src={src} alt={media.alt} />
+        )}
+      </div>
+    </Dialog>
   );
 }
 
@@ -69,11 +128,12 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   );
 }
 
-/** Try it and Learn more for one grouped change, kept with its title and summary. */
+/** Try it and Learn more for one grouped change, kept with its title and summary. A span: the
+    Ledger puts it inside a paragraph, where a div is invalid. */
 export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   if (!item.action && !item.docs) return null;
   return (
-    <div className="cl-row-actions">
+    <span className="cl-row-actions">
       {item.action && (
         <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
@@ -89,7 +149,7 @@ export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -122,7 +182,7 @@ export function Hero({
             {p}
           </p>
         ))}
-      {item.media && <Media media={item.media} />}
+      {item.media && <Media media={item.media} strings={ctx.strings} />}
       <ItemActions item={item} ctx={ctx} />
     </>
   );
@@ -149,16 +209,19 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
     <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
       <h3>{categoryLabel(ctx.strings, category)}</h3>
       <ul>
-        {shown.map((item, index) => (
-          <li key={`${item.id}-${index}`}>
-            <span className="cl-row-text">
-              <span className="cl-row-title">{item.title}</span>
-              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
-              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
-            </span>
-            <RowActions item={item} ctx={ctx} />
-          </li>
-        ))}
+        {shown.map((item, index) =>
+          ctx.rowMedia ? (
+            <WideRow key={`${item.id}-${index}`} item={item} ctx={ctx} />
+          ) : (
+            <li key={`${item.id}-${index}`}>
+              <span className="cl-row-text">
+                <span className="cl-row-title">{item.title}</span>
+                {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              </span>
+              <RowActions item={item} ctx={ctx} />
+            </li>
+          ),
+        )}
       </ul>
       {!all && items.length > GROUP_PAGE && (
         <button type="button" className="cl-more" onClick={() => setAll(true)}>
@@ -166,6 +229,29 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
         </button>
       )}
     </section>
+  );
+}
+
+/** A change in the Ledger, which uses the pane's width: its title, then its whole description, and
+    its picture beside them when the pane has room (under them when it does not). Its actions end
+    the last line (#21185: a box of their own would leave an empty line under every row). */
+function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  const paragraphs = item.summary.split(/\n{2,}/).filter(Boolean);
+  const actions = <RowActions item={item} ctx={ctx} />;
+  return (
+    <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
+      <div className="cl-row-text">
+        <span className="cl-row-title">{item.title}</span>
+        {paragraphs.length === 0 && actions}
+        {paragraphs.map((p, i) => (
+          <p key={i} className="cl-row-summary">
+            {p}
+            {i === paragraphs.length - 1 && actions}
+          </p>
+        ))}
+      </div>
+      {item.media && <Media media={item.media} className="cl-row-media" strings={ctx.strings} />}
+    </li>
   );
 }
 
@@ -225,12 +311,7 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
     <ul>
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
-          <span>{c.title}</span>
-          {c.pr !== undefined && (
-            <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
-              #{c.pr}
-            </a>
-          )}
+          {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
         </li>
       ))}
     </ul>

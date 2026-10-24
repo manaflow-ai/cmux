@@ -6,6 +6,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -106,6 +107,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored var bannerTask: Task<Void, Never>?
     @ObservationIgnored var everConnected = false
+    /// Macs a link was connected to: a failed redial to one says
+    /// "Reconnecting", not "Can't reach" (the link keeps retrying).
+    @ObservationIgnored var connectedMacIDs: Set<String> = []
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
     @ObservationIgnored var sourcedSessions: [String: (tabID: String, macID: String, session: String?)] = [:]
     /// The account was deleted: sign-out keeps nothing of it.
@@ -146,6 +150,8 @@ public final class LiveCoordinator {
     /// the new team's Mac and failed, or reached the wrong one.
     @ObservationIgnored private var feedTeamID: String?
     @ObservationIgnored var feedSavePending = false
+    /// The Feed's answers (`FeedStore.actions` is weak: this keeps them alive).
+    @ObservationIgnored var feedActions: MultiMacFeedActions?
     /// How long a connected Mac may take to send its workspace list before
     /// the list says it could not load them (with Retry), instead of a
     /// skeleton that never ends.
@@ -173,6 +179,7 @@ public final class LiveCoordinator {
         secrets: any DeviceSecretStore = KeychainSecretStore(),
         readMarks: FeedReadMarks? = nil,
         pins: MacPins? = nil,
+        push: PushKeys? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.secrets = secrets
@@ -183,7 +190,9 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
-        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID)) }
+        pairing = keys.map {
+            LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID), push: push)
+        }
         self.clock = clock
         self.transport = transport
         self.relayOnly = relayOnly
@@ -206,9 +215,12 @@ public final class LiveCoordinator {
             self?.scheduleFeedSave(archive)
             for session in self?.sessions.values ?? [:].values { session.terminalFeed.itemsChanged(items) }
         }
-        feedStore.actions = MultiMacFeedActions(coordinator: self)
+        let feedActions = MultiMacFeedActions(coordinator: self)
+        self.feedActions = feedActions
+        feedStore.actions = feedActions
         feedStore.syncState = .connecting
         store.workspaces = []
+        store.resetGroupEdits()
         store.tracksMacData = true
         store.macData = [:]
         store.macConnection = [:]
@@ -477,7 +489,13 @@ public final class LiveCoordinator {
             forgetMac(mac.deviceId)
         case .mac(let mac):
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
-            let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate)
+            let known = current.first { $0.id == mac.deviceId }
+            // A Worker that predates machine ids sends none: keep the one the list had. A
+            // presence frame names no owner; the caller's hub carries only the caller's own
+            // Macs (0.10.0), so a Mac new to the list is the caller's.
+            let owner = othersMacs.contains(mac.deviceId) ? known?.ownerUserID : (known?.ownerUserID ?? userID)
+            let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
+                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -525,7 +543,8 @@ public final class LiveCoordinator {
         for mac in macs {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
-        store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate) }, teamID: teamID)
+        store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
         retarget()
         scheduleSnapshotSave()
     }
@@ -536,12 +555,27 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        let dialable = team.macs.filter { !othersMacs.contains($0.id) }
-        let next = LinkMachine.target(in: dialable, remembered: remembered, current: focusedMacID)
+        let next = LinkMachine.target(in: listedMacs(team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
         if let next { _ = session(for: next) }
         setFocus(next?.id)
-        applyLinks(dialable)
+        applyLinks()
+    }
+
+    /// The Macs the phone focuses and the screens list: the owner's own, one
+    /// build per computer (``MacRoster``).
+    private func listedMacs(_ team: Team) -> [MacDevice] {
+        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
+    }
+
+    /// The Macs this phone may link: the listed ones, and another build on a
+    /// listed Mac while something names it (a Feed answer or a notification of
+    /// that build, `touch`, or a link it still holds until idle), so an ask
+    /// from that build is still answered on it.
+    private func dialableMacs(_ team: Team) -> [MacDevice] {
+        let own = team.macs.filter { !othersMacs.contains($0.id) }
+        let listed = Set(MacRoster(own).visible.map(\.id))
+        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -559,9 +593,12 @@ public final class LiveCoordinator {
     /// Opens a link to every Mac the policy keeps and closes the others.
     func applyLinks(_ dialable: [MacDevice]? = nil) {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
-        let macs = dialable ?? team.macs.filter { !othersMacs.contains($0.id) }
+        let macs = dialable ?? dialableMacs(team)
         let now = ContinuousClock.now
-        let showing = showingMacs ?? Set(macs.map(\.id))
+        // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
+        // never "shown" by that: it keeps its link only for the idle window after
+        // something named it (`touch`), then closes.
+        let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
         // A live link that presence briefly calls offline (a signaling reset) ranks as online:
         // the cap never closes it for that.
@@ -628,6 +665,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         session.offlineTask?.cancel()
         session.workspacesTimeout?.cancel()
+        session.acpmux.cancelWaiters()
         Task {
             await session.workspaces.bind(nil, macID: "")
             await session.acpmux.bind(nil)
@@ -701,7 +739,8 @@ public final class LiveCoordinator {
         discoveredMacIDs = ids
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
-            return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
+            return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID,
+                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId)
         }
         store.mergeDiscoveredMacs(found, personal: personal)
         if store.accountMacCount != found.count { store.accountMacCount = found.count }
@@ -749,6 +788,7 @@ public final class LiveCoordinator {
         forgetMac(id)
         // Its identity pin goes too: a re-added Mac pins its key again.
         (pairing?.pins ?? .standard).forget(id)
+        pairing?.push?.forget(mac: id)
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's
@@ -802,16 +842,15 @@ public final class LiveCoordinator {
 
     private func loadPrefs(_ teamID: String) {
         Task { [weak self] in
-            guard let self, let prefs = try? await self.api.prefs(teamID: teamID),
-                  let color = prefs.color, color.hasPrefix("#") else { return }
-            self.store.setAppearance(TeamAppearance(colorHex: color, emoji: prefs.emoji), for: teamID)
+            guard let self, let appearance = try? await self.api.prefs(teamID: teamID).appearance else { return }
+            self.store.setAppearance(appearance, for: teamID)
         }
     }
 
-    /// Saves a team's color and emoji locally and with `PUT /prefs`.
+    /// Saves a team's color, emoji and background locally and with `PUT /prefs`.
     public func saveAppearance(_ appearance: TeamAppearance, teamID: String) async throws {
         store.setAppearance(appearance, for: teamID)
-        try await api.putPrefs(teamID: teamID, color: appearance.colorHex, emoji: appearance.emoji)
+        try await api.putPrefs(teamID: teamID, appearance: appearance)
     }
 
     public func invite(email: String, teamID: String) async throws {

@@ -51,7 +51,7 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     const lock = readInputsLock();
     expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
@@ -302,7 +302,7 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
 
 describe("browser role: off by default, installed on first use, sandboxed, background tabs throttled (RT8, D-A1)", () => {
   const lock = readInputsLock();
-  const CFT_SHA256 = "ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732";
+  const CFT_SHA256 = "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50";
   const cftIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "chrome-for-testing");
 
   test("the browser role is off and first-use; its closure is never baked; background tabs are not full rate", () => {
@@ -315,12 +315,12 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(lock.roles.browser.apt).toEqual(expect.arrayContaining(["libnss3", "libasound2t64", "libcups2t64", "fonts-liberation"]));
   });
 
-  test("Chrome for Testing 154 (the CEF fork's major) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
+  test("Chrome for Testing 156 (CfT Stable) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
     const cft = lock.programs.find((p) => p.name === "chrome-for-testing")!;
-    expect(cft).toMatchObject({ ...chromeForTestingShape("154.0.8037.92"), sha256: CFT_SHA256, size: 196202491, firstUse: true });
-    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-linux64.zip");
-    expect(cft.source).toContain("md5=eb+FnbaHwkXCE8wFqB2DJw==");
-    expect(isExactProgramVersion("154.0.8037.92")).toBe(true);
+    expect(cft).toMatchObject({ ...chromeForTestingShape("156.0.8078.47"), sha256: CFT_SHA256, size: 200206486, firstUse: true });
+    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux64/chrome-linux64.zip");
+    expect(cft.source).toContain("md5=cvpoYXzFXs9OK75pfi91hA==");
+    expect(isExactProgramVersion("156.0.8078.47")).toBe(true);
     expect(isExactProgramVersion("154.0.8037.*")).toBe(false);
   });
 
@@ -336,7 +336,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(browser.firstUse).toBe(true);
     expect(browser.env).toEqual({ CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: "0", CMUX_BROWSER_HOST_CHROMIUM: `/opt/cmux/store/${CFT_SHA256}/chrome-linux64/chrome` });
     expect(browser.programs).toEqual([
-      expect.objectContaining({ name: "chrome-for-testing", version: "154.0.8037.92", sha256: CFT_SHA256, size: 196202491, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
+      expect.objectContaining({ name: "chrome-for-testing", version: "156.0.8078.47", sha256: CFT_SHA256, size: 200206486, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
       expect.objectContaining({ name: "cmux-browser-host" }),
     ]);
     expect(rolesManifest(lock).roles.display.programs).toEqual([]);
@@ -375,7 +375,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
   test("Chrome for Testing must come from Google's versioned release URL", () => {
     const raw = fresh();
     raw.programs[cftIndex()].url = "https://example.com/chrome-linux64.zip";
-    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("154.0.8037.92").url}`);
+    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("156.0.8078.47").url}`);
   });
 });
 

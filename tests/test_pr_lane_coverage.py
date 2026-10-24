@@ -294,6 +294,53 @@ class ThisTree(unittest.TestCase):
                 self.assertIn(test, text)
                 self.assertIn(f"python3 {test}", runs)
 
+    def test_tests_of_feat_files_run_on_feat_pull_requests(self):
+        """Tests whose code feat-cmux-next pull requests edit ran only on main, a push, a schedule, or nowhere.
+
+        Fourteen had no registry entry; eleven more ran only from push, schedule or main-only jobs.
+        Each listed here now runs from a job a feat-cmux-next pull request starts (routed by paths
+        for an area job); the stdlib tests of feat CI tooling run in cmux-next guards / tooling-tests.
+        """
+        import yaml  # noqa: PLC0415
+
+        text = validator.pr_lane_tests(ROOT, BRANCH)[0]
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        tooling = "\n".join(str(step.get("run", "")) for step in workflow["jobs"]["tooling-tests"]["steps"])
+        in_tooling_tests = (
+            "tests/test_app_crate_licenses.py",
+            "tests/test_browser_host_release_package.py",
+            "tests/test_ci_macho_parity.py",
+            "tests/test_ci_macos_stubs.py",
+            "tests/test_ci_package_lane_prebuild.py",
+            "tests/test_ci_tip_test_compile.py",
+            "tests/test_cmux_next_dev_daily_notify_cli.py",
+            "tests/test_cmux_next_media_publish_windows.py",
+            "tests/test_compile_string_catalogs.py",
+            "tests/test_install_zig_ci_reviewed_version.py",
+            "tests/test_list_macho_candidates.py",
+            "tests/test_normalize_pbxproj.py",
+            "tests/test_publish_cmux_tui_tree.py",
+            "tests/test_swiftpm_test_product.py",
+            "tests/test_web_validation.py",
+        )
+        in_area_jobs = (
+            "tests/test_cmux_bug_triage.py",
+            "tests/test_cmux_code_mode_mcp.py",
+            "tests/test_cmux_cua_dev_helper_identity.py",
+            "tests/test_remote_daemon_notices.py",
+            "tests/test_remote_daemon_release_assets.py",
+            "tests/test_remote_daemon_release_verification.py",
+            "tests/test_shell_claude_rereports_pwd.py",
+            "tests/test_socket_control_schema.py",
+            "tests/test_zsh_git_head_watch_no_fork.py",
+        )
+        for test in in_tooling_tests + in_area_jobs:
+            with self.subTest(test=test):
+                self.assertIn(f"python3 {test}", text)
+        for test in in_tooling_tests:
+            with self.subTest(tooling_tests=test):
+                self.assertIn(f"python3 {test}", tooling)
+
     def test_the_guard_group_job_runs_the_feat_routed_groups_on_the_head_and_the_base(self):
         import yaml  # noqa: PLC0415
 

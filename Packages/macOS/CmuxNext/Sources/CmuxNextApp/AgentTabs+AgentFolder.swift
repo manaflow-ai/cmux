@@ -31,6 +31,17 @@ extension AgentTabStore {
         }
     }
 
+    /// Agent chat tab `key`'s exact folder for a terminal opened from it
+    /// (``AgentPaneModel/terminalFolder``). Only a chat this Mac's acpmux runs, on this Mac's
+    /// daemon, in a folder that exists here: a Cloud, SSH or peer chat's folder is another
+    /// machine's path, even where the same path exists here.
+    func terminalFolder(of key: String) -> String? {
+        let key = resolve(key)
+        guard let folder = views[key]?.model.terminalFolder, daemonForTab(key)?.isLocal == true,
+              let host = lookup(key)?.record.host, host == localHost, WorkingURL.isDirectory(folder) else { return nil }
+        return folder
+    }
+
     /// The workspace that holds agent tab `key`, on its local store.
     func workspace(holding key: String) -> WorkspaceModel? {
         guard let store = tabStores[key] else { return nil }
@@ -67,7 +78,7 @@ extension AgentTabStore {
     /// workspace's agent folder (`workspace.agent_folder.set`, which only this verified app may
     /// send). An older background service is told before the sheet opens.
     func chooseAgentFolder(for key: String) async -> AgentPaneFolderChoice {
-        guard let daemon = daemonForTab(key), daemon.supports(DaemonCapabilities.shared.workspaceAgentFolder) else {
+        guard let daemon = daemonForTab(key), daemon.supports(DaemonCapabilities.workspaceAgentFolder) else {
             return .unavailable(AgentPaneFolderChoice.restartServiceMessage)
         }
         guard let view = views[key], let url = await view.pickFolder() else { return .cancelled }
@@ -83,7 +94,7 @@ extension AgentTabStore {
     /// `workspace-agent-folder-v1`, or one that answers that it has no such operation (an older
     /// cmux-tui kept running across an app update), gets no retry: the user restarts it.
     static func saveAgentFolder(_ path: String, workspace: ResourceID, on daemon: DaemonService) async -> AgentPaneFolderChoice {
-        guard daemon.supports(DaemonCapabilities.shared.workspaceAgentFolder) else {
+        guard daemon.supports(DaemonCapabilities.workspaceAgentFolder) else {
             return .unavailable(AgentPaneFolderChoice.restartServiceMessage)
         }
         guard let connection = daemon.connection else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }

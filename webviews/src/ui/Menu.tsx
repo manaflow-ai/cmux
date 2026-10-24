@@ -9,6 +9,7 @@ import {
   useState,
   type ComponentProps,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
@@ -40,6 +41,8 @@ interface MenuContextValue {
   /** The last input in the open menu was a key (Base UI's close type names how it opened). */
   keyed: RefObject<boolean>;
   beginPointer(event: PointerEvent<HTMLElement>): void;
+  /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
+  takePress(): boolean;
   movePointer(event: PointerEvent<HTMLElement>): void;
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
   endPointer(): void;
@@ -55,6 +58,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const opener = useRef<Element | null>(null);
   const keyed = useRef(false);
   const captured = useRef(false);
+  // Set by a mouse press that opened or closed the menu on its pointerdown; the press's mousedown
+  // takes it (MenuButton).
+  const pressed = useRef(false);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
@@ -71,7 +77,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
     opener,
     keyed,
     beginPointer(event) {
+      pressed.current = false;
       if (!isMousePress(event)) return;
+      pressed.current = true;
       const wasOpen = isOpen;
       pointerCleanup.current?.();
       pointerCleanup.current = null;
@@ -101,6 +109,11 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
           session.current = null;
         },
       });
+    },
+    takePress() {
+      const taken = pressed.current;
+      pressed.current = false;
+      return taken;
     },
     movePointer(event) {
       const current = session.current;
@@ -199,10 +212,17 @@ export function MenuButton({
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
       }}
-      onMouseDown={(event) => {
-        // WebKit dispatches a native mousedown after pointerdown. While an open trigger is
-        // closing the menu on press, cancel that follow-up so Base UI cannot reopen it on click.
-        if (context?.isOpen && event.button === 0) event.preventDefault();
+      onMouseDown={(event: MouseEvent<HTMLButtonElement> & { preventBaseUIHandler?: () => void }) => {
+        // WebKit dispatches a native mousedown after pointerdown. The press already opened or
+        // closed the menu, so Base UI's own mousedown toggle must not act on it again: once React
+        // has drawn the opened menu before this mousedown (a busy page, Leo's long chat on nightly
+        // 3a63d6d), that toggle read it as open and closed it a frame later, and the click did
+        // nothing. On a close, it would reopen it.
+        if (event.button !== 0) return;
+        if (context?.takePress()) {
+          event.preventDefault();
+          event.preventBaseUIHandler?.();
+        } else if (context?.isOpen) event.preventDefault();
       }}
       onClick={(event) => {
         // A mouse click has already opened on press; keep it open after release. Keyboard clicks
@@ -521,6 +541,36 @@ export function MenuGroup({ label, children }: { label: string; children: ReactN
 
 export function MenuSeparator() {
   return <BaseMenu.Separator className="ui-separator" />;
+}
+
+/** Keys a menu search field passes on to its menu: the arrows into the rows, Tab, Escape. */
+const MENU_SEARCH_PASSES = new Set(["ArrowDown", "ArrowUp", "Tab", "Escape"]);
+
+export interface MenuSearchFieldProps {
+  value: string;
+  onChange(value: string): void;
+  /** The field's accessible name and placeholder. */
+  label: string;
+}
+
+/** A search field at the top of a long menu: what it types narrows the rows below. The menu's
+ * typeahead and Home/End never see its keys; the arrows move into the rows, Escape closes. */
+export function MenuSearchField({ value, onChange, label }: MenuSearchFieldProps) {
+  return (
+    <input
+      className="ui-field ui-menu-search"
+      type="search"
+      value={value}
+      aria-label={label}
+      placeholder={label}
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (!MENU_SEARCH_PASSES.has(event.key)) event.stopPropagation();
+      }}
+    />
+  );
 }
 
 export interface SubmenuProps {

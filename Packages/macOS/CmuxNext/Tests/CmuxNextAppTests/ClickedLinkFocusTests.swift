@@ -20,7 +20,7 @@ import WebKit
 struct ClickedLinkFocusTests {
     static let link = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
 
-    /// The link's tab opens in the source's own pane (the default for a link in a page): the source
+    /// The link's tab opens in the source's own pane (Open Links and Files set to Same Pane): the source
     /// pane keeps the focus with the new tab selected, and its close selects the source tab again,
     /// not the tab after it.
     @Test func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain() async throws {
@@ -38,6 +38,7 @@ struct ClickedLinkFocusTests {
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane && pane.stripModel.selectedID?.rawValue == source })
 
+            services.linkOpener.placement = { .samePane }
             let opened = try await Self.click(services, from: pane)
             try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == opened && content.focusedPane === pane },
                                             report: { Self.describe(content, opened) })
@@ -51,10 +52,12 @@ struct ClickedLinkFocusTests {
         }
     }
 
-    /// The link's tab opens in the pane right of the source (a terminal's Cmd-click, Home's dock):
-    /// that pane takes the focus, Cmd-W closes the link's tab there, and the focus goes back to the
-    /// source pane, not to the other tab of the link's pane.
-    @Test func aLinksTabInAnotherPaneTakesTheFocusAndItsCloseGivesItBack() async throws {
+    /// The link's tab opens in the pane right of the source (the default for every link, Home's dock):
+    /// that pane takes the focus and Cmd-W closes the link's tab there. The pane still has a tab, so
+    /// the focus stays in it, on that tab: a second Cmd-W must close in the same pane, never the
+    /// source (Leo 2026-10-21, ``CloseTabKeepsPaneTests``). Only a close that empties the pane gives
+    /// the focus back (``theHeadersPreviewBesideThePageTakesTheFocusAndItsCloseGivesItBack``).
+    @Test func aLinksTabInAnotherPaneTakesTheFocusAndItsCloseKeepsItInThatPane() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -66,7 +69,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
 
-            let opened = try await Self.click(services, from: pane, cmdClick: true)
+            let opened = try await Self.click(services, from: pane)
             try await PinnedPageTests.until({ store.tab(id: opened).map { _ in right.pane.tabs.contains { $0.id == opened } } == true },
                                             report: { "the link's tab is not in the pane on the right" })
             // The pane on the right by what it holds: the focus may have moved to another pane by now.
@@ -75,11 +78,13 @@ struct ClickedLinkFocusTests {
                     && content.focusedPane?.stripModel.selectedID?.rawValue == opened
             }, report: { Self.describe(content, opened) })
 
+            let left = try #require(right.pane.tabs.first { $0.id != opened }?.id, "the pane on the right has no other tab")
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ store.tab(id: opened) == nil }, report: { "the link's tab did not close" })
             #expect(store.tab(id: source) != nil, "Cmd-W closed the page the link was clicked in")
-            try await PinnedPageTests.until({ content.focusedPane === pane },
-                                            report: { "after the close: " + Self.describe(content, source) })
+            try await PinnedPageTests.until({ content.focusedPane?.stripModel.selectedID?.rawValue == left },
+                                            report: { "after the close: " + Self.describe(content, left) })
+            #expect(content.focusedPane !== pane, "the close gave the focus back to the source while its pane still had a tab")
         }
     }
 
@@ -104,7 +109,7 @@ struct ClickedLinkFocusTests {
             let agentPlaced = AgentBesidePlacement.placed(invocation, in: right, then: nil)
 
             services.linkOpener.placement = { .splitRight }
-            let opened = try await Self.click(services, from: pane, cmdClick: true)
+            let opened = try await Self.click(services, from: pane)
             let shown = { content.panes[right.layoutPaneID] ?? right }
             try await PinnedPageTests.until({ content.focusedPane === shown() && shown().stripModel.selectedID?.rawValue == opened },
                                             report: { Self.describe(content, opened) })
@@ -229,8 +234,10 @@ struct ClickedLinkFocusTests {
             let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
 
             #expect(services.linkOpener.openFile(file, from: pane))
+            // The daemon's tab, not the split's pending one it replaces.
             @MainActor func opened() -> String? {
-                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                    .first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
             }
             try await PinnedPageTests.until({ opened() != nil }, report: { "the file link opened no tab" })
             let tab = try #require(opened())
@@ -258,10 +265,10 @@ struct ClickedLinkFocusTests {
     }
 
     /// Opens the link from `pane` as a click does and returns the new tab's id once the store has it.
-    private static func click(_ services: AppServices, from pane: PaneController, cmdClick: Bool = false) async throws -> String {
+    private static func click(_ services: AppServices, from pane: PaneController) async throws -> String {
         let store = services.daemon.store
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-        services.linkOpener.openWeb(link, from: pane, background: false, cmdClick: cmdClick)
+        services.linkOpener.openWeb(link, from: pane, background: false)
         @MainActor func opened() -> String? {
             store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
         }

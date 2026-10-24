@@ -99,7 +99,7 @@ extension AgentActivityLane {
     /// The subagent's task title (acpmux's title when it has one of its own), else "Subagent":
     /// its `a7` id is the Chief's to use, never shown (Leo 2026-10-21).
     nonisolated var subagentTitle: String {
-        guard title != name, let task = ChiefWorkspaceName.taskTitle(title) else { return ChiefToolStrings.subagent }
+        guard title != name, let task = title.chiefTaskTitle else { return ChiefToolStrings.subagent }
         return task
     }
 }
