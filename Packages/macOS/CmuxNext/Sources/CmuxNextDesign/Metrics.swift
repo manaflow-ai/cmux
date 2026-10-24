@@ -72,6 +72,15 @@ public struct Metrics {
     public static var space5: CGFloat { scale(ChromeTunables.space5.value) }
     public static var space6: CGFloat { scale(ChromeTunables.space6.value) }
 
+    /// The baseline grid used by chrome text and controls.
+    public static var baselineStep: CGFloat { scale(4) }
+    /// The default gap for labels that sit beside one another.
+    public static var inlineGap: CGFloat { space2 }
+    /// The default gap between stacked controls or rows.
+    public static var stackGap: CGFloat { space3 }
+    /// The default gap between semantic sections.
+    public static var sectionGap: CGFloat { space5 }
+
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
     /// Gap between strip columns.
@@ -226,4 +235,97 @@ public struct Typography {
     public static var title: NSFont { .systemFont(ofSize: size(20, 22), weight: .semibold) }
     /// The line under a page title.
     public static var subtitle: NSFont { .systemFont(ofSize: size(13, 14), weight: .regular) }
+
+    /// A Home message and its empty-state actions use a slightly larger body than chrome.
+    public static var message: NSFont { .systemFont(ofSize: size(13, 14), weight: .regular) }
+
+    /// The semantic roles available to the shared type metrics.
+    public enum Role: Sendable {
+        /// Compact chrome labels and row text.
+        case body
+        /// A selected or emphasized chrome label.
+        case bodyEmphasized
+        /// Secondary metadata and hints.
+        case caption
+        /// A section heading.
+        case header
+        /// A large search field.
+        case search
+        /// A monospaced keyboard shortcut.
+        case shortcut
+        /// A page title.
+        case title
+        /// Supporting text beneath a title.
+        case subtitle
+        /// Home transcript and empty-state action text.
+        case message
+    }
+
+    /// A font plus the metrics needed to lay out readable text on a baseline grid.
+    ///
+    /// `opticalSize` is recorded even when the current AppKit system font does not expose
+    /// a variable optical-size axis. A later Inter font loader can apply that axis without
+    /// changing surface call sites.
+    public struct Style {
+        /// The face used to draw the role.
+        public let font: NSFont
+        /// The fixed line box in points.
+        public let lineHeight: CGFloat
+        /// Additional character spacing in points.
+        public let tracking: CGFloat
+        /// The intended optical-size axis value in points.
+        public let opticalSize: CGFloat
+
+        /// Creates a complete text style for an AppKit surface.
+        /// - Parameters:
+        ///   - font: The face used to draw the text.
+        ///   - lineHeight: The fixed line box in points.
+        ///   - tracking: Additional character spacing in points.
+        ///   - opticalSize: The intended variable-font optical size, when one exists.
+        public init(font: NSFont, lineHeight: CGFloat, tracking: CGFloat = 0, opticalSize: CGFloat? = nil) {
+            self.font = font
+            self.lineHeight = lineHeight
+            self.tracking = tracking
+            self.opticalSize = opticalSize ?? font.pointSize
+        }
+
+        /// A paragraph style with a fixed line box for deterministic baseline alignment.
+        public var paragraphStyle: NSParagraphStyle {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = lineHeight
+            paragraph.maximumLineHeight = lineHeight
+            paragraph.lineSpacing = 0
+            return paragraph
+        }
+
+        /// Attributes suitable for an attributed string or text layer.
+        public var attributes: [NSAttributedString.Key: Any] {
+            [.font: font, .kern: tracking, .paragraphStyle: paragraphStyle]
+        }
+    }
+
+    /// Returns the complete metrics for one semantic role.
+    /// - Parameter role: The semantic role whose font and baseline metrics are needed.
+    public static func style(_ role: Role) -> Style {
+        switch role {
+        case .body:
+            Style(font: body, lineHeight: size(16, 18), opticalSize: size(12, 13))
+        case .bodyEmphasized:
+            Style(font: bodyEmphasized, lineHeight: size(16, 18), opticalSize: size(12, 13))
+        case .caption:
+            Style(font: caption, lineHeight: size(14, 16), opticalSize: size(10.5, 11))
+        case .header:
+            Style(font: header, lineHeight: size(16, 18), tracking: -0.08 * scale, opticalSize: size(11, 12))
+        case .search:
+            Style(font: search, lineHeight: size(22, 24), opticalSize: size(16, 18))
+        case .shortcut:
+            Style(font: shortcut, lineHeight: size(14, 16), opticalSize: size(10.5, 11))
+        case .title:
+            Style(font: title, lineHeight: size(24, 28), tracking: -0.2 * scale, opticalSize: size(20, 22))
+        case .subtitle:
+            Style(font: subtitle, lineHeight: size(18, 20), opticalSize: size(13, 14))
+        case .message:
+            Style(font: message, lineHeight: size(16, 18), opticalSize: size(13, 14))
+        }
+    }
 }

@@ -45,11 +45,11 @@ final class HomeFirstRunView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        hint.font = .systemFont(ofSize: 12)
+        hint.font = Typography.style(.body).font
         hint.alignment = .center
         hint.isSelectable = false
         hint.isHidden = true
-        agentsHeader.font = .systemFont(ofSize: 12, weight: .medium)
+        agentsHeader.font = Typography.style(.bodyEmphasized).font
         agentsHeader.isSelectable = false
         agentsHeader.lineBreakMode = .byTruncatingTail
         agentsHeader.setAccessibilityRole(.staticText)
@@ -58,7 +58,7 @@ final class HomeFirstRunView: NSView {
         agent.onClick = { [weak self] in self?.onAction(.startAgent) }
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = 6
+        stack.spacing = Metrics.stackGap
         arrange()
         addSubview(stack)
         setAccessibilityElement(false)
@@ -111,7 +111,7 @@ final class HomeFirstRunView: NSView {
     /// heights, and a row's `isHidden` changes only when the count that fits
     /// does (hidden arranged views leave the stack's layout).
     private func fitAgentRows() {
-        let row = HomeFirstRunRow.height * scale, gap = 6 * scale, group = 14 * scale
+        let row = HomeFirstRunRow.height * scale, gap = Metrics.stackGap, group = Metrics.sectionGap + Metrics.space1
         let hint = self.hint.isHidden ? 0 : group + ceil(self.hint.intrinsicContentSize.height)
         let base = 2 * row + gap + hint
         let header = group + ceil(agentsHeader.intrinsicContentSize.height)
@@ -127,16 +127,16 @@ final class HomeFirstRunView: NSView {
     }
 
     private func applySpacing() {
-        stack.spacing = 6 * scale
-        stack.setCustomSpacing(14 * scale, after: agent)
+        stack.spacing = Metrics.stackGap
+        stack.setCustomSpacing(Metrics.sectionGap + Metrics.space1, after: agent)
     }
 
     /// Applies the live interface scale to this native empty state.
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
         self.scale = scale
-        hint.font = .systemFont(ofSize: 12 * scale)
-        agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
+        hint.font = Typography.style(.body).font
+        agentsHeader.font = Typography.style(.bodyEmphasized).font
         applySpacing()
         for row in rows { row.applyScale(scale) }
         invalidateIntrinsicContentSize()
@@ -237,11 +237,11 @@ final class HomeFirstRunRow: NSView {
         surface.layer?.cornerCurve = .continuous
         surface.layer?.borderWidth = 1
         addSubview(surface)
-        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13))
+        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: Typography.message.pointSize))
         glyph.imageScaling = .scaleProportionallyDown
-        label.font = .systemFont(ofSize: 13)
+        label.font = Typography.style(.message).font
         label.lineBreakMode = .byTruncatingTail
-        shortcutLabel.font = .systemFont(ofSize: 12)
+        shortcutLabel.font = Typography.style(.body).font
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
@@ -260,9 +260,9 @@ final class HomeFirstRunRow: NSView {
     func applyScale(_ scale: CGFloat) {
         self.scale = scale
         surface.layer?.cornerRadius = Self.cornerRadius * scale
-        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
-        label.font = .systemFont(ofSize: 13 * scale)
-        shortcutLabel.font = .systemFont(ofSize: 12 * scale)
+        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: Typography.message.pointSize))
+        label.font = Typography.style(.message).font
+        shortcutLabel.font = Typography.style(.body).font
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
@@ -286,21 +286,21 @@ final class HomeFirstRunRow: NSView {
     override func layout() {
         super.layout()
         surface.frame = bounds
-        let inset: CGFloat = 12 * scale
-        let side = CGFloat.iconRowSize(forLabelPointSize: 13 * scale)
+        let inset = Metrics.space5
+        let side = CGFloat.iconRowSize(forLabelPointSize: Typography.message.pointSize)
         glyph.frame = CGRect(x: inset, y: (bounds.height - side) / 2, width: side, height: side)
-        let shortcutWidth = shortcutLabel.isHidden ? 0 : ceil(shortcutLabel.attributedStringValue.size().width) + 4
+        let shortcutWidth = shortcutLabel.isHidden ? 0 : ceil(shortcutLabel.attributedStringValue.size().width) + Metrics.space2
         let shortcutHeight = ceil(shortcutLabel.intrinsicContentSize.height)
         shortcutLabel.frame = CGRect(x: bounds.width - inset - shortcutWidth, y: (bounds.height - shortcutHeight) / 2,
                                      width: shortcutWidth, height: shortcutHeight)
-        let indicator: CGFloat = 13 * scale
-        activity.frame = CGRect(x: shortcutLabel.frame.minX - indicator - 4 * scale, y: (bounds.height - indicator) / 2,
+        let indicator = Typography.message.pointSize
+        activity.frame = CGRect(x: shortcutLabel.frame.minX - indicator - Metrics.space2, y: (bounds.height - indicator) / 2,
                                 width: indicator, height: indicator)
         let trailing = activity.showsGlyph ? activity.frame.minX : shortcutLabel.frame.minX
-        let textX = glyph.frame.maxX + 10 * scale
+        let textX = glyph.frame.maxX + Metrics.space4 + Metrics.space1
         let textHeight = ceil(label.intrinsicContentSize.height)
         label.frame = CGRect(x: textX, y: (bounds.height - textHeight) / 2,
-                             width: max(0, trailing - 8 * scale - textX), height: textHeight)
+                             width: max(0, trailing - Metrics.space4 - textX), height: textHeight)
     }
 
     override func updateTrackingAreas() {
