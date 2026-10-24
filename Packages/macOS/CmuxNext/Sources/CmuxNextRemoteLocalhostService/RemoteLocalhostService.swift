@@ -54,7 +54,11 @@ public final class RemoteLocalhostService {
     /// depends only on which daemon holds the tab, the settings and the
     /// daemon's capabilities.
     public func route(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
-        let daemon = machines.daemon(forTab: tab)
+        route(for: tab, daemon: machines.daemon(forTab: tab), engine: engine)
+    }
+
+    /// ``route(for:engine:)`` for `tab` held by `daemon`.
+    private func route(for tab: TabModel, daemon: DaemonService, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
         if daemon.isLocal, debugSocket != nil {
             return engine == .cef ? .machine(Self.debugMachineName) : .thisMacInstead(Self.debugMachineName, .webKit)
         }
@@ -131,9 +135,14 @@ public final class RemoteLocalhostService {
 
     /// The machine chip of a browser tab showing `url`: shown only for a
     /// loopback page of a tab whose machine is not this Mac.
-    public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
-        guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
-        switch route(for: tab, engine: engine) {
+    public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? { // perf-hot: 0.01ms tab-switch (every browser tab item of every strip pass)
+        guard let url else { return nil }
+        let daemon = machines.daemon(forTab: tab)
+        // A tab of this Mac's daemon sees this Mac's localhost (no chip):
+        // known before its URL's host is parsed, which nearly every tab skips.
+        if daemon.isLocal, debugSocket == nil { return nil }
+        guard LoopbackHost(url: url)?.isLoopback == true else { return nil }
+        switch route(for: tab, daemon: daemon, engine: engine) {
         case .thisMac:
             return nil
         case .machine(let name):
@@ -148,12 +157,16 @@ public final class RemoteLocalhostService {
         }
     }
 
-    /// The tab with durable id `id` on any machine.
-    public func tab(id: String) -> TabModel? {
+    /// The tab with durable id `id` on any machine, from each machine's
+    /// store index: its cost does not grow with the tabs.
+    ///
+    /// Render and feed passes call it once per tab (the browser tab cache's
+    /// `tabModel`, the omnibar machine chip), so a walk over every tab here
+    /// made each pass quadratic in the tabs (120 ms main-thread stalls in the
+    /// STRESS session).
+    public func tab(id: String) -> TabModel? { // perf-hot: 0.01ms tab-switch (once per tab per render or feed pass)
         for daemon in machines.daemons {
-            if let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id }) {
-                return tab
-            }
+            if let tab = daemon.store.tab(id: id) { return tab }
         }
         return nil
     }
