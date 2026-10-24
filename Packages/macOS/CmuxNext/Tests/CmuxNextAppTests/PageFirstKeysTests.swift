@@ -109,7 +109,7 @@ import Testing
             Issue.record("Cmd-F was not offered to the page")
             return
         }
-        let tab = ObjectIdentifier(Self.tab)
+        let tab = Self.tab
         router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win", tab: tab)
         #expect(ran.ids.isEmpty, "Find ran before the page answered")
         #expect(router.runUnhandledPageKey(key, from: tab))
@@ -132,7 +132,7 @@ import Testing
             Issue.record("Cmd-F was not offered to the page")
             return
         }
-        let tab = ObjectIdentifier(Self.tab)
+        let tab = Self.tab
         router.offerToPage(handled, candidate: find, context: context, window: "win", tab: tab)
         let next = try Self.event(Self.pageOwnedKeys[1], timestamp: 2)
         guard case .offerToPage(let findNext) = router.decide(next, focus: Self.pageFocus, keyWindow: .content, facts: Self.chromium) else {
