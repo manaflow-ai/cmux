@@ -13,8 +13,9 @@ import Foundation
 @MainActor
 struct AgentPeerUploads {
     private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int }
+    private struct Batch { var session: String; var remaining: [(String, Int)]; var expires: Date }
     private static var stages: [String: Stage] = [:]
-    private static var batches: [String: (session: String, remaining: [(String, Int)])] = [:]
+    private static var batches: [String: Batch] = [:]
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
     struct Target {
         var session: String
@@ -35,12 +36,13 @@ struct AgentPeerUploads {
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard let target = target(tab: tab, services: services) else { return nil }
         return { request, session in
+            batches = batches.filter { $0.value.expires >= Date() }
             guard session == target.session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
             switch request {
             case .begin(let name, let size, let batchToken, let manifest):
                 if let batchToken {
                     guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                    batches[batchToken] = (target.session, Array(batch.remaining.dropFirst()))
+                    batches[batchToken] = Batch(session: target.session, remaining: Array(batch.remaining.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
                 }
                 guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
                 if let manifest {
@@ -56,7 +58,11 @@ struct AgentPeerUploads {
                     if let expired = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: expired.file) }
                 }
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
-                if let manifest, batchToken == nil, manifest.count > 1 { let id = UUID().uuidString.lowercased(); batches[id] = (target.session, Array(manifest.dropFirst())); reply["batchToken"] = id }
+                if let manifest, batchToken == nil, manifest.count > 1 {
+                    let id = UUID().uuidString.lowercased()
+                    batches[id] = Batch(session: target.session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
+                    reply["batchToken"] = id
+                }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.target.session == target.session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
