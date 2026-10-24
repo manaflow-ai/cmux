@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// (Not yet holding anything: the red test's skeleton.) A script batch's stage on one store (CLAUDE.md "Go past Chrome where cmux is scripted": a burst
+/// A script batch's stage on one store (CLAUDE.md "Go past Chrome where cmux is scripted": a burst
 /// of scripted changes coalesces to one model update). While it is open, what the batch changes in
 /// the workspaces it touches is held back, and shows in one pass when it commits:
 ///
@@ -87,17 +87,40 @@ public final class StoreStage {
     /// Whether `intent` is this stage's to hold: made under one of its scopes, of a kind that
     /// changes a tab or a workspace in place, in workspaces the store knows. Records them.
     func holds(_ intent: Intent, transaction: ClientTransactionID, in store: DaemonStore) -> Bool {
-        false
+        guard isOpen, let scope = DaemonCommandScope.current, scopes.contains(ObjectIdentifier(scope)),
+              let reached = store.stageWorkspaces(of: intent), !reached.isEmpty else { return false }
+        workspaces.formUnion(reached)
+        transactions.insert(transaction)
+        return true
     }
 
     /// The events of `batch` the store applies now; the rest wait in the stage. A lifecycle event
     /// (the connection changed, the inbox overflowed) commits the stage first, and all apply.
     func passing(_ batch: [DaemonEventEnvelope], in store: DaemonStore) -> [DaemonEventEnvelope] {
-        batch
+        guard isOpen else { return batch }
+        if batch.contains(where: { store.stageReach(of: $0.event) == nil }) {
+            commit(all: true)
+            return batch
+        }
+        var now: [DaemonEventEnvelope] = []
+        for envelope in batch {
+            let reach = store.stageReach(of: envelope.event) ?? []
+            let echoesHeld = envelope.event.clientTransactionID.map(transactions.contains) ?? false
+            guard echoesHeld || !reach.isDisjoint(with: workspaces) else {
+                now.append(envelope)
+                continue
+            }
+            workspaces.formUnion(reach)
+            events.append(envelope)
+            firstHeld = firstHeld.map { min($0, envelope.sequence) } ?? envelope.sequence
+        }
+        return now
     }
 
     /// `sequence`, but below the first event the stage holds.
     func cappedSequence(_ sequence: UInt64) -> UInt64 {
-        sequence
+        highestSeen = max(highestSeen, sequence)
+        guard isOpen, let firstHeld else { return sequence }
+        return min(sequence, firstHeld &- 1)
     }
 }
