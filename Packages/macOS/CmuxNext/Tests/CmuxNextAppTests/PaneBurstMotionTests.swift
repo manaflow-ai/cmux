@@ -33,4 +33,24 @@ import Testing
         let after = try #require(screen.paneFrames[pane]).rect
         #expect(after == shown, "the second close stepped a moving pane in its own turn: \(shown) -> \(after)")
     }
+
+    /// M4 (PL-burst): a divider released with a velocity seeds only the frames its layout change moves; a pane
+    /// already springing for another reason (a column closing elsewhere) keeps its own velocity.
+    @Test func aDividerReleaseSeedsOnlyTheFramesItMoves() throws {
+        var frames: [PaneID: AnimatedFrame] = [:]
+        var moving = AnimatedFrame(CGRect(x: 0, y: 0, width: 100, height: 100))
+        moving.setTarget(CGRect(x: 0, y: 0, width: 300, height: 100))
+        moving.width.velocity = 777
+        frames[PaneID("unrelated")] = moving
+        var released = AnimatedFrame(CGRect(x: 0, y: 0, width: 200, height: 100))
+        released.setTarget(CGRect(x: 0, y: 0, width: 260, height: 100))
+        frames[PaneID("beside")] = released
+        var divider = AnimatedFrame(CGRect(x: 200, y: 0, width: 4, height: 100))
+        divider.setTarget(CGRect(x: 260, y: 0, width: 4, height: 100))
+        var dividers: [DividerHandleView.Kind: AnimatedFrame] = [.split(SplitID("d")): divider]
+        SplitMotion.seed(velocity: 600, along: .horizontal, divider: divider, panes: &frames, dividers: &dividers,
+                         moved: [PaneID("beside")])
+        #expect(frames[PaneID("unrelated")]?.width.velocity == 777, "the release reset a spring it does not move")
+        #expect((frames[PaneID("beside")]?.width.velocity ?? 0) > 0, "the pane beside the divider was not seeded")
+    }
 }
