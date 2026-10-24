@@ -8,6 +8,7 @@
 #include "CmuxNextTestExitTrace.h"
 
 #include <crt_externs.h>
+#include <signal.h>
 #include <execinfo.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,8 +34,22 @@ static int lists_tests(void) {
     return 0;
 }
 
+// DIAGNOSTIC (PL-blocking scratch branch, never landed): a trap (SIGTRAP/SIGILL/SIGABRT) prints the trapping
+// thread's stack, then the default action runs.
+static void cmux_next_test_trap_trace(int sig) {
+    static const char header[] = "cmux-next test process: fatal signal; the trapping thread's stack:\n";
+    write(STDERR_FILENO, header, sizeof header - 1);
+    void *frames[128];
+    int count = backtrace(frames, 128);
+    backtrace_symbols_fd(frames, count, STDERR_FILENO);
+    signal(sig, SIG_DFL);
+}
+
 __attribute__((constructor)) static void cmux_next_test_exit_trace_install(void) {
     installed = lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
+    signal(SIGTRAP, cmux_next_test_trap_trace);
+    signal(SIGILL, cmux_next_test_trap_trace);
+    signal(SIGABRT, cmux_next_test_trap_trace);
 }
 
 int cmux_next_test_exit_trace_installed(void) {
