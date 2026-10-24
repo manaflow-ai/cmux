@@ -1,5 +1,7 @@
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
