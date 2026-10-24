@@ -1,0 +1,28 @@
+{
+  "rate": 60,
+  "entry": "agent-pane.peek-motion",
+  "variant": "peek-open",
+  "url": "http://127.0.0.1:18796/gallery/frame.html?entry=agent-pane.peek-motion&variant=peek-open",
+  "frames": 52,
+  "frameIntervalMs": {
+    "p50": 16.299999952316284,
+    "p95": 21.799999952316284,
+    "max": 27
+  },
+  "open": {
+    "startMs": 111.70000004768372,
+    "settleMs": 323.90000009536743,
+    "durationMs": 212.20000004768372,
+    "frames": 22
+  },
+  "close": {
+    "startMs": 497.5,
+    "settleMs": 696.2000000476837,
+    "durationMs": 198.70000004768372,
+    "frames": 30
+  },
+  "sourceRectMaxDeltaPx": 0,
+  "receipt": "generation 4 · close rect 160,65 640x240 · no late completion",
+  "lateCompletion": false,
+  "finalState": "closed"
+}
