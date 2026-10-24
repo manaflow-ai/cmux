@@ -89,19 +89,59 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     watching.current?.();
     watching.current = undefined;
   };
+  /// Stops the active fold's policy observer. It only lives for the short window while a Web
+  /// Animation is running, so a settings change can settle that animation without adding a page-wide
+  /// observer for every collapsible.
+  const stopMotionWatch = useRef<(() => void) | undefined>(undefined);
+  const unwatchMotion = () => {
+    stopMotionWatch.current?.();
+    stopMotionWatch.current = undefined;
+  };
+  const watchMotion = (node: HTMLElement, opening: boolean) => {
+    const root = node.ownerDocument.documentElement;
+    const Observer = node.ownerDocument.defaultView?.MutationObserver;
+    if (!root || !Observer) return;
+    const observer = new Observer(() => {
+      // Reduce Motion can leave fade tokens nonzero while the structural move token becomes zero.
+      // The fold must still settle immediately instead of finishing its old height animation.
+      if (running.current && foldMs(node) <= 0) {
+        // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
+        // Settle the layout synchronously first so a closing body cannot flash back to natural height.
+        if (opening) node.style.overflow = "";
+        else {
+          pin(node, 0);
+          setClosing(false);
+        }
+        running.current.cancel();
+      }
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["style", "data-agent-motion", "data-cmux-motion"] });
+    stopMotionWatch.current = () => observer.disconnect();
+  };
+  // A theme update can cancel Web Animations while a fold is in flight (for example when the
+  // person turns animations off). Detach handlers before replacing a running animation so a
+  // reversal cannot finish the new fold's state early.
+  const cancelRunning = () => {
+    const animation = running.current;
+    running.current = undefined;
+    if (!animation) return;
+    animation.onfinish = null;
+    animation.oncancel = null;
+    animation.cancel();
+  };
   // The `open` the box was last drawn for: the first render, and a StrictMode re-run, play nothing.
   const played = useRef(open);
   useLayoutEffect(() => {
     if (played.current === open) return;
     played.current = open;
     stopWatching();
+    unwatchMotion();
     const node = ref.current;
     // A box a close left pinned shut (below) opens from its own size again.
     if (node) pin(node, undefined);
     const ms = animates() ? foldMs(node) : 0;
     if (!node || ms <= 0) {
-      running.current?.cancel();
-      running.current = undefined;
+      cancelRunning();
       setClosing(false);
       return;
     }
@@ -111,7 +151,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
-    running.current?.cancel();
+    cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     node.style.overflow = "hidden";
     const animation = node.animate(
@@ -122,6 +162,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
       { duration: ms, easing: foldMotion.easing(node) },
     );
     running.current = animation;
+    watchMotion(node, open);
     // An open whose body draws its content late (a diff, highlighted code) grows to it in the same
     // motion: a later size takes over from the drawn height for the time left, instead of the box
     // stopping short and then snapping to its full height. It stops watching when the fold ends.
@@ -145,21 +186,26 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
           { duration: until - now, easing: foldMotion.easing(node) },
         );
         playing.onfinish = null;
+        playing.oncancel = null;
         playing.cancel();
         running.current = rest;
-        rest.onfinish = () => {
+        const settledRest = () => {
           if (running.current !== rest) return;
           running.current = undefined;
           stopWatching();
+          unwatchMotion();
           node.style.overflow = "";
         };
+        rest.onfinish = settledRest;
+        rest.oncancel = settledRest;
       });
       grows.observe(content);
       watching.current = () => grows.disconnect();
     }
-    animation.onfinish = () => {
+    const settled = () => {
       if (running.current !== animation) return;
       stopWatching();
+      unwatchMotion();
       running.current = undefined;
       if (open) {
         node.style.overflow = "";
@@ -170,12 +216,15 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
       pin(node, 0);
       setClosing(false);
     };
+    animation.onfinish = settled;
+    animation.oncancel = settled;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(
     () => () => {
       stopWatching();
-      running.current?.cancel();
+      unwatchMotion();
+      cancelRunning();
     },
     [],
   );
