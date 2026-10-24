@@ -13,7 +13,9 @@ nonisolated extension AcpmuxPaneMethods {
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
         // in place is `_acpmux/app_reply`, never a prompt (acpmux refuses one from the app too).
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface"]),
+        // `inlineParts`: display descriptors for the prompt's attachment blocks. The daemon
+        // validates them against those blocks and keeps them out of the agent's request.
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).

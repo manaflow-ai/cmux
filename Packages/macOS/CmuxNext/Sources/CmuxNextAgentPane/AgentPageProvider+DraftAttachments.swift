@@ -16,8 +16,23 @@ extension AgentPageProvider {
         let store = AgentPaneDraftAttachments.shared
         if method == "chat.draftAttachments.get" {
             guard let store else { return .array([]) }
+            if body["ordered"] == .bool(true) {
+                let draft = await store.draft(for: session)
+                return await Task.detached { AgentPaneDraftAttachments.json(draft) }.value
+            }
             let kept = await store.attachments(for: session)
             return await Task.detached { AgentPaneDraftAttachments.json(kept) }.value
+        }
+        if let value = body["draft"] {
+            if let store, let held = await store.keepOrdered(value, for: session) {
+                return .object(["held": .array(held.map(JSONValue.string))])
+            }
+            // A present draft is an explicit ordered write. A malformed one must not fall through
+            // to the legacy list path, which could erase an existing ordered draft.
+            if store == nil, await Task.detached { AgentPaneDraftAttachments.decodeDraft(value) != nil }.value {
+                return .object(["held": .array([])])
+            }
+            throw PageError.invalidParams(op)
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
         guard let store else { return .object(["held": .array([])]) }
