@@ -36,9 +36,7 @@ public final class SocketTasksSource: TasksSource {
         self.path = path ?? Self.defaultPath(team: "local")
     }
 
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The directory watch
-    // (a MainDirectoryWatch) stops and closes its descriptor on the releasing thread.
+    // cx-t7hu: no isolated-deinit hop on release (the contract: OwnedTask).
     nonisolated deinit {}
 
     public static func defaultPath(team: String) -> String {

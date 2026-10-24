@@ -25,9 +25,9 @@ final class LinkDragSession {
     private var drag: Drag?
 
     private final class Drag {
-        // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-        // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
-        // self-ending handles end on the releasing thread.
+        // cx-t7hu: no isolated-deinit hop on release (see OwnedTask). A release does not remove the
+        // event monitor: finish(commit:) does. The resign observation ends itself; the ghost is an
+        // AppKit panel, so release this on main.
         nonisolated deinit {}
 
         let item: LinkDragItem

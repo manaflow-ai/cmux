@@ -28,9 +28,8 @@ import CmuxNextDesign
         fatalError("init(coder:) is not supported")
     }
 
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The window's
-    // notices hold this follower weakly, so it drops out without a call.
+    // cx-t7hu: no isolated-deinit hop on release (see OwnedTask). It holds AppKit objects:
+    // release it on main.
     nonisolated deinit {}
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

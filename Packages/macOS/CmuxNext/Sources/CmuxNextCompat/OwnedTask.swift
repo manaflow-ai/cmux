@@ -12,6 +12,11 @@
 /// cx-t7hu trap inside an action's task-local scope) and the handle is released on the main
 /// thread, not on the releasing one.
 ///
+/// The empty deinit removes the hop only. An owner that is or holds an AppKit window or view
+/// must still be released on the main thread, and a handle that does not end itself (an
+/// `NSEvent` monitor) is still removed by an explicit call. Each owner marks its deinit with
+/// a one-line `// cx-t7hu` comment that points here.
+///
 /// ```swift
 /// watch = OwnedTask(Task { [weak self] in
 ///     for await status in ObservationStream({ chief.status }) { self?.show(status) }

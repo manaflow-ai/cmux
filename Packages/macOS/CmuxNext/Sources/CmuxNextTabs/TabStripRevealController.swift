@@ -23,9 +23,7 @@ final class TabStripRevealController {
         hover = HoverReveal(region: strip, tracksPointer: false)
     }
 
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The plus-button
-    // observation (an OwnedTask) is cancelled on the releasing thread.
+    // cx-t7hu: no isolated-deinit hop on release (the contract: OwnedTask).
     nonisolated deinit {}
 
     var isRevealed: Bool { hover.isRevealed }
