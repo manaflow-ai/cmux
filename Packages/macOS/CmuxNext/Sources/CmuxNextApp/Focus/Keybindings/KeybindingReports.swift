@@ -104,7 +104,10 @@ enum KeybindingReports {
     /// before they are saved: where both hold, one takes the key from the
     /// other (a browser-only Cmd-T takes New Tab's in the browser).
     /// `when` is the condition the write would carry (`KeybindingPageWrites.savedWhen`).
-    static func conflicts(_ params: [String: JSONValue], when: WhenClause?, registry: ActionRegistry) -> JSONValue {
+    /// `asDefault`: the keys are the action's shipped default again
+    /// (`KeybindingPageWrites.restoresDefault`); as in ``list``, two shipped defaults never conflict.
+    static func conflicts(_ params: [String: JSONValue], when: WhenClause?, asDefault: Bool = false,
+                          registry: ActionRegistry) -> JSONValue {
         let command = registry.canonicalID(for: ActionID(rawValue: params["command"]?.stringValue ?? ""))
         guard let keys = keys(from: params["key"]?.stringValue ?? "") else { return ["bindings": []] }
         let entries = RegistryKeyBindings(registry).table.entries
@@ -115,6 +118,7 @@ enum KeybindingReports {
             // The user's Ghostty config is read-only here, and in a terminal cmux's action runs
             // first (`ShortcutNote.ghosttyKeybind`): never one to take keys from.
             guard entry.keys == keys, entry.command != command, !entry.source.isGhostty else { return false }
+            if asDefault, entry.source == .default { return false }
             return WhenClause.canOverlap(entry.when, when) && seen.insert(entry).inserted
         }.map { index -> JSONValue in
             guard case .object(var object) = json(entries[index], registry: registry) else { return .null }

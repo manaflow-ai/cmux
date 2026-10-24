@@ -1,6 +1,9 @@
+import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextSettings
+import CmuxNextDesign
+@testable import CmuxNextSettings
+import Foundation
 import Testing
 
 /// A conflict on the Keyboard Shortcuts page is two actions on the same keys whose `when` can
@@ -107,5 +110,60 @@ import Testing
             return
         }
         #expect(!none.contains { Self.field($0, "command")?.stringValue == "browserZoomReset" })
+    }
+
+    /// Actual Size moved to Cmd-F and back to Cmd-0 is its shipped default again (the table lists
+    /// it as one): the check before the save asked about Reset Workspace Font Size, Reset Font
+    /// Size and the canvas's Actual Size, the other surfaces' default Cmd-0 (Lucas 2026-10-24).
+    static func writes() -> (AppServices, KeybindingPageWrites) {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let url = FileManager.default.temporaryDirectory.appending(path: "cnc-kb-restore-\(UUID().uuidString).json")
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        return (services, KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile))
+    }
+
+    @Test func actualSizeBackOnItsDefaultCmdZeroConflictsWithNothing() throws {
+        let (services, writes) = Self.writes()
+        services.registry.setShortcutOverride(Shortcut("f", modifiers: .command), for: "browserZoomReset")
+        let moved = try #require(RegistryKeyBindings(services.registry).table.entries.last { $0.command == "browserZoomReset" })
+        let when: JSONValue = moved.when.map { .string($0.text) } ?? .null
+        let back: [String: JSONValue] = ["command": "browserZoomReset", "key": "cmd+0", "when": when,
+                                         "replaces": ["key": "cmd+f", "when": when]]
+        #expect(writes.restoresDefault(back))
+        #expect(!writes.restoresDefault(back.merging(["key": "cmd+9"]) { $1 }))
+        guard case .array(let taken)? = Self.field(KeybindingReports.conflicts(
+            back, when: writes.savedWhen(back), asDefault: writes.restoresDefault(back), registry: services.registry), "bindings")
+        else {
+            Issue.record("no conflicts reply")
+            return
+        }
+        #expect(taken.isEmpty, "Cmd-0 back on Actual Size takes: \(taken.compactMap { Self.field($0, "command")?.stringValue })")
+    }
+
+    /// Select Tab 1…9 moved to Cmd-Opt and back to its Ctrl digits is its shipped family again
+    /// (`moveFamily` drops the override): Home's Ctrl-1…9 Select Conversation shares those keys
+    /// by design, no question (the restore-every-default sweep on the keyclick build, 2026-10-24).
+    @Test func aNumberedFamilyBackOnItsDefaultModifiersConflictsWithNothing() throws {
+        let (services, writes) = Self.writes()
+        let shipped = try #require(services.registry.descriptor(for: "selectSurfaceByNumber")?.defaultShortcut)
+        services.registry.setShortcutOverride(Shortcut("1", modifiers: [.command, .option]), for: "selectSurfaceByNumber")
+        let moved = try #require(RegistryKeyBindings(services.registry).table.entries.last {
+            $0.command == "selectSurfaceByNumber" && $0.argument == "3"
+        })
+        let when: JSONValue = moved.when.map { .string($0.text) } ?? .null
+        let back: [String: JSONValue] = [
+            "command": "selectSurfaceByNumber", "key": .string(KeybindingReports.text([Shortcut("3", modifiers: shipped.modifiers)])),
+            "when": when, "replaces": ["key": .string(KeybindingReports.text(moved.keys)), "when": when],
+        ]
+        #expect(writes.restoresDefault(back))
+        guard case .array(let taken)? = Self.field(KeybindingReports.conflicts(
+            back, when: writes.savedWhen(back), asDefault: writes.restoresDefault(back), registry: services.registry), "bindings")
+        else {
+            Issue.record("no conflicts reply")
+            return
+        }
+        #expect(taken.isEmpty, "Select Tab back on its digits takes: \(taken.compactMap { Self.field($0, "command")?.stringValue })")
     }
 }

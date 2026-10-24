@@ -37,15 +37,10 @@ struct KeybindingPageWrites {
         let args = params["args"]?.objectValue ?? [:]
         // An unset family (the page's Remove took its keys) gets all nine keys back on the
         // recorded modifiers, checked as a family.
-        if registry.descriptor(for: id)?.shortcutFamily == .digits, target == nil, keys.count == 1,
-           case .some(.none) = registry.shortcutOverrides[id] {
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, keys.count == 1, movesFamily(id, keys[0], params) {
             return try await moveFamily(id, to: keys[0].modifiers)
         }
-        if registry.descriptor(for: id)?.shortcutFamily == .digits, let target, let digit = target.argument {
-            if keys.count == 1, keys[0].key == digit, target.source != .app, !isFromFile(target),
-               params["when"]?.stringValue == target.when?.text {
-                return try await moveFamily(id, to: keys[0].modifiers)
-            }
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, let target, target.argument != nil {
             try refuseSiblings(id, keys: [keys], except: target)
             return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
         }
@@ -247,15 +242,43 @@ struct KeybindingPageWrites {
     /// not a terminal); a keybindings.json entry keeps the text sent. As `set` routes them.
     func savedWhen(_ params: [String: JSONValue]) -> WhenClause? {
         let sent = params["when"]?.stringValue
-        guard let id = try? command(params) else { return sent.flatMap { try? WhenClause.parse($0) } }
+        guard let id = try? command(params), toConfig(id, params) else { return sent.flatMap { try? WhenClause.parse($0) } }
+        let requiring = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        guard KeyBindingDefaults.homeChatScoped.contains(id) else { return requiring }
+        return WhenClause.and([requiring, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+    }
+
+    /// `set` would give the action its shipped default keys back: a cmux.json override equal to
+    /// the default is the default entry again (`RegistryKeyBindings.source`), so it shares keys
+    /// with the other shipped defaults by design (each surface's Cmd-0 Actual Size).
+    /// A numbered family back on its default modifiers drops its override (`moveFamily`).
+    func restoresDefault(_ params: [String: JSONValue]) -> Bool {
+        guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
+              keys.count == 1, let shipped = registry.descriptor(for: id)?.defaultShortcut else { return false }
+        if registry.descriptor(for: id)?.shortcutFamily == .digits {
+            return movesFamily(id, keys[0], params) && Shortcut("1", modifiers: keys[0].modifiers) == shipped
+        }
+        return toConfig(id, params) && keys[0] == shipped
+    }
+
+    /// `set` moves the numbered family `id` to the key's modifiers (all nine keys): an unset
+    /// family, or one of its digits recorded on other modifiers in its own place.
+    private func movesFamily(_ id: ActionID, _ key: Shortcut, _ params: [String: JSONValue]) -> Bool {
+        guard let target = (try? entry(id, params["replaces"]?.objectValue)) ?? nil else {
+            if case .some(.none) = registry.shortcutOverrides[id] { return true }
+            return false
+        }
+        return key.key == target.argument && target.source != .app && !isFromFile(target)
+            && params["when"]?.stringValue == target.when?.text
+    }
+
+    /// `set` writes the keys to cmux.json (one key or a two-key chord in the action's own `when`).
+    private func toConfig(_ id: ActionID, _ params: [String: JSONValue]) -> Bool {
         let target = (try? entry(id, params["replaces"]?.objectValue)) ?? nil
         let requiring = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
         let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? "") ?? []
-        let toConfig = sent == (target?.when?.text ?? requiring?.text) && target?.source != .app && !isFromFile(target)
-            && keys.count <= 2 && registry.descriptor(for: id)?.shortcutFamily != .digits
-        guard toConfig else { return sent.flatMap { try? WhenClause.parse($0) } }
-        guard KeyBindingDefaults.homeChatScoped.contains(id) else { return requiring }
-        return WhenClause.and([requiring, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+        return params["when"]?.stringValue == (target?.when?.text ?? requiring?.text) && target?.source != .app
+            && !isFromFile(target) && keys.count <= 2 && registry.descriptor(for: id)?.shortcutFamily != .digits
     }
 
     /// The palette recorder's rules (`ActionRegistry.assessShortcut`; one

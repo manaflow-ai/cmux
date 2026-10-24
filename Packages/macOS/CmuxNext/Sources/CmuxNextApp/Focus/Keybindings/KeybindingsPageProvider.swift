@@ -47,7 +47,9 @@ final class KeybindingsPageProvider: PageProvider {
             }
             let when = writes.map { $0.savedWhen(fields) }
                 ?? fields["when"]?.stringValue.flatMap { try? WhenClause.parse($0) }
-            guard case .object(var reply) = KeybindingReports.conflicts(fields, when: when, registry: services.registry)
+            let asDefault = writes?.restoresDefault(fields) ?? false
+            guard case .object(var reply) = KeybindingReports.conflicts(fields, when: when, asDefault: asDefault,
+                                                                        registry: services.registry)
             else { return [:] }
             if let refusal = writes?.refusal(fields) {
                 reply["refusal"] = .string(refusal.message)
