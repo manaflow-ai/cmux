@@ -138,10 +138,13 @@ export function useKeptAttachments(
       holdWebSwap(() => {
         const { sessionId, attachments, readFor, store } = shown.current;
         if (attachments.some((chip) => chip.shellRun)) return "composer.shell-run";
-        const chips = keptChips(attachments);
-        if (!chips.length) return null;
-        if (!sessionId || !store || readFor !== sessionId) return "composer.attachments-unkept";
+        // A write resting or in flight (a removal's empty list too): what a reload reads back is not known yet.
         if (pending.current || inFlight.current) return "composer.attachments-unsaved";
+        const chips = keptChips(attachments);
+        // The host's chips not read back yet: a page that reloads now reads them then.
+        if (sessionId && store && readFor !== sessionId) return "composer.attachments-unread";
+        if (!chips.length) return written.current.ids === "\u0000refused" ? "composer.attachments-unsaved" : null;
+        if (!sessionId || !store) return "composer.attachments-unkept";
         const kept = written.current;
         if (kept.sessionId !== sessionId || kept.ids !== signature(chips)) return "composer.attachments-unsaved";
         if (chips.some((chip) => chip.data && !kept.stored.has(chip.id))) return "composer.attachments-unsaved";

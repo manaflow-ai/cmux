@@ -77,6 +77,8 @@ public final class WebUpdates {
             self?.ready(tree, version: pointer)
         }
         updater.served = { WebBundleOverlay.shared.activeTree }
+        // Checks come every minute only while cmux is in the front (the activation observers follow it).
+        updater.foreground = NSApp?.isActive ?? false
         self.updater = updater
         if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {

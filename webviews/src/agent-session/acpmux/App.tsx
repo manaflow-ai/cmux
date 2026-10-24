@@ -684,10 +684,20 @@ const keptAttachments: KeptAttachments = {
     callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
 };
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
-const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
-  void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).catch(
+const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) => {
+  const write = ++anchorWrite.sent;
+  void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).then(
+    () => {
+      if (write === anchorWrite.sent) anchorWrite.kept = write;
+    },
     () => undefined,
   );
+};
+/// The newest place sent and the newest one the host answered for (`kept` behind `sent`: not kept yet).
+const anchorWrite = { sent: 0, kept: 0 };
+// WEB-SWAP: a web update's reload reopens the chat at the kept place, so it waits for the newest
+// one to be kept (a refused one stays unkept until the next report, pages/shared/webSwap.ts).
+holdWebSwap(() => (anchorWrite.kept < anchorWrite.sent ? "transcript.place-unsaved" : null));
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
 /// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
@@ -3253,13 +3263,12 @@ export function VirtualTranscript({
   const onAnchorRef = useRef(onAnchor);
   onAnchorRef.current = onAnchor;
   // WEB-SWAP: the transcript reopens at the place it reported (`chat.scrollAnchor`), so a web
-  // update's reload waits only for a report still due (pages/shared/webSwap.ts).
+  // update's reload waits only for a report still due (pages/shared/webSwap.ts). A hidden pane
+  // reports where the reader last saw it (below), so it never holds the swap.
   useEffect(
     () =>
       holdWebSwap(() =>
-        onAnchorRef.current && (anchorTimer.current !== undefined || anchorDeferred.current)
-          ? "transcript.place-unsaved"
-          : null,
+        onAnchorRef.current && anchorTimer.current !== undefined ? "transcript.place-unsaved" : null,
       ),
     [],
   );
@@ -3270,12 +3279,17 @@ export function VirtualTranscript({
     if (!node || !onAnchor || !didOpenAtLatest.current) return;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
     anchorDeferred.current = node.clientHeight === 0;
-    if (anchorDeferred.current) return;
+    // Meanwhile it keeps where the reader last saw it (as `pane.wakeState` does); the report comes
+    // again once it shows.
+    if (anchorDeferred.current && seenAnchor.current === undefined) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
-    const anchor: ScrollAnchor | null =
-      scrolledTo.current.atLatest || !row ? null : { rowId: row.id, offset: node.scrollTop - placed.tops[index] };
+    const anchor: ScrollAnchor | null = anchorDeferred.current
+      ? (seenAnchor.current ?? null)
+      : scrolledTo.current.atLatest || !row
+        ? null
+        : { rowId: row.id, offset: node.scrollTop - placed.tops[index] };
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;
@@ -5915,6 +5929,17 @@ function AcpmuxPane() {
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
   );
+  /// Prompts that left the composer and acpmux has not taken yet (`chat.send` before `accepted`).
+  const untakenSends = useRef(0);
+  // WEB-SWAP: a web update's reload waits while a prompt that left the composer lives only in this
+  // page: one acpmux has not taken, or one waiting for a new chat (pages/shared/webSwap.ts).
+  useEffect(
+    () =>
+      holdWebSwap(() =>
+        untakenSends.current > 0 || startingSends.busy || heldBack.current?.length ? "composer.send-untaken" : null,
+      ),
+    [startingSends],
+  );
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
@@ -8464,7 +8489,13 @@ function AcpmuxPane() {
                   return true;
                 }
                 const holder = composerHandle.current;
-                callNative("chat.send", { text, attachments, steer }).then(
+                untakenSends.current += 1;
+                let untaken = true;
+                const taken = () => {
+                  if (untaken) untakenSends.current -= 1;
+                  untaken = false;
+                };
+                callNative("chat.send", { text, attachments, steer, accepted: taken }).finally(taken).then(
                   () => {
                     rememberStart();
                     promptLanded.current();

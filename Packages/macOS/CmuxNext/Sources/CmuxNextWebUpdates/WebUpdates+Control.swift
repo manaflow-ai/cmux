@@ -10,7 +10,8 @@ import Foundation
 // while a download outlasts the control deadline).
 // `updates.web.rollback`: serves the update before the active one (the bundled web when none) at
 // the next safe point; the rolled-back update is not taken again. `updates.web.apply`: swaps a
-// ready update in now and reloads the pages (a draft being typed is not saved first).
+// ready update in now and reloads the pages, past the safe point's checks (WebSwapGate): an
+// explicit ask, for tests and support; a draft being typed is not saved first.
 extension WebUpdates {
     /// The `updates.web.*` methods, for the App's control router.
     public var controlMethods: [ControlMethod] {

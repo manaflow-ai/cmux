@@ -237,6 +237,21 @@ test("a chip the host refused keeps the update waiting", async () => {
   expect(hold()).toBe("composer.attachments-unsaved");
 });
 
+test("removing the last chip waits until the host forgot it", async () => {
+  const store = new Host();
+  connectDaemon();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(1)));
+  await settle();
+  expect(hold()).toBeNull();
+  act(() => page.current!.detach(["shot-1"]));
+  // The empty list still rests: a reload now would read the chip back from the host.
+  expect(hold()).toBe("composer.attachments-unsaved");
+  await settle();
+  expect(store.chats.has("chat-a")).toBe(false);
+  expect(hold()).toBeNull();
+});
+
 test("a prompt the host has not taken yet keeps the update waiting", async () => {
   const store = new Host();
   connectDaemon();

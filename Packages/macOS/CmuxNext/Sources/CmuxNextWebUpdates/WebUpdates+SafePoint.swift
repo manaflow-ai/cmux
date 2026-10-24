@@ -37,6 +37,11 @@ extension WebUpdates {
             var answers: [String?] = []
             for view in views { answers.append(await Self.ask(view)) }
             decision = WebSwapGate.pages(answers)
+            // A page that came up while the others answered was not asked: it is asked next time.
+            let asked = Set(views.map(ObjectIdentifier.init))
+            if decision == .swap, Set(WebBundleServedViews.shared.shown.map(ObjectIdentifier.init)) != asked {
+                decision = .later(after: .seconds(1), reason: "page.new")
+            }
             // Input or a sheet that came while the pages answered still holds it.
             if decision == .swap {
                 let again = appDecision()
