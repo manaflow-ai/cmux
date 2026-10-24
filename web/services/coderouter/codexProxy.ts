@@ -696,7 +696,9 @@ async function proxyCodexRequestWith(
       "no_usable_account",
       503,
       { "retry-after": "15" },
-      "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+      providers === GROK_RESPONSES_PROVIDERS
+        ? "No healthy xAI key is currently available for Grok models. Check the team's xAI keys at coderouter.dev, or retry shortly."
+        : "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
       true,
     );
   }
