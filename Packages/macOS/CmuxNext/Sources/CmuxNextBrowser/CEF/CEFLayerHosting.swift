@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextCompat
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -97,8 +96,6 @@ final class CEFLayerHosting {
     /// The resize deadline the fork has for this page window: 0, the fork's default, until
     /// ``syncDeadline()`` gives another.
     private var appliedDeadlineMs: Int32 = 0
-    /// Re-applies the deadline when a display is added, removed or changes its rate.
-    private var screenObservation: MainActorObservation?
     /// The window is in a live resize (``windowLiveResize(active:)``).
     private var inLiveResize = false
 
@@ -112,24 +109,18 @@ final class CEFLayerHosting {
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    ///   - center: where display changes are posted (`NSApplication.didChangeScreenParametersNotification`);
-    ///     tests post on their own.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
-         center: NotificationCenter = .default) {
+         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
-        screenObservation = MainActorObservation(NSApplication.didChangeScreenParametersNotification, center: center) { [weak self] in
-            self?.syncDeadline()
-        }
     }
 
     /// Whether a refused request waits for the tracker's next read.
@@ -173,6 +164,12 @@ final class CEFLayerHosting {
             dropPage()
             syncDeadline()
         }
+    }
+
+    /// A display was added, removed or changed its rate (`CEFRuntime`'s one app-wide observer of
+    /// `NSApplication.didChangeScreenParametersNotification` calls every host view's): the cap may differ.
+    func displaysChanged() {
+        syncDeadline()
     }
 
     /// The host view moved to another window (`CEFHostView.viewDidMoveToWindow`):
