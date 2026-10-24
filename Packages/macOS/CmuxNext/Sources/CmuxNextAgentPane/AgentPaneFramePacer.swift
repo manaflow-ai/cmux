@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Display frames for ``AgentPaneFramePacer`` (the window's ``FrameScheduler``; a fake in tests).
@@ -27,9 +28,10 @@ import CmuxNextWakeups
 ///   interval) one frame interval after the previous call began, on the fallback deadline. So
 ///   streaming and notifications keep arriving, one busy moment adds no wait, and a burst is still
 ///   at most one call per frame interval.
-/// - A pane nobody can see (out of a window, hidden, or in a covered or minimized window): its
-///   frames wait, and its page gets no call, until it shows (``visibilityChanged()``), or the frames
-///   are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, a turn's end, the
+/// - A pane nobody can see (``WindowDrawPolicy``'s rule, the one terminals and cmux pages draw by:
+///   out of a window, hidden, parked, or in a covered, minimized or ordered-out window unless the
+///   launch draws occluded windows): its frames wait, and its page gets no call, until it shows
+///   (``visibilityChanged()``), or the frames are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, a turn's end, the
 ///   close, or a backlog). Each call woke the hidden page's web process: a streaming chat behind another tab
 ///   took 148 calls and 109 web-process sleep and wake cycles in two minutes (2026-10-21). Frames
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
@@ -100,10 +102,11 @@ import CmuxNextWakeups
         self.probe = probe
     }
 
-    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
+    /// Whether nobody can see `view`: ``WindowDrawPolicy``'s one rule (out of a window, hidden,
+    /// parked, or its window not on screen, which covers minimized and ordered out, unless
+    /// ``WindowDrawPolicy/drawsWhenOccluded`` holds), so a chat and a terminal in one window agree.
     static func nobodySees(_ view: NSView) -> Bool {
-        guard let window = view.window else { return true }
-        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
+        !WindowDrawPolicy.inputs(for: view, suspended: false).draws
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
