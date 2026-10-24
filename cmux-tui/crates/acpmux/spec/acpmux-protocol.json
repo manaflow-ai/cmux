@@ -315,6 +315,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/workflows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/app_reply",
       "params": true,
       "result": true
