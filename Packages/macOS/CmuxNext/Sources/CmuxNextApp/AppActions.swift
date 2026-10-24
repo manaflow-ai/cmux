@@ -4,6 +4,7 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebarActions
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
@@ -43,6 +44,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarArchiveActions(host: services).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)

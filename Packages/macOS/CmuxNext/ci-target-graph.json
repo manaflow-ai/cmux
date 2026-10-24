@@ -313,6 +313,7 @@
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextSidebarActions",
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
@@ -1651,6 +1652,15 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextSidebarActions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
     },
     "CmuxNextSignposts": {
       "kind": "regular",

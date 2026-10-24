@@ -14,6 +14,7 @@ pub const NONE: u32 = u32::MAX;
 
 pub const ROW_DIMMED: u8 = 1;
 pub const ROW_COLLAPSED: u8 = 2;
+pub const ROW_ARCHIVED: u8 = 4;
 pub const ACCEPT_BEFORE: u8 = 1;
 pub const ACCEPT_INTO: u8 = 2;
 pub const ACCEPT_AFTER: u8 = 4;
@@ -154,7 +155,8 @@ impl Out {
                 ref_workspace: table.optional(reference.map(|r| r.workspace_id.as_str())),
                 depth: row.depth,
                 flags: if row.dimmed { ROW_DIMMED } else { 0 }
-                    | if row.collapsed { ROW_COLLAPSED } else { 0 },
+                    | if row.collapsed { ROW_COLLAPSED } else { 0 }
+                    | if row.archived { ROW_ARCHIVED } else { 0 },
                 reserved: 0,
             });
         }

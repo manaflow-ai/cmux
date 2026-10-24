@@ -33,7 +33,10 @@ const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pier
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
 // English is the fallback; translated diff labels must remain lazy locale chunks.
-const diffBudgetBytes = 1_500_000;
+// The diff viewer's current first load is 1,500,788 bytes after #24873's files-panel work
+// (1,497,282 bytes before #24873). Keep this measured cap tight while recording the intentional
+// 788-byte ratchet instead of hiding it in a generic CI failure.
+const diffBudgetBytes = 1_501_000;
 const surfaces = [
   {
     name: "diff surface",
@@ -65,7 +68,9 @@ const surfaces = [
   {
     name: "editor page",
     entries: ["chunks/editor-page.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 500_000),
+    // The editor's current first load is 505,953 bytes after d3a9df0c733's shared FindPill work
+    // (504,010 bytes immediately before #b34056b26b2). Keep the measured 5,953-byte ratchet explicit.
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 506_000),
     forbidden: monacoChunks,
   },
 ];

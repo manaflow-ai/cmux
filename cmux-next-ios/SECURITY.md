@@ -299,6 +299,45 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open (that page, not its folder's other files); the host checks every file load, subresources included. |
 
+## `surface`: streamed simulator tabs (2026-10-22)
+
+A phone streams a Mac phone tab's iOS simulator (PROTOCOL.md `surface`,
+verify/simulator-surface.md). This reuses the `browser` trust model; it adds
+no new path for a peer and no new trust decision.
+
+- **Who.** Only a paired phone of this Mac's owner opens the channel (the
+  same gate as every service). It reaches only a tab the app's own daemon
+  lists now as a phone page tab of an open workspace: hostd checks the
+  `list-workspaces` answer, and the app checks its own store again before it
+  starts a source (`PhoneSurfaceHosts`). No answer from the daemon streams
+  nothing.
+- **What it sees.** Only the simulator's own framebuffer: SimulatorKit's
+  IOSurface of that device, the one the Mac's phone tab draws. No screen,
+  window or other app is captured.
+- **What it can do.** Touch the simulator, type text, press a short list of
+  keys and Home or Lock: what a person at the Mac's phone tab can do. No
+  install, launch, open-URL, location, appearance or recording reaches a
+  phone; hostd drops any other input, and the source takes only those lines.
+  One indirect effect: text a US keyboard cannot type (accents, emoji) is put
+  on the simulator's pasteboard with `simctl pbcopy` and pasted, as the Mac's
+  own phone tab does, so it also lands on that simulator's pasteboard (which
+  Simulator.app may sync to the Mac's while it is open). The source applies
+  input one event at a time from a bounded queue (256), so a flood cannot
+  start more than one `simctl` at once.
+- **Lifetime.** The source stops when its tab closes or shows another phone
+  (checked at the start, on every input, frame and encode), and hostd hears
+  `surface_gone`.
+- **Loopback.** The app's source listens on `127.0.0.1` (accept local only),
+  with a per-launch secret it gives hostd over stdin, compared in constant
+  time. hostd's own host for each tab is on loopback with its own secret, as
+  for a browser host.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No command or content: touches, text, keys and Home / Lock on the simulator the person already shows in a phone tab. |
+| Mutates or destroys objects the session does not own? | Only the simulator's UI state, as the owner at the Mac's phone tab could change it. Nothing else on the Mac. |
+| Reads local state the remote should not see? | The pictures of that simulator's screen, which the Mac shows in its phone tab. Nothing else. |
+
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 
 The WireGuard link's paths are plain UDP, TURN over UDP and, where UDP is

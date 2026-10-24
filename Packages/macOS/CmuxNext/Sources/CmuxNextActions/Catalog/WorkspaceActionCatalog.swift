@@ -240,6 +240,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
                 mainMenu: .file
             ),
+            // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
+            // it back (plans/cmux-next/archiving-DESIGN.md). The menu reads Archive or Unarchive.
+            ActionDescriptor(
+                id: "workspace.toggleArchive",
+                title: String(localized: "action.workspace.toggleArchive", defaultValue: "Archive/Unarchive Workspace", bundle: .module),
+                keywords: ["archive", "unarchive", "dim", "done", "end", "bottom"], category: .workspace, symbol: "archivebox",
+                surfaces: [.palette, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace archive-unarchive"
+            ),
             ActionDescriptor(
                 id: "palette.markWorkspaceRead",
                 title: String(localized: "action.palette.markWorkspaceRead", defaultValue: "Mark Workspace as Read", bundle: .module),
@@ -351,6 +359,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.toggleArchive",
+                title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.markRead",
