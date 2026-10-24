@@ -137,17 +137,18 @@ jobs:
           directory.relative_to(root)
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
           start = time.monotonic()
           code = subprocess.call(['timeout', '--signal=TERM', '--kill-after=30s',
                                   os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
                                   os.environ['FAST_CHECKS_COMMAND']], cwd=directory)
-          result = dict(source_sha=actual, source_tree=subprocess.check_output(
-              ['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+          after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_seconds=round(time.monotonic() - start, 3), exit_code=code,
               run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
           print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
           pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
-          raise SystemExit(code)
+          raise SystemExit(code if actual == after else 2)
           PY
 
       - name: Save exact-source timing receipt
