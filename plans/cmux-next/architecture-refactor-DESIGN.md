@@ -45,7 +45,8 @@ its highest layer and lists the rest under `mixes`.
 
 ### Measured violations (fix with each slice that touches the edge)
 
-Hard (32), grouped by cause:
+Hard (31 on 2026-10-24 after arch-layers-small-edges removed MobileHost -> RemoteBrowser and
+ComputerUse -> AgentActivity), grouped by cause:
 
 1. **Design is three layers in one target** (core values + domain state + UI kit, 39.5k lines; 43
    targets import it). Settings uses 102 Design types, 86 of them from files that import no UI
@@ -61,7 +62,7 @@ Hard (32), grouped by cause:
    provider registry (`PageProvider`, `PageRouter`) lift to a `CmuxNextPagesCore` core target; the
    WKWebView/CEF host stays in Pages (ui).
 4. **View models live inside UI packages**: Bridge -> Layout, Sidebar, Tabs, Icons;
-   DaemonService -> Layout, Apps; ComputerUse -> AgentActivity; Stash -> History; HostedChief ->
+   DaemonService -> Layout, Apps; Stash -> History; HostedChief ->
    HomeEngine; WebUpdates -> Updater. Fix: the model files (Sidebar `Model/Store/Logic`, Tabs
    items, Layout topology values, History model) move into their domain package; the view package
    depends on it.
@@ -79,8 +80,11 @@ Settings is a repository (cmux.json load, watch, apply) plus a schema: the schem
 types go to core with DesignTokens' values, the file repository stays a service; then these edges
 are core edges.
 
-Upward (3, 2026-10-23; edges from core to a service or domain target, which the first count missed):
-WorkspaceNaming -> Bridge, WorkspaceNaming -> Daemon, AgentCursorVisibility -> AgentCursor.
+Upward (1 on 2026-10-24; edges from core to a service or domain target, which the first count missed):
+WorkspaceNaming -> Daemon (NewWorkspaceName and WorkspaceAutoName read WorkspaceNameSource,
+TerminalTitle and WorkspaceModel.isDefaultName; they lift to core). WorkspaceNaming -> Bridge left
+when the live auto-name reader and namer moved to Bridge, and AgentCursorVisibility -> AgentCursor
+turned around when AgentCursorPlacement moved down (arch-layers-small-edges).
 WorkspaceNaming -> DesignTokens is core -> core by label, but DesignTokens is on the impure-core list
 (row B2): the edge is real debt until TunableStore leaves DesignTokens. Core
 depends on nothing above core, so the types these targets read move down to core (or behind a core
