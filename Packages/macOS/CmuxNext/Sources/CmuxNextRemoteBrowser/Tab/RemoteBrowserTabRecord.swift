@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 

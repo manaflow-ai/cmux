@@ -1,5 +1,5 @@
 import CmuxNextMobile
-import CmuxNextRemoteBrowser
+import CmuxNextRemote
 import Foundation
 
 /// The phone's streamed browser tabs run on this app's own remote browser

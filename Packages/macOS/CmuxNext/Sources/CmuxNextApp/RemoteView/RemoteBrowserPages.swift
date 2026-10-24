@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 #if DEBUG
+import CmuxNextRemote
 import CmuxNextRemoteBrowser
 #endif
 

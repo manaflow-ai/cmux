@@ -1,9 +1,9 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
-import CmuxNextRemoteView
 
 /// Streamed browser tabs of another machine (cx-2cob slice 2): the page
 /// runs in the browser host the machine's daemon started
