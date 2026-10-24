@@ -185,22 +185,26 @@ export function MediaPlayer({
         {open && (
           <button
             type="button"
-            className="ui-glass cv-media__action"
+            className="cv-media__action"
             aria-label={t("media.openInTab")}
             title={t("media.openInTab")}
             onClick={() => void callChipHost(open.method, open.params)}
           >
-            <OpenTab size={14} />
+            <span className="ui-glass cv-media__glass" aria-hidden="true">
+              <OpenTab size={14} />
+            </span>
           </button>
         )}
         <button
           type="button"
-          className="ui-glass cv-media__action cv-media__expand"
+          className="cv-media__action cv-media__expand"
           aria-label={t("media.expand")}
           title={t("media.expand")}
           onClick={() => setExpanded(true)}
         >
-          <Expand size={14} />
+          <span className="ui-glass cv-media__glass" aria-hidden="true">
+            <Expand size={14} />
+          </span>
         </button>
       </span>
       {expanded && (
