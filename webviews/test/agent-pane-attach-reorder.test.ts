@@ -107,8 +107,17 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     await page.mouse.down();
     await page.mouse.move(first.x + first.width / 2 + 10, first.y + first.height / 2, { steps: 3 });
     await page.mouse.move(last.x + last.width - 4, last.y + last.height / 2, { steps: 12 });
+    // The chip being dragged lifts.
+    expect(
+      await page
+        .locator(".acpmux-attachment-slot[data-dragging] .acpmux-attachment")
+        .evaluate((chip) => getComputedStyle(chip).transform),
+    ).not.toBe("none");
     await page.mouse.up();
     expect(await order(page)).toEqual(["400", "500", "300"]);
+    expect(await page.locator(".acpmux-attachment-slot[data-dragging]").count()).toBe(0);
+    // Assistive technology hears where it went.
+    expect(await page.locator(".acpmux-attachments output[aria-live]").textContent()).toBe("Shot 300.png moved to 3 of 3");
     // The press that ended the drag opened no viewer.
     expect(await page.locator(".acpmux-image-viewer, [role=dialog]").count()).toBe(0);
     await page.close();

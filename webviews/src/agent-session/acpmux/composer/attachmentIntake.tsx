@@ -2,7 +2,7 @@
 // pictures in the new tab area but it works in the existing chats"): a chat's composer (Composer.tsx)
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
-import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -43,6 +43,8 @@ const ATTACHMENT_LABELS = {
   editPasted: "composer.pastedText.edit",
   cancelAttachment: "composer.cancelAttachment",
   retryAttachment: "composer.retryAttachment",
+  reorderHint: "composer.reorderAttachmentsHint",
+  moved: "composer.attachmentMoved",
 } as const satisfies Record<string, StringKey>;
 
 export function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -394,10 +396,25 @@ export function AttachmentStrip({
   // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
   // by the prompt's band (composerAttachments.css).
   const edges = useScrollEdges("x");
+  /// What a move says to assistive technology: the chip and where it is now.
+  const [announced, setAnnounced] = useState("");
+  const live = useRef(attachments);
+  live.current = attachments;
+  const [move] = useState(() => (id: string, index: number) => {
+    const chip = live.current.find((attachment) => attachment.id === id);
+    reorderTo.current?.(id, index);
+    if (chip)
+      setAnnounced(
+        t(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: live.current.length }),
+      );
+  });
+  const reorderTo = useRef(onReorder);
+  reorderTo.current = onReorder;
   const reorder = useStripReorder(
     attachments.map((attachment) => attachment.id),
-    onReorder,
+    onReorder ? move : undefined,
   );
+  const hint = useId();
   const stripRef = useCallback(
     (node: HTMLElement | null) => {
       edges(node);
@@ -413,6 +430,7 @@ export function AttachmentStrip({
       ref={stripRef}
       className="acpmux-attachments"
       data-reorder={onReorder && attachments.length > 1 ? "" : undefined}
+      aria-describedby={onReorder && attachments.length > 1 ? hint : undefined}
       aria-label={t(ATTACHMENT_LABELS.attachments)}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
     >
@@ -436,6 +454,14 @@ export function AttachmentStrip({
         <PendingChip key={chip.id} chip={chip} {...(onCancel ? { onCancel } : {})} {...(onRetry ? { onRetry } : {})} />
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
+      {onReorder && attachments.length > 1 && (
+        <span id={hint} className="visually-hidden">
+          {t(ATTACHMENT_LABELS.reorderHint)}
+        </span>
+      )}
+      <output className="visually-hidden" aria-live="polite">
+        {announced}
+      </output>
     </fieldset>
   );
 }

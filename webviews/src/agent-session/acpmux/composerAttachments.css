@@ -471,10 +471,10 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-slot {
   display: contents;
 }
-.acpmux-attachments[data-reorder] .acpmux-attachment {
+.acpmux-attachments[data-reorder] .acpmux-attachment-slot .acpmux-attachment {
   cursor: grab;
 }
-.acpmux-attachment-slot[data-dragging] > .acpmux-attachment {
+.acpmux-attachment-slot[data-dragging] .acpmux-attachment {
   cursor: grabbing;
   opacity: 0.85;
   transform: translateY(-2px);
