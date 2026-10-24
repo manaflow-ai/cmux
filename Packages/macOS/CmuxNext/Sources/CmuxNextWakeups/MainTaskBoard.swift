@@ -135,7 +135,7 @@ public final class MainTaskBoard: Sendable {
 
     /// Installs the call made at every task start. The watchdog installs one in the explicit
     /// task-diagnostics mode to wake its thread, so it samples a task that runs past its budget;
-    /// it must return at once (a semaphore signal).
+    /// it must return at once (the watchdog triggers a kqueue user event).
     /// Set once: a later call is ignored (the one watchdog of a board installs it at launch).
     public func setTaskStartHook(_ hook: @escaping @Sendable () -> Void) {
         guard hookState.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged else { return }
