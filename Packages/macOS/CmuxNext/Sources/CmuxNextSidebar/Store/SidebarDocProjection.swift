@@ -118,7 +118,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 sectionIndex[record.id] = sections.count
                 sections.append(Self.section(record))
             }
-            guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
+            guard let id = row.item, let item = Self.item(of: row, id: id, records: records), let index = sectionIndex[record.id] else { continue }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
             if case let .group(name, color, icon, collapsed) = item.body {
                 // A nested group (remote-groups-DESIGN.md R1) lists after its parent, with its own members.
@@ -149,7 +149,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout SidebarDocMachineNodes,
                               items: inout [SidebarDocWorkspaceRef: String], unplaced: inout [SidebarDocWorkspaceRef]) {
-        guard let id = row.item, let item = records.items[id] else {
+        guard let id = row.item, let item = item(of: row, id: id, records: records) else {
             if let ref = row.ref { unplaced.append(ref) }
             return
         }
@@ -172,6 +172,17 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             guard let parent = row.parent ?? item.parent else { return }
             machines.add(id, item, toGroup: parent, session: session)
         }
+    }
+
+    /// Row `row`'s item `id`: its confirmed record, else, for a workspace row that only a pending change places (the
+    /// app's adopt and move of a new workspace into its slot, before the daemon's echo), the workspace item the row
+    /// names. The rows come from the mirror, pending changes included, and the records only from confirmed batches: a
+    /// row without a record listed as unplaced, first in its machine section under `top`, until the echo moved it to
+    /// its slot (Austin 2026-10-21: Cmd-N inside a group drew the row at the top, then moved it into the group).
+    private static func item(of row: SidebarDocRow, id: String, records: SidebarDocRecords) -> SidebarDocItem? {
+        if let item = records.items[id] { return item }
+        guard let ref = row.ref else { return nil }
+        return SidebarDocItem(id: id, section: row.section, parent: row.depth > 0 ? row.parent : nil, body: .workspace(ref))
     }
 
     static func section(_ record: SidebarDocSection) -> LayoutSection {
