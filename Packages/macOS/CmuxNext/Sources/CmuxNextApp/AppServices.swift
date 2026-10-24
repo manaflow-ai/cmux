@@ -289,7 +289,7 @@ final class AppServices {
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
-    private(set) lazy var quit = QuitCoordinator(services: self)
+    private(set) lazy var quit = QuitCoordinator(services: self, unsaved: quitUnsaved, drafts: recoveryDrafts)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
     private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in

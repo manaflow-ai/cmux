@@ -29,6 +29,8 @@ final class QuitCoordinator {
     /// The quit hook's participants: `AppServices.quitUnsaved`, the one registry the
     /// file documents and the update handoff also use.
     let unsaved: QuitUnsavedRegistry
+    /// The recovery drafts the unsaved step writes before it asks (`AppServices.recoveryDrafts`).
+    private let drafts: RecoveryDraftStore
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
@@ -41,9 +43,13 @@ final class QuitCoordinator {
     #endif
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
-    init(services: AppServices) {
+    /// - Parameters:
+    ///   - unsaved: The app's one unsaved registry (`AppServices.quitUnsaved`).
+    ///   - drafts: The store that registry removes drafts from (`AppServices.recoveryDrafts`).
+    init(services: AppServices, unsaved: QuitUnsavedRegistry, drafts: RecoveryDraftStore) {
         self.services = services
-        unsaved = services.quitUnsaved
+        self.unsaved = unsaved
+        self.drafts = drafts
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -111,7 +117,7 @@ final class QuitCoordinator {
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
         return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
-                                             writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
+                                             writeDrafts: { [drafts] in await drafts.writePending() })
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the
