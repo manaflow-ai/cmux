@@ -49,7 +49,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     private weak var observedWindow: NSWindow?
     /// The shared config and its resync moments (``StatusIndicatorAppearance/shared`` in the
     /// app; a test passes its own).
-    private let appearance: StatusIndicatorAppearance
+    private let indicatorAppearance: StatusIndicatorAppearance
     /// The resync moment this view last checked itself at (``StatusIndicatorAppearance/resyncMoment``):
     /// a view off screen at a moment is not reached, and catches up when it shows.
     private var syncedMoment: UInt64
@@ -64,14 +64,14 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     ///   - frame: The view's frame.
     ///   - appearance: Where the config and the resync moments come from (`.shared` in the app).
     public init(frame: NSRect, appearance: StatusIndicatorAppearance) {
-        self.appearance = appearance
-        syncedMoment = appearance.resyncMoment
+        self.indicatorAppearance = appearance
+        syncedMoment = indicatorAppearance.resyncMoment
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(indicator.layer)
         indicator.hostIsFlipped = isFlipped
         isHidden = true
-        appearance.register(self)
+        indicatorAppearance.register(self)
     }
 
     @available(*, unavailable)
@@ -119,8 +119,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
             updateResyncMembership()
             return
         }
-        syncedMoment = appearance.resyncMoment
-        appearance.noteResyncCheck()
+        syncedMoment = indicatorAppearance.resyncMoment
+        indicatorAppearance.noteResyncCheck()
         isWindowVisible = window.occlusionState.contains(.visible)
         refresh()
     }
@@ -136,13 +136,13 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         guard !isHiddenOrHasHiddenAncestor else { return }
         if observeOcclusion(), let window { isWindowVisible = window.occlusionState.contains(.visible) }
         // A moment passed while it was hidden (a parked workspace, a collapsed group): catch up once.
-        if syncedMoment != appearance.resyncMoment { statusIndicatorResync() }
+        if syncedMoment != indicatorAppearance.resyncMoment { statusIndicatorResync() }
         updateResyncMembership()
     }
 
     /// The config this view draws with.
     private var drawnConfig: StatusIndicatorConfig {
-        var config = appearance.config
+        var config = indicatorAppearance.config
         if ignoresScaleSetting { config.settings.scale = 1 }
         return config
     }
@@ -156,7 +156,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// hidden or shown parent (NSView docs), so the hide notices, `viewDidMoveToWindow` and
     /// `refresh` cover every way the view goes on or off screen.
     private func updateResyncMembership() {
-        appearance.setFollowsResyncs(self, follows: followsResyncs)
+        indicatorAppearance.setFollowsResyncs(self, follows: followsResyncs)
     }
 
     /// Applies the plan for the state, config and window visibility. Lays out and redraws only
@@ -178,7 +178,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         // An indicator hidden by its own idle state draws nothing a moment could repair, and one it
         // shows now draws the plan just made: both are current. Without this, an idle row that went
         // busy after any activation ran a second, reentrant refresh from `viewDidUnhide`.
-        if isHidden || plan.glyph == .none { syncedMoment = appearance.resyncMoment }
+        if isHidden || plan.glyph == .none { syncedMoment = indicatorAppearance.resyncMoment }
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.
         if showed != showsGlyph { superview?.needsLayout = true }
@@ -201,14 +201,14 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func updateLayer() {
         performWithTheme {
-            indicator.colors = .current(loading: appearance.config.settings.color)
+            indicator.colors = .current(loading: indicatorAppearance.config.settings.color)
         }
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Reads its new window's state now: nothing owed from before.
-        syncedMoment = appearance.resyncMoment
+        syncedMoment = indicatorAppearance.resyncMoment
         observeOcclusion()
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh(force: true)
