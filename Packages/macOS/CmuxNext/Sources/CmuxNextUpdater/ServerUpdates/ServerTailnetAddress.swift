@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// This Mac's Tailscale address as `cmux host status --json` reports it: the first entry of
 /// `addresses`, which the CLI prints as `100.x.y.z:port` (or `[fd7a:…]:port`).
