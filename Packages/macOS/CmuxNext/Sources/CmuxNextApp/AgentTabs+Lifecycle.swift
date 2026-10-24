@@ -26,7 +26,8 @@ extension AgentTabStore {
     ///   - split: The tab opens in a new pane on that side of `pane` (`conversation-tab-split-v1`): one daemon
     ///     commit, shown at once in a provisional pane, never in `pane`'s strip.
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
-    func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
+    func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, sideSession: Bool = false,
+              seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
               idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil) throws -> AgentTabPending {
@@ -83,6 +84,7 @@ extension AgentTabStore {
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
         }
         let transaction = ClientTransactionID.generate()
+        if sideSession { sideSessionTabs.insert(key) }
         store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
                      transaction: transaction)
         if let session { sessions[key] = session }
@@ -137,14 +139,14 @@ extension AgentTabStore {
     /// Returns false when the pane cannot hold an agent tab.
     /// `hidden`: the tab never shows in `pane`'s strip (a chat bound for a new chat dock).
     @discardableResult
-    func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
+    func openTab(in pane: PaneController, session: String? = nil, sideSession: Bool = false, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                  linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
                  then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
-            pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
+            pending = try open(in: pane.pane.handle, of: daemon, session: session, sideSession: sideSession, seed: seed, newTab: newTab,
                                spare: spare, linked: linked, split: split)
         } catch {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
@@ -204,6 +206,7 @@ extension AgentTabStore {
             views[real] = view
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
+        if sideSessionTabs.remove(key) != nil { sideSessionTabs.insert(real) }
         unsentDrafts.move(key, to: real)
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
@@ -313,6 +316,7 @@ extension AgentTabStore {
         }
         notices[key] = nil
         sessions[key] = nil
+        sideSessionTabs.remove(key)
         newTabPages[key] = nil
         seeds[key] = nil
         remoteSeeds[key] = nil

@@ -70,6 +70,7 @@ enum AgentPaneHandshakeReply {
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }
             if let session = handshake.sessionId { model.transport.sessions.add(session) }
+            if model.sideSessionId == handshake.sessionId { handshake.sideSession = true }
             if handshake.connection?.remote != nil { model.remoteChat = true }
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection

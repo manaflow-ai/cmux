@@ -120,6 +120,8 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
+    /// Side-session tabs opened by the agent pane before acpmux reports their `side` tag.
+    var sideSessionTabs: Set<String> = []
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
@@ -343,6 +345,7 @@ final class AgentTabStore {
         let model = AgentPaneModel(
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
+            sideSession: sideSessionTabs.contains(key),
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
             newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[key]?.page : nil,

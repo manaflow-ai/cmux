@@ -21,7 +21,7 @@ enum AgentPaneOfferOpen {
         guard session != chat, sender || AgentPaneSideChat.holds(session, chat: chat, in: model) || remoteParent || header.isFamily(session, chat) else {
             return AgentPaneReply.failure(code: "chat.offer.refused", message: "chat.offer.refused")
         }
-        if !header.showSession(session) { header.openSide(chat, session) }
+        if !header.showSession(session) { header.openSide(chat, session, false) }
         return AgentPaneReply.success()
     }
 }

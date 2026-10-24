@@ -271,7 +271,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       await type(page, `/btw ${QUESTION}`);
       await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
-      expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
+      expect(await sideChats(page)).toEqual([{ sessionId: SIDE, sideSession: true }]);
       await page.waitForFunction(
         () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
       );

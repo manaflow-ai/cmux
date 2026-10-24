@@ -6310,6 +6310,7 @@ function AcpmuxPane() {
           endpoint?: string;
           token?: string;
           sessionId?: string;
+          sideSession?: boolean;
           newSession?: boolean;
           newTab?: unknown;
           cwd?: string;
@@ -6331,6 +6332,7 @@ function AcpmuxPane() {
           harnesses?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        if (host.sideSession && host.sessionId) knownSideSessionIds.current.add(host.sessionId);
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
@@ -6890,7 +6892,7 @@ function AcpmuxPane() {
             // acpmux marks it the chat's side chat; the app only opens it beside the chat.
             await client.markSide(sessionId, chat);
             knownSideSessionIds.current.add(sessionId);
-            await postNative("chat.sideChat", { sessionId });
+            await postNative("chat.sideChat", { sessionId, sideSession: true });
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
           // `worktree`: the task's Options > Start in a new worktree, else the agent's ask.
@@ -7289,7 +7291,7 @@ function AcpmuxPane() {
       if (!client) throw new Error(translate("needsYou.askFailed"));
       const side = await client.btw(question, sessionId);
       knownSideSessionIds.current.add(side);
-      await postNative("chat.sideChat", { sessionId: side });
+      await postNative("chat.sideChat", { sessionId: side, sideSession: true });
     },
   });
   const lastForkSeq = latestForkSeq(snapshot.rows);
@@ -8266,7 +8268,10 @@ function AcpmuxPane() {
                 const started = callNative<string>("chat.btw", { question });
                 // Started is sent: the question clears even when the app can't open the side session,
                 // so sending it again can't start a second one.
-                started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
+                started.then(
+                  (side) => postNative("chat.sideChat", { sessionId: side, sideSession: true }).catch(fail),
+                  fail,
+                );
                 return started;
               }
               if (command.action === "fork") {
@@ -8428,7 +8433,7 @@ function AcpmuxPane() {
                     setBtwFailure(undefined);
                     const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
                     callNative<string>("chat.btw", { question: prompt }).then(
-                      (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
+                      (side) => postNative("chat.sideChat", { sessionId: side, sideSession: true }).catch(fail),
                       (error: unknown) => {
                         fail(error);
                         composerHandle.current?.restore(prompt, []);

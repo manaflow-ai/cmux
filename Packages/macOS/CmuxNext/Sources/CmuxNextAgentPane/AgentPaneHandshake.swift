@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext
+             workspaceContext, sideSession
     }
 
     public var protocolVersion: Int
@@ -34,6 +34,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var connection: AcpmuxConnection? = nil
     /// The session this pane shows, if it has one.
     public var sessionId: String?
+    /// True when this pane was opened for a side session before acpmux's `side` tag reached the list.
+    public var sideSession: Bool?
     /// True for a pane opened as a new chat: the page does not fall back to
     /// the most recent session and creates one on the first prompt.
     public var newSession: Bool?
@@ -113,12 +115,14 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// page built when it shows again puts it back. Handed out once. Pages that predate it ignore it.
     public var wake: AgentPaneWakeState?
 
-    public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
+    public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil,
+                sideSession: Bool? = nil) {
         protocolVersion = Self.currentVersion
         self.transport = transport
         self.connection = connection
         self.sessionId = sessionId
         self.newSession = newSession
+        self.sideSession = sideSession
     }
 
     public static let mock = AgentPaneHandshake(transport: .mock)

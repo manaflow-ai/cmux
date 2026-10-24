@@ -10,6 +10,8 @@ public import Observation
 public final class AgentPaneModel {
     /// The session the page last reported, nil for a new chat that has not sent its first prompt.
     public private(set) var sessionId: String?
+    /// The side-session id this pane opened, before acpmux reports its `side` tag; nil for other tabs.
+    public let sideSessionId: String?
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
@@ -188,6 +190,7 @@ public final class AgentPaneModel {
     public init(
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
+        sideSession: Bool = false,
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
@@ -195,6 +198,7 @@ public final class AgentPaneModel {
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.sideSessionId = sideSession ? sessionId : nil
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed

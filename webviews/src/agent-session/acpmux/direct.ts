@@ -85,6 +85,8 @@ export type AcpmuxHostConfig = {
   endpoint?: string;
   token?: string;
   sessionId?: string;
+  /** A side-session pane opened by the host, before its `side` tag reaches the session list. */
+  sideSession?: boolean;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
   /** A tab's recorded session (`sessionId`) must exist. When the daemon has no such session, or it

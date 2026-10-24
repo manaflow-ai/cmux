@@ -141,7 +141,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
-    case sideChat(String)
+    case sideChat(String, sideSession: Bool)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)
