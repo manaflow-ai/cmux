@@ -63,6 +63,8 @@ class RustEmitterTests(unittest.TestCase):
             _doc("hosts: localhost, [::1], <hex> and `code`", "    "),
             ["    /// hosts: localhost, \\[::1\\], \\<hex> and \\`code\\`"],
         )
+        # A backslash in the text is escaped first, so it never cancels the escape after it.
+        self.assertEqual(_doc(r"a \[::1\] path C:\x"), [r"/// a \\\[::1\\\] path C:\\x"])
 
     def test_every_optional_non_null_field_uses_strict_deserialization(self) -> None:
         schema = Path(__file__).resolve().parents[3] / "spec" / "sdk-schema.json"
