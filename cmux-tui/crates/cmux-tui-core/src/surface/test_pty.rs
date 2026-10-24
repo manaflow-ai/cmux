@@ -13,6 +13,32 @@ pub(super) struct TestMasterPty {
 #[derive(Default)]
 pub(super) struct TestMasterPtyControl {
     pub(super) fail_next_resize: AtomicBool,
+    /// While true, a write to the test PTY blocks, as the input of a program
+    /// that stopped reading does ([`Surface::hold_test_input`]).
+    pub(super) input_held: Mutex<bool>,
+    pub(super) input_released: Condvar,
+}
+
+/// The input side of a test PTY: takes every byte, except that it blocks
+/// while the test holds the input.
+#[cfg(test)]
+pub(super) struct TestPtyWriter {
+    pub(super) control: Arc<TestMasterPtyControl>,
+}
+
+#[cfg(test)]
+impl Write for TestPtyWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let mut held = self.control.input_held.lock().unwrap();
+        while *held {
+            held = self.control.input_released.wait(held).unwrap();
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
