@@ -255,7 +255,10 @@ class FirecrackerLifecycle:
         # An injected request function is a test or remote transport and owns
         # its capability checks. The local Unix-socket transport must not turn
         # a missing KVM device into a misleading socket timing.
-        if self.request_fn is None and not Path("/dev/kvm").exists():
+        if self.request_fn is None and (
+            not Path("/dev/kvm").exists()
+            or not os.access("/dev/kvm", os.R_OK | os.W_OK)
+        ):
             recorder.emit("capability_blocked", capability="/dev/kvm")
             return False
         return True
