@@ -259,6 +259,48 @@ class RuleTests(Fixture):
                 self.commit("named static")
                 self.assertEqual("singleton" in [r for r, _ in self.refused()], refused)
 
+    def test_the_annotated_type_decides_what_a_named_static_stores(self):
+        # `static let live: DaemonClient = <anything>` stores a DaemonClient: a factory, a closure or `.init()` alike.
+        self.rebase_on({f"{KIT}/DaemonClient.swift": "public final class DaemonClient {}\n",
+                        f"{KIT}/Builder.swift": "final class Builder {}\n",
+                        f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n"}, "declarations")
+        cases = {
+            "enum Env {\n    static let live: DaemonClient = DaemonClient.make()\n}\n": True,
+            "enum Env {\n    static let live: DaemonClient = { DaemonClient() }()\n}\n": True,
+            "struct Theme {\n    static let standard: Style = Builder().build()\n}\n": False,  # it stores a Style
+            "enum Env {\n    static let live = DaemonClient()\n}\n": True,  # no annotation: what it constructs
+        }
+        start = self.base
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("named static")
+                self.assertEqual("singleton" in [r for r, _ in self.refused()], refused)
+
+    def test_a_stored_type_that_becomes_a_class_in_another_file_is_refused(self):
+        # struct -> class of the stored type (or of the extended type) turns an unchanged named static elsewhere
+        # into a stored instance, like the opener change in the same file.
+        start = self.base
+        for before, after, refused in (
+            ("public struct DaemonClient {}\n", "public final class DaemonClient {}\n", True),
+            ("public struct DaemonClient {}\n", "public actor DaemonClient {}\n", True),
+            ("public struct DaemonClient {}\n", "public struct DaemonClient: Sendable {}\n", False),
+            ("public final class DaemonClient {}\n", "public struct DaemonClient {}\n", False),
+        ):
+            for user in ("enum Env {\n    static let live = DaemonClient()\n}\n",
+                         "extension DaemonClient {\n    static let current = DaemonClient()\n}\n"):
+                with self.subTest(before=before, after=after, user=user):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.rebase_on({f"{KIT}/DaemonClient.swift": before, f"{KIT}/Env.swift": user}, "a named static")
+                    self.write(f"{KIT}/DaemonClient.swift", after)
+                    self.commit("changes the stored type's kind in another file")
+                    refusals = self.refused()
+                    self.assertEqual(refusals != [], refused, refusals)
+                    if refused:
+                        self.assertEqual([(r, [h.split(":")[0] for h in hits]) for r, hits in refusals],
+                                         [("singleton", ["Env.swift"])])
+
     def test_short_notification_names_in_a_name_extension_are_refused(self):
         for decl in ('Self("pagesChanged")', '.init("pagesChanged")'):
             with self.subTest(decl=decl):
