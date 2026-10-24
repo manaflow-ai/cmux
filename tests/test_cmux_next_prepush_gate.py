@@ -81,6 +81,12 @@ struct Fresh {
 }
 """
 
+# A guardrails main-async hit (guardrails.py), not a scanner one.
+MAIN_HOP = """func hop() {
+    DispatchQueue.main.async { print(1) }
+}
+"""
+
 INTENT = """import AppIntents
 struct RecordChiefVoiceNoteIntent: AppIntent {
     static let title: LocalizedStringResource = "Record Voice Note for Chief"
@@ -170,29 +176,122 @@ class PrePushGateTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"],
                               env=self.env, text=True, capture_output=True).stdout.strip()
 
-    def test_a_rebased_branch_is_judged_on_its_own_commits_not_the_base_it_moved_onto(self):
-        # A branch pushed once, then rebased onto a base that gained debt (a try! someone else
-        # pushed with --no-verify). The re-push must check only the branch's own commit.
-        self.git("checkout", "--quiet", "-b", "topic")
-        self.write(f"{PKG}/Sources/CmuxNextKit/Topic.swift", APP.replace("CmuxNextApp", "Topic"))
-        self.commit("topic work")
-        first = subprocess.run(["git", "-C", str(self.repo), "push", "origin", "topic"],
-                               env=self.env, text=True, capture_output=True)
-        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+    def push_ref(self, ref, *flags, **env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", *flags, "origin", ref],
+                              env={**self.env, **env}, text=True, capture_output=True)
+
+    def kit(self, name, text):
+        self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
+
+    def with_try(self, name):
+        return NEW_WITH_TRY.replace("Fresh", name)
+
+    def base_gains_debt(self, extra=""):
+        """Someone else lands a try! (and EXTRA) on feat-cmux-next past the hook (--no-verify); this clone
+        fetches it."""
         self.git("checkout", "--quiet", "feat-cmux-next")
-        self.write(f"{PKG}/Sources/CmuxNextKit/BaseDebt.swift", NEW_WITH_TRY)
+        self.kit("BaseDebt", self.with_try("BaseDebt") + extra)
         self.commit("someone else's debt on the base")
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
         self.git("fetch", "--quiet", "origin")
+
+    def pushed_topic(self, text):
+        """A topic branch pushed once past the hook, its one commit carrying TEXT in Earlier.swift."""
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.kit("Earlier", text)
+        self.commit("topic work pushed before")
+        first = self.push_ref("topic", "--no-verify")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+
+    def test_a_rebased_branch_is_judged_on_its_own_commits_not_the_base_it_moved_onto(self):
+        # A branch pushed once, then rebased onto a base that gained debt (a try! someone else pushed with
+        # --no-verify). The re-push judges the branch's own (rebased) commits, never the base commits.
+        self.pushed_topic(APP.replace("CmuxNextApp", "Earlier"))
+        self.base_gains_debt()
         self.git("checkout", "--quiet", "topic")
         self.git("rebase", "--quiet", "origin/feat-cmux-next")
 
-        result = subprocess.run(["git", "-C", str(self.repo), "push", "--force", "origin", "topic"],
-                                env=self.env, text=True, capture_output=True)
+        clean = self.push_ref("topic", "--force")
+
+        output = clean.stdout + clean.stderr
+        self.assertEqual(clean.returncode, 0, output)
+        self.assertNotIn("BaseDebt.swift", output, "a base commit the rebase brought in is not the branch's")
+        # The same rebase with a violation of the branch's own: the gate still judges the rebased commit.
+        self.kit("Topic", self.with_try("Topic"))
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "--amend", "--no-edit")
+        self.git("push", "--quiet", "--no-verify", "--force", "origin", "HEAD~1:topic")  # the remote had the branch's base
+
+        refused = self.push_ref("topic", "--force")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("BaseDebt.swift", output)
+
+    def test_a_second_push_judges_every_new_commit_and_nothing_pushed_before(self):
+        self.pushed_topic(self.with_try("Earlier"))  # debt this branch pushed before (a skip reason, an old hook)
+        self.kit("First", self.with_try("First"))
+        self.commit("first new commit")
+        self.kit("Second", self.with_try("Second"))
+        self.commit("second new commit")
+
+        result = self.push_ref("topic")
 
         output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 0, output)
-        self.assertNotIn("BaseDebt.swift", output, "a base commit the rebase brought in is not the branch's")
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("First.swift", output, "the first of two new commits is the push's own")
+        self.assertIn("Second.swift", output)
+        self.assertNotIn("Earlier.swift", output, "a commit the remote already has is not judged again")
+        self.assertIn("2 own commit(s)", output)
+
+    def test_a_second_push_without_the_upstream_tracking_ref_judges_every_new_commit(self):
+        # A clone that lost origin/feat-cmux-next (a single-branch clone, a remote named otherwise, a ref never
+        # fetched): the branch's remote head still bounds the push.
+        self.pushed_topic(self.with_try("Earlier"))
+        self.git("update-ref", "-d", "refs/remotes/origin/feat-cmux-next")
+        self.kit("First", self.with_try("First"))
+        self.commit("first new commit")
+        self.kit("Second", NEW_CLEAN.replace("Fresh", "Second"))
+        self.commit("second new commit, clean")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("First.swift", output, "the first of two new commits is the push's own")
+        self.assertNotIn("Earlier.swift", output)
+
+    def test_a_branch_that_merges_feat_cmux_next_in_is_judged_on_its_own_changes(self):
+        # Debt for the scanners (try!) and for the guardrails (a main hop) on all three sides: pushed before by
+        # the branch, landed upstream, and added by the merge itself. Only the merge's own is the push's.
+        self.pushed_topic(self.with_try("Earlier") + MAIN_HOP.replace("hop", "earlierHop"))
+        self.base_gains_debt(MAIN_HOP.replace("hop", "baseHop"))
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-ff", "--no-commit", "origin/feat-cmux-next")
+        self.kit("Merged", self.with_try("Merged") + MAIN_HOP.replace("hop", "mergedHop"))
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "--no-edit")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Merged.swift", output, "a violation the merge itself adds is the push's own")
+        self.assertNotIn("BaseDebt.swift", output, "upstream's debt only comes in through the merge")
+        self.assertNotIn("Earlier.swift", output, "the branch pushed that before")
+        self.assertIn("[main-async]", output, "the guardrails judge the merge's own lines too")
+        self.assertIn("a merge", output)
+
+        self.git("rm", "--quiet", f"{PKG}/Sources/CmuxNextKit/Merged.swift")
+        self.git("commit", "--quiet", "--no-verify", "--amend", "--no-edit")
+
+        clean = self.push_ref("topic")
+
+        output = clean.stdout + clean.stderr
+        self.assertEqual(clean.returncode, 0, output)
+        self.assertNotIn("BaseDebt.swift", output)
+        self.assertNotIn("Earlier.swift", output)
 
     def test_install_adds_the_gate_to_the_pre_push_hook(self):
         hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
