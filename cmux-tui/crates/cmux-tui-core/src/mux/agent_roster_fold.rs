@@ -28,7 +28,13 @@ impl Mux {
         {
             return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
+        let native_event = ingress.payload.get("native_event").and_then(Value::as_str);
+        let kind_state = agent_state_for_hook_kind(&ingress.kind);
+        if kind_state.is_none()
+            && !crate::agent_hooks::resumes_blocked_turn(&ingress.kind, native_event)
+        {
+            return Ok(());
+        }
         let Some(terminal_subject) =
             ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
@@ -36,6 +42,15 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        let waiting = || {
+            self.agent_records.lock().unwrap().get(&terminal_id).is_some_and(|record| {
+                record.source == AgentSource::Hook && record.state == AgentState::Blocked
+            })
+        };
+        // A tool hook of an agent that does not wait changes nothing; it never queues a retry.
+        if kind_state.is_none() && !waiting() {
+            return Ok(());
+        }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -94,15 +109,30 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         let mut fences = self.agent_hook_fences.lock().unwrap();
-        let explicit_session_id = ingress
-            .payload
-            .get("normalized")
+        let normalized = ingress.payload.get("normalized");
+        let explicit_session_id = normalized
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
+        let native_agent =
+            normalized.and_then(|value| value.get("native_agent_id")).and_then(Value::as_str);
         let is_session_start = ingress.kind == "agent.session.started";
         let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
+        // A tool hook moves a waiting hook agent back to work only when the agent it waits on
+        // runs it (its wait was answered, #22995). Decided again under the fences lock, which
+        // orders this terminal's hooks: the check above is a hint.
+        let state = match kind_state {
+            Some(state) => state,
+            None if waiting()
+                && previous_fence
+                    .as_ref()
+                    .is_none_or(|fence| fence.wait_answered_by(native_agent)) =>
+            {
+                AgentState::Working
+            }
+            None => return Ok(()),
+        };
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
             terminal_id.as_str(),
@@ -119,7 +149,8 @@ impl Mux {
             sequence,
             state == AgentState::Done,
             observed_at_ms,
-        );
+        )
+        .noting_wait(state, native_agent);
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits

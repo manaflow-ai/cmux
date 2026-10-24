@@ -51,4 +51,22 @@ struct StoreLastPromptTests {
         store.apply(agents: [AgentStatus(surface: 1, state: .working, source: "hook", agent: "claude", updatedAtMs: 450)])
         #expect(store.agents.lastPromptBySurface[1] == 500)
     }
+
+    /// A hook agent that waited goes back to work on its next tool hook (#22995): the same
+    /// turn with the same prompt, not a new one. A new prompt out of a wait still is one.
+    @Test func aHookAgentResumingFromAWaitKeepsItsPrompt() {
+        let store = store()
+        func hook(_ state: AgentState, at ms: UInt64, prompt: String) {
+            store.apply(.agentChanged(AgentStatus(surface: 1, state: state, source: "hook", agent: "claude",
+                                                  updatedAtMs: ms, lastPrompt: prompt)))
+        }
+        hook(.working, at: 100, prompt: "ship it")
+        hook(.blocked, at: 150, prompt: "ship it")
+        hook(.working, at: 200, prompt: "ship it")
+        #expect(store.agents.lastPromptBySurface[1] == 100)
+
+        hook(.blocked, at: 250, prompt: "ship it")
+        hook(.working, at: 300, prompt: "now the docs")
+        #expect(store.agents.lastPromptBySurface[1] == 300)
+    }
 }

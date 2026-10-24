@@ -5,6 +5,7 @@ use super::*;
 use std::collections::HashMap;
 
 mod agent_hook_fences;
+mod agent_hook_resume;
 mod agent_hook_retry;
 mod agent_presence;
 mod agent_reports;
