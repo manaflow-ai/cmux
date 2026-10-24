@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Observation
 import os
 
@@ -27,6 +28,13 @@ final class ControlSnapshotPublisher {
     /// each publish maps every workspace. A read waiting on a write barrier still publishes at once.
     static let modelChangeInterval: Duration = .milliseconds(100)
     private var isStopped = false
+    /// The model-change throttle's deadline: one one-shot timer until `notBefore`, then one
+    /// frame. It replaced a re-schedule on every display frame until the clock passed
+    /// `notBefore`, which ran the control batcher (and re-made the app display link) about
+    /// 6-12 times per change (perf100).
+    private let throttle = DemandTimer(owner: "ControlSnapshotPublisher.throttle")
+    /// Identifies the armed publish; a superseded timer or frame finds it changed and does nothing.
+    private var armed: UInt64 = 0
     private var observers: [MainActorObservation] = []
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
@@ -40,6 +48,12 @@ final class ControlSnapshotPublisher {
 
     func start() {
         workspaceInfos.onStale = { [weak self] in self?.modelChanged() }
+        // A read that starts waiting on a write barrier while a throttled publish is pending
+        // gets it at once, as the per-frame check used to give it within a frame.
+        let frames = frames
+        router.snapshots.setWaiterHook { [weak self] in
+            frames.scheduleSoon { [weak self] in self?.waiterArrived() }
+        }
         // Read-your-writes for local state: a CLI mutation's effect on focus
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
@@ -56,21 +70,49 @@ final class ControlSnapshotPublisher {
     func stop() {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
+        router.snapshots.setWaiterHook(nil)
+        throttle.cancel()
         observers.removeAll()
     }
 
     /// Schedules one publish on the next frame (coalesced); with `notBefore`,
     /// on the first frame from then on, unless a plain invalidate comes first.
     func invalidate(notBefore: ContinuousClock.Instant? = nil) {
-        self.notBefore = notBefore.flatMap { new in isScheduled ? self.notBefore.map { min($0, new) } : new }
-        guard !isScheduled, !isStopped else { return }
+        guard !isStopped else { return }
+        // Pending: the earlier of the two (nil, the next frame, is the earliest).
+        let target = isScheduled ? self.notBefore.flatMap { old in notBefore.map { min(old, $0) } } : notBefore
+        let moved = !isScheduled || target != self.notBefore
+        self.notBefore = target
         isScheduled = true
-        frames.scheduleFrame { [weak self] in
-            guard let self else { return }
-            self.isScheduled = false
-            if let wait = self.notBefore, ContinuousClock.now < wait, !self.router.snapshots.hasWaiters { return self.invalidate(notBefore: wait) }
-            self.publishNow()
+        if moved { arm() }
+    }
+
+    /// Arms the pending publish: a one-shot deadline at `notBefore` that then asks for a frame,
+    /// or the next frame. Both hop through the main run loop in the common modes (no main-actor
+    /// task), so a publish still lands while a native menu tracks.
+    private func arm() {
+        armed &+= 1
+        let token = armed, frames = frames
+        if let delay = notBefore.map({ $0 - ContinuousClock.now }), delay > .zero {
+            throttle.schedule(after: delay) { [weak self] in
+                frames.scheduleFrame { [weak self] in self?.fire(token) }
+            }
+        } else {
+            throttle.cancel()
+            frames.scheduleFrame { [weak self] in self?.fire(token) }
         }
+    }
+
+    private func fire(_ token: UInt64) {
+        guard isScheduled, token == armed, !isStopped else { return }
+        if let wait = notBefore, ContinuousClock.now < wait, !router.snapshots.hasWaiters { return arm() }
+        publishNow()
+    }
+
+    /// A reader started waiting on a write barrier: a throttled publish goes now.
+    private func waiterArrived() {
+        guard isScheduled, !isStopped, router.snapshots.hasWaiters else { return }
+        publishNow()
     }
 
     /// A compat read waiting on the write barrier publishes on this turn
@@ -85,6 +127,12 @@ final class ControlSnapshotPublisher {
         guard !isStopped else { return }
         let started = ContinuousClock.now
         (lastPublish, notBefore) = (started, nil)
+        // This publish covers a pending one: drop its timer or frame.
+        if isScheduled {
+            isScheduled = false
+            armed &+= 1
+            throttle.cancel()
+        }
         let (topology, settings, tabSearch) = withObservationTracking {
             (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
         } onChange: { [weak self] in
