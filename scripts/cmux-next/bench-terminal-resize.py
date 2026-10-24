@@ -305,7 +305,20 @@ def split_resize(stress_session=False):
         for action in ("splitRight", "closeTab", "splitDown", "closeTab"):
             rounds.append(final_grid_round(action))
             time.sleep(0.5)  # bench script: the next press starts at rest
-    result = {"layout": name, "rounds": rounds}
+    def stats(field):
+        values = sorted(t[field] for r in rounds for t in r["terminals"] if t[field] is not None)
+        if not values:
+            return None
+        pick = lambda q: values[min(len(values) - 1, int(q * (len(values) - 1) + 0.5))]
+        return {"n": len(values), "p50": pick(0.5), "p95": pick(0.95), "max": values[-1]}
+    result = {"layout": name, "summary": {
+        "key_to_first_grid_sent_ms": stats("first_send_ms"),
+        "key_to_final_grid_sent_ms": stats("final_send_ms"),
+        "key_to_owner_final_grid_ms": stats("owner_final_ms"),
+        "key_to_first_frame_at_final_grid_ms": stats("drawn_final_ms"),
+        "note": "grid sent: exact (the send itself, TIOCSWINSZ follows in the daemon). owner grid and first "
+                "frame: sampled once per display frame, so <= 1 frame late.",
+    }, "rounds": rounds}
     if isinstance(summary, dict):
         result["session"] = {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals")}
     return result
