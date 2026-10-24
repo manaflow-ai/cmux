@@ -1026,6 +1026,8 @@ impl Holder {
             });
             if n > 0 {
                 read += n as usize;
+                let id = terminal.id;
+                cmux_flow_trace::hop("holder.pty.read", 0, || cmux_flow_trace::hex(&id));
                 if (n as usize) < offered && !readable_now(master) {
                     return ReadEnd::Drained;
                 }
