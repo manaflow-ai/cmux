@@ -778,6 +778,20 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, []
 
 
+# A pointer hover owner: it builds a PointerHover, or has a ChromeHover follow the pointer.
+HOVER_OWNER = re.compile(r"\bPointerHover\(|\.followPointer\(")
+# Its window-move forward: PointerHover's own, or ChromeHover's (any receiver but `super`).
+HOVER_FORWARD = re.compile(r"\bownerDidMoveToWindow\(\)|\b(?!super\b)\w+\??\.viewDidMoveToWindow\(\)")
+HOVER_MOVE_ALLOW = re.compile(r"//\s*hover-move-allow:\s*\S")
+
+
+def lacks_hover_forward(version: Version, index: int) -> tuple[bool, list[int]]:
+    """The owner's file has no window-move forward in code (one file per owner type, CLAUDE.md)."""
+    if "hover-forward" not in version.memo:
+        version.memo["hover-forward"] = any(HOVER_FORWARD.search(code_of(line)) for line in version.lines)
+    return not version.memo["hover-forward"], []
+
+
 singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
 sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 broadcast_name = matcher_rule(Matcher(BROADCAST_ANY, BROADCAST_ALLOW, declares_name))
@@ -837,6 +851,14 @@ RULES = (
          "ForEach",
          "// row-snapshot-allow: <why>",
          row_store),
+    Rule("hover-window-move", "A pointer hover owner that never forwards its window move",
+         "a view moved straight to another window under a still pointer (a band button into fullscreen's toolbar "
+         "window, Move Tab or Pane to New Window) gets no enter there and PointerHover still files it under the old "
+         "window, so it lights only on the next mouse move or key change",
+         "call `hover.ownerDidMoveToWindow()` (PointerHover) or `hover.viewDidMoveToWindow()` (ChromeHover) from the "
+         "view's `viewDidMoveToWindow()`",
+         "// hover-move-allow: <why the view never moves to another window>",
+         matcher_rule(Matcher(HOVER_OWNER, HOVER_MOVE_ALLOW, lacks_hover_forward))),
     Rule("generic-class-deinit", "A generic class with an implicit deinit (main-actor by default)",
          "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the implicit isolated deinit of a generic "
          "main-actor class (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible): the Release test build "
