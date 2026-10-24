@@ -149,7 +149,10 @@ impl MediaManager {
                 tokio::time::sleep(Duration::from_secs(every)).await;
                 let Some(kill) = kill.upgrade() else { return };
                 tracing::info!(every_s = every, "dev: killing the media session");
-                kill.notify_waiters();
+                // A permit, not notify_waiters: the hold loop may be in another
+                // arm right now (the RTT ticker), and a wake-up only for parked
+                // waiters would be lost. The session is up, so it is this one's.
+                kill.notify_one();
                 if status.wait_for(|s| !matches!(s, MediaStatus::Up { .. })).await.is_err() {
                     return;
                 }
@@ -335,6 +338,7 @@ async fn hold(
             () = closed_now(closed) => return Held::LinkClosed,
             reason = session.wait_ended() => return Held::Ended(reason),
             () = kill.notified() => {
+                tracing::info!("media session killed (test)");
                 session.kill().await;
                 return Held::Ended("killed (test)".into());
             }
