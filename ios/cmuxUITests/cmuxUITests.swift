@@ -43,7 +43,7 @@ final class cmuxUITests: XCTestCase {
             add(attachment)
         }
         XCTAssertTrue(primary.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].exists)
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
         XCTAssertEqual(primary.label, "Continue")
         capture("appstore-cloud-page-1")
         primary.tap()
