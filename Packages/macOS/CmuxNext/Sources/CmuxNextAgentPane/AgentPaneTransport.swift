@@ -131,8 +131,8 @@ import CmuxNextCompat
     /// `sessions.allowFullAccess`, read per frame: off, a switch into a full-access mode is refused.
     public var allowsFullAccess: @MainActor () -> Bool = { true }
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows. The
-    /// App's agent tab store sets its one gate on every pane it makes; until then this transport's own.
-    public var confirmationGate = AgentPaneConfirmationGate()
+    /// App's agent tab store passes its one gate to every transport it makes (``init(limits:pacer:gestures:confirmationGate:)``).
+    public let confirmationGate: AgentPaneConfirmationGate
     /// acpmux's Enable harness prompt for `id` in `folder` (`_acpmux/harness_enable` without
     /// sha256, over the unix socket); throws when the daemon cannot give one (its refusal, as
     /// ``AcpmuxRPCError``, says why).
@@ -171,9 +171,16 @@ import CmuxNextCompat
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
+    /// Makes a transport with no socket open yet.
+    ///
+    /// - Parameter confirmationGate: The gate that allows one mode confirmation open at a time. The
+    ///   App passes its agent tab store's one gate, so the rule holds across every pane and window;
+    ///   the default is a gate of this transport alone (a test's transport).
     public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
-                gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
+                gestures: AgentPaneUserGestures = AgentPaneUserGestures(),
+                confirmationGate: AgentPaneConfirmationGate = AgentPaneConfirmationGate()) {
         self.limits = limits
+        self.confirmationGate = confirmationGate
         self.gestures = gestures
         self.pacerStorage = pacer ?? AgentPaneNextTurnPacer()
         webModes = { [weak self] session, configId, value in
