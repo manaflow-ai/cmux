@@ -52,7 +52,9 @@ struct RapidWorkspaceCreateTests {
         }
     }
 
-    static func launch() async throws -> Launched {
+    /// `placement`: `workspaces.newPlacement` for the run (these presses check top placement; the default is
+    /// after the current workspace, which puts a press after a close in the middle of the list).
+    static func launch(placement: NewWorkspacePlacement = .top) async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
@@ -61,6 +63,13 @@ struct RapidWorkspaceCreateTests {
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let config = root.appendingPathComponent("cmux.json")
+        try Data(#"{"workspaces":{"newPlacement":"\#(placement.rawValue)"}}"#.utf8).write(to: config)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false

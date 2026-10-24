@@ -29,9 +29,19 @@ final class PendingWorkspaceRows {
     /// ends without one (`remove`). Not at the reply: the store can list the workspace a moment later, and a press in that
     /// gap would take the same name (the terminal path: remote, or a create with a command).
     @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
-    /// Rows whose daemon workspace has taken over the stand-in (the row stays until the sidebar document places it):
-    /// a close in that time leaves nothing to list, so `forget` drops the row once the store no longer holds it.
-    @ObservationIgnored private var takenOver: Set<String> = []
+    /// When each row's daemon workspace took over the stand-in. The row stays at its slot while the order the sidebar
+    /// lists that workspace in lags (the sidebar document's projection or the personal order learns the placement a
+    /// hop later, and listed it last meanwhile, so it drew at the end and sprang to its slot), at most `holdLimit`.
+    /// A close in that time leaves nothing to list, so `forget` drops the row once the store no longer holds it.
+    @ObservationIgnored private var takenOver: [String: ContinuousClock.Instant] = [:]
+    /// How long a taken-over row may stand in for a workspace the sidebar lists elsewhere (a refused placement, or a
+    /// move by someone else): then the workspace's own row lists where its order puts it.
+    static let holdLimit: Duration = .seconds(2)
+    @ObservationIgnored var now: () -> ContinuousClock.Instant = { .now }
+    // wakeup-allow: one-shot deadline that ends a row's hold (`holdLimit`), injected for tests
+    @ObservationIgnored var sleep: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
+    /// Bumped when a hold ends, so the sidebar's tracked pass lists the workspace's own row.
+    private var holdsEnded = 0
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
@@ -46,7 +56,7 @@ final class PendingWorkspaceRows {
     func remove(_ id: String) {
         rows.removeAll { $0.id == id }
         names[id] = nil
-        takenOver.remove(id)
+        takenOver[id] = nil
         redraws.run()
     }
 
@@ -67,32 +77,58 @@ final class PendingWorkspaceRows {
     func forget(in window: String, listed: Set<String>, held: (String) -> Bool, elsewhere: (String) -> Bool) {
         if !names.isEmpty { names = names.filter { !listed.contains($0.key) } } // listed: its name counts in the store now
         func done(_ row: Row) -> Bool {
-            row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
+            row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver[row.id] != nil && !held(row.id))
         }
         guard rows.contains(where: done) else { return }
-        for row in rows where done(row) { takenOver.remove(row.id) }
+        for row in rows where done(row) { takenOver[row.id] = nil }
         rows.removeAll(where: done)
         redraws.run()
     }
 
     /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
     /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
-    /// Also while the sidebar document does not place the daemon's workspace yet: the document lists it last until its
-    /// next projection (a hop later) places it, so its own row drew at the end and sprang to its slot.
+    /// After the takeover too, while `listed` puts the workspace anywhere but its slot (its order lags a hop), for at
+    /// most `holdLimit`: the row never draws elsewhere and springs back.
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
-        Self.removing(ids(in: window) { id in
-            guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
-            if workspace.isProvisional { return true }
-            guard SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
-            takenOver.insert(id)
-            return true
-        }, from: listed)
+        _ = holdsEnded
+        let home = NewWorkspacePlacements.home(machines)
+        // In press order, against the rows as drawn so far: an earlier held row sits at its slot, not where the
+        // lagging order lists it, so a quick second press's slot is checked where the first one shows.
+        var hidden = Set<String>()
+        var drawn = listed
+        for row in rows where row.window == window {
+            guard let (workspace, _) = machines.workspace(id: row.id) else { continue }
+            guard workspace.isProvisional || !Self.lists(row, atItsSlotIn: drawn, home: home) && holds(row.id) else { continue }
+            hidden.insert(row.id)
+            drawn = Self.adding([row], to: Self.removing([row.id], from: drawn), home: home)
+        }
+        return Self.removing(hidden, from: listed)
     }
 
-    /// The pending rows of `window` whose workspace the sidebar cannot draw at its slot yet (`unplaced`: Cmd-N's
-    /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
-    func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> {
-        Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id))
+    /// `listed` puts `row`'s workspace where its pending row goes (its own row can replace it with no move), or the
+    /// pending row has no slot there (no machine section to go in): then the workspace's own row lists.
+    static func lists(_ row: Row, atItsSlotIn listed: [SidebarRowSection], home: String?) -> Bool {
+        let order = listed.flatMap(\.workspaces).map(\.id.rawValue)
+        let slotted = adding([row], to: removing([row.id], from: listed), home: home).flatMap(\.workspaces).map(\.id.rawValue)
+        return order == slotted || !slotted.contains(row.id)
+    }
+
+    /// The row still holds its slot: within `holdLimit` of its takeover (the first time the pass saw it held).
+    private func holds(_ id: String) -> Bool {
+        let now = now()
+        guard let since = takenOver[id] else {
+            takenOver[id] = now
+            let sleep = sleep
+            // task-owner: one hold's end; it only re-runs the pass, which lists the workspace's own row once the hold is over
+            Task { [weak self] in
+                try? await sleep(Self.holdLimit)
+                // Only a row still held: one that reached its slot was forgotten, and nothing needs a new pass.
+                guard let self, takenOver[id] != nil else { return }
+                holdsEnded += 1
+            }
+            return true
+        }
+        return now - since < Self.holdLimit
     }
 
     /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).
