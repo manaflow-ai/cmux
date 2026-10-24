@@ -27,9 +27,10 @@ public actor HomeCache {
 
     /// What the files on disk hold, as last written or read; nil until the first write reads it.
     private var written: Written?
-    /// The newest state written (``HomeClientViewCache`` numbers its states): an older one that
-    /// reaches the actor later is dropped, since the newer one holds everything it does.
-    private var lastSequence: UInt64 = 0
+    /// The newest state written by each writer (a ``HomeClientViewCache`` numbers its states):
+    /// an older one that reaches the actor later is dropped, since the newer one holds everything
+    /// it does. Per writer: two stores on one cache number their states apart.
+    private var lastSequence: [UUID: UInt64] = [:]
 
     private struct Written {
         var index: Data?
@@ -72,20 +73,21 @@ public actor HomeCache {
     ///
     /// - Throws: `CocoaError(.fileWriteUnknown)` when a file did not reach disk.
     public func save(_ snapshot: HomeCacheSnapshot) throws {
-        lastSequence &+= 1
         if !commit(HomeCacheState(snapshot)) { throw CocoaError(.fileWriteUnknown) }
     }
 
-    /// Writes `state` unless a newer one was written; true when everything it holds is on disk.
-    func write(_ state: HomeCacheState, sequence: UInt64) -> Bool {
-        guard sequence > lastSequence else { return true }
-        lastSequence = sequence
+    /// Writes `state` unless `writer` already wrote a newer one; true when everything it holds is
+    /// on disk (or a newer state replaced it).
+    func write(_ state: HomeCacheState, sequence: UInt64, writer: UUID) -> Bool {
+        guard sequence > lastSequence[writer, default: 0] else { return true }
+        lastSequence[writer] = sequence
         return commit(state)
     }
 
-    /// ``write(_:sequence:)`` from synchronous code (app quit, a zero coalescing delay): waits for
-    /// the actor's write, at most `timeout`. False when it failed or did not finish in time.
-    nonisolated func writeAndWait(_ state: HomeCacheState, sequence: UInt64, timeout: Duration = .seconds(2)) -> Bool {
+    /// ``write(_:sequence:writer:)`` from synchronous code (app quit, a zero coalescing delay):
+    /// waits for the actor's write, at most `timeout`. False when it failed or did not finish in time.
+    nonisolated func writeAndWait(_ state: HomeCacheState, sequence: UInt64, writer: UUID,
+                                  timeout: Duration = .seconds(2)) -> Bool {
         // concurrency-allow: applicationWillTerminate is synchronous and the last batch must be on
         // disk before the process ends: one bounded wait for the actor's write, never a lock. The
         // write runs on the cooperative pool, never on the waiting thread.
@@ -93,7 +95,7 @@ public actor HomeCache {
         let result = WriteResult()
         // task-owner: one write the caller waits for; ends with it
         Task.detached(priority: .userInitiated) { [self] in
-            result.value = await write(state, sequence: sequence)
+            result.value = await write(state, sequence: sequence, writer: writer)
             done.signal()
         }
         let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
@@ -182,7 +184,7 @@ public actor HomeCache {
     }
 }
 
-/// The result of one ``HomeCache/writeAndWait(_:sequence:timeout:)`` write.
+/// The result of one ``HomeCache/writeAndWait(_:sequence:writer:timeout:)`` write.
 // Written once by the write task before it signals the semaphore and read only after the wait
 // succeeds: the semaphore orders the two accesses.
 private final class WriteResult: @unchecked Sendable {
