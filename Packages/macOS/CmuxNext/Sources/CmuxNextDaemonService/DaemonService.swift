@@ -59,8 +59,11 @@ public final class DaemonService {
     /// The connection Quit's end choice runs on, kept after
     /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
     @ObservationIgnored var endingConnection: DaemonConnection?
-    /// The daemon's event batches: visible updates no action of the person caused (the person's own
-    /// change shows in the key's turn through an intent), so they run under the visible budget.
+    /// The daemon's event batches, on the frame class (every frame, whole, unbudgeted): a batch holds
+    /// the echoes of the person's own actions, and most of them have no intent (close other tabs, close
+    /// a workspace, duplicate, move to a new window, reopen), so the echo is the first time the change
+    /// shows. Under a budgeted class it waited while a key was pending or other visible work spent the
+    /// frame, and the backlog grew without bound under steady churn (review 2 of pl-main-bc).
     @ObservationIgnored let drainScheduler: FrameBatcher
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
@@ -82,7 +85,7 @@ public final class DaemonService {
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
-        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", budgeted: .visible, on: mainWork)
+        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
