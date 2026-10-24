@@ -141,6 +141,49 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });
 
+  /** Every running endless animation that moves more than the compositor can (transform,
+   * opacity): `<element> <keyframes>: <properties>`. */
+  async function paintingLoops(p: Page): Promise<string[]> {
+    return p.evaluate(() => {
+      const compositor = new Set(["transform", "translate", "rotate", "scale", "opacity"]);
+      const timing = new Set(["offset", "computedOffset", "easing", "composite"]);
+      return document
+        .getAnimations()
+        .filter(
+          (animation) => animation.effect?.getTiming().iterations === Infinity && animation.playState === "running",
+        )
+        .flatMap((animation) => {
+          const effect = animation.effect as KeyframeEffect | null;
+          const moved = new Set(
+            (effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame).filter((key) => !timing.has(key))),
+          );
+          const painted = [...moved].filter((property) => !compositor.has(property));
+          if (!painted.length) return [];
+          const target = effect?.target as Element | null;
+          const name = (animation as CSSAnimation).animationName ?? "?";
+          return [`${target?.className || target?.tagName} ${name}: ${painted.sort().join(", ")}`];
+        });
+    });
+  }
+
+  // perf-lead row 23 (scrolling at full refresh): a loop that animates a painted property (the
+  // shimmer's `background-position` once) repaints its element on the page's main thread every
+  // frame, for as long as the row runs, under every scroll. Each look agent work can take, and the
+  // other pane, Home and diff loops, move on the compositor only.
+  test("every pane loop, in each working look, animates only what the compositor moves", async () => {
+    const painting: Record<string, string[]> = {};
+    for (const look of ["breathe", "shimmer", "spinner"]) {
+      const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
+      await p.evaluate((value) => {
+        document.documentElement.dataset.workingLook = value;
+        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, look);
+      painting[look] = await paintingLoops(p);
+      await p.close();
+    }
+    expect(painting).toEqual({ breathe: [], shimmer: [], spinner: [] });
+  });
+
   test("Static status indicators stop every pane loop", async () => {
     const p = await page(`${desktop}${pane}${home}`, paneLoops, "no-preference", "static");
     const running = await loops(p);
