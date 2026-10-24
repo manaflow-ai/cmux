@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Foundation
+import os
 import Testing
 
 /// A client whose daemon is not up waits for the daemon's socket to appear, on a file-system event,
@@ -57,5 +58,19 @@ import Testing
         waiter.cancel()
         await waiter.value
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("never.sock").path))
+    }
+
+    /// The file-system checks never run on the caller's actor: the Feed (main actor) waits for a socket.
+    @MainActor @Test func aMainActorWaiterChecksThePathOffTheMainThread() async throws {
+        let root = try scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socket = root.appendingPathComponent("feed.sock").path
+        #expect(FileManager.default.createFile(atPath: socket, contents: Data()))
+        let onMain = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        await PathAppearance { path in
+            onMain.withLock { $0.append(Thread.isMainThread) }
+            return FileManager.default.fileExists(atPath: path)
+        }.wait(for: socket)
+        #expect(onMain.withLock { $0 } == [false])
     }
 }

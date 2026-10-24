@@ -11,12 +11,18 @@ public import Foundation
 /// if !FileManager.default.fileExists(atPath: socket) { await PathAppearance().wait(for: socket) }
 /// ```
 public struct PathAppearance: Sendable {
-    public init() {}
+    private let exists: @Sendable (String) -> Bool
+
+    /// - Parameter exists: whether a path exists (`FileManager.fileExists`); tests pass one that records
+    ///   the thread it runs on.
+    public init(exists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+        self.exists = exists
+    }
 
     /// Returns once `path` exists, or as soon as the calling task is cancelled.
     public func wait(for path: String) async {
         // wakeup-allow: each pass waits for one file-system event in the watched folder, never polls
-        while !Task.isCancelled, !FileManager.default.fileExists(atPath: path) {
+        while !Task.isCancelled, !exists(path) {
             await nextChange(near: path)
         }
     }
@@ -41,7 +47,7 @@ public struct PathAppearance: Sendable {
             continuation.finish()
         }
         // Made between the caller's check and the armed watch: no event would come for it.
-        if FileManager.default.fileExists(atPath: path) || Self.nearestExistingFolder(of: path) != directory { return }
+        if exists(path) || Self.nearestExistingFolder(of: path) != directory { return }
         var iterator = events.makeAsyncIterator()
         _ = await iterator.next()
     }
