@@ -1642,7 +1642,7 @@ _cmux_report_pr_for_path() {
     local branch repo_slug="" gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
     local now="${EPOCHSECONDS:-$SECONDS}"
     local prefix="" branch_file="" repo_file="" result_file="" timestamp_file="" no_pr_branch_file=""
-    local cache_branch="" cache_result="" cache_no_pr_branch=""
+    local cache_branch="" cache_repo="" cache_result="" cache_no_pr_branch=""
     local -a gh_repo_args
     gh_repo_args=()
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
@@ -1661,6 +1661,7 @@ _cmux_report_pr_for_path() {
         timestamp_file="${prefix}.timestamp"
         no_pr_branch_file="${prefix}.no-pr-branch"
         [[ -r "$branch_file" ]] && cache_branch="$(<"$branch_file")"
+        [[ -r "$repo_file" ]] && cache_repo="$(<"$repo_file")"
         [[ -r "$result_file" ]] && cache_result="$(<"$result_file")"
         [[ -r "$no_pr_branch_file" ]] && cache_no_pr_branch="$(<"$no_pr_branch_file")"
     fi
@@ -1671,6 +1672,16 @@ _cmux_report_pr_for_path() {
         _cmux_pr_debug_log "$branch" "cache-refresh"
     else
         _cmux_pr_debug_log "$branch" "cache-miss"
+    fi
+
+    # A branch with no pull request cannot change through the 45-second poll
+    # itself. Keep the negative result until the branch, repository, or an
+    # explicit probe changes; this avoids spending a GitHub API request on
+    # every idle interval while preserving forced refreshes for new PRs.
+    if [[ "$force_probe" != "1" && "$cache_branch" == "$branch" \
+        && "$cache_repo" == "$repo_path" && "$cache_no_pr_branch" == "$branch" ]]; then
+        _cmux_pr_debug_log "$branch" "cache-no-pr"
+        return 0
     fi
 
     repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"

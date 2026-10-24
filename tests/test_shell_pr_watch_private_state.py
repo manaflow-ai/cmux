@@ -137,6 +137,22 @@ print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
             "pr\t123\tOPEN\thttps://github.com/example/repo/pull/123\n",
         )
 
+    def test_no_pr_cache_skips_idle_poll_but_allows_forced_refresh(self):
+        output = self.run_zsh(r'''
+gh() {
+    print -r -- called >> "$HOME/gh-calls"
+    return 0
+}
+_cmux_report_pr_for_path "$PWD"
+_cmux_report_pr_for_path "$PWD"
+print -r -- "IDLE_CALLS=$(wc -l < "$HOME/gh-calls")"
+_cmux_report_pr_for_path "$PWD" 1
+print -r -- "FORCED_CALLS=$(wc -l < "$HOME/gh-calls")"
+''')
+
+        self.assertIn("IDLE_CALLS=1", output)
+        self.assertIn("FORCED_CALLS=2", output)
+
     def test_debug_log_writes_no_file_in_shared_tmp(self):
         self.plant_symlink(Path("/tmp/cmux-pr-debug.log"), self.victim)
 
