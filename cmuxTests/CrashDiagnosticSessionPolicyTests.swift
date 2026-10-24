@@ -1564,13 +1564,14 @@ private final class DefaultsChangeCounter: @unchecked Sendable {
 }
 
 /// Prunes crash-diagnostic windows, then merges crash-duplicate windows, the
-/// way `AppDelegate.restorePreviousSessionSnapshot` does at live restore.
+/// way `SessionPersistencePolicy.snapshotForLiveRestore` does at live
+/// restore. `removedAny` is true when pruning dropped a window or merging
+/// collapsed one, so a test of either can assert it.
 private func pruningAndMergingCrashWindows(
     from snapshot: AppSessionSnapshot
 ) -> (snapshot: AppSessionSnapshot?, removedAny: Bool) {
     let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
-    return (
-        pruned.snapshot.map { SessionPersistencePolicy.mergingCrashDuplicateWindows(in: $0).snapshot },
-        pruned.removedAny
-    )
+    guard let prunedSnapshot = pruned.snapshot else { return (nil, pruned.removedAny) }
+    let merged = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: prunedSnapshot)
+    return (merged.snapshot, pruned.removedAny || merged.mergedWindowCount > 0)
 }
