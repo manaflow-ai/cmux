@@ -47,7 +47,8 @@ public final class CmuxToastAvoidance {
     /// detaches the link, so later changes in `window` start no task.
     static func unregister(_ host: any CmuxToastReanchoring, from window: NSWindow) {
         guard let link = existing(in: window) else { return }
-        link.hosts.remove(host)
+        _ = link // MUTATION (red check): a host never leaves the link
+        return
         if link.hosts.anyObject == nil { objc_setAssociatedObject(window, &key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
