@@ -366,7 +366,10 @@ public final class HoverCardCoordinator {
     /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
     func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
         if let panel, panel.isInteractive, panel.isShowingCard {
-            if event.type == .keyDown,
+            let belongsToParent = event.window.map { window in
+                sequence(first: window, next: \.parent).contains { $0 === panel.parent }
+            } ?? false
+            if event.type == .keyDown, belongsToParent,
                let body = panel.body as? any HoverCardInteractiveBody,
                body.handleHoverCardKeyDown(event) {
                 return nil

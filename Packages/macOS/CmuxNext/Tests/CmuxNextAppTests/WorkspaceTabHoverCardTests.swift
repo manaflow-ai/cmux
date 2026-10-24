@@ -91,8 +91,7 @@ struct WorkspaceTabHoverCardTests {
         window.contentView = view
         view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         view.layoutSubtreeIfNeeded()
-        let rows = try #require(view.subviews.compactMap { $0 as? NSStackView }.first)
-        let row = try #require(rows.arrangedSubviews.first)
+        let row = try #require(view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
         let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,

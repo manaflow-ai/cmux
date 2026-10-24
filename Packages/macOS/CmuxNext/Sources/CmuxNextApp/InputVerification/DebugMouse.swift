@@ -149,7 +149,9 @@ enum DebugMouse {
         let types: [NSEvent.EventType] = action == "move" ? [.mouseMoved] : [.leftMouseDown, .leftMouseUp]
         let events = types.compactMap { mouse($0, at: topLeft, in: card.window, flags: [], clicks: action == "move" ? 0 : 1) }
         guard events.count == types.count else { return .object(["error": .string("could not synthesize card events")]) }
-        _ = DebugHover.move(to: base, in: card.window)
+        // Keep the coordinator's synthetic screen point authoritative. Walking
+        // tracking areas here would send a row exit before the non-activating
+        // card receives the move, which is unlike the real panel crossing.
         services.hoverCards.pointerMoved(to: screen)
         SyntheticInput.register(events)
         for event in events { NSApp.postEvent(event, atStart: false) }

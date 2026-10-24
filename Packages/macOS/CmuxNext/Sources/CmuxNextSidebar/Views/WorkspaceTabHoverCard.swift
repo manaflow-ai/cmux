@@ -266,6 +266,7 @@ private final class WorkspaceTabHoverCardRow: NSView {
     }
 
     private static func statusText(_ state: StatusIndicatorState) -> String {
+        if case .paused = state { return Strings.activityPaused }
         if state.isWorking || state.isLoading { return Strings.priorityWorking }
         return Strings.activity(state) ?? Strings.activityDone
     }
