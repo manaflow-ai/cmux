@@ -105,14 +105,65 @@ if "--suite=app-perf" in sys.argv:
 if "--suite=chromium-tab-count" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromium-tab-count-live.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chromium-tab-count"])
+# `--suite=cli-storm`: the CLI storm (bench_cli_storm.py) in a launched app, light or STRESS (--session=stress), with
+# debug.main_budget and the display links made around it, scripts/cmux-next/cli-storm-session.py.
+# `--sessions=light,stress` (cli-storm and sidebar-churn): one fleet step runs the suite once per session, each in its
+# own launch, --out and --json; report.json then holds {"sessions": {session: that run's report}}.
+def _run_per_session(script, name):
+    args = [a for a in sys.argv[1:] if a != f"--suite={name}"]
+    sessions = next(a.split("=", 1)[1] for a in args if a.startswith("--sessions="))
+    args = [a for a in args if not a.startswith("--sessions=")]
+
+    def value(flag):
+        for i, a in enumerate(args):
+            if a.startswith(flag + "="):
+                return a.split("=", 1)[1]
+            if a == flag and i + 1 < len(args):
+                return args[i + 1]
+        return None
+
+    def without(flags):
+        out, skip = [], False
+        for a in args:
+            if skip:
+                skip = False
+                continue
+            if a in flags:
+                skip = True
+                continue
+            if not any(a.startswith(f + "=") for f in flags):
+                out.append(a)
+        return out
+
+    out, report = value("--out") or tempfile.mkdtemp(prefix=f"{name}-"), value("--json")
+    rest, combined, code = without({"--out", "--json"}), {"suite": name, "sessions": {}}, 0
+    for session in sessions.split(","):
+        folder = os.path.join(out, session)
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "report.json")
+        status = subprocess.call([sys.executable, script, *rest, f"--session={session}", "--out", folder, "--json", path])
+        code = code or status
+        try:
+            with open(path) as f:
+                combined["sessions"][session] = json.load(f)
+        except (OSError, ValueError) as error:
+            combined["sessions"][session] = {"error": f"exit {status}: {error}"}
+        combined["sessions"][session]["exit"] = status
+    with open(report or os.path.join(out, "report.json"), "w") as f:
+        json.dump(combined, f, indent=1, default=str)
+    sys.exit(code)
+
+
 # `--suite=sidebar-churn`: terminal typing idle and while the sidebar rearranges, scripts/cmux-next/sidebar-churn-typing.py.
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
+    if any(a.startswith("--sessions=") for a in sys.argv):
+        _run_per_session(suite, "sidebar-churn")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
-# `--suite=cli-storm`: the CLI storm (bench_cli_storm.py) in a launched app, light or STRESS (--session=stress), with
-# debug.main_budget and the display links made around it, scripts/cmux-next/cli-storm-session.py.
 if "--suite=cli-storm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli-storm-session.py")
+    if any(a.startswith("--sessions=") for a in sys.argv):
+        _run_per_session(suite, "cli-storm")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cli-storm"])
 # `--suite=automation-typing`: terminal typing idle and while agents automate the app (terminal writes, a Chromium page
 # driven through the control socket, optional AX walks), scripts/cmux-next/automation-typing-bench.py.
