@@ -70,11 +70,11 @@ public final class PointerHover: NSObject {
     // since the last refresh is found there.
     @objc(mouseEntered:) public func mouseEntered(with event: NSEvent) {
         Self.index.place(self)
-        Self.refresh(in: view?.window)
+        Self.refreshNow(in: view?.window)
     }
     @objc(mouseExited:) public func mouseExited(with event: NSEvent) {
         Self.index.place(self)
-        Self.refresh(in: view?.window)
+        Self.refreshNow(in: view?.window)
     }
 
     /// Recomputes this target only (its eligibility changed).
@@ -131,7 +131,7 @@ public final class PointerHover: NSObject {
     public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
         debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation)
         installKeyObserversIfNeeded()
-        refresh(in: window)
+        refreshNow(in: window)
     }
 
     /// DEBUG: the synthesized pointer of `window` while it holds: `.some(nil)`
@@ -178,14 +178,36 @@ public final class PointerHover: NSObject {
     private static var refreshing = false
     private static var pending: [NSWindow] = []
     private static var keyObserver: KeyWindowObserver?
+    /// How many window passes ran (tests: one per window per turn of geometry reports).
+    static var windowPasses: Int { index.windowPasses }
+
+    /// Reports that views in `window` moved, hid or reflowed under a possibly still pointer: every
+    /// target there is recomputed once, on this main run loop turn, before its Core Animation
+    /// commit. Many reports in one turn make one pass per window: a sidebar reload reports once per
+    /// row, and a pass per report was O(rows x targets) (sweep 2026-10-23: up to 476 ms of main
+    /// thread in one STRESS density change). A report made during the commit's own layout pass
+    /// is refreshed on the next turn.
+    public static func refresh(in window: NSWindow?) {
+        // A deallocating window cannot be referenced weakly (the runtime aborts), and has no hover.
+        guard let window, !window.isBeingDeallocated else { return }
+        guard index.report(window) else { return }
+        MainRunLoopTurn().perform { PointerHover.flushChanged() }
+    }
+
+    /// Runs the turn's reported refreshes now (``refresh(in:)``); a test or a caller that reads
+    /// hover right after a report.
+    public static func flushChanged() {
+        for window in index.takeReported() { refreshNow(in: window) }
+    }
 
     /// Recomputes every target in `window` from the pointer and the current frames: O(targets
     /// in that window), not O(targets in the app). Targets that hover anywhere are recomputed
-    /// too (a view that left its window or hid must clear). Call after anything moves, hides or
-    /// reflows views under a possibly still pointer. A refresh that an `onChange` starts (a hover
-    /// that expands a stack) runs right after the current one.
-    public static func refresh(in window: NSWindow?) {
+    /// too (a view that left its window or hid must clear). An enter, an exit, a key change and a
+    /// DEBUG pointer refresh at once; geometry reports go through ``refresh(in:)``. A refresh that
+    /// an `onChange` starts (a hover that expands a stack) runs right after the current one.
+    static func refreshNow(in window: NSWindow?) {
         guard let window else { return }
+        index.clearReport(window)
         guard !refreshing else {
             if !pending.contains(where: { $0 === window }) { pending.append(window) }
             return
@@ -197,6 +219,7 @@ public final class PointerHover: NSObject {
         var passes = 0
         while !queue.isEmpty, passes < 8 {
             passes += 1
+            index.windowPasses += 1
             let current = queue.removeFirst()
             let (targets, moved) = index.candidates(in: current)
             // A target found in another window now: that window refreshes too (a view that moved
@@ -215,7 +238,7 @@ public final class PointerHover: NSObject {
     /// once per key change.
     fileprivate static func keyChanged(_ window: NSWindow?) {
         index.placeAll()
-        refresh(in: window)
+        refreshNow(in: window)
     }
 
     /// Becoming or resigning key changes whether key-window targets hover.
@@ -223,6 +246,11 @@ public final class PointerHover: NSObject {
         guard keyObserver == nil else { return }
         keyObserver = KeyWindowObserver()
     }
+}
+
+/// A window ``PointerHover`` refreshes at the turn's flush, not kept alive by it.
+private struct WeakWindow {
+    weak var window: NSWindow?
 }
 
 /// Key-window changes refresh that window's hover (`PointerHover`).
@@ -286,6 +314,33 @@ private final class TargetIndex {
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
     private var nextOrder: UInt64 = 0
+    /// Windows whose geometry changed this main run loop turn (``PointerHover/refresh(in:)``),
+    /// refreshed once each by the turn's flush; not kept alive by it.
+    private var reported: [ObjectIdentifier: WeakWindow] = [:]
+    private var flushIsScheduled = false
+    /// How many window passes ran.
+    var windowPasses = 0
+
+    /// Files a geometry report for `window`; true when the turn's flush must be scheduled.
+    func report(_ window: NSWindow) -> Bool {
+        reported[ObjectIdentifier(window)] = WeakWindow(window: window)
+        guard !flushIsScheduled else { return false }
+        flushIsScheduled = true
+        return true
+    }
+
+    /// The reported windows still alive; the next report schedules a new flush.
+    func takeReported() -> [NSWindow] {
+        flushIsScheduled = false
+        let windows = reported.values.compactMap(\.window)
+        reported.removeAll()
+        return windows
+    }
+
+    /// A refresh of `window` ran now: its pending report is answered.
+    func clearReport(_ window: NSWindow) {
+        reported[ObjectIdentifier(window)] = nil
+    }
 
     func insert(_ target: PointerHover) {
         nextOrder &+= 1
