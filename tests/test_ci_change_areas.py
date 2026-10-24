@@ -53,6 +53,7 @@ WEB_JOBS = (
     "react-apps-check",
     "diff-sidecar-check",
     "web-db-migrations",
+    "cloud-vm-preflight",
     "agent-session-web-resources",
 )
 MACOS_JOBS = (
@@ -6194,6 +6195,7 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     production = workflow_job_block("web-production-build", WEB_WORKFLOW)
     tests = workflow_job_block("web-tests", WEB_WORKFLOW)
     instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
+    cloud_preflight = workflow_job_block("cloud-vm-preflight", WEB_WORKFLOW)
 
     assert "bun run typecheck" in typecheck
     assert "bun run test" not in typecheck
@@ -6206,6 +6208,8 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
     assert "bunx playwright install --with-deps chromium" in instant
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
+    assert "bun run cloud-vm:preflight -- ." in cloud_preflight
+    assert "cloud-vm:preflight" in cloud_preflight
 
 
 def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
@@ -6213,6 +6217,8 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["web/messages/fr.json"], (False, False, True, True, False, True, True)),
         (["web/app/[locale]/page.tsx"], (False, False, True, True, False, True, True)),
         (["web/services/vms/workflows.ts"], (True, False, False, True, False, True, True)),
+        (["web/scripts/cloud-vm/migrate-planetscale.mjs"], (True, False, False, True, False, True, True)),
+        (["web/scripts/db-migrate.mjs"], (True, False, False, True, False, True, True)),
         (["web/app/api/account/route.ts"], (True, False, True, True, False, True, True)),
         (["webviews/src/App.tsx"], (False, False, False, False, True, False, False)),
         (["webviews/src/diff/App.tsx"], (False, True, False, False, True, False, False)),
@@ -6251,6 +6257,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "react-apps-check": "skipped",
             "diff-sidecar-check": "skipped",
             "web-db-migrations": "skipped",
+            "cloud-vm-preflight": "skipped",
         },
         subareas={
             "db": "false",
