@@ -6224,6 +6224,8 @@ mod unix {
                 break;
             }
         }
+        // The input thread retains a socket clone; dropping this writer alone cannot signal EOF.
+        tap.close();
         host.remove_client(client);
         Ok(())
     }
