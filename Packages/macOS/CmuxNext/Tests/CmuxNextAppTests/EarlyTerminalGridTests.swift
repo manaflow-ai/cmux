@@ -8,7 +8,9 @@ import Testing
 /// before animation starts or finishes playing". A split or a close tells every pane's content the
 /// size it will rest at in the key's turn, before the first moving frame, so a terminal sends its
 /// final PTY grid at once (the TUI redraws at its new size while the pane moves) and sends nothing
-/// more when the spring lands. No split or close holds the terminals' grids.
+/// more when the spring lands. This suite pins the announcement only: the layout's grid hold stays
+/// until an app terminal answers it (TerminalSurfaceView conforms to `PaneMotionTargeting`) and a
+/// terminal that attaches mid-spring reports its rest grid (SplitTerminalResizeCountTests).
 ///
 /// Contract this suite pins (PL-motion-core, PL-ghostty, written by PL-burst): `PaneMotionTargeting
 /// .paneMotionWillRest(sizeChange:)` (CmuxNextDesign), called once per motion with the change from the content
@@ -43,7 +45,6 @@ struct EarlyTerminalGridTests {
         let model: LayoutModel
         let root: LayoutRootView
         let window: NSWindow
-        var holds: [Bool] = []
 
         init(_ tree: SplitNode) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
@@ -56,7 +57,6 @@ struct EarlyTerminalGridTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
-            root.onTerminalGridHold = { [weak self] in self?.holds.append($0) }
         }
 
         func show(_ tree: SplitNode) {
@@ -64,12 +64,10 @@ struct EarlyTerminalGridTests {
             root.syncWithModel()
         }
 
-        /// Steps until nothing moves (at most 2 s); fails when a frame holds the grids.
-        func settle(_ heldFrames: inout Int) {
+        /// Steps until nothing moves (at most 2 s).
+        func settle() {
             for _ in 1...240 {
-                let moving = root.advanceFrame(EarlyTerminalGridTests.dt)
-                if root.holdsTerminalGrids { heldFrames += 1 }
-                if !moving { return }
+                if !root.advanceFrame(EarlyTerminalGridTests.dt) { return }
             }
         }
     }
@@ -81,44 +79,35 @@ struct EarlyTerminalGridTests {
                                        b: .split("r2", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
 
     /// Cmd-D: every pane of the chain knows its resting size in the key's turn, it is the size it
-    /// rests at, it is told once (nothing again at landing), and no frame holds the grids.
+    /// rests at, and it is told once (nothing again at landing).
     @Test func aSplitGivesEveryPaneItsRestingSizeInTheKeysTurn() throws {
         let screen = Screen(Self.pair)
         let changes = screen.model.splitSizingChanges(splitting: "p2", axis: .horizontal)
         _ = screen.model.showSplitSizing(changes)
         screen.show(Self.pairSplit)
-        #expect(!screen.root.holdsTerminalGrids, "the split's first frame holds the grids")
         for pane: PaneID in ["p1", "p2", "p3"] {
             let content = try #require(screen.provider.contents[pane])
             #expect(content.restingSizes.count == 1, "\(pane) was told \(content.restingSizes.count) resting sizes in the key's turn")
         }
-        var heldFrames = 0
-        screen.settle(&heldFrames)
-        #expect(heldFrames == 0, "\(heldFrames) frames held the grids")
-        #expect(screen.holds.allSatisfy { !$0 }, "hold changes: \(screen.holds)")
+        screen.settle()
         for pane: PaneID in ["p1", "p2", "p3"] {
             let content = try #require(screen.provider.contents[pane])
             #expect(content.restingSizes == [content.frame.size], "\(pane): told \(content.restingSizes), rests at \(content.frame.size)")
         }
     }
 
-    /// Cmd-W on p2's last tab: the panes that grow know their resting size in the key's turn, once,
-    /// and no frame holds the grids.
+    /// Cmd-W on p2's last tab: the panes that grow know their resting size in the key's turn, once.
     @Test func aCloseGivesTheGrowingPanesTheirRestingSizeInTheKeysTurn() throws {
         let screen = Screen(Self.row)
-        var heldFrames = 0
-        screen.settle(&heldFrames)
+        screen.settle()
         for content in screen.provider.contents.values { content.restingSizes.removeAll() }
         _ = try #require(screen.model.showPaneClose("p2"))
         screen.root.syncWithModel()
-        #expect(!screen.root.holdsTerminalGrids, "the close's first frame holds the grids")
         for pane: PaneID in ["p1", "p3"] {
             let content = try #require(screen.provider.contents[pane])
             #expect(content.restingSizes.count == 1, "\(pane) was told \(content.restingSizes.count) resting sizes in the key's turn")
         }
-        heldFrames = 0
-        screen.settle(&heldFrames)
-        #expect(heldFrames == 0, "\(heldFrames) frames held the grids")
+        screen.settle()
         for pane: PaneID in ["p1", "p3"] {
             let content = try #require(screen.provider.contents[pane])
             #expect(content.restingSizes == [content.frame.size], "\(pane): told \(content.restingSizes), rests at \(content.frame.size)")
@@ -137,9 +126,7 @@ struct EarlyTerminalGridTests {
                                                  b: .split("m", axis: .horizontal, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4"))))
         _ = screen.model.showSplitSizing(screen.model.splitSizingChanges(splitting: "p3", axis: .horizontal))
         screen.show(triple)
-        var heldFrames = 0
-        screen.settle(&heldFrames)
-        #expect(heldFrames == 0)
+        screen.settle()
         for pane: PaneID in ["p1", "p2", "p3", "p4"] {
             let content = try #require(screen.provider.contents[pane])
             #expect(content.restingSizes.last == content.frame.size, "\(pane): last told \(String(describing: content.restingSizes.last)), rests at \(content.frame.size)")
