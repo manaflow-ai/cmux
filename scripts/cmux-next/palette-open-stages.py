@@ -21,7 +21,7 @@ Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0
 import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp  # noqa: E402
+from bench_launch import BenchApp, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -34,6 +34,7 @@ parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -50,7 +51,7 @@ app = None
 
 
 def run(*args, timeout=30):
-    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -201,12 +202,12 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
     try:
-        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
-        app = bench.process
-    SOCKET = bench.socket
+        app = launcher.process
+    SOCKET = launcher.socket
     ENV["CMUX_SOCKET_PATH"] = SOCKET
     print(f"launched pid {app.pid}", flush=True)
     made = run("workspace", "create", "--name", "paletteopen-e2e")

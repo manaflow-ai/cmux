@@ -168,6 +168,10 @@ pub struct SessionMeta {
     /// Title requests that came back with no title in this daemon run (`hub/titles.rs`).
     #[serde(skip)]
     pub title_failures: u8,
+    /// The first prompt was too thin to title reliably; permit one refresh after its turn.
+    /// Ephemeral so this does not change the stored session format.
+    #[serde(skip)]
+    pub title_thin: bool,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]

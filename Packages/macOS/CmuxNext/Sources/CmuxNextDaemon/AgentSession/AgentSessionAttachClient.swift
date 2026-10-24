@@ -179,6 +179,12 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-children", [:])
     }
 
+    /// Reads one image from the attached session's host acpmux (`agent-session-media`).
+    public func media(path: String) async throws -> Data {
+        _ = try await liveTransport()
+        return try await call("agent-session-media", ["path": path])
+    }
+
     /// Ends the attachment and the connection; no push after it.
     public func close() {
         closed = true

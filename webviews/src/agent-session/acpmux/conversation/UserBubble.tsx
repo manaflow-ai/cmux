@@ -26,6 +26,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import {
   ForkButton,
+  forkWithFeedback,
   MessageCopy,
   MessageDot,
   MessageMore,
@@ -121,7 +122,9 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
           <MessageCopy text={row.text ?? text} />
           {/* Not while it is still on its way: a second send would duplicate it. */}
           {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
+          {forkThrough !== undefined && (
+            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+          )}
           {through !== undefined && (
             <button
               type="button"

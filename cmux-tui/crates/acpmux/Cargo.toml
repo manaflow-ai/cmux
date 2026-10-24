@@ -87,4 +87,6 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
+tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
