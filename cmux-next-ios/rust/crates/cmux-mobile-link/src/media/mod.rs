@@ -933,6 +933,28 @@ mod tests {
         assert_eq!(gate.admit(session, true, new_tab, 3000, ms(320)), Admit::Reject);
     }
 
+    /// The single-tab freeze (verify/browser-freeze/results-2.md): on a still
+    /// page the host paints nothing new, so every keyframe a request gets is
+    /// a re-encode with the same capture time. The first went out on the
+    /// route the Mac left; the copies on the new route have the same
+    /// timestamp, and the gate rejected them all and asked again forever.
+    #[test]
+    fn a_still_pages_keyframe_with_the_same_timestamp_on_the_next_route_passes() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, track) = (1, 2);
+        let tab = Some(0x7a3d_70b3);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(tunnel, true, tab, 58_241_389, ms(0)), Admit::Pass);
+        // The Mac switches at a keyframe of the same still picture.
+        assert_eq!(gate.admit(track, true, tab, 58_241_389, ms(10)), Admit::Reject);
+        // Asked again: another copy, same timestamp, once the tunnel went quiet.
+        assert_eq!(gate.admit(track, true, tab, 58_241_389, ms(270)), Admit::Pass);
+        assert_eq!(gate.admit(track, false, tab, 58_241_400, ms(290)), Admit::Pass);
+        // A late copy on the route it left, right after, does not take it back.
+        assert_eq!(gate.admit(tunnel, true, tab, 58_241_400, ms(300)), Admit::Reject);
+    }
+
     #[test]
     fn a_source_stuck_behind_the_gate_asks_for_a_keyframe() {
         let t0 = std::time::Instant::now();
