@@ -3,7 +3,10 @@
 // each build's pull requests (scripts/cmux-next/media/reel.py), but the page never showed it. Now
 // the host names a build's reel when one was built (`cmux.changelog.reel`; the mock reads it from
 // the fixture's notes). "Since your last update" starts with ONE player (Leo 2026-10-21: not a
-// row per nightly): the newest reel plays inline, nightly chips pick another, a link opens it.
+// row per nightly): the newest reel as a video card (its first frame, a play button, its length and
+// title) that plays in place (Leo 2026-10-21: "this watch is kind aass also id like to be able to
+// watch .mp4s direclty in cmux"), and nightly chips pick another. A link opens it only when the
+// video cannot play here.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -96,21 +99,50 @@ test("Since your last update starts with one reel player: the newest reel, and a
   expect(players.length).toBe(1);
   const player = players[0]!;
   expect(player.querySelectorAll("video").length).toBe(1);
-  expect(player.querySelector("video")?.getAttribute("src")).toBe(video("3940400000000"));
+  // Its first frame is the poster: the video shows the frame at 0.1 s before it plays.
+  expect(player.querySelector("video")?.getAttribute("src")).toBe(`${video("3940400000000")}#t=0.1`);
+  expect(player.querySelector(".cl-reel-title")?.textContent).toBe("What changed in nightly 3940400");
+  // It plays here: no link out while the video can play.
+  expect(player.querySelector("a.cl-reel")).toBeNull();
   const chips = [...player.querySelectorAll<HTMLButtonElement>("button.cl-reel-chip")];
   expect(chips.map((b) => b.textContent)).toEqual(["nightly 3940400", "nightly 3940200"]);
   expect(chips.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
-  const link = () => player.querySelector<HTMLAnchorElement>("a.cl-reel")!;
-  expect(link().href).toBe(video("3940400000000"));
-  expect(link().textContent).toBe("Watch what changed in nightly 3940400");
   // A chip switches the one player to its nightly's reel.
   await act(async () => chips[1]!.click());
-  expect(player.querySelector("video")?.getAttribute("src")).toBe(video("3940200000000"));
-  expect(link().href).toBe(video("3940200000000"));
+  expect(player.querySelector("video")?.getAttribute("src")).toBe(`${video("3940200000000")}#t=0.1`);
+  expect(player.querySelector(".cl-reel-title")?.textContent).toBe("What changed in nightly 3940200");
   expect(player.querySelector('button[aria-pressed="true"]')?.textContent).toBe("nightly 3940200");
   // The player comes before the change list.
   const fold = section?.querySelector(".cl-changes");
   expect(player.compareDocumentPosition(fold!) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("the card shows the reel's length, and a press plays it in place with controls", async () => {
+  const section = await mount([notes("3940400000000", video("3940400000000")), notes("3940100000000")], 1);
+  const player = section!.querySelector(".cl-reel-player")!;
+  const element = player.querySelector("video")!;
+  expect(element.hasAttribute("controls")).toBe(false);
+  expect(player.querySelector(".cl-reel-length")).toBeNull();
+  // The length comes from the video's metadata, as m:ss.
+  Object.defineProperty(element, "duration", { configurable: true, value: 7.5 });
+  await act(async () => {
+    element.dispatchEvent(new dom.window.Event("loadedmetadata"));
+  });
+  expect(player.querySelector(".cl-reel-length")?.textContent).toBe("0:08");
+  let played = 0;
+  element.play = () => {
+    played += 1;
+    return Promise.resolve();
+  };
+  const play = player.querySelector<HTMLButtonElement>("button.cl-reel-play")!;
+  expect(play.getAttribute("aria-label")).toBe("What changed in nightly 3940400");
+  await act(async () => play.click());
+  expect(played).toBe(1);
+  // Playing, the video's own controls take over: no button over them, no length badge.
+  expect(element.hasAttribute("controls")).toBe(true);
+  expect(player.querySelector("button.cl-reel-play")).toBeNull();
+  expect(player.querySelector(".cl-reel-length")).toBeNull();
+  expect(player.querySelector("a.cl-reel")).toBeNull();
 });
 
 test("a reel that cannot play here leaves only its link", async () => {
@@ -121,6 +153,7 @@ test("a reel that cannot play here leaves only its link", async () => {
   });
   expect(player?.querySelector("video")).toBeNull();
   expect(player?.querySelector<HTMLAnchorElement>("a.cl-reel")?.href).toBe(video("3940400000000"));
+  expect(player?.querySelector("a.cl-reel")?.textContent).toBe("Watch what changed in nightly 3940400");
 });
 
 test("a span without a reel shows no card, and a reel that is not an https link is never shown", async () => {
