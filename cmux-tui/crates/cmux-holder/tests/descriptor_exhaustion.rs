@@ -278,7 +278,8 @@ fn a_holder_out_of_descriptors_refuses_a_hello_and_a_spawn_and_keeps_its_link() 
 
 /// Holder-core fix review: a daemon frame whose descriptors the holder
 /// cannot take, because it is out of descriptors (macOS fails the read with
-/// EMFILE and drops them; Linux delivers what fits and sets MSG_CTRUNC),
+/// EMFILE, ENFILE or EMSGSIZE and drops them; Linux delivers what fits and
+/// sets MSG_CTRUNC),
 /// ends the link with an ERROR `NO_DESCRIPTORS` on channel 0 after the
 /// frame the socket had taken part of, and is no strike against the
 /// terminals the link streamed: the daemon did not die parsing them. Before,

@@ -121,7 +121,8 @@ processes and ~2,000 threads fewer.
   every later terminal's master. A holder that cannot dup a terminal's descriptors refuses the
   HELLO (`NO_DESCRIPTORS`) and keeps its link instead of listing the terminal without them.
   A daemon frame whose descriptors the holder cannot take (it is out of descriptors: macOS fails
-  the read with EMFILE and drops them, measured on macOS 27; Linux sets `MSG_CTRUNC`) or bytes
+  the read with EMFILE, measured on macOS 27, or with EMSGSIZE, XNU's `fdavail` failure, which
+  is taken as the same fault; Linux sets `MSG_CTRUNC`) or bytes
   that are not frames end the link with ERROR `NO_DESCRIPTORS` or `BAD_PAYLOAD` on channel 0,
   request kind 0 (`wire::STREAM_FAULT`), after the frame the socket had taken part of, and count
   no poison strike (holder-core fix review: before, a silent close counted as a daemon crash, so
