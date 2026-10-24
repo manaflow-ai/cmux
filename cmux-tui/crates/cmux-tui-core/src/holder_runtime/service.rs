@@ -414,25 +414,26 @@ impl HolderService {
     /// that speaks its wire, else the holder built into the host executable
     /// (`cmux-tui-host __holder`).
     fn launch(&self) -> io::Result<()> {
-        let configure = |command: &mut std::process::Command| {
-            command
-                .arg("--socket")
-                .arg(&self.socket)
-                // Every shell gets back the open-file limit cmux started
-                // with; the holder keeps the daemon's raised one.
-                .envs(
-                    cmux_pty::original_open_file_limit()
-                        .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
-                )
-                // A DEV build's, debug build's or test's grace, as its hosts
-                // get: the holder ends its terminals once no daemon came back.
-                .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
-                    (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
-                }))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null());
-        };
+        let configure =
+            |command: &mut std::process::Command| {
+                command
+                    .arg("--socket")
+                    .arg(&self.socket)
+                    // Every shell gets back the open-file limit cmux started
+                    // with; the holder keeps the daemon's raised one.
+                    .envs(
+                        cmux_pty::original_open_file_limit()
+                            .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
+                    )
+                    // A DEV build's, debug build's or test's grace, as its hosts
+                    // get: the holder ends its terminals once no daemon came back.
+                    .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
+                        (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
+                    }))
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null());
+            };
         if !self.standalone_failed.load(Ordering::Acquire)
             && let Some(path) = standalone_holder()
         {
