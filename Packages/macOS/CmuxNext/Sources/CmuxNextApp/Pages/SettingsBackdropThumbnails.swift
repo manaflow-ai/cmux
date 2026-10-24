@@ -48,15 +48,12 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
               allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
-        // Art reads its bundled thumbnail, so works that are not downloaded yet still show. A file
-        // (a photo can be tens of megabytes) decodes off the main actor; the desktop picture,
-        // which only the main actor can resolve, draws here.
-        let data: Data?
-        if let url = selection.thumbnailURL {
-            data = await Task.detached { Self.thumbnail(at: url) }.value
-        } else {
-            data = selection.image().flatMap(Self.thumbnail)
-        }
+        // Art reads its bundled thumbnail, so works that are not downloaded yet still show. Every
+        // file decodes off the main actor (a photo can be tens of megabytes, and a HEIC desktop
+        // picture waits on the hardware decoder: sweep 2026-10-23, up to 227 ms of main thread);
+        // only the desktop picture's file is resolved here, where AppKit's screen is read.
+        guard let url = selection.thumbnailURL ?? selection.resolvedImageURL() else { return nil }
+        let data = await Task.detached { Self.thumbnail(at: url) }.value
         guard let data else { return nil }
         cache[id] = data
         return PageResource(data: data, mimeType: "image/png")
