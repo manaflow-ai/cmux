@@ -1,4 +1,4 @@
-import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextControl
 
 #if DEBUG
