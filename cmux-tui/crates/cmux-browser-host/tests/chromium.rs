@@ -142,6 +142,7 @@ fn serve() -> u16 {
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
                     "/clicks" => files::clicks_page(),
+                    "/editing" => editing::editing_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -1274,6 +1275,10 @@ use files::files_page;
 // The tab clipboard on the shared headless browser (item 19).
 #[path = "chromium/clipboard.rs"]
 mod clipboard;
+
+// macOS editing and formatting shortcuts on every platform (classic parity).
+#[path = "chromium/editing.rs"]
+mod editing;
 
 // HTML5 drag and drop (input.drag, parity 05).
 #[path = "chromium/drag.rs"]
