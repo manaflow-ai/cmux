@@ -9,8 +9,8 @@ import CmuxNextDesign
 ///   panes and rows, the strip scrollbar). Command + scroll moves the layout anywhere on the
 ///   screen, a Chromium page's own window included: sideways pans the columns strip (or the
 ///   innermost scroll area that can move, scroll-areas-DESIGN.md I2), up and down scrolls the rows
-///   of the column under the pointer (rows.md V5). Where the layout cannot move that way, the
-///   pane gets the scroll.
+///   of the column under the pointer (rows.md V5). Where the layout has nothing to scroll that way
+///   (no strip overflow, no rows that overflow), the pane gets the scroll.
 /// - `none`: the rule before `command`. Horizontal gestures over a columns screen are claimed by
 ///   the layout (first dominant axis decides), except where the pane's own content scrolls
 ///   sideways (`LayoutRootView+ScrollClaim`); vertical ones pass through, except over a column
