@@ -9,7 +9,8 @@ import Testing
 struct CrashWatcherTests {
     private static func spawnStandIn() throws -> pid_t {
         var pid: pid_t = 0
-        let arguments = ["/bin/sleep", "600"].map { strdup($0) } + [nil]
+        let strings: [String] = ["/bin/sleep", "600"]
+        let arguments: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) } + [nil]
         defer { arguments.forEach { free($0) } }
         let status = arguments.withUnsafeBufferPointer { posix_spawn(&pid, "/bin/sleep", nil, nil, $0.baseAddress, nil) }
         try #require(status == 0, "posix_spawn of the stand-in failed: \(status)")
