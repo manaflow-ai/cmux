@@ -113,10 +113,36 @@ public final class CrashReporter: Sendable {
         CrashDeadline.install()
     }
 
+    /// Starts the out-of-process crash watcher (``CrashWatcher``, #22844) off
+    /// the main thread. Call once at launch, after ``installCrashDeadline()``.
+    /// - Parameter sampleFile: Where the watcher writes its `sample` of an app
+    ///   it ends.
+    public static func installCrashWatcher(sampleFile: String) {
+        CrashWatcher.install(sampleFile: sampleFile)
+    }
+
     /// A crash has begun: the process ends within ``CrashDeadline/seconds``
-    /// even if the crash path blocks. Async-signal-safe.
+    /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
+    /// even if every thread of the app is suspended. Async-signal-safe.
     public static func beginCrashDeadline() {
         CrashDeadline.arm()
+        CrashWatcher.arm()
+    }
+
+    /// A crash path that blocks while every thread is suspended, for the crash
+    /// gate's `debug.crash.app {"signal": "suspended"}` only (#22844): begins
+    /// the crash path, suspends the crash deadline's thread (as Sentry's report
+    /// writer does) and blocks the calling thread forever. Only
+    /// ``CrashWatcher`` can end the process.
+    public static func blockWithDeadlineSuspended() -> Never {
+        beginCrashDeadline()
+        CrashDeadline.suspendThread()
+        // A semaphore nothing signals: the blocked crash path the watcher must end.
+        var never = semaphore_t(0)
+        _ = semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
+        // concurrency-allow: crash-gate debug verb; blocking forever is the crash it simulates.
+        _ = semaphore_wait(never)
+        abort()
     }
 
     /// The first call of a fatal-signal handler: gives back Sentry's
