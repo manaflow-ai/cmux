@@ -87,9 +87,14 @@ enum DebugAgentPaneClick {
             DebugNativeInput.runPaneMonitors(down, in: window, services: services) // the local monitor sees mouse downs only
             SyntheticInput.register([down, up])
             // As AppKit's click does, inside an input event: the clicked web view takes the keyboard (AgentPaneView.refusesSelfFocus).
+            // The click is the event being dispatched (InputDispatchContext); Chromium's sendEvent flag is set as AppKit's would be.
             let app = NSApp as? CmuxApplication, outer = app?.isHandlingSendEvent() ?? false; app?.setHandlingSendEvent(true)
-            if hit?.isDescendant(of: webView) == true { window.makeFirstResponder(webView) }
-            webView.mouseDown(with: down); webView.mouseUp(with: up); app?.setHandlingSendEvent(outer)
+            services.inputDispatch.dispatching(down) {
+                if hit?.isDescendant(of: webView) == true { window.makeFirstResponder(webView) }
+                webView.mouseDown(with: down)
+            }
+            services.inputDispatch.dispatching(up) { webView.mouseUp(with: up) }
+            app?.setHandlingSendEvent(outer)
             delivered = "view"
         }
         let gestures = view.model.transport.gestures.debugState
