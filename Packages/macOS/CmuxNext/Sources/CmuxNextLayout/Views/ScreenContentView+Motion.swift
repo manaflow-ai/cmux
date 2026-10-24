@@ -82,6 +82,15 @@ extension ScreenContentView {
         applyPresentation()
     }
 
+    /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
+    /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
+    /// column) keeps going (M3). Reduce Motion snaps every frame.
+    func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
+        let retargeted = frame.targetRect != target
+        frame.setTarget(target, alpha: 1)
+        if !animated, retargeted || !context.model.isGestureActive || context.reduceMotion { frame.snap() }
+    }
+
     /// New dock columns' panes still growing in from their screen edge (their frames).
     var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
     /// Lays every pane out at the rect its spring presents this frame (live, as a window resize
