@@ -74,7 +74,7 @@ enum AppBrowserPage {
             // first, bounded; then the script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait)
             do {
-                let value = try await page.evaluate(script)
+                let value = try await page.evaluate(script, world: .page, gesture: .agent)
                 return ["value": await json(value)]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))

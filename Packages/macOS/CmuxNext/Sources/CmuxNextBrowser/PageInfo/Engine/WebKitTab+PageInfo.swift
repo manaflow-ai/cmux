@@ -70,7 +70,7 @@ extension WebKitTab: PageInfoProviding {
         var sites: Set<String> = []
         if let pageHost { sites.insert(SiteDomain.registrable(pageHost)) }
         let script = "[location.hostname].concat(performance.getEntriesByType('resource').map(e => { try { return new URL(e.name).hostname } catch (_) { return '' } }))"
-        if case .array(let values) = try? await evaluate(script, world: .isolated) {
+        if case .array(let values) = try? await evaluate(script, world: .isolated, gesture: .cmux) {
             for case .string(let host) in values where !host.isEmpty { sites.insert(SiteDomain.registrable(host)) }
         }
         return sites

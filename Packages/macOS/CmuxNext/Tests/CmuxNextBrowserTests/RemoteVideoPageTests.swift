@@ -30,17 +30,17 @@ import Testing
         defer { page.close() }
         page.delegate = intents
         window.contentView = page.contentView
-        func title() async -> BrowserJSValue? { try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page) }
+        func title() async -> BrowserJSValue? { try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent) }
 
         // Two pages, then the second's link to the video.
         page.load(server.url("/a"))
         try await Self.until("a loads") { await title() == .string("a") }
-        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page)
+        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page, gesture: .agent)
         try await Self.until("b loads") { await title() == .string("b") }
-        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page)
+        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page, gesture: .agent)
 
         try await Self.until("the video plays") {
-            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page)
+            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page, gesture: .agent)
             if case .number(let seconds)? = time { return seconds > 0 }
             return false
         }
@@ -64,7 +64,7 @@ import Testing
         // A video a form posts for cannot be fetched again, so it still downloads.
         page.load(server.url("/c"))
         try await Self.until("c loads") { await title() == .string("c") }
-        _ = try await page.evaluate("document.forms[0].submit(); true", world: .page)
+        _ = try await page.evaluate("document.forms[0].submit(); true", world: .page, gesture: .agent)
         try await Self.until("the posted video downloads") { intents.downloaded }
     }
 

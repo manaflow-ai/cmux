@@ -173,11 +173,15 @@ public final class WebKitTab: NSObject, BrowserTab {
         return cgImage
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
         do {
-            let result = try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld)
-            return BrowserJSValue(foundation: result)
+            // Every public WKWebView evaluation forces a user gesture; cmux's own scripts use the
+            // gesture-free one (`WebKitGestureFreeEvaluation`).
+            switch gesture {
+            case .agent: return BrowserJSValue(foundation: try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld))
+            case .cmux: return try await WebKitGestureFreeEvaluation(webView: webView).evaluate(script, in: world.contentWorld)
+            }
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
             return .null
         } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
@@ -365,7 +369,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         faviconTask?.cancel()
         faviconTask = Task { [weak self] in
             guard let self,
-                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated),
+                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated, gesture: .cmux),
                   let string = value.stringValue,
                   let url = URL(string: string),
                   !Task.isCancelled else { return }

@@ -387,19 +387,12 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
 }
 
 extension BrowserTab {
-    /// Asks the page's recorder (`BrowserPageBusy`); runs no page code, and no user gesture where the
-    /// engine can run a script without one (`BrowserGesturelessScripting`), so the probe never counts
-    /// as the person's activation. Throws when the page does not answer.
+    /// Asks the page's recorder (`BrowserPageBusy`); runs no page code and no user gesture
+    /// (`BrowserScriptGesture.cmux`), so the probe never counts as the person's activation. Throws
+    /// when the page does not answer, or `unsupported` where the engine cannot run a script without
+    /// a gesture (the probe then counts as unanswered: the page stays awake).
     public func pageBusy() async throws -> BrowserPageBusy {
-        let script = BrowserPageBusy.probeScript
-        let value: BrowserJSValue
-        do {
-            guard let gestureless = self as? any BrowserGesturelessScripting else { throw BrowserTabError.unsupported("gestureless") }
-            value = try await gestureless.evaluateWithoutUserGesture(script)
-        } catch BrowserTabError.unsupported {
-            // The recorder's read runs no page code, so the gesture of the ordinary path costs nothing here.
-            value = try await evaluate(script, world: .page)
-        }
+        let value = try await evaluate(BrowserPageBusy.probeScript, world: .page, gesture: .cmux)
         guard case .string(let json) = value, let data = json.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
@@ -419,10 +412,7 @@ extension BrowserTab {
     /// - Throws: `BrowserTabError.unsupported` when the engine cannot run a script without a user
     ///   gesture, or when the page has no recorder; the page's own errors.
     public func asksBeforeUnload() async throws -> Bool {
-        guard let gestureless = self as? any BrowserGesturelessScripting else {
-            throw BrowserTabError.unsupported("a script without a user gesture")
-        }
-        guard case .bool(let asks) = try await gestureless.evaluateWithoutUserGesture(BrowserPageBusy.askScript) else {
+        guard case .bool(let asks) = try await evaluate(BrowserPageBusy.askScript, world: .page, gesture: .cmux) else {
             throw BrowserTabError.unsupported("no page recorder")
         }
         return asks

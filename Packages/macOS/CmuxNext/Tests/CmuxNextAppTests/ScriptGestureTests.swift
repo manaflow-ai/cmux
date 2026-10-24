@@ -25,8 +25,8 @@ import WebKit
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
         let page = try await Self.page("agent", rig)
-        // `browser.page.eval` (an agent) runs through `evaluate(_:)`.
-        _ = try await page.evaluate("1")
+        // `browser.page.eval` (an agent) runs with `.agent`.
+        _ = try await page.evaluate("1", world: .page, gesture: .agent)
         #expect(try await Self.hasBeenActive(page) == true, "an agent's script no longer acts as the user")
     }
 
