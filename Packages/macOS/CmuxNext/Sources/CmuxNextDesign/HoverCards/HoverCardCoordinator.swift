@@ -369,7 +369,9 @@ public final class HoverCardCoordinator {
             let belongsToParent = event.window.map { window in
                 sequence(first: window, next: \.parent).contains { $0 === panel.parent }
             } ?? false
-            if event.type == .keyDown, belongsToParent,
+            let pointerOnTarget = machine.shownTarget.flatMap { owners[$0.id]?.source?.hoverCardTargetFrame(for: $0.id) }?.contains(currentPointer()) == true
+            let pointerOnCard = panel.cardFrame.contains(currentPointer())
+            if event.type == .keyDown, belongsToParent, (pointerOnTarget || pointerOnCard),
                let body = panel.body as? any HoverCardInteractiveBody,
                body.handleHoverCardKeyDown(event) {
                 return nil
