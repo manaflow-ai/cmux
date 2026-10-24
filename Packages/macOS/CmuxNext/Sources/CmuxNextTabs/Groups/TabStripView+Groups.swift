@@ -34,7 +34,7 @@ extension TabStripView {
                 groups.bands[group]?.color = item.tint
                 continue
             }
-            let chip = TabGroupChipCell(group: item, memberCount: count)
+            let chip = TabGroupChipCell(group: item, memberCount: count, iconCaches: iconCaches)
             chip.metrics = metrics
             chip.font = Typography.caption
             chip.themeScope = themeScope

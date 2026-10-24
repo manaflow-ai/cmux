@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct TabHoverCardSubtitleRowTests {
     private func height(subtitle: String?) -> CGFloat {
-        let card = TabHoverCardView()
+        let card = TabHoverCardView(iconCaches: TabIconCaches())
         card.configure(.tab(TabItem(id: TabID("t"), title: "Agent", subtitle: subtitle)))
         card.setThumbnailVisible(false)
         card.layoutSubtreeIfNeeded()

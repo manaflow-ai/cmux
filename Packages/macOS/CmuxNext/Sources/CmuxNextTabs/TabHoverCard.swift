@@ -49,6 +49,8 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private var body: TabHoverCardView?
+    /// The strip's icon images, which the card body draws the tab's glyph from.
+    private let iconCaches: TabIconCaches
     /// Group chips' summary card body, reused chip to chip.
     private var groupBody: GroupHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
@@ -70,8 +72,9 @@ final class TabHoverCardController: HoverCardSource {
     private var opensFresh = true
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
 
-    init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
+    init(coordinator: HoverCardCoordinator = HoverCardCoordinator(), iconCaches: TabIconCaches) {
         self.coordinator = coordinator
+        self.iconCaches = iconCaches
         #if DEBUG
         HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
         #endif
@@ -152,7 +155,7 @@ final class TabHoverCardController: HoverCardSource {
                 body?.applyColors()
             }
         }
-        let body = body ?? TabHoverCardView()
+        let body = body ?? TabHoverCardView(iconCaches: iconCaches)
         self.body = body
         body.configure(content)
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.

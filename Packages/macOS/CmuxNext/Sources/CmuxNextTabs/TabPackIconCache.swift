@@ -2,10 +2,12 @@ import AppKit
 import CmuxNextIcons
 
 /// Icons from the cmux icon pack drawn in the tab's tint, filling the icon
-/// box, cached per name, tint, size, and scale.
+/// box, cached per name, tint, size, and scale. One per ``TabIconCaches``,
+/// which its owner injects.
 final class TabPackIconCache {
-    static let shared = TabPackIconCache()
     private var cache: [String: CGImage] = [:]
+    /// Images held now.
+    var count: Int { cache.count }
 
     func image(name: IconName, tint: NSColor, size: CGFloat, scale: CGFloat) -> CGImage? {
         let resolved = tint.usingColorSpace(.sRGB) ?? tint

@@ -10,6 +10,8 @@ final class TabGroupChipCell {
     let accessibility = TabAccessibilityElement()
 
     private(set) var group: TabGroupItem
+    /// The owner's icon images (``TabIconCaches``), passed once at construction.
+    let iconCaches: TabIconCaches
     private(set) var memberCount: Int
     /// Show the count even when expanded (saved groups bar).
     var alwaysShowsCount = false { didSet { if oldValue != alwaysShowsCount { contentChanged() } } }
@@ -52,8 +54,9 @@ final class TabGroupChipCell {
     /// it (cx-f6i7), and that count's width.
     private var leavingCount: (text: String, width: CGFloat)?
 
-    init(group: TabGroupItem, memberCount: Int) {
+    init(group: TabGroupItem, memberCount: Int, iconCaches: TabIconCaches) {
         self.group = group
+        self.iconCaches = iconCaches
         self.memberCount = memberCount
         // Anchored at the leading edge, as a tab cell (a strip move of the width never moves its x).
         layer.anchorPoint = .zero
@@ -206,7 +209,7 @@ final class TabGroupChipCell {
             pill.backgroundColor = fill.cgColor
             nameLayer.foregroundColor = Palette.textPrimary.cgColor
             countLayer.foregroundColor = Palette.textSecondary.cgColor
-            iconLayer.contents = group.icon?.groupChipImage(tint: Palette.textPrimary, size: metrics.groupChipIconSize, scale: scale)
+            iconLayer.contents = group.icon?.groupChipImage(tint: Palette.textPrimary, size: metrics.groupChipIconSize, scale: scale, caches: iconCaches)
         }
     }
 
