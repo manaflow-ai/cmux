@@ -23,7 +23,11 @@ extension CloudHandlers {
             }
         }
         services.agentTabs.uploadStager = { [weak services] tab in
-            services.flatMap { $0.cloud.uploads.stager(tab: tab, services: $0) }
+            services.flatMap {
+                $0.cloud.uploads.stager(tab: tab, services: $0)
+                    ?? AgentPeerUploads.stager(tab: tab, services: $0)
+                    ?? AgentChatUploads.stager(tab: tab, services: $0)
+            }
         }
         // Files dropped or pasted from Finder into a chat on this Mac go as their own paths, never a
         // copy (``AgentPaneDroppedPaths``); a moved or peer chat's still go to its machine. A New Tab page

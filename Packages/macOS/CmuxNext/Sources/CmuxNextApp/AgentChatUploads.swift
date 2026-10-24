@@ -16,6 +16,8 @@ import Foundation
 /// the app names them are deleted.
 @MainActor
 struct AgentChatUploads {
+    private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String }
+    private static var stages: [String: Stage] = [:]
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
     nonisolated static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
     /// The folder under ``root`` that holds a folder per chat (session ids are UUIDs, as upload
@@ -42,6 +44,32 @@ struct AgentChatUploads {
                 return AgentPaneReply.success(["uploads": uploads])
             } catch {
                 return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed)
+            }
+        }
+    }
+
+    static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
+        guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
+        let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) } ?? "new"
+        return { request, sessionID in
+            guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+            switch request {
+            case .begin(let name, let size, _, _):
+                guard size <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
+                do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, session: session)
+                return AgentPaneReply.success(["token": token, "size": size, "chunkSize": 512 * 1024])
+            case .chunk(let token, let offset, let data):
+                guard var stage = stages[token], stage.session == session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                stage.received += data.count; stages[token] = stage; return AgentPaneReply.success(["offset": stage.received])
+            case .finish(let token):
+                guard let stage = stages.removeValue(forKey: token), stage.session == session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                return AgentPaneReply.success(["path": stage.file.path])
+            case .cancel(let token):
+                if let stage = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: stage.folder) }
+                return AgentPaneReply.success()
             }
         }
     }
