@@ -388,13 +388,16 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 # Revisit: turn the growth warning into a refusal once cmux-next-arch-targets has moved the large domains out of
 # CmuxNextApp (until then about two of every three App pushes grow a feature file, below). The perf cron arch report
 # is the backstop meanwhile: it opens the regression issue when the App line count rises. Measured on
-# origin/feat-cmux-next up to 2952080b0a5 with CI's lexer:
+# origin/feat-cmux-next up to 2952080b0a5 with CI's lexer and app_size as of the commit "fix(guardrails app-size):
+# moves are credited from lines the push really lost, on whole blocks, with imports out of the moved share" (before
+# credit_moves matched a generic line to its neighbour and a `}` to an opener in its run, and before phase 2 took
+# phase 1's renames):
 # - ROOT_BUDGET: the wiring of a few domains per push (a stored instance, its construction, passing it on), never
 #   their logic; the `total` warning asks the same push to pay for it with an App shrink. Measured per push, the
 #   unit the rule limits: the 1243 `git push`es to feat-cmux-next from 2026-10-20 00:00Z to 2952080b0a5 (GitHub's
 #   repository activity API, activity_type push, each push's before..after through this rule's own root count;
-#   PR merges land on GitHub, where no pre-push hook runs). 54 changed root files, 52 of them with more than one
-#   first-parent commit: net root growth p50 +2, p95 +16, max +41; 53 of 54 are within +30. The one over
+#   PR merges land on GitHub, where no pre-push hook runs). 54 pushes changed root files, 52 of them landing more
+#   than one first-parent commit: net root growth p50 +2, p95 +16, max +41; 53 of 54 are within +30. The one over
 #   (705557dc225..95b7af279ab, +41, three commits) is folder and harness logic in AppServices+WorkContext.swift
 #   (4aa19112632), not wiring.
 # - HOST_FILE_MAX: one domain's Host protocol forwards, one member per line; a larger Host protocol is a sign that
