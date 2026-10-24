@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import Foundation
 import os
 
@@ -26,9 +25,6 @@ public struct LoginEnvironment: Sendable {
         "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_SOCKET_ENABLE", "CMUX_BUNDLE_ID",
         "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
         "CMUXD_UNIX_PATH",
-        // The launch open-file limit is for cmux-tui owners only (`OpenFileLimit.Change.daemonEnvironment`):
-        // a stray copy (an app started from a shell that inherited it) must not reach a terminal.
-        OpenFileLimit.originalSoftLimitKey,
     ]
 
     /// Captures the login env, or returns nil on failure or timeout.

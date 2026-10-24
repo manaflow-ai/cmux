@@ -1,5 +1,4 @@
 import CmuxNextAgentPane
-import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -56,13 +55,13 @@ public final class ChiefConversationOwner {
     /// values the owner needs to run the other Chiefs' brains
     /// (`brainsValue`), and `launch`, the app's launch values for its owners
     /// (`AppEnvironment.daemonEnvironment`: the open-file limit the app was
-    /// launched with; a copy the app's own environment inherited is dropped).
+    /// launched with; `LaunchIdentity.stripInheritedEnvironment` already
+    /// removed an inherited copy from the app's own environment).
     /// An owner that another build already started keeps its environment
     /// until it restarts.
     static func ownerEnvironment(home: ChiefHome, process: [String: String], launch: [String: String] = [:],
                                  bundle: Bundle = .main) -> [String: String] {
         var environment = process
-        environment[OpenFileLimit.originalSoftLimitKey] = nil
         environment.merge(launch) { _, launch in launch }
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
         environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
