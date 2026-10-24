@@ -11,7 +11,6 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
-    /// Host-only publication identity used to coalesce reset drops across page subscribers.
     let deliveryID: UInt64?
 
     public init(kind: String, value: JSONValue = .null, deliveryID: UInt64? = nil) {

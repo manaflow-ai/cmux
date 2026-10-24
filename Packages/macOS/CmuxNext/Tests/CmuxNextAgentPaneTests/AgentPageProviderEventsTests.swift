@@ -224,4 +224,23 @@ struct AgentPageProviderEventsTests {
         await nextPage.waitFor(1)
         #expect(Self.names(nextPage.events) == ["next"])
     }
+
+    @Test func lateDropMergesBehindEarlierRecoveredPublication() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        let live = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        #expect(provider.publish(AgentPageEvent(kind: "command", value: .string("old"), deliveryID: 1)))
+        live.cancel()
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
+                                      data: AgentPageEvent(kind: "command", value: .string("new"), deliveryID: 2).data,
+                                      publicationID: 2)
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
+                                      data: AgentPageEvent(kind: "command", value: .string("old"), deliveryID: 1).data,
+                                      publicationID: 1)
+        provider.replay = { [] }
+        let page = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { page.append($0) }
+        defer { next.cancel() }
+        await page.waitFor(2)
+        #expect(Self.names(page.events) == ["old", "new"])
+    }
 }

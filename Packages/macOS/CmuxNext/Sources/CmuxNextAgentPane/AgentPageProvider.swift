@@ -160,14 +160,8 @@ public final class AgentPageProvider: PageProvider {
             droppedPublicationIDs.removeAll(keepingCapacity: true)
         }
         deliveredPublicationIDs.remove(publicationID)
-        bufferedEvents.removeAll { $0.deliveryID == publicationID }
         let value = data["value"] ?? .null
-        guard bufferedEvents.count < Self.maximumBufferedEvents else {
-            bufferedQueueOverflowed = true
-            deliveryOverflowed = true
-            return
-        }
-        bufferedEvents.append(AgentPageEvent(kind: kind, value: value, deliveryID: publicationID))
+        appendRequeued([AgentPageEvent(kind: kind, value: value, deliveryID: publicationID)])
     }
 
     /// Sends `event` to every subscribed page.
@@ -274,14 +268,12 @@ public final class AgentPageProvider: PageProvider {
         }
         pending.compactDelivered()
         if pending.next < pending.events.count {
-            // Yield between batches so a reconnect cannot monopolize the main actor.
             Task { @MainActor [weak self] in self?.flushPendingEvents(for: id) }
             return
         }
         pendingEvents.removeValue(forKey: id)
     }
 
-    /// Retains undelivered host events when reset cancels a queued replay.
     private func cancel(id: UInt64) {
         listeners.removeValue(forKey: id)
         overflowedPendingListeners.remove(id)
@@ -308,8 +300,6 @@ public final class AgentPageProvider: PageProvider {
             if let deliveryID = event.deliveryID { byID[deliveryID] = event }
         }
         let uniqueEvents = events.filter { event in
-            // Replay snapshots have no publication identity; the next subscription regenerates
-            // current replay, so never requeue an old snapshot after a reset.
             guard let deliveryID = event.deliveryID else { return false }
             guard byID[deliveryID] == nil, !deliveredPublicationIDs.contains(deliveryID) else { return false }
             byID[deliveryID] = event

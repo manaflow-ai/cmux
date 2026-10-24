@@ -321,9 +321,6 @@ import CmuxNextCompat
     public func close(connection id: Int) {
         guard id == current, let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
-        // Keep the closed socket until `flush()` delivers its terminal event to the page. Clearing
-        // it here strands BridgeSocket in OPEN and prevents the page from reconnecting after a
-        // host-triggered overflow close.
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }

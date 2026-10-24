@@ -6,8 +6,6 @@ public import Foundation
 /// descriptor does not admit; params arrive without an `origin` (the context has it).
 @MainActor
 public protocol PageProvider: AnyObject {
-    /// When true, events are handed to the router as soon as the subscription is established so a
-    /// page reset can report a queued envelope back to the provider for replay.
     var eventsAfterSubscribeReply: Bool { get }
     /// Answers one call or throws ``PageError``.
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue
@@ -16,9 +14,7 @@ public protocol PageProvider: AnyObject {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription
 
-    /// Called when the host reset drops a queued event envelope before the page evaluated it.
     func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?)
-    /// The publication identity currently being delivered to a subscriber.
     var eventDeliveryID: UInt64? { get }
 }
 
