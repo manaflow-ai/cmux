@@ -71,8 +71,8 @@ jobs:
     environment: release-next
     permissions:
       contents: read
-    # A literal ephemeral label: this job holds the feed's write token.
-    runs-on: ubuntu-24.04
+    # Ephemeral Linux: Blacksmith for this repository, hosted only for forks.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
       changed: ${{ steps.plan.outputs.changed }}
@@ -241,7 +241,8 @@ jobs:
   fix-forward:
     needs: rollback
     if: needs.rollback.result == 'success' && needs.rollback.outputs.changed == 'true' && !inputs.dry_run
-    runs-on: ubuntu-24.04
+    # Ephemeral Linux: Blacksmith for this repository, hosted only for forks.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-train.yml
