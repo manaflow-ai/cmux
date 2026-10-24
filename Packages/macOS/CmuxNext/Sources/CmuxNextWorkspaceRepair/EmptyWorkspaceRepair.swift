@@ -104,6 +104,9 @@ public final class EmptyWorkspaceRepair {
     /// Workspaces examined for a missing pane since launch: a store change
     /// that touches none of them must examine none (sidebar churn).
     @ObservationIgnored private(set) var visited = 0
+    /// Test seam (read only): the store observation and every workspace watcher running now, so a
+    /// test can hold them and see that releasing the repair cancels each one.
+    var observationTasksForTests: [Task<Void, Never>] { [observation].compactMap { $0 } + Array(watchers.values) }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
