@@ -177,13 +177,15 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     /// Ghostty's terminal identity, as the daemon's terminals get it
     /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-ghostty`
     /// with the bundled `TERMINFO` when that entry exists, else
-    /// `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty` and its version.
+    /// `xterm-256color`; `COLORTERM`, and `TERM_PROGRAM=ghostty`. The version
+    /// stays unset because cmux forwards TUI mouse reports instead of
+    /// providing Ghostty's native selection path; advertising a Ghostty
+    /// version makes Codex disable its copy-on-select fallback.
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
-        version: String? = GhosttyRuntime.version
+        version _: String? = GhosttyRuntime.version
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
-        if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
         guard let resourcesDirectory, !resourcesDirectory.isEmpty else { return result }
         result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory
         let terminfo = ((resourcesDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")

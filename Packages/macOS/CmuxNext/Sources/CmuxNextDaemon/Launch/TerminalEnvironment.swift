@@ -92,16 +92,18 @@ public struct TerminalEnvironment: Sendable {
     ///   theme palette under `xterm-ghostty` but the fixed 256-color cube
     ///   under `*256color`.
     /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
-    /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
-    ///   (neovim and others).
+    /// - `TERM_PROGRAM=ghostty` identifies the terminal for feature detection
+    ///   (neovim and others). `TERM_PROGRAM_VERSION` stays unset because cmux
+    ///   forwards TUI mouse reports instead of providing Ghostty's native
+    ///   selection path; advertising a Ghostty version makes Codex disable its
+    ///   copy-on-select fallback.
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
     public func ghostty(
         resourcesDirectory: String?,
-        version: String?,
+        version _: String?,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> [String: String] {
         var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
-        if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
         guard let resourcesDirectory, !resourcesDirectory.isEmpty else { return env }
         env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory
         let terminfo = ((resourcesDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")
