@@ -443,8 +443,8 @@ print("ok: entitlements "+", ".join(sorted(e)))
 PY
 }
 
-# The notification content extension: embedded, its own id and version, no
-# entitlements beyond the profile's basics.
+# The notification content extension: embedded, its own id and version, and
+# only the shared push keychain group beyond the profile's basics.
 check_extension() {  # <CmuxMobileApp.app> [signed]
   local appex="$1/PlugIns/CmuxMobileNotificationContent.appex" info
   info="$appex/Info.plist"
@@ -540,9 +540,10 @@ plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.tea
     cp "$ext_profile_path" "$content_appex/embedded.mobileprovision"
     python3 -I -c '
 import plistlib,sys
-team,bid=sys.argv[2],sys.argv[3]
+team,bid,app=sys.argv[2],sys.argv[3],sys.argv[4]
 plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
-  "get-task-allow":False,"beta-reports-active":True},open(sys.argv[1],"wb"))' "$private/ext-ent.plist" "$team" "$ext_bundle_id"
+  "get-task-allow":False,"beta-reports-active":True,"keychain-access-groups":[f"{team}.{app}.push"]},open(sys.argv[1],"wb"))' \
+      "$private/ext-ent.plist" "$team" "$ext_bundle_id" "$bundle_id"
     codesign --force --sign "$identity" --timestamp --generate-entitlement-der \
       --entitlements "$private/ext-ent.plist" "$content_appex"
   fi

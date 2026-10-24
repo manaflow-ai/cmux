@@ -293,7 +293,9 @@ targets:
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
-        CMUX_MOBILE_ENTITLEMENTS_NO: ""
+        # The shared push keychain group always (sealed pushes open in the long look),
+        # and the App Group when it is on.
+        CMUX_MOBILE_ENTITLEMENTS_NO: NotificationContent/NotificationContent.entitlements
         CMUX_MOBILE_ENTITLEMENTS_YES: NotificationContent/NotificationContent-Group.entitlements
         CODE_SIGN_ENTITLEMENTS: $(CMUX_MOBILE_ENTITLEMENTS_$(CMUX_MOBILE_APP_GROUP))
       configs:
@@ -313,6 +315,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CmuxMobileAppGroup: group.$(CMUX_MOBILE_APP_BUNDLE_ID)
+        CmuxMobileKeychainGroup: $(CMUX_MOBILE_KEYCHAIN_GROUP)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
