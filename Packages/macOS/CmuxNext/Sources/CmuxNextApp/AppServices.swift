@@ -103,8 +103,8 @@ final class AppServices {
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
-    /// each run published on the app's main-thread task board so the watchdog samples a slow one.
-    let actionBudget = ActionBudgetMonitor(board: FrameScheduler.app.budget.board)
+    /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one.
+    let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
@@ -408,6 +408,7 @@ final class AppServices {
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         self.work = work
+        actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
