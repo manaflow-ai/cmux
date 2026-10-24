@@ -93,6 +93,22 @@ function fitList(list: HTMLElement) {
   if (list.style.maxHeight !== height) list.style.maxHeight = height;
 }
 
+/// The queue's fit-ready marker is a paint boundary, but a gallery/test DOM may expose a window
+/// without requestAnimationFrame. Keep the marker and its cleanup deterministic there too.
+function requestFitFrame(document: Document, callback: FrameRequestCallback): number {
+  const view = document.defaultView;
+  if (typeof view?.requestAnimationFrame === "function") return view.requestAnimationFrame(callback);
+  if (typeof globalThis.requestAnimationFrame === "function") return globalThis.requestAnimationFrame(callback);
+  return setTimeout(() => callback(Date.now()), 0) as unknown as number;
+}
+
+function cancelFitFrame(document: Document, handle: number): void {
+  const view = document.defaultView;
+  if (typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
+  else if (typeof globalThis.cancelAnimationFrame === "function") globalThis.cancelAnimationFrame(handle);
+  else clearTimeout(handle);
+}
+
 /** Scrolls the list so `row` shows whole, starting at a row's top (the paused note's, for the first). */
 function reveal(list: HTMLElement, row: HTMLElement) {
   const { top, bottom } = offsets(list, row);
@@ -217,13 +233,10 @@ export function ComposerQueue({
       const firstFit = !current.hasAttribute("data-fit-ready");
       fitList(current);
       if (firstFit) {
-        const view = current.ownerDocument.defaultView;
-        if (view) {
-          fitReadyFrame.current = view.requestAnimationFrame(() => {
-            fitReadyFrame.current = undefined;
-            if (current.isConnected) current.setAttribute("data-fit-ready", "");
-          });
-        }
+        fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
+          fitReadyFrame.current = undefined;
+          if (current.isConnected) current.setAttribute("data-fit-ready", "");
+        });
       }
     }
     // Opening lands at the top: the header and the next prompt.
@@ -254,8 +267,8 @@ export function ComposerQueue({
   });
   useEffect(
     () => () => {
-      const view = list.current?.ownerDocument.defaultView;
-      if (fitReadyFrame.current !== undefined) view?.cancelAnimationFrame(fitReadyFrame.current);
+      const document = list.current?.ownerDocument;
+      if (fitReadyFrame.current !== undefined && document) cancelFitFrame(document, fitReadyFrame.current);
       fitReadyFrame.current = undefined;
       watched.current?.observer.disconnect();
       watched.current?.rows.disconnect();
