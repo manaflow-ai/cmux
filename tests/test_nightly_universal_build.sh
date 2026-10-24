@@ -1354,7 +1354,7 @@ if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || ! grep -Fq 'vars.MACOS_
   exit 1
 fi
 for expected in \
-  "needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
+  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
   "group: nightly-next-legacy-identity-publish" \

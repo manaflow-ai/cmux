@@ -69,6 +69,8 @@ for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-lega
     downstream_needs = needs(job(downstream))
     if "legacy-identity-target" not in downstream_needs:
         failures.append(f"{downstream} must remain downstream of legacy-identity-target")
+if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
+    failures.append("legacy identity publication must wait for successful NEXT publication")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))
