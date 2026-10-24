@@ -16,9 +16,9 @@ extension MotionPath {
             }
             guard let value = value as? NSValue else { return nil }
             let type = value.objCType
-            if Self.pointType.withUnsafeBufferPointer({ strcmp(type, $0.baseAddress!) }) == 0 {
+            if strcmp(type, Self.pointType) == 0 {
                 self = .point
-            } else if Self.sizeType.withUnsafeBufferPointer({ strcmp(type, $0.baseAddress!) }) == 0 {
+            } else if strcmp(type, Self.sizeType) == 0 {
                 self = .size
             } else {
                 return nil
