@@ -63,7 +63,7 @@ import CmuxNextDesignTokens
         coordinator.geometryChanged(in: main)
         #expect(queries.count == 2)
 
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: main)  // a window changed
+        main.setContentSize(NSSize(width: 320, height: 100))  // a window changed: AppKit posts its resize
         coordinator.geometryChanged(in: main)
         #expect(queries.count == 3)
     }
