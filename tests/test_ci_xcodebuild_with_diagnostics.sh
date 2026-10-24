@@ -43,6 +43,12 @@ if [[ -n "${FAKE_XCODEBUILD_PHASE_FAIL:-}" ]]; then
   echo "    /bin/sh -c /build/Script-2.sh"
   for i in {1..35}; do echo "cef-line-$i"; done
   echo "cmux Helper (Renderer).app: replacing existing signature"
+  echo ""
+  # Another phase between the failed phase and its failure line: the report
+  # must still pin the failure on Embed CEF, from the failed-commands list.
+  echo "PhaseScriptExecution Copy\\ licenses /build/Script-4.sh (in target 'App' from project 'App')"
+  echo "    cd /src"
+  echo "licenses copied"
   echo "Command PhaseScriptExecution failed with a nonzero exit code"
   echo ""
   echo "PhaseScriptExecution Bundle\\ cmux-tui /build/Script-3.sh (in target 'App' from project 'App')"
@@ -222,6 +228,11 @@ if grep -Eq '^cef-line-6$|export VAR_|bundled acpmux|builtin-copy|/bin/sh -c' <<
 fi
 grep -Fxq 'tui: missing tree' <<<"$tui_section"
 grep -Fxq '::error::run script phase failed: Bundle cmux-tui' <<<"$tui_section"
+if grep -Fq 'licenses copied' <<<"$cef_section" || grep -Fq 'Copy\ licenses' "$TMP_DIR/phase.log" \
+  && grep -Fq -- '--- failed run script phase: PhaseScriptExecution Copy' "$TMP_DIR/phase.log"; then
+  echo "FAIL: a phase that did not fail never gets a failure report or another phase's lines" >&2
+  exit 1
+fi
 if grep -Fq 'cef-line' <<<"$tui_section"; then
   echo "FAIL: each failed phase reports only its own output" >&2
   exit 1

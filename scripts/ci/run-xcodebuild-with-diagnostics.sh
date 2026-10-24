@@ -149,33 +149,47 @@ report_compiler_crashes() {
 
 # A run script phase that exits nonzero prints no "error:" line unless the
 # script wrote one; xcodebuild only names the phase among the failed commands
-# (nightly-next's Embed CEF red, 2026-10-24, showed nothing else). Prints the
-# last 30 lines each failed phase wrote, without the environment dump xcodebuild
-# puts before them, for the first 5 failed phases, and annotates every failed
-# phase. xcodebuild writes each task's output as one block after its header, so
-# any other task header ends the phase being read.
+# (nightly-next's Embed CEF red, 2026-10-24, showed nothing else). The phases
+# come from xcodebuild's own "The following build commands failed:" list, never
+# from whichever header came last, so a failure is never pinned on another
+# task. Each listed phase's output is the block under its exact header, up to
+# the next task header or failure line, without the environment dump
+# xcodebuild puts first; its last 30 lines print for the first 5 failed
+# phases, and every failed phase gets an annotation.
 report_failed_script_phases() {
   local log="$1"
-  grep -q '^Command PhaseScriptExecution failed' "$log" 2>/dev/null || return 0
+  grep -q '^[[:blank:]]PhaseScriptExecution ' "$log" 2>/dev/null || return 0
   awk '
-    /^PhaseScriptExecution / { phase = $0; n = 0; next }
-    /^Command PhaseScriptExecution failed/ {
-      if (phase == "") next
-      name = phase
-      sub(/^PhaseScriptExecution /, "", name); sub(/ \/.*$/, "", name); gsub(/\\ /, " ", name)
-      if (++failed <= 5) {
-        print "--- failed run script phase: " substr(phase, 1, 300) " ---"
-        start = n > 30 ? n - 30 : 0
-        for (i = start; i < n; i++) print substr(ring[i % 30], 1, 400)
+    function close_block() { if (cur) { done[cur] = 1; cur = 0 } }
+    NR == FNR {
+      if ($0 ~ /^The following build commands failed:/) { listing = 1; next }
+      if (listing && $0 ~ /^\([0-9]+ failures?\)/) { listing = 0; next }
+      if (listing && $0 ~ /^\tPhaseScriptExecution /) {
+        header = substr($0, 2)
+        if (!(header in index_of)) { index_of[header] = ++failed; headers[failed] = header }
       }
-      print "::error::run script phase failed: " name
-      phase = ""; next
+      next
     }
-    /^[A-Za-z].* \(in target .* from project .*\)$/ { phase = ""; next }
-    phase == "" { next }
-    /^    (export |cd |\/bin\/sh -c )/ { next }
-    { ring[n % 30] = $0; n++ }
-  ' "$log" 2>/dev/null || true
+    ($0 in index_of) && !done[index_of[$0]] { close_block(); cur = index_of[$0]; seen[cur] = 1; next }
+    /^Command PhaseScriptExecution failed/ { close_block(); next }
+    /^[A-Za-z].* \(in target .* from project .*\)$/ { close_block(); next }
+    !cur { next }
+    /^$/ || /^    (export |cd |\/bin\/sh -c )/ { next }
+    { ring[cur, count[cur] % 30] = $0; count[cur]++ }
+    END {
+      for (i = 1; i <= failed; i++) {
+        name = headers[i]
+        sub(/^PhaseScriptExecution /, "", name); sub(/ \/.*$/, "", name); gsub(/\\ /, " ", name)
+        if (i <= 5) {
+          print "--- failed run script phase: " substr(headers[i], 1, 300) " ---"
+          if (!seen[i]) print "(its output block is not in the log)"
+          n = count[i]; first = n > 30 ? n - 30 : 0
+          for (k = first; k < n; k++) print substr(ring[i, k % 30], 1, 400)
+        }
+        print "::error::run script phase failed: " name
+      }
+    }
+  ' "$log" "$log" 2>/dev/null || true
 }
 
 # Prints each distinct compiler/build error once, as a GitHub annotation (file
