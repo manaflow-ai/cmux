@@ -5,7 +5,7 @@ import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 
-type Props = Record<string, never>;
+type Props = { harness?: "codex" | "claude" };
 
 const initialSnapshot: AcpmuxSnapshot = {
   type: "snapshot",
@@ -90,9 +90,29 @@ const initialSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers() {
-  const [model, setModel] = useState(initialSnapshot.summary!.model!);
-  const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
+const claudeSnapshot: AcpmuxSnapshot = {
+  ...initialSnapshot,
+  summary: {
+    ...initialSnapshot.summary!,
+    harness: "claude",
+    model: "claude-sonnet-5-5",
+    modes: {
+      availableModes: [
+        { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+        { id: "default", name: "Manual", description: "Always ask before making changes" },
+        { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+        { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+        { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
+      ],
+      currentModeId: "bypassPermissions",
+    },
+  },
+};
+
+function GalleryComposerPickers({ harness = "codex" }: Props) {
+  const initial = harness === "claude" ? claudeSnapshot : initialSnapshot;
+  const [model, setModel] = useState(initial.summary!.model!);
+  const [mode, setMode] = useState(initial.summary!.modes!.currentModeId!);
   const [effort, setEffort] = useState("medium");
   const [fast, setFast] = useState("off");
   const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
@@ -101,18 +121,18 @@ function GalleryComposerPickers() {
   ]);
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
-      ...initialSnapshot,
+      ...initial,
       summary: {
-        ...initialSnapshot.summary!,
+        ...initial.summary!,
         model,
-        modes: { ...initialSnapshot.summary!.modes!, currentModeId: mode },
-        configOptions: initialSnapshot.summary!.configOptions!.map((option) => ({
+        modes: { ...initial.summary!.modes!, currentModeId: mode },
+        configOptions: initial.summary!.configOptions!.map((option) => ({
           ...option,
           currentValue: option.id === "effort" ? effort : option.id === "fast-mode" ? fast : option.currentValue,
         })),
       },
     }),
-    [effort, fast, mode, model],
+    [effort, fast, initial, mode, model],
   );
   return (
     <div className="acpmux-composer-gallery-shell">
@@ -247,7 +267,9 @@ const openMode: Play = async (ctx) => {
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
-  const expected = ["Default", "Full access", "Plan"];
+  const expected = labels.includes("Auto")
+    ? ["Auto", "Manual", "Accept edits", "Plan", "Bypass permissions"]
+    : ["Default", "Full access", "Plan"];
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
@@ -364,6 +386,11 @@ export default componentEntry<Props>({
       play: fastMode,
     },
     "permission-menu": { props: {}, play: openMode },
+    "permission-menu-claude": {
+      note: "Claude Code's permission menu starts directly with Auto; its Mode heading is omitted while every mode row and shortcut stays.",
+      props: { harness: "claude" },
+      play: openMode,
+    },
     "access-grants": {
       note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
       props: {},
