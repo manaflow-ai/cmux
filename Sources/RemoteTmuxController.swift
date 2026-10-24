@@ -824,11 +824,10 @@ final class RemoteTmuxController {
     /// a tmux paste (`paste-buffer -p`, bracketed iff the real pane has
     /// bracketed-paste mode on) and returns `true`. Lets a pasted/dropped image
     /// path be recognized by the remote app (e.g. claude → `[Image #N]`) instead of
-    /// arriving as plain `send-keys`. Only single-line `text` is routed (covers
-    /// file/image paths); callers fall back to their normal insertion for empty or
-    /// multi-line text, which can't be carried safely on a one-line control command.
+    /// arriving as plain `send-keys`. Multi-line text follows the same paste path;
+    /// callers fall back to their normal insertion for empty text or non-mirrors.
     func pasteIntoMirror(surfaceId: UUID, text: String) -> Bool {
-        guard !text.isEmpty, !text.contains(where: { $0 == "\n" || $0 == "\r" }) else { return false }
+        guard !text.isEmpty else { return false }
         guard let target = pasteTarget(forSurfaceId: surfaceId) else { return false }
         return target.connection.pastePane(paneId: target.paneId, text: text)
     }
