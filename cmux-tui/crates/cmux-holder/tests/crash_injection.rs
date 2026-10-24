@@ -137,6 +137,41 @@ fn wait_for_line(path: &Path, what: &str) {
     }
 }
 
+/// Wait until the holder has published `total` bytes in `ring`: then it
+/// has read every byte the program printed and is in no PTY `read`, so a
+/// SIGKILL cannot land between a `read` and the store of its end (the one
+/// loss the ring allows, `cmux_holder::ring`). The program's pipe signal
+/// says its writes returned, but on Linux the PTY hands bytes to the master
+/// on a kernel worker, so the holder may read them later; and the holder
+/// tells nobody when it published (no credit is left). Each check follows
+/// a PING the holder answered, one holder turn later, so the holder paces
+/// it; the deadline only fails a holder that stops reading.
+fn wait_until_published(client: &mut HolderClient, ring: &OwnedFd, total: u64, got: &mut Vec<u8>) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    for nonce in 1.. {
+        let end = cmux_holder::ring::segment_end(ring).unwrap();
+        if end >= total {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the holder published {end} of {total} bytes");
+        client.ping(nonce).unwrap();
+        loop {
+            match client.next_event(deadline) {
+                Ok(Event::Pong { nonce: answered }) if answered == nonce => break,
+                Ok(Event::Data { offset, bytes, .. }) => {
+                    assert_eq!(offset, got.len() as u64);
+                    got.extend(bytes);
+                }
+                Ok(_) => {}
+                Err(error) => panic!(
+                    "the holder published {:?} of {total} bytes: {error}",
+                    cmux_holder::ring::segment_end(ring)
+                ),
+            }
+        }
+    }
+}
+
 fn write_master(master: &OwnedFd, bytes: &[u8]) {
     let mut written = 0;
     while written < bytes.len() {
@@ -286,10 +321,7 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     // when its last write returned: what the holder has not read yet waits
     // in the PTY, where the next holder reads it.
     wait_for_line(&written, "the program never wrote its whole output");
-    assert!(
-        cmux_holder::ring::segment_end(&ring).unwrap() > wire::CREDIT_WINDOW,
-        "the holder read nothing past the credit window: nothing was at stake"
-    );
+    wait_until_published(&mut client, &ring, TOTAL as u64, &mut got);
     kill(first);
     // What the dead holder had written to the socket still arrives.
     while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
@@ -491,6 +523,7 @@ fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
     // The program's signal that it wrote the window and the unsent limit:
     // the holder holds them, but for what still waits in the PTY.
     wait_for_line(&written, "the program never wrote its output");
+    wait_until_published(&mut client, &ring, TOTAL as u64, &mut got);
     kill(first);
     while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
         if let Event::Data { offset, bytes, .. } = event {
