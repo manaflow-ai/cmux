@@ -3267,9 +3267,7 @@ export function VirtualTranscript({
   // reports where the reader last saw it (below), so it never holds the swap.
   useEffect(
     () =>
-      holdWebSwap(() =>
-        onAnchorRef.current && anchorTimer.current !== undefined ? "transcript.place-unsaved" : null,
-      ),
+      holdWebSwap(() => (onAnchorRef.current && anchorTimer.current !== undefined ? "transcript.place-unsaved" : null)),
     [],
   );
   const reportAnchor = () => {
@@ -8495,19 +8493,21 @@ function AcpmuxPane() {
                   if (untaken) untakenSends.current -= 1;
                   untaken = false;
                 };
-                callNative("chat.send", { text, attachments, steer, accepted: taken }).finally(taken).then(
-                  () => {
-                    rememberStart();
-                    promptLanded.current();
-                  },
-                  (error: unknown) => {
-                    cancelOpenInWindow();
-                    if (failedRowOf(error) || isTrustRefusal(error)) return;
-                    // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
-                    if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
-                    (composerHandle.current ?? holder)?.restore(text, attachments);
-                  },
-                );
+                callNative("chat.send", { text, attachments, steer, accepted: taken })
+                  .finally(taken)
+                  .then(
+                    () => {
+                      rememberStart();
+                      promptLanded.current();
+                    },
+                    (error: unknown) => {
+                      cancelOpenInWindow();
+                      if (failedRowOf(error) || isTrustRefusal(error)) return;
+                      // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                      if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                      (composerHandle.current ?? holder)?.restore(text, attachments);
+                    },
+                  );
                 return true;
               }
               // A new chat's prompt leaves the composer at once as a queued row, and what is sent
