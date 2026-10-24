@@ -48,6 +48,8 @@ check(handoff_if.startswith("${{ !cancelled() && "),
       "(it was skipped on every run until 2026-10-24)")
 check("needs.cmux-scheme-compile.result == 'success'" in handoff_if,
       "the handoff must still require the DEV Release compile to succeed")
+check("(inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha)" in handoff_if,
+      "a same-tree DEV run whose head moved must not be handed over (the publisher rejects it)")
 text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["2-59/5 * * * *"],
