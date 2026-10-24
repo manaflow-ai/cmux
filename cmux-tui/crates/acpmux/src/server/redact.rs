@@ -34,6 +34,12 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
             if let Some(url) = peer.get("url").and_then(Value::as_str) {
                 peer.set("url", Value::String(url_without_secrets(url)));
             }
+            // The machines' resources (`peer_health.rs`) stay on the unix
+            // socket: `_acpmux/peers`, `status`, `peer_add`/`remove`/`reconnect`.
+            if let Some(row) = peer.as_object_mut() {
+                row.remove("health");
+                row.remove("healthAt");
+            }
         }
     }
 }
