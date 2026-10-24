@@ -69,16 +69,26 @@ export function useStripReorder(
     };
     const move = (event: PointerEvent) => {
       if (!press || event.pointerId !== press.pointer) return;
+      // Released where the strip never heard it: the press is over.
+      if (event.buttons === 0) return end();
       if (!press.dragged) {
         if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_SLOP_PX) return;
         press.dragged = true;
-        strip.setPointerCapture?.(event.pointerId);
+        try {
+          strip.setPointerCapture?.(event.pointerId);
+        } catch {
+          // No active pointer to capture (a synthetic one): the drag goes on without capture.
+        }
         setDragging(press.id);
       }
       event.preventDefault();
       const { ids: order, onReorder: reorder } = live.current;
       const index = dropIndex(event.clientX, centers(press.id));
       if (order.indexOf(press.id) !== index) reorder?.(press.id, index);
+    };
+    const end = () => {
+      if (press?.dragged) setDragging(undefined);
+      press = undefined;
     };
     const up = (event: PointerEvent) => {
       if (!press || event.pointerId !== press.pointer) return;
@@ -108,7 +118,18 @@ export function useStripReorder(
     strip.addEventListener("pointerup", up);
     strip.addEventListener("pointercancel", up);
     strip.addEventListener("keydown", key);
+    // A press that ends outside the strip, or a window that loses focus mid-press, ends it too.
+    const view = strip.ownerDocument.defaultView;
+    const away = (event: PointerEvent) => {
+      if (press && event.pointerId === press.pointer && !strip.contains(event.target as Node)) end();
+    };
+    view?.addEventListener("pointerup", away, true);
+    view?.addEventListener("pointercancel", away, true);
+    view?.addEventListener("blur", end);
     return () => {
+      view?.removeEventListener("pointerup", away, true);
+      view?.removeEventListener("pointercancel", away, true);
+      view?.removeEventListener("blur", end);
       strip.removeEventListener("pointerdown", down);
       strip.removeEventListener("pointermove", move);
       strip.removeEventListener("pointerup", up);
