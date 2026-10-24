@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextMacScreen
 import CmuxNextRemote
 import CmuxNextTerminal
@@ -54,7 +55,7 @@ final class TabContentCache {
     /// Pages revealed since their last hide: the next hide captures their
     /// thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
-    let webKit = WebKitEngine()
+    let webKit: WebKitEngine
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
     /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
@@ -133,12 +134,15 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    /// - Parameter afterFrame: runs work once the current pass's frame committed (a stand-in's page
-    ///   follows the key's frame); tests pass one that collects the work or runs it at once.
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(),
+    /// - Parameters:
+    ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
+    ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
+    ///     frame); tests pass one that collects the work or runs it at once.
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }) {
         self.daemon = daemon
         self.cef = cef
+        webKit = WebKitEngine(fileInput: fileInput)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
