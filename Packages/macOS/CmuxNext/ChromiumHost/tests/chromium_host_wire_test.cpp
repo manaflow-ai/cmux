@@ -59,14 +59,92 @@ int main() {
   cmux_host::Encode(big, too_long);
   Check(!cmux_host::Decode(too_long, &d), "a payload over the limit is refused");
 
-  // The reader stops handing frames to a UI thread that has `limit` waiting.
-  cmux_host::InFlightFrames in_flight(3);
-  Check(in_flight.TryTake() && in_flight.TryTake() && in_flight.TryTake(), "three frames fit a limit of three");
-  Check(!in_flight.TryTake(), "a fourth waiting frame is refused");
-  Check(in_flight.count() == 3, "a refused frame is not counted");
-  in_flight.Done();
-  Check(in_flight.TryTake(), "a frame that ran makes room for one more");
-  Check(!in_flight.TryTake(), "and only one");
+  // The frame queue between the host's reader and its UI thread (FrameQueue).
+  using Queue = cmux_host::FrameQueue;
+  auto move_to = [](int x, int y) {
+    cmux_host::Header m;
+    m.kind = cmux_host::kMouse;
+    m.v[0] = x;
+    m.v[1] = y;
+    m.t0 = static_cast<uint64_t>(x);
+    return m;
+  };
+  cmux_host::Header key;
+  key.kind = cmux_host::kKey;
+  key.ch = 'a';
+  {
+    // Before the fix every frame was one posted task with no bound but a count: a UI thread that
+    // stopped for a second while the pointer moved queued every move.
+    Queue q(8);
+    Check(q.Add(move_to(1, 1), {}) == Queue::Push::kWaiting, "nothing is posted before the UI thread exists");
+    Check(q.MarkReady(), "the frames read so far are posted once the UI thread exists");
+    for (int i = 2; i <= 1000; ++i) Check(q.Add(move_to(i, i), {}) != Queue::Push::kFull, "moves never fill the queue");
+    Check(q.size() == 1, "a thousand moves while the UI thread waits are one move");
+    auto taken = q.Take();
+    Check(taken.size() == 1 && taken[0].header.v[0] == 1000 && taken[0].header.t0 == 1000, "the newest move is kept");
+    Check(q.coalesced() == 999, "the folded moves are counted");
+  }
+  {
+    Queue q(8);
+    q.MarkReady();
+    Check(q.Add(move_to(1, 1), {}) == Queue::Push::kWake, "the first frame after a drain posts one task");
+    Check(q.Add(key, {}) == Queue::Push::kWaiting, "later frames ride the same task");
+    q.Add(move_to(2, 2), {});
+    q.Add(move_to(3, 3), {});
+    cmux_host::Header up = key;
+    up.v[0] = 1;
+    q.Add(up, {});
+    auto taken = q.Take();
+    Check(taken.size() == 4, "a key between moves is never dropped and splits the moves");
+    Check(taken.size() == 4 && taken[0].header.v[0] == 1 && taken[1].header.kind == cmux_host::kKey &&
+              taken[2].header.v[0] == 3 && taken[3].header.v[0] == 1,
+          "the order cmux sent is kept: move, key down, newest move, key up");
+    Check(q.Add(move_to(4, 4), {}) == Queue::Push::kWake, "after a drain the next frame posts again");
+  }
+  {
+    Queue q(8);
+    q.MarkReady();
+    cmux_host::Header wheel;
+    wheel.kind = cmux_host::kWheel;
+    wheel.v[2] = 1;
+    wheel.v[3] = -10;
+    q.Add(wheel, {});
+    wheel.v[2] = 2;
+    wheel.v[3] = -20;
+    wheel.v[0] = 50;
+    q.Add(wheel, {});
+    cmux_host::Header down = move_to(5, 5);
+    down.v[2] = 1;  // a click is not a move
+    q.Add(down, {});
+    q.Add(down, {});
+    auto taken = q.Take();
+    Check(taken.size() == 3, "wheel deltas add up; clicks are each kept");
+    Check(taken.size() == 3 && taken[0].header.v[2] == 3 && taken[0].header.v[3] == -30 && taken[0].header.v[0] == 50,
+          "the summed wheel frame has the newest position");
+    cmux_host::Header shifted = move_to(6, 6);
+    q.Add(move_to(5, 5), {});
+    shifted.flags = 1u << 17;
+    q.Add(shifted, {});
+    Check(q.size() == 2, "a move with other modifier flags is its own frame");
+  }
+  {
+    Queue q(3);
+    q.MarkReady();
+    Check(q.Add(key, {}) != Queue::Push::kFull && q.Add(key, {}) != Queue::Push::kFull &&
+              q.Add(key, {}) != Queue::Push::kFull,
+          "three keys fit a limit of three");
+    Check(q.Add(key, {}) == Queue::Push::kFull, "a fourth waiting key is a flood, refused and not queued");
+    Check(q.Add(move_to(1, 1), {}) == Queue::Push::kFull, "so is a move with nothing to fold into");
+    Check(q.size() == 3, "a refused frame is not queued");
+    q.AddEnd();
+    auto taken = q.Take();
+    Check(taken.size() == 4 && taken.back().header.kind == cmux_host::kQuit, "the end is queued after every frame, even when full");
+  }
+  {
+    Queue q(8);
+    q.AddEnd();
+    Check(q.MarkReady(), "an EOF before the UI thread exists runs once it does");
+  }
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");

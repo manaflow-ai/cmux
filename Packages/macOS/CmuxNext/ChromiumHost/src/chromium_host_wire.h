@@ -11,10 +11,13 @@
 // Times are CLOCK_UPTIME_RAW nanoseconds, one clock for both processes.
 #pragma once
 
-#include <atomic>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
+#include <mutex>
+#include <string>
 
 namespace cmux_host {
 
@@ -30,7 +33,8 @@ inline constexpr int kQuitLimitSeconds = 15;
 // CEFSwitches.resizeSyncForkAPI: no AsyncLiveResize).
 inline constexpr int kMinForkAPI = 27;
 // Frames the reader may hand to the UI thread that it has not run yet (and
-// frames held before the UI thread exists): ChromiumHostConnection.frameBacklog.
+// frames held before the UI thread exists), after coalescing (FrameQueue):
+// ChromiumHostConnection.frameBacklog.
 inline constexpr size_t kFrameBacklog = 4096;
 
 // Exit statuses of a host that could not start. cmux does not restart such a
@@ -63,7 +67,8 @@ enum Kind : uint32_t {
   kPong = 105,          // t0 echoed, t1 host receive time
   kStatsReply = 106,    // seq of the request; v0 input events, v1 p50, v2 p95, v3 p99, v4 max (us from cmux's
                         // event time to the host's Send*Event on its UI thread, over the last kHopWindow
-                        // events), v5 frames refused (unknown kind)
+                        // events), v5 frames refused (unknown kind), t1 input frames coalesced into a
+                        // waiting one (FrameQueue)
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
 };
@@ -121,24 +126,125 @@ inline bool Decode(const uint8_t in[kHeaderSize], Header* h) {
   return h->payload <= kMaxPayload;
 }
 
-// Counts the frames the reader has posted to the UI thread that have not run
-// yet. Only the reader thread calls TryTake (one producer), the UI thread
-// calls Done once per frame it runs.
-class InFlightFrames {
+// A frame the reader thread hands to the UI thread.
+struct QueuedFrame {
+  Header header;
+  std::string payload;
+};
+
+// True for a pointer move (kMouse phase 0): a newer one replaces it.
+inline bool IsPointerMove(const Header& h) {
+  return h.kind == kMouse && h.v[2] == 0;
+}
+
+// The frames the reader thread has read and the UI thread has not run yet.
+// Bounded: a newer pointer move replaces a waiting move, wheel deltas add up
+// into the waiting wheel frame and a newer geometry replaces a waiting one,
+// each only at the tail, so the order of moves, clicks, keys and geometry
+// stays the order cmux sent. Keys, clicks and every other frame are never
+// dropped. More than `limit` waiting frames (a UI thread that has stopped)
+// is a flood: Push refuses, and the reader ends the host as at EOF.
+//
+// One wake per batch: Push asks the caller to post one drain task when none is
+// pending, and Take (the drain, on the UI thread) takes every waiting frame.
+// Until MarkReady (Chromium's UI thread exists) frames only wait. Any thread;
+// one mutex, held for a few pointer writes.
+class FrameQueue {
  public:
-  explicit constexpr InFlightFrames(size_t limit) : limit_(limit) {}
-  // False when `limit` frames wait already: the UI thread has stopped running them.
-  bool TryTake() {
-    if (count_.load(std::memory_order_acquire) >= limit_) return false;
-    count_.fetch_add(1, std::memory_order_acq_rel);
-    return true;
+  enum class Push { kWake, kWaiting, kFull };
+
+  explicit FrameQueue(size_t limit) : limit_(limit) {}
+
+  // The reader thread. kWake: post one drain task. kWaiting: a drain is
+  // pending (or the UI thread is not ready); nothing to post. kFull: the
+  // frame was not queued.
+  Push Add(const Header& h, std::string payload) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!frames_.empty() && Coalesce(&frames_.back().header, h)) {
+      ++coalesced_;
+      return WakeLocked();
+    }
+    if (frames_.size() >= limit_) return Push::kFull;
+    frames_.push_back(QueuedFrame{h, std::move(payload)});
+    return WakeLocked();
   }
-  void Done() { count_.fetch_sub(1, std::memory_order_acq_rel); }
-  size_t count() const { return count_.load(std::memory_order_acquire); }
+
+  // The reader thread at EOF or a broken wire: a kQuit after every waiting
+  // frame, also when the queue is full. Same answer as Add.
+  Push AddEnd() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Header quit;
+    quit.kind = kQuit;
+    frames_.push_back(QueuedFrame{quit, std::string()});
+    return WakeLocked();
+  }
+
+  // The UI thread, once: true when frames wait (post one drain task).
+  bool MarkReady() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ready_ = true;
+    return WakeLocked() == Push::kWake;
+  }
+
+  // The drain task: every waiting frame, oldest first; the next Add wakes again.
+  std::deque<QueuedFrame> Take() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    wake_pending_ = false;
+    std::deque<QueuedFrame> taken;
+    taken.swap(frames_);
+    return taken;
+  }
+
+  size_t size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return frames_.size();
+  }
+  // Frames folded into a waiting one since start (kStatsReply t1).
+  uint64_t coalesced() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return coalesced_;
+  }
 
  private:
+  // Folds `next` into `waiting` when it only updates it.
+  static bool Coalesce(Header* waiting, const Header& next) {
+    if (next.payload != 0 || waiting->payload != 0) return false;
+    if (IsPointerMove(*waiting) && IsPointerMove(next) && waiting->flags == next.flags &&
+        waiting->v[5] == next.v[5]) {
+      *waiting = next;  // the newest position, buttons and event time
+      return true;
+    }
+    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags) {
+      const int32_t dx = waiting->v[2], dy = waiting->v[3];
+      *waiting = next;  // the newest position and event time, the summed deltas
+      waiting->v[2] = SaturatingAdd(dx, next.v[2]);
+      waiting->v[3] = SaturatingAdd(dy, next.v[3]);
+      return true;
+    }
+    if (waiting->kind == kGeometry && next.kind == kGeometry) {
+      *waiting = next;
+      return true;
+    }
+    return false;
+  }
+
+  static int32_t SaturatingAdd(int32_t a, int32_t b) {
+    const int64_t sum = static_cast<int64_t>(a) + b;
+    return static_cast<int32_t>(std::clamp<int64_t>(sum, INT32_MIN, INT32_MAX));
+  }
+
+  Push WakeLocked() {
+    if (!ready_ || wake_pending_ || frames_.empty()) return Push::kWaiting;
+    wake_pending_ = true;
+    return Push::kWake;
+  }
+
   const size_t limit_;
-  std::atomic<size_t> count_{0};
+  mutable std::mutex mutex_;
+  std::deque<QueuedFrame> frames_;
+  bool ready_ = false;
+  bool wake_pending_ = false;
+  uint64_t coalesced_ = 0;
 };
 
 }  // namespace cmux_host

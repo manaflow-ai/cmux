@@ -19,7 +19,8 @@
 //
 // Launched by cmux (ChromiumHostLauncher) with the wire on fd 3 (frames from cmux) and fd 4 (frames to cmux):
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
-//          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
+//          --main-bundle=<cmux.app> --root-cache=<dir> [--log-file=<path>]
+//          [--cef-switch=<name[=value]>]...
 // EOF on fd 3 (cmux quit or crashed) closes the page and ends the host; the
 // wire is read from before CefInitialize, and a host that has not ended
 // kQuitLimitSeconds after EOF or kQuit _exits, so a hung UI thread or a hung
@@ -112,19 +113,13 @@ void ArmQuitDeadline() {
   }).detach();
 }
 
-// Frames read before Chromium's UI thread exists (CefInitialize still runs),
-// and whether the wire ended meanwhile. Guarded by g_early_mutex (reader and
-// UI thread); g_ui_ready flips once, in OnContextInitialized. More than
-// kFrameBacklog early frames is a flood.
-std::mutex g_early_mutex;
-bool g_ui_ready = false;
-bool g_early_eof = false;
-std::vector<std::pair<cmux_host::Header, std::string>> g_early;
-// Frames posted to the UI thread that have not run. The posted-task queue has
-// no limit of its own: without this, a hung UI thread would let the reader
-// queue every frame cmux sends (every mouse move) and cmux would never see
-// that the host stopped reading.
-cmux_host::InFlightFrames g_in_flight(cmux_host::kFrameBacklog);
+// Frames the reader has read and the UI thread has not run (also those read
+// before Chromium's UI thread exists, while CefInitialize runs). The
+// posted-task queue has no limit of its own: this one is bounded (pointer
+// moves, wheel deltas and geometry coalesce; keys and clicks are kept), so a
+// hung UI thread can neither grow the host's memory without end nor hide
+// from cmux that it stopped reading.
+cmux_host::FrameQueue g_frames(cmux_host::kFrameBacklog);
 
 void Send(cmux_host::Header h, const std::string& payload = std::string()) {
   if (g_to_cmux < 0) return;
@@ -418,6 +413,7 @@ void SendStats(uint32_t seq) {
   h.v[3] = at(0.99);
   h.v[4] = sorted.empty() ? 0 : static_cast<int32_t>(sorted.back());
   h.v[5] = g_refused_frames;
+  h.t1 = g_frames.coalesced();
   Send(h);
 }
 
@@ -493,24 +489,20 @@ bool ReadAll(int fd, void* buffer, size_t length) {
   return true;
 }
 
-// Input needs a browser, which cannot exist before the UI thread does: such
-// a frame is dropped early, as HandleFrame drops it without a browser.
-bool NeedsBrowser(uint32_t kind) {
-  return kind == cmux_host::kMouse || kind == cmux_host::kWheel || kind == cmux_host::kKey ||
-         kind == cmux_host::kEdit;
+// One posted task per batch: runs every waiting frame in the order read.
+void DrainFrames() {
+  for (cmux_host::QueuedFrame& frame : g_frames.Take()) HandleFrame(frame.header, std::move(frame.payload));
 }
 
-// A posted frame: it no longer waits.
-void RunFrame(cmux_host::Header h, std::string payload) {
-  g_in_flight.Done();
-  HandleFrame(h, std::move(payload));
+void Post(cmux_host::FrameQueue::Push push) {
+  if (push == cmux_host::FrameQueue::Push::kWake) CefPostTask(TID_UI, base::BindOnce(&DrainFrames));
 }
 
 // Blocking reads on a thread of its own, from before CefInitialize; every
-// frame runs on the UI thread (held in g_early until it exists). At most
-// kFrameBacklog frames wait for the UI thread: more means it hangs, and the
-// reader stops reading and ends the host as at EOF. cmux's writes then fill
-// the socket and cmux ends the host too (ChromiumHostConnection.sendBuffer).
+// frame runs on the UI thread, in a batch (g_frames). More than kFrameBacklog
+// waiting frames after coalescing means the UI thread hangs: the reader stops
+// reading and ends the host as at EOF. cmux's writes then fill the socket and
+// cmux ends the host too (ChromiumHostConnection.sendBuffer).
 void ReadWire(int fd) {
   for (;;) {
     uint8_t raw[cmux_host::kHeaderSize];
@@ -518,31 +510,15 @@ void ReadWire(int fd) {
     if (!ReadAll(fd, raw, sizeof raw) || !cmux_host::Decode(raw, &h)) break;
     std::string payload(h.payload, '\0');
     if (h.payload && !ReadAll(fd, payload.data(), h.payload)) break;
-    {
-      std::lock_guard<std::mutex> lock(g_early_mutex);
-      if (!g_ui_ready) {
-        if (NeedsBrowser(h.kind)) continue;
-        if (g_early.size() >= cmux_host::kFrameBacklog) break;  // a flood: end as at EOF
-        g_early.emplace_back(h, std::move(payload));
-        continue;
-      }
-    }
-    // Only this thread takes once the UI thread is ready (OnContextInitialized
-    // took for the early frames under g_early_mutex, before this point).
-    if (!g_in_flight.TryTake()) break;  // the UI thread hangs: end as at EOF
-    CefPostTask(TID_UI, base::BindOnce(&RunFrame, h, std::move(payload)));
+    const cmux_host::FrameQueue::Push push = g_frames.Add(h, std::move(payload));
+    if (push == cmux_host::FrameQueue::Push::kFull) break;  // the UI thread hangs: end as at EOF
+    Post(push);
   }
   // EOF (cmux quit or died) or a broken wire: end within the quit limit,
-  // even when the UI thread or CefInitialize never gets to it.
+  // even when the UI thread or CefInitialize never gets to it. The quit runs
+  // after every waiting frame, once the UI thread exists.
   ArmQuitDeadline();
-  {
-    std::lock_guard<std::mutex> lock(g_early_mutex);
-    if (!g_ui_ready) {
-      g_early_eof = true;  // OnContextInitialized closes the host
-      return;
-    }
-  }
-  CefPostTask(TID_UI, base::BindOnce(&CloseHost));
+  Post(g_frames.AddEnd());
 }
 
 class App : public CefApp, public CefBrowserProcessHandler {
@@ -578,17 +554,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
     ready.v[0] = g_fork_api;
     ready.v[1] = static_cast<int32_t>(getpid());
     Send(ready);
-    // The early frames run as posted tasks, as every later frame does; posted
-    // under the lock, so the reader's next frame is posted after them.
-    std::lock_guard<std::mutex> lock(g_early_mutex);
-    g_ui_ready = true;
-    // At most kFrameBacklog early frames, so each one fits.
-    for (auto& frame : g_early) {
-      g_in_flight.TryTake();
-      CefPostTask(TID_UI, base::BindOnce(&RunFrame, frame.first, std::move(frame.second)));
-    }
-    g_early.clear();
-    if (g_early_eof) CefPostTask(TID_UI, base::BindOnce(&CloseHost));
+    // The frames read so far (and an EOF meanwhile) run in one batch.
+    if (g_frames.MarkReady()) CefPostTask(TID_UI, base::BindOnce(&DrainFrames));
   }
 
  private:
@@ -652,12 +619,23 @@ int main(int argc, char* argv[]) {
   settings.no_sandbox = false;  // the helpers enter the sandbox themselves (helper_main.mm)
   settings.persist_session_cookies = false;
   CefString(&settings.framework_dir_path) = framework;
-  CefString(&settings.main_bundle_path) = [[[NSBundle mainBundle] bundlePath] UTF8String];
+  // The app the host is nested in (cmux.app), as in process: its bundle holds
+  // the framework and the helpers that Chromium starts and sandboxes. With the
+  // host's own small bundle here the page's renderer ended at once and the
+  // host aborted (SIGABRT in CrBrowserMain, twice, cmuxs-Mac-mini-3, macOS 27,
+  // 2026-10-24); the remote browser host failed the same way while its main
+  // bundle did not hold its helpers (7d2aa0ed900: "GPU process isn't usable").
+  std::string main_bundle = Arg(args, "main-bundle");
+  if (main_bundle.empty()) main_bundle = [[[NSBundle mainBundle] bundlePath] UTF8String];
+  CefString(&settings.main_bundle_path) = main_bundle;
   CefString(&settings.browser_subprocess_path) = Arg(args, "subprocess");
   CefString(&settings.root_cache_path) = root;
   CefString(&settings.cache_path) = root + "/Profile";
   const std::string log_file = Arg(args, "log-file");
-  if (!log_file.empty()) CefString(&settings.log_file) = log_file;
+  if (!log_file.empty()) {
+    CefString(&settings.log_file) = log_file;
+    settings.log_severity = LOGSEVERITY_WARNING;  // FATAL and CHECK messages, not every INFO line
+  }
 
   CefMainArgs main_args(0, nullptr);
   if (!CefInitialize(main_args, settings, new App(std::move(switches)), nullptr)) {
