@@ -78,7 +78,7 @@ pub(crate) struct VersionLabels {
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
-    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (stdin: a JSON array, or one JSON object per line, of action.run params:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}; they run in order in ONE app task:\n         every op is checked before any runs; app changes show together, daemon changes as they arrive.\n         A refusal stops there and the ops before it stay applied (not all-or-nothing);\n         an op whose daemon work fails later does not stop the ops after it (the answer names it).\n         At most 64 ops per transaction; --no-atomic applies more as consecutive transactions)",
+    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]\n       cmux action run - [--no-wait] [--split] < ops\n         (stdin: a JSON array, or one JSON object per line, of action.run params:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}; they run in order in ONE app task:\n         every op is checked before any runs; app changes show together, daemon changes as they arrive.\n         A refusal stops there and the ops before it stay applied (not all-or-nothing);\n         an op whose daemon work fails later does not stop the ops after it (the answer names it).\n         At most 64 ops per transaction; --split applies more as consecutive transactions)",
     action_batch_stdin: "action run -: cannot read stdin: {error}",
     action_batch_parse: "action run -: stdin is not valid JSON at line {line}, column {column} ({error}); nothing ran",
     action_batch_empty: "action run -: stdin has no op; nothing ran",
@@ -142,7 +142,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
-    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (標準入力: action.run のパラメーターの JSON 配列、または 1 行に 1 つの JSON オブジェクト:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}。アプリの 1 つのタスクで順に実行します。\n         実行前にすべての操作を検査します。アプリの変更はまとめて表示され、デーモンの変更は届いた順に表示されます。\n         拒否された操作で止まり、それより前の操作は適用されたままです (すべてか無しかではありません)。\n         デーモン側の処理が後で失敗した操作は、それ以降の操作を止めません (応答がその操作を示します)。\n         1 トランザクションは最大 64 操作です。--no-atomic はそれを超える分を連続したトランザクションで適用します)",
+    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]\n       cmux action run - [--no-wait] [--split] < ops\n         (標準入力: action.run のパラメーターの JSON 配列、または 1 行に 1 つの JSON オブジェクト:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}。アプリの 1 つのタスクで順に実行します。\n         実行前にすべての操作を検査します。アプリの変更はまとめて表示され、デーモンの変更は届いた順に表示されます。\n         拒否された操作で止まり、それより前の操作は適用されたままです (すべてか無しかではありません)。\n         デーモン側の処理が後で失敗した操作は、それ以降の操作を止めません (応答がその操作を示します)。\n         1 トランザクションは最大 64 操作です。--split はそれを超える分を連続したトランザクションで適用します)",
     action_batch_stdin: "action run -: 標準入力を読めません: {error}",
     action_batch_parse: "action run -: 標準入力の {line} 行 {column} 列目が有効な JSON ではありません ({error})。何も実行していません",
     action_batch_empty: "action run -: 標準入力に操作がありません。何も実行していません",

@@ -7,7 +7,7 @@ import Foundation
 ///
 /// Params: `ops`, an array of `action.run` param objects (`action` or `cli_name` with `cli`,
 /// `target`, `args`, `focus`, `background`, `origin`); and for the whole batch `wait` (default
-/// true), `idempotency_key`, `atomic` (default true), `after` (read barrier) and `caller`. Any
+/// true), `idempotency_key`, `split` (default false), `after` (read barrier) and `caller`. Any
 /// other batch-level member (an op's `origin` or `target` put there) is `invalid_params`, `not_run`.
 ///
 /// - Every op is resolved and validated off the main actor before any runs. One invalid op
@@ -19,14 +19,15 @@ import Foundation
 ///   store applies them, which can take more than one frame and more than one store publish.
 /// - Not all-or-nothing: a handler that refuses at run time stops the batch there. The ops before
 ///   it stay applied (`data.applied` counts them), the rest never run. The same holds for a later transaction
-///   of `atomic: false` that never ran (its deadline passed in the queue, the queue was full):
+///   of `split: true` that never ran (its deadline passed in the queue, the queue was full):
 ///   that answer is never `not_run`. The daemon work an op started (a rename, a close) fails
 ///   after the ops after it ran, so it does not stop them: the answer names the first op whose
 ///   work failed (`data.op`, with its own action), every such op (`data.failed`) and how many ops
 ///   ran (`data.applied`); an earlier failure answers before a later refusal.
 /// - Bounded: at most ``ControlRouter/Configuration/batchOpLimit`` ops. A larger batch is
-///   `batch_too_large` (`not_run`, naming the limit) unless `atomic` is false, which runs it as
-///   consecutive work items of at most the limit each, in order.
+///   `batch_too_large` (`not_run`, naming the limit) unless `split` is true, which runs it as
+///   consecutive work items of at most the limit each, in order. Neither way rolls back: a
+///   transaction here is one main-actor work item, not all-or-nothing.
 /// - With `wait`, the reply comes after every daemon command of every op replied and a snapshot
 ///   reflects them (as `action.run`).
 ///
@@ -49,12 +50,12 @@ extension ControlRouter {
             throw ControlError.invalidParams(ControlStrings.format("control.error.unknownParam", "%1$@ does not take params.%2$@", call.method, unknown))
         }
         let ops = try Self.batchOps(call.params)
-        let atomic = try Self.batchAtomic(call.params)
+        let split = try Self.batchSplit(call.params)
         let limit = configuration.batchOpLimit
-        if atomic, ops.count > limit {
+        if !split, ops.count > limit {
             throw ControlError(code: "batch_too_large",
                                message: ControlStrings.format("control.error.batchTooLarge",
-                                                              "action.batch takes at most %1$lld ops in one transaction (got %2$lld); send several batches, or atomic: false to apply it as consecutive transactions",
+                                                              "action.batch takes at most %1$lld ops in one transaction (got %2$lld); send several batches, or split: true to apply it as consecutive transactions",
                                                               limit, ops.count),
                                data: ["ops": JSONValue(ops.count), "limit": JSONValue(limit)])
         }
@@ -72,7 +73,7 @@ extension ControlRouter {
         }
         let key = try Self.idempotencyKey(call.params)
         return try await keyed(key, fingerprint: .batch(given.map(\.request)), call: call) {
-            try await self.executeBatch(given, key: key, transactionSize: atomic ? given.count : limit, call: call)
+            try await self.executeBatch(given, key: key, transactionSize: split ? limit : given.count, call: call)
         }
     }
 
@@ -102,12 +103,15 @@ extension ControlRouter {
     }
 
     /// Members that apply to the whole batch: an op that carries one is refused.
-    static let batchLevelMembers = ["wait", "idempotency_key", "after", "caller", "atomic"]
+    static let batchLevelMembers = ["wait", "idempotency_key", "after", "caller", "split"]
 
-    static func batchAtomic(_ params: [String: JSONValue]) throws -> Bool {
-        guard let value = params["atomic"], !value.isNull else { return true }
+    /// `params.split`: true applies more than ``ControlRouter/Configuration/batchOpLimit`` ops as
+    /// consecutive transactions (work items) of at most the limit each; false (the default)
+    /// refuses such a batch.
+    static func batchSplit(_ params: [String: JSONValue]) throws -> Bool {
+        guard let value = params["split"], !value.isNull else { return false }
         guard let flag = value.boolValue else {
-            throw ControlError.invalidParams(ControlStrings.text("control.error.batchAtomicShape", "atomic must be true or false"))
+            throw ControlError.invalidParams(ControlStrings.text("control.error.batchSplitShape", "split must be true or false"))
         }
         return flag
     }
