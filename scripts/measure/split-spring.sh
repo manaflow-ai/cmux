@@ -86,6 +86,11 @@ if [[ -z "$app" ]]; then
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
     grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
+    # reload.sh keeps xcodebuild's output in its own log (`==> log: PATH`): the compiler's errors are there.
+    build_log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
+    if [[ -n "$build_log" && -f "$build_log" ]]; then
+      grep -E "\.swift:[0-9]+:[0-9]+: error|error: |Stack dump|signal" "$build_log" | head -n 40 >&2 || true
+    fi
     exit 1
   fi
   if [[ -n "$cache" ]]; then
