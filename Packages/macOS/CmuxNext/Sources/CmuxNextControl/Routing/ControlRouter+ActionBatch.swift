@@ -17,9 +17,12 @@ import Foundation
 ///   column made, a close) the task only sends: it shows as the daemon's echoes arrive and the
 ///   store applies them, which can take more than one frame and more than one store publish.
 /// - Not all-or-nothing: a handler that refuses at run time stops the batch there. The ops before
-///   it stay applied (`data.applied`), the rest never run. The same holds for a later transaction
+///   it stay applied (`data.applied` counts them), the rest never run. The same holds for a later transaction
 ///   of `atomic: false` that never ran (its deadline passed in the queue, the queue was full):
-///   that answer is never `not_run`.
+///   that answer is never `not_run`. The daemon work an op started (a rename, a close) fails
+///   after the ops after it ran, so it does not stop them: the answer names the first op whose
+///   work failed (`data.op`, with its own action), every such op (`data.failed`) and how many ops
+///   ran (`data.applied`); an earlier failure answers before a later refusal.
 /// - Bounded: at most ``ControlRouter/Configuration/batchOpLimit`` ops. A larger batch is
 ///   `batch_too_large` (`not_run`, naming the limit) unless `atomic` is false, which runs it as
 ///   consecutive work items of at most the limit each, in order.
@@ -158,14 +161,20 @@ extension ControlRouter {
             guard let error = ControlError.actionOutcome(pair.1.outcome, action: pair.0.action.id) else { return nil }
             return (index, pair.0.action.id, error)
         }
+        // Ops `0..<applied` ran and were not refused; from `applied` on, none applied.
         let applied = refused?.index ?? runs.count
-        let work = ControlActionRun(outcome: .ran, work: runs.flatMap(\.work), results: runs.flatMap(\.results))
-        let ending: (failure: ControlError, action: String)? = refused.map { refused in
+        // `op` below indexes `opWork` (one entry per run), a prefix of `given`, so it always names an op.
+        let actionIDs = given.map(\.action.id)
+        let opWork = runs.map(\.work)
+        let results = runs.flatMap(\.results)
+        let refusal: (index: Int, action: String, failure: ControlError)? = refused.map { refused in
             // A refusal that started no work applied nothing.
             var failure = refused.error.atBatchOp(refused.index, applied: applied)
-            if applied == 0, work.work.isEmpty { failure = failure.notRun() }
-            return (failure: failure, action: refused.action)
-        } ?? cutShort.map { (failure: $0, action: "action.batch") }
+            if applied == 0, opWork.allSatisfy(\.isEmpty) { failure = failure.notRun() }
+            return (refused.index, refused.action, failure)
+        }
+        let ending: (failure: ControlError, action: String)? = refusal.map { (failure: $0.failure, action: $0.action) }
+            ?? cutShort.map { (failure: $0, action: "action.batch") }
         let reply: [String: JSONValue] = [
             "ran": JSONValue(applied),
             "waited": .bool(wait),
@@ -175,25 +184,42 @@ extension ControlRouter {
             "idempotency_key": .optional(key),
         ]
         let settleDeadline = max(call.deadline, .now + Self.settleLimit)
+        let method = call.method
         // Unstructured on purpose (as `action.run`): a request that times out or does not wait
         // answers while the batch keeps settling; the key stays pending until it settled. Every
         // ending takes this one path: a batch that stopped early (a refusal, a later transaction
         // that never ran) settles the ops that applied, closes its command scope, and only then
         // records its answer under the key.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settle(work, scope: scope, action: ending?.action ?? "action.batch", method: call.method,
+            let settled = await settle(opWork: opWork, scope: scope, action: ending?.action ?? "action.batch", method: method,
                                        deadline: settleDeadline, replyBy: { call.movedDeadline })
-            if let ending {
-                if let key { idempotency.finish(key, with: .failure(ending.failure)) }
-                return .failure(ending.failure)
+            // The earliest op that failed answers. An op's work fails after the ops after it ran
+            // (it does not stop them), so its answer names the op (`data.op`), every op whose work
+            // failed (`data.failed`) and how many ops ran (`data.applied`).
+            let outcome: Result<ControlSnapshot, ControlError> = switch settled {
+            case .success(let snapshot):
+                if let ending { .failure(ending.failure) } else { .success(snapshot) }
+            case .failure(.work(let op, let failed, let failure)):
+                if let refusal, refusal.index <= op {
+                    .failure(refusal.failure)
+                } else {
+                    .failure(ControlError.actionWork(failure, action: actionIDs.dropFirst(op).first ?? "action.batch", method: method)
+                        .atBatchOp(op, applied: applied, failed: failed).ranInPart())
+                }
+            case .failure(.other(let error)):
+                .failure(ending?.failure ?? error)
             }
-            let value = await Self.resultValue(of: work.results)
-            let result = settled.map { snapshot -> JSONValue in
+            let result: ControlIdempotencyCache.Outcome
+            switch outcome {
+            case .failure(let failure):
+                result = .failure(failure)
+            case .success(let snapshot):
+                let value = await Self.resultValue(of: results)
                 var reply = reply
                 reply["created"] = .array(scope.created.compactMap { PublicIDTargetResolver.publicID(of: $0, in: snapshot.topology) }.map(JSONValue.string))
                 reply["sequence"] = JSONValue.number(Double(snapshot.topology.daemonSequence))
                 if let value { reply["result"] = value }
-                return .object(reply)
+                result = .success(.object(reply))
             }
             if let key { idempotency.finish(key, with: result) }
             return result
@@ -221,13 +247,15 @@ extension ControlError {
         return error
     }
 
-    /// This error as op `index` of an `action.batch` (`data.op`), and with `applied`, how many
-    /// ops before it ran (`data.applied`).
-    func atBatchOp(_ index: Int, applied: Int? = nil) -> ControlError {
+    /// This error as op `index` of an `action.batch` (`data.op`); with `applied`, how many ops
+    /// ran their handlers (`data.applied`: ops from there on never ran); with `failed`, every op
+    /// whose work failed (`data.failed`).
+    func atBatchOp(_ index: Int, applied: Int? = nil, failed: [Int]? = nil) -> ControlError {
         var error = self
         var members = data?.objectValue ?? [:]
         members["op"] = JSONValue(index)
         if let applied { members["applied"] = JSONValue(applied) }
+        if let failed { members["failed"] = .array(failed.map { JSONValue($0) }) }
         error.data = .object(members)
         return error
     }
