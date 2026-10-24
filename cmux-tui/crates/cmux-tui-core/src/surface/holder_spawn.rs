@@ -266,14 +266,7 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
             opts.extra_env.clone(),
         ),
     };
-    let mut env: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
-    env.insert("TERM".into(), opts.term.clone().into());
-    env.insert("COLORTERM".into(), "truecolor".into());
-    for (key, value) in &launch.env {
-        if !crate::login_shell::is_marker(key) {
-            env.insert(key.into(), value.into());
-        }
-    }
+    let env = holder_environment(opts, std::env::vars_os().collect());
     let env = env
         .into_iter()
         .map(|(key, value)| {
@@ -294,7 +287,32 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
     HolderCommand { spawn_argv, argv: launch.command, env, cwd }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+fn holder_environment(
+    opts: &SurfaceOptions,
+    inherited: BTreeMap<OsString, OsString>,
+) -> BTreeMap<OsString, OsString> {
+    let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
+        Some(argv) => {
+            crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
+        }
+        None => crate::shell_integration::integrate_default_shell(
+            vec![platform::default_shell()],
+            opts.extra_env.clone(),
+        ),
+    };
+    let mut env = inherited;
+    env.insert("TERM".into(), opts.term.clone().into());
+    env.insert("COLORTERM".into(), "truecolor".into());
+    for (key, value) in &launch.env {
+        if !crate::login_shell::is_marker(key) {
+            env.insert(key.into(), value.into());
+        }
+    }
+    env.remove("TERM_PROGRAM_VERSION");
+    env
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -303,6 +321,7 @@ mod tests {
     /// `.zprofile`, a utmpx record and "Last login" as its first paint. The
     /// surface still records the shell's own argv, and the marker never
     /// reaches the shell.
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_marked_frontend_shell_starts_through_login_as_on_the_hosted_path() {
         let shell = vec!["/bin/zsh".to_string()];
@@ -327,5 +346,18 @@ mod tests {
             !command.env.iter().any(|entry| entry.starts_with(marker.as_bytes())),
             "the marker reaches the shell"
         );
+    }
+
+    #[test]
+    fn inherited_terminal_version_is_not_kept_for_holder_children() {
+        let opts = SurfaceOptions {
+            extra_env: vec![("TERM_PROGRAM_VERSION".into(), "1.3.2".into())],
+            ..SurfaceOptions::default()
+        };
+        let inherited = BTreeMap::from([(OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2"))]);
+
+        let environment = holder_environment(&opts, inherited);
+
+        assert!(!environment.contains_key("TERM_PROGRAM_VERSION"));
     }
 }
