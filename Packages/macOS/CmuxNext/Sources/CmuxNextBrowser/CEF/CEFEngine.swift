@@ -193,9 +193,7 @@ public final class CEFEngine: BrowserEngine {
     /// The extensions of `profile`, once Chromium runs (nil before).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
         guard isRunning else { return nil }
-        let store = CEFRuntime.shared.extensionStores.store(for: profile)
-        store.refresh()
-        return store
+        return CEFRuntime.shared.extensionStores.readyStore(for: profile)
     }
 
     /// Sets `profile`'s proxy (nil: direct, #24432). A page made later uses it from its
