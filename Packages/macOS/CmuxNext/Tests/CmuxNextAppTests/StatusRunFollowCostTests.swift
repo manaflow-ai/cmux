@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -8,7 +10,7 @@ import Testing
 /// session: a script that sets statuses in 50 workspaces (`cmux status set`, `cmux status run`)
 /// must not make it scan every workspace's status on each change (CLAUDE.md "Go past Chrome where
 /// cmux is scripted").
-@MainActor struct StatusRunFollowCostTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct StatusRunFollowCostTests {
     private static func store(_ count: Int) throws -> DaemonStore {
         _ = NSApplication.shared
         let store = DaemonStore()
@@ -36,25 +38,36 @@ import Testing
         store.session.apply(try #require(SessionStreamItem.decode(Data(line.utf8))), in: store)
     }
 
-    private static func settle() async {
-        for _ in 0..<100 { await Task.yield() }
-    }
-
     @Test(arguments: [50, 500])
-    func oneStatusChangeVisitsOneWorkspace(sessionSize: Int) async throws {
+    func oneStatusChangeExaminesOneWorkspace(sessionSize: Int) async throws {
         let store = try Self.store(sessionSize)
         let service = NotificationCenterService()
-        let task = service.followStatusRuns(store)
+        // Every status the follower examines asks for the notification settings once: the count
+        // and the wake-up come from that injected seam, not from a counter the follower keeps.
+        let examinations = ExaminationCount()
+        let (examined, examining) = AsyncStream<Void>.makeStream()
+        var wakes = examined.makeAsyncIterator()
+        let behavior = StatusBehaviorSettings()
+        let task = service.followStatusRuns(store, behavior: {
+            examinations.count += 1
+            examining.yield()
+            return behavior
+        }, visibility: { _ in .hidden }, post: { _ in })
         defer { task.cancel() }
-        // The first pass reads every workspace's status once (it learns the runs that are busy now);
-        // it is done when every workspace was seen.
-        for _ in 0..<20_000 where service.statusRunVisits < sessionSize { await Task.yield() }
-        await Self.settle()
-        let before = service.statusRunVisits
+        // The first pass examines every workspace's status once (it learns the runs busy now).
+        for _ in 0..<sessionSize { _ = await wakes.next() }
+        #expect(examinations.count == sessionSize)
+        let before = examinations.count
         try Self.setStatus(7, text: "building", in: store)
-        await Self.settle()
-        let visited = service.statusRunVisits - before
-        #expect(visited >= 1, "the follower did not see the change")
-        #expect(visited <= 1, "one status change visited \(visited) workspaces in a \(sessionSize)-workspace session")
+        // The follower examines a change in one synchronous pass, so all of it is counted by the
+        // time its first examination wakes this test.
+        _ = await wakes.next()
+        let examinedForOne = examinations.count - before
+        #expect(examinedForOne == 1, "one status change examined \(examinedForOne) workspaces in a \(sessionSize)-workspace session")
     }
+}
+
+/// How many statuses the follower examined (main actor, written by the test's settings closure).
+@MainActor private final class ExaminationCount {
+    var count = 0
 }
