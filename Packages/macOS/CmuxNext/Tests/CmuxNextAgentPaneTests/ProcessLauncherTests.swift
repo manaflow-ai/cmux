@@ -43,6 +43,16 @@ import Testing
         #expect(recorded == arguments)
     }
 
+    /// A reply's text reaches the child's stdin whole, also past the pipe buffer (a long pasted
+    /// reply): the child counts the bytes it read.
+    @Test func aLongInputReachesTheChildWhole() async {
+        let input = Data(repeating: UInt8(ascii: "x"), count: 300_000)
+        let status = await ProcessLauncher().run(URL(fileURLWithPath: "/bin/sh"),
+                                                 arguments: ["-c", "n=$(wc -c | tr -d ' '); test \"$n\" = 300000"],
+                                                 environment: [:], input: input)
+        #expect(status == 0, "the child did not read the 300 000 input bytes")
+    }
+
     @Test func aMissingExecutableIsNotStarted() async {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent("no-such-\(UUID().uuidString)")
         let status = await ProcessLauncher().run(missing, arguments: [], environment: [:])
