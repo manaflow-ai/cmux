@@ -42,10 +42,6 @@ const PREVIEW_CHARS: usize = 240;
 const PREVIEW_HEAD: usize = PREVIEW_CHARS * 8;
 const PREVIEW_SCAN: usize = PREVIEW_CHARS * 64;
 
-/// The largest `args` of a Workflow call sent with its launch, serialized: past it a resume
-/// cannot be offered from the pane, and a person resumes from the chat.
-const ARGS_BYTES: usize = 8 << 10;
-
 /// One running Workflow tool call (`Translator::workflows`).
 #[derive(Debug, Default)]
 pub(super) struct WorkflowRun {
@@ -63,8 +59,9 @@ pub(super) struct WorkflowRun {
     journal: JournalTail,
     /// When the last update went out.
     sent: Option<Instant>,
-    /// The Workflow call's `args`, which its launch sends: a resume names them again.
-    args: Option<Value>,
+    /// A digest of the Workflow call's `args` (`args_digest`): never the args, which may hold
+    /// anything; two runs with the same digest ran with the same args.
+    args_digest: Option<String>,
     /// The run's id and script path from its launch, which its end sends again (`resume`).
     run_id: Option<String>,
     script_path: Option<String>,
@@ -89,13 +86,9 @@ struct Rows {
 }
 
 impl WorkflowRun {
-    /// A run for a Workflow call's `input`, keeping its `args` when a pane may be sent them
-    /// (`sendable_args`).
+    /// A run for a Workflow call's `input`, keeping a digest of its `args`.
     pub(super) fn new(input: &Value) -> Self {
-        Self {
-            args: input.get("args").filter(|args| sendable_args(args)).cloned(),
-            ..Self::default()
-        }
+        Self { args_digest: input.get("args").and_then(args_digest), ..Self::default() }
     }
 }
 
@@ -131,25 +124,27 @@ impl Translator {
         if let Some(task) = text("taskId") {
             self.subagent_tasks.lock().await.insert(task.to_owned(), tool.to_owned());
         }
-        let args = match self.workflows.lock().await.get_mut(tool) {
+        let digest = match self.workflows.lock().await.get_mut(tool) {
             Some(run) => {
                 if let Some(dir) = text("transcriptDir") {
                     run.dir = Some(PathBuf::from(dir));
                 }
                 run.run_id = text("runId").map(str::to_owned);
                 run.script_path = text("scriptPath").map(str::to_owned);
-                run.args.clone()
+                run.args_digest.clone()
             }
             None => None,
         };
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
         // What a resume names again (`Workflow({scriptPath, resumeFromRunId, args})`): the script
-        // path Claude Code returned, the only kind it takes back, and the call's args.
+        // path Claude Code returned, the only kind it takes back. The args are never sent (they
+        // may hold anything, and updates are not masked): the agent that launched the run has them,
+        // and a digest says whether two runs had the same.
         if let Some(path) = text("scriptPath") {
             update.set("scriptPath", json!(path));
         }
-        if let Some(args) = args {
-            update.set("args", args);
+        if let Some(digest) = digest {
+            update.set("argsDigest", json!(digest));
         }
         if let Some(name) = text("workflowName") {
             update.set("name", json!(name));
@@ -364,8 +359,8 @@ impl WorkflowRun {
         Rows { phases, agents, full: false }
     }
 
-    /// What a resume of the run names (`runId`, `scriptPath`, `args`), as its
-    /// launch sent them: its last update repeats them.
+    /// What a resume of the run names (`runId`, `scriptPath`), and its args'
+    /// digest, as its launch sent them: its last update repeats them.
     fn resume(&self) -> Vec<(String, Value)> {
         let mut out = Vec::new();
         if let Some(run) = &self.run_id {
@@ -374,8 +369,8 @@ impl WorkflowRun {
         if let Some(path) = &self.script_path {
             out.push(("scriptPath".to_owned(), json!(path)));
         }
-        if let Some(args) = &self.args {
-            out.push(("args".to_owned(), args.clone()));
+        if let Some(digest) = &self.args_digest {
+            out.push(("argsDigest".to_owned(), json!(digest)));
         }
         out
     }
@@ -517,29 +512,11 @@ fn fold_word(head: &mut String, word: &mut String, chars: &mut usize) {
     word.clear();
 }
 
-/// Whether a Workflow call's `args` may go to a pane, which a resume names again: not null, at
-/// most `ARGS_BYTES` serialized, nothing in them the secret scanner masks, and no key named like
-/// a credential. Session updates are not masked, so args that may hold a secret are never sent;
-/// a person resumes such a run from the chat.
-fn sendable_args(args: &Value) -> bool {
-    fn credential_key(value: &Value) -> bool {
-        match value {
-            Value::Object(map) => map.iter().any(|(key, value)| {
-                let key = key.to_ascii_lowercase();
-                ["token", "secret", "password", "passwd", "apikey", "api_key", "credential", "auth"]
-                    .iter()
-                    .any(|word| key.contains(word))
-                    || credential_key(value)
-            }),
-            Value::Array(items) => items.iter().any(credential_key),
-            _ => false,
-        }
-    }
-    if args.is_null() {
-        return false;
-    }
-    let text = args.to_string();
-    text.len() <= ARGS_BYTES && crate::secret_scan::mask(&text) == text && !credential_key(args)
+/// A digest of a Workflow call's `args`: the first 16 bytes of the SHA-256 of their JSON, as hex.
+/// It says whether two runs had the same args and nothing of what they hold. None for null args.
+fn args_digest(args: &Value) -> Option<String> {
+    let hex = crate::sha256::sha256_hex(args.to_string().as_bytes());
+    (!args.is_null()).then(|| hex.chars().take(32).collect())
 }
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
