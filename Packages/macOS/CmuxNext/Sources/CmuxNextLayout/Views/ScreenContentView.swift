@@ -352,7 +352,10 @@ final class ScreenContentView: NSView {
         reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
-        applyPresentation(force: true)
+        // Only a structural change re-places everything: a ratio, width or row-height change (every divider
+        // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
+        // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
+        applyPresentation(force: structural)
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }
