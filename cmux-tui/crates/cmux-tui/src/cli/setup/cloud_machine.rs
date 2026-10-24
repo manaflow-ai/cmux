@@ -1,4 +1,4 @@
-//! `cmux setup cloud-machine [--dry-run] [--forget]`: makes sure the person
+//! `cmux setup cloud-machine [--dry-run] [--forget] [--open]`: makes sure the person
 //! has a cmux Cloud machine for agents, and creates one with their OK.
 //!
 //! Everything goes through the app: `auth.status` (signed in, and whether
@@ -40,9 +40,13 @@ const RERUN: &str = "cmux setup cloud-machine";
 
 /// The command that drops what setup keeps, so it asks for a new machine.
 const FORGET: &str = "cmux setup cloud-machine --forget";
+/// The rerun that retries opening a machine after a transient app failure.
+const OPEN_RERUN: &str = "cmux setup cloud-machine --open";
 
 /// The action that creates a machine; from an agent it asks the person.
 const CREATE: &str = "newCloudMachine";
+/// The existing app action that attaches and reveals a Cloud machine.
+const OPEN: &str = "cloudOpenMachine";
 
 /// What a machine costs, said before it is made.
 const COST: &str = "A cmux Cloud machine costs money for every hour it runs, at the rate of the \
@@ -54,7 +58,7 @@ const DECLINED_REASON: &str =
     "No Cloud machine was created: the person declined or dismissed it in cmux.";
 
 pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refusal> {
-    let (dry_run, forget_only) = parse(args)?;
+    let (dry_run, forget_only, open) = parse(args)?;
     let mut report = json!({
         "schema_version": 1,
         "task": TASK,
@@ -64,6 +68,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "undo": Value::Null,
         "user_action": Value::Null,
         "machine": Value::Null,
+        "attach": Value::Null,
     });
     if forget_only {
         return forget(report, dry_run);
@@ -115,6 +120,9 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
                 (None, false, _) => "ok",
             });
             report["user_action"] = action.unwrap_or(Value::Null);
+            if open && report["user_action"].is_null() {
+                attach(global, &mut report, &id, dry_run);
+            }
             if inferred {
                 report["inferred"] = json!(true);
             }
@@ -142,7 +150,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             Ok(Outcome { report, failed: false })
         }
         Step::Ask { key, known, known_creations } => {
-            create(global, report, key, known, known_creations)
+            create(global, report, key, known, known_creations, open)
         }
     }
 }
@@ -345,6 +353,7 @@ fn create(
     key: Option<String>,
     known: Vec<String>,
     known_creations: Option<Vec<String>>,
+    open: bool,
 ) -> Result<Outcome, Refusal> {
     let key = match key {
         Some(key) => {
@@ -394,7 +403,7 @@ fn create(
                 declined_step()
             } else if matches!(code, "app.transport" | "timeout") {
                 // The create may have gone through: the rerun reads the list.
-                wait_step()
+                wait_step_with_open(open)
             } else if not_run {
                 app_problem(&error)
             } else {
@@ -416,6 +425,9 @@ fn create(
         report["undo"] = json!(undo(id));
         report["state"] = json!("changed");
         keep(&mut report, &Saved { machine_id: Some(id.to_owned()), ..Saved::default() });
+        if open {
+            attach(global, &mut report, id, false);
+        }
         return Ok(Outcome { report, failed: false });
     }
     // Pending, or an app that answers no machine: the key stays, and with a
@@ -431,7 +443,7 @@ fn create(
         };
         keep(&mut report, &saved);
     }
-    needs_user(report, wait_step())
+    needs_user(report, wait_step_with_open(open))
 }
 
 /// Saves `saved` after a change already happened: a failure is a `warning`
@@ -451,13 +463,14 @@ fn needs_user(mut report: Value, action: Value) -> Result<Outcome, Refusal> {
     Ok(Outcome { report, failed: false })
 }
 
-/// `(--dry-run, --forget)`.
-fn parse(args: &[String]) -> Result<(bool, bool), Refusal> {
-    let (mut dry_run, mut forget) = (false, false);
+/// `(--dry-run, --forget, --open)`.
+fn parse(args: &[String]) -> Result<(bool, bool, bool), Refusal> {
+    let (mut dry_run, mut forget, mut open) = (false, false, false);
     for arg in args {
         match arg.as_str() {
             "--dry-run" => dry_run = true,
             "--forget" => forget = true,
+            "--open" => open = true,
             other => {
                 return Err(Refusal::Usage(format!(
                     "cmux: setup cloud-machine: unexpected argument {other:?}"
@@ -465,7 +478,52 @@ fn parse(args: &[String]) -> Result<(bool, bool), Refusal> {
             }
         }
     }
-    Ok((dry_run, forget))
+    Ok((dry_run, forget, open))
+}
+
+/// Attach and reveal a machine through the existing app action. Opening is
+/// deliberately opt-in: setup can provision a paid machine without changing
+/// the person's current workspace, while `--open` removes the manual target
+/// copy/paste step. A failed attach leaves the machine setup successful and
+/// gives the caller a safe rerun command.
+fn attach(global: &GlobalArgs, report: &mut Value, id: &str, dry_run: bool) {
+    let target = format!("machine:{id}");
+    if dry_run {
+        report["attach"] = json!({"state": "planned", "target": target});
+        return;
+    }
+    let mut params = super::super::app::action_run_params(
+        OPEN,
+        super::super::app::ActionName::Any,
+        super::super::app::action_origin(),
+    );
+    params.insert("target".into(), json!(target));
+    params.insert("focus".into(), json!(true));
+    match super::super::mcp::agent_app(
+        global,
+        "action.run",
+        Value::Object(params),
+        super::super::app::WAITING_RUN_TIMEOUT,
+        None,
+    ) {
+        Ok(_) => report["attach"] = json!({"state": "opened", "target": target}),
+        Err(error) => {
+            let code = error["code"].as_str().unwrap_or("unknown");
+            let message = error["message"].as_str().unwrap_or("cmux could not open the machine");
+            report["attach"] = json!({
+                "state": "failed",
+                "target": target,
+                "error": {"code": code, "message": message},
+            });
+            report["user_action"] = action(
+                "attach",
+                &format!(
+                    "Cloud machine {id} was made, but cmux could not open it ({message}); run `{OPEN_RERUN}` to retry"
+                ),
+                Some(OPEN_RERUN),
+            );
+        }
+    }
 }
 
 /// Whether there is a cmux app to ask: macOS, or an app socket named by
@@ -666,6 +724,19 @@ fn wait_step() -> Value {
          setup cloud-machine` again in a minute: it makes no second machine",
         Some(RERUN),
     )
+}
+
+/// A pending create keeps the explicit `--open` intent in the suggested rerun
+/// so a slow provision still ends in an attached workspace.
+fn wait_step_with_open(open: bool) -> Value {
+    let mut result = wait_step();
+    if open {
+        result["command"] = json!(OPEN_RERUN);
+        result["text"] = json!(format!(
+            "The Cloud machine is on its way (or the person has not answered cmux yet); run `{OPEN_RERUN}` in a minute: it makes no second machine"
+        ));
+    }
+    result
 }
 
 fn action(kind: &str, text: &str, command: Option<&str>) -> Value {

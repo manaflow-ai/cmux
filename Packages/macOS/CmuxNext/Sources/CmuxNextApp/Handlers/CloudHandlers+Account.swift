@@ -9,28 +9,60 @@ import CmuxNextSettings
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
         bind("newCloudMachine", registry, reason: reason) { invocation in
-            // The new machine's progress shows in the window at once; its
-            // first workspace opens there when its daemon is ready.
-            let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
-            reportCreatedMachine(creation, context)
+            // A signed-out person should not have to click Sign In and then
+            // repeat New Cloud Machine. Hosted auth returns to this task,
+            // which continues into the same creation flow. The action remains
+            // gated for real Cloud outages via `reason`.
+            let start: @MainActor () -> Void = {
+                // The new machine's progress shows in the window at once; its
+                // first workspace opens there when its daemon is ready.
+                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+                reportCreatedMachine(creation, context)
+            }
+            guard !cloud.isSignedIn else {
+                start()
+                return
+            }
+            guard invocation.origin == .user else {
+                throw ActionFailure(message: CloudStrings.signInFirst)
+            }
+            run("sign in", context) {
+                guard await cloud.auth.signIn() else { return }
+                start()
+            }
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
             // Keeps the active-window fallback for any caller: it only opens a workspace,
-            // and with no machine a CLI run would start a new one instead.
-            let target = try? machine(invocation, context, fallsBack: true)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            guard let session = target, session.daemon.connection != nil else {
-                // A new machine, or one still on its way: show its progress
-                // now. An ended app link connects again on this gesture, and
-                // a paused machine resumes (idle auto-pause).
-                target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+            // and with no machine a CLI run would start a new one instead. A signed-out
+            // person's click performs hosted auth once, then retries this same flow.
+            let start: @MainActor () -> Void = {
+                let target = try? machine(invocation, context, fallsBack: true)
+                let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+                guard let session = target, session.daemon.connection != nil else {
+                    // A new machine, or one still on its way: show its progress
+                    // now. An ended app link connects again on this gesture, and
+                    // a paused machine resumes (idle auto-pause).
+                    target?.attach(origin: connectOrigin(for: invocation))
+                    creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                    return
+                }
+                run("new cloud workspace", context) {
+                    if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
+                }
+            }
+            guard cloud.isSignedIn else {
+                guard invocation.origin == .user else {
+                    throw ActionFailure(message: CloudStrings.signInFirst)
+                }
+                run("sign in", context) {
+                    guard await cloud.auth.signIn() else { return }
+                    start()
+                }
                 return
             }
-            run("new cloud workspace", context) {
-                if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
-            }
+            start()
         }
     }
 

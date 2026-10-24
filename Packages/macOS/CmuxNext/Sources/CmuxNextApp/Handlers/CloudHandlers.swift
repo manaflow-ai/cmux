@@ -20,7 +20,12 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
-        bindCreation(into: registry, context: context, reason: signedInReason)
+        // Creation owns the sign-in handoff. Keeping the action enabled while
+        // signed out lets one click start hosted auth and continue into the
+        // machine flow after the callback, instead of making people retry the
+        // command manually. Other Cloud mutations remain gated by
+        // ``signedInReason``.
+        bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
         // Any catalog row added later without a handler stays covered.

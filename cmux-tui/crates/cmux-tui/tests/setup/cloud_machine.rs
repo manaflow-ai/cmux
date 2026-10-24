@@ -56,6 +56,8 @@ struct FakeCloud {
     answers: Arc<Mutex<HashMap<String, Result<Value, Value>>>>,
     /// Cards the person was shown.
     shown: Arc<AtomicUsize>,
+    /// Cloud machine targets opened by the setup `--open` prototype.
+    opened: Arc<Mutex<Vec<Value>>>,
     requests: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -73,6 +75,7 @@ impl FakeCloud {
             creations: Arc::new(Mutex::new(Vec::new())),
             answers: Arc::new(Mutex::new(HashMap::new())),
             shown: Arc::new(AtomicUsize::new(0)),
+            opened: Arc::new(Mutex::new(Vec::new())),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
         let (signed_in, loaded, last_error, card) = (
@@ -81,11 +84,12 @@ impl FakeCloud {
             cloud.last_error.clone(),
             cloud.card.clone(),
         );
-        let (machines, creations, answers, shown) = (
+        let (machines, creations, answers, shown, opened) = (
             cloud.machines.clone(),
             cloud.creations.clone(),
             cloud.answers.clone(),
             cloud.shown.clone(),
+            cloud.opened.clone(),
         );
         serve_app(listener, cloud.requests.clone(), move |method, params| match method {
             "auth.status" => Some(Ok(json!({"signed_in": signed_in.load(Ordering::SeqCst),
@@ -145,6 +149,14 @@ impl FakeCloud {
                 answers.insert(key, answer.clone());
                 (card != Card::Drop).then_some(answer)
             }
+            "action.run" if params["action"] == "cloudOpenMachine" => {
+                opened.lock().unwrap().push(json!({
+                    "target": params["target"],
+                    "focus": params["focus"],
+                }));
+                Some(Ok(json!({"action": "cloudOpenMachine", "ran": true,
+                    "result": {"target": params["target"]}})))
+            }
             "action.run" if params["action"] == "cloud kill-machine" && params["cli"] == true => {
                 if params["args"]["confirm"] != true {
                     return Some(Err(
@@ -171,6 +183,11 @@ impl FakeCloud {
     /// How many cards the person was shown.
     fn cards(&self) -> usize {
         self.shown.load(Ordering::SeqCst)
+    }
+
+    /// Targets and focus flags from `cloudOpenMachine`, in request order.
+    fn opened(&self) -> Vec<Value> {
+        self.opened.lock().unwrap().clone()
     }
 
     /// cmux restarts: it forgets every answer it gave a key.
@@ -295,6 +312,44 @@ fn cmux_setup_cloud_machine_makes_one_with_the_persons_ok_and_never_a_second() {
 
     let output = world.run(&["setup", "cloud-machine", "now"]);
     assert_eq!(output.status.code(), Some(2));
+}
+
+/// `--open` composes creation with the existing app action: the person allows
+/// one card, setup attaches the resulting target and a rerun opens the same
+/// machine without creating another one.
+#[test]
+fn cmux_setup_cloud_machine_open_attaches_without_a_second_creation() {
+    let mut world = World::new("cloudopen");
+    let app = FakeCloud::start(&mut world);
+    let made = world.json(&["setup", "cloud-machine", "--open"]);
+    assert_eq!(made["state"], "changed", "{made}");
+    assert_eq!(made["attach"], json!({"state": "opened", "target": "machine:vm-1"}), "{made}");
+    assert_eq!(app.cards(), 1);
+    assert_eq!(app.opened(), [json!({"target": "machine:vm-1", "focus": true})]);
+
+    let again = world.json(&["setup", "cloud-machine", "--open"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["attach"], json!({"state": "opened", "target": "machine:vm-1"}), "{again}");
+    assert_eq!(app.cards(), 1, "a rerun made a second machine");
+    assert_eq!(app.machines.lock().unwrap().len(), 1);
+    assert_eq!(app.opened().len(), 2, "each explicit --open opens once");
+
+    // The same intent survives a slow Cloud provision: the suggested rerun
+    // carries `--open`, so the machine is attached when it appears.
+    let mut slow_world = World::new("cloudopenslow");
+    let slow_app = FakeCloud::start(&mut slow_world);
+    *slow_app.card.lock().unwrap() = Card::Slow;
+    let pending = slow_world.json(&["setup", "cloud-machine", "--open"]);
+    assert_eq!(pending["user_action"]["command"], "cmux setup cloud-machine --open", "{pending}");
+    slow_app
+        .machines
+        .lock()
+        .unwrap()
+        .push(json!({"id": "vm-9", "title": "cmux", "status": "running"}));
+    slow_app.creations.lock().unwrap()[0]["machine_id"] = json!("vm-9");
+    let made = slow_world.json(&["setup", "cloud-machine", "--open"]);
+    assert_eq!(made["attach"], json!({"state": "opened", "target": "machine:vm-9"}), "{made}");
+    assert_eq!(slow_app.opened(), [json!({"target": "machine:vm-9", "focus": true})]);
 }
 
 /// A machine that takes longer than the app's wait: setup keeps the
