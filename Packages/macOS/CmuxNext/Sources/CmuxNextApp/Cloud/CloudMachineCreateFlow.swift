@@ -56,6 +56,7 @@ struct CloudMachineCreateFlow {
         return .allowed
     }
 
+    // app-type-allow: an existing enum that gains one case (upgradeRequired)
     enum Failure: Error, Equatable {
         /// The person declined the confirmation; nothing was created.
         case declined

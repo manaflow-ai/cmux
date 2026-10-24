@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -84,7 +85,7 @@ extension CloudPresenter {
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
     @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
-                                         openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }) async -> Bool {
+                                         openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) async -> Bool {
         if case .upgrade(let need) = prompt {
             guard let asks, window != nil else {
                 openPricing(StaticURL.pricing.url)
@@ -94,10 +95,11 @@ extension CloudPresenter {
             if upgrade { openPricing(StaticURL.pricing.url) }
             return upgrade
         }
-        let (intro, machine) = switch prompt {
-        case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
-        case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
-        case .upgrade: fatalError("handled above")
+        let intro: String, machine: CloudMachineCreateFlow.Machine
+        switch prompt {
+        case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
+        case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
+        case .upgrade: return false // answered above
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
