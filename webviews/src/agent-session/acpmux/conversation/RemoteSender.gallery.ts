@@ -25,7 +25,7 @@ function snapshot(from?: string) {
   return chat(
     [
       user("Land #24927 once its review passes, then report here.", 9),
-      assistant("Sent the order to codex-lane on huge-blue.", 8.5),
+      assistant("Sent the order to codex-lane on build-box.", 8.5),
       summary(8.5, { status: "completed" }),
       report(3, from),
     ],
