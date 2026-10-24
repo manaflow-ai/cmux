@@ -3541,24 +3541,35 @@ def check_import_with_a_fake_trace_processor():
         assert not ok and "daemon spans (pid 2 tid 9) is not a thread" in report["problems"][0], report["problems"]
 
 
+# The `key.flow` hops TypingLatencyProbe emits for one terminal key press, in order (Mark.hopName for the marks,
+# `hop("app.key.terminal")` in TerminalSurfaceView.keyDown, closeAtCommit's app.frame.commit). app.key.dispatched
+# and app.key.commit are emitted too and are not FLOW_HOPS: the assembly must ignore them.
+APP_KEY_HOPS = ("app.key.dispatch", "app.key.terminal", "app.key.dispatched", "app.key.commit", "app.io_write", "app.send")
+APP_ECHO_HOPS = ("app.output.decoded", "app.output.received", "app.output.parsed", "app.frame.contents", "app.frame.commit")
+
+
+def flow_fixture_event(flow, hop, at, tid=1):
+    """One app `key.flow` signpost event as read_signposts gives it."""
+    return {"name": "key.flow", "pid": 10, "tid": tid, "at_us": at, "message": f"hop={hop} flow={flow} age_us=5"}
+
+
+def flow_fixture_record(hop, at, flow=0, terminal="aa", pid=20):
+    """One daemon/host/holder flow record as read_flow_records gives it."""
+    return {"hop": hop, "flow": flow, "terminal": terminal, "pid": pid, "tid": 7, "at_us": at}
+
+
 def check_key_flows():
     """A press through the host model and one through the holder model assemble into complete chains on one
     clock, the flow-0 hops of a busy other terminal never join them, a press whose echo never came back is
     incomplete and names its missing hops, and the chain becomes hop slices joined by n - 1 flow arrows."""
-    def app(flow, hop, at, tid=1):
-        return {"name": "key.flow", "pid": 10, "tid": tid, "at_us": at, "message": f"hop={hop} flow={flow} age_us=5"}
-
-    def rec(hop, at, flow=0, terminal="aa", pid=20):
-        return {"hop": hop, "flow": flow, "terminal": terminal, "pid": pid, "tid": 7, "at_us": at}
-
+    app, rec = flow_fixture_event, flow_fixture_record
     a, b, c = (10 << 32) | 1, (10 << 32) | 2, (10 << 32) | 3
     app_events = []
     for flow, base in ((a, 1000.0), (b, 5000.0), (c, 9000.0)):
-        for i, hop in enumerate(("app.key.dispatch", "app.key.terminal", "app.io_write", "app.send")):
+        for i, hop in enumerate(APP_KEY_HOPS):
             app_events.append(app(flow, hop, base + i))
     for flow, base in ((a, 1100.0), (b, 5100.0)):
-        for i, hop in enumerate(("app.output.decoded", "app.output.received", "app.output.parsed", "app.frame.contents",
-                                 "app.frame.commit")):
+        for i, hop in enumerate(APP_ECHO_HOPS):
             app_events.append(app(flow, hop, base + 10 * i))
     records = [
         # Press a: the __terminal-host model (the daemon's written mark before the host's write: no order needed).
@@ -3573,7 +3584,8 @@ def check_key_flows():
         rec("daemon.send.write", 9010, c), rec("host.pty.write", 9015, pid=30), rec("daemon.send.written", 9016, c),
     ]
     chord = (10 << 32) | 9  # a chord the key router ran: dispatched, never at a terminal
-    app_events.append(app(chord, "app.key.dispatch", 7000.0))
+    for i, hop in enumerate(("app.key.dispatch", "app.key.dispatched", "app.key.commit")):
+        app_events.append(app(chord, hop, 7000.0 + i))
     flows = assemble_flows(app_events, records)
     by = {f["flow"]: f for f in flows}
     assert chord not in by, "a press that never reached a terminal was counted as a flow"
@@ -3596,6 +3608,96 @@ def check_key_flows():
     assert summary["key_to_commit_ms"]["n"] == 2 and summary["hop_ms"]["daemon.send.write"]["n"] == 2, summary
 
 
+
+def check_flow_hops_are_exclusive():
+    """Keys typed faster than their echo (the Typist sends one every 0.12 s and does not wait; the STRESS tail
+    echoes slower): no flow-0 record joins two presses; a press whose window (its anchor up to the next press's
+    anchor on the same terminal) holds no candidate or two is incomplete; and a lone candidate that the press
+    before may still own (it found none in its own window) does not complete the later press."""
+    app, rec = flow_fixture_event, flow_fixture_record
+    p1, p2, p3, p4 = ((10 << 32) | n for n in (1, 2, 3, 4))
+    app_events = []
+    for flow, base in ((p1, 1000.0), (p2, 1120.0), (p3, 3000.0), (p4, 3120.0)):
+        for i, hop in enumerate(APP_KEY_HOPS):
+            app_events.append(app(flow, hop, base + i))
+    # The probe closes p1 and p3 unfinished when the next key comes: only p2 and p4 get the app's echo hops.
+    for flow, base in ((p2, 1300.0), (p4, 3300.0)):
+        for i, hop in enumerate(APP_ECHO_HOPS):
+            app_events.append(app(flow, hop, base + 10 * i))
+    records = [
+        # p1 and p2 are both written before p1's echo comes back; then both echoes come.
+        rec("daemon.send.write", 1010, p1), rec("daemon.send.written", 1012, p1), rec("host.pty.write", 1015, pid=30),
+        rec("daemon.send.write", 1130, p2), rec("daemon.send.written", 1132, p2), rec("host.pty.write", 1135, pid=30),
+        rec("host.pty.read", 1200, pid=30), rec("daemon.output.host", 1202), rec("daemon.output.attach", 1204),
+        rec("host.pty.read", 1210, pid=30), rec("daemon.output.host", 1212), rec("daemon.output.attach", 1214),
+        # p3's echo comes after p4's write, and p4's echo never comes: the one read is p3's, not p4's.
+        rec("daemon.send.write", 3010, p3), rec("host.pty.write", 3015, pid=30),
+        rec("daemon.send.write", 3130, p4), rec("host.pty.write", 3135, pid=30),
+        rec("host.pty.read", 3200, pid=30), rec("daemon.output.host", 3202), rec("daemon.output.attach", 3204),
+    ]
+    flows = assemble_flows(app_events, records)
+    by = {f["flow"]: f for f in flows}
+    assert set(by) == {p1, p2, p3, p4}, [hex(f) for f in by]
+    owners = collections.defaultdict(list)
+    for entry in flows:
+        for hop in entry["hops"]:
+            if hop["hop"] in FLOW_ANCHOR:
+                owners[(hop["hop"], hop["at_us"])].append(hex(entry["flow"]))
+    shared = {key: who for key, who in owners.items() if len(who) > 1}
+    assert not shared, f"flow-0 records joined two presses: {shared}"
+    assert not any(by[f]["complete"] for f in by), [(hex(f), by[f]["missing"], by[f].get("ambiguous")) for f in by]
+    pty_read = "host.pty.read|holder.pty.read"
+    # p1: nothing between its write and p2's write. p2: two reads before its decoded output: whose is whose?
+    assert pty_read in by[p1]["missing"], by[p1]
+    assert (by[p2].get("ambiguous") or {}).get(pty_read, {}).get("candidates") == 2, by[p2]
+    # p4: one read in its window, but p3 found none in its own: the read may be p3's.
+    assert (by[p4].get("ambiguous") or {}).get(pty_read, {}).get("earlier_unplaced"), by[p4]
+    # Each press still owns its write: p2's host.pty.write is 1135, never p1's 1015.
+    assert {h["hop"]: h["at_us"] for h in by[p2]["hops"]}.get("host.pty.write") == 1135, by[p2]
+    summary = flow_summary(flows, {})
+    assert summary["presses"] == 4 and summary["complete"] == 0 and summary["key_to_commit_ms"] is None, summary
+    assert any(entry.get("ambiguous") for entry in summary["incomplete"]), summary["incomplete"]
+    assert "ambiguous" in summary_text({"key_flows": summary}), summary_text({"key_flows": summary})
+
+
+def check_flow_gaps_warn():
+    """A recording whose presses cannot assemble says why instead of printing nothing: daemon flow records but no
+    app key.flow signposts (the app's flow hops are not in the build), presses whose flow id never reached the
+    daemon (a `send` without `flow`); and a press with the app's terminal hops but no app.key.terminal is
+    reported incomplete, not dropped."""
+    app, rec = flow_fixture_event, flow_fixture_record
+    # End to end through build(): the daemon's send records (flow 0: no client set `flow`) and no key.flow event.
+    with tempfile.TemporaryDirectory() as out:
+        os.makedirs(os.path.join(out, "flows"))
+        with open(os.path.join(out, "flows", "flows-20.jsonl"), "w") as f:
+            for n in range(3):
+                for i, hop in enumerate(("daemon.send.write", "host.pty.write", "daemon.send.written")):
+                    f.write(json.dumps({"hop": hop, "flow": 0, "terminal": "aa", "pid": 20, "tid": 7,
+                                        "t_ns": (1_000_000 + 1000 * n + i) * 1000}) + "\n")
+        summary = build_fixture(out)
+        warnings = summary["key_flows"].get("warnings") or []
+        assert any("key.flow" in w for w in warnings), summary["key_flows"]
+        text = open(os.path.join(out, "SUMMARY.txt")).read()
+        assert "Key-press flows: 0 presses" in text and "WARNING" in text.split("Key-press flows")[1], text
+    # A press that reached Ghostty (app.io_write, app.send) but has no app.key.terminal hop is a press, and the
+    # optional hop is not what it misses; a whole chain without it is complete.
+    p1, p2 = (10 << 32) | 1, (10 << 32) | 2
+    events = [app(p1, hop, 1000.0 + i) for i, hop in enumerate(APP_KEY_HOPS) if hop != "app.key.terminal"]
+    events += [app(p1, hop, 1100.0 + 10 * i) for i, hop in enumerate(APP_ECHO_HOPS)]
+    records = [rec("daemon.send.write", 1010, p1), rec("host.pty.write", 1015, pid=30),
+               rec("daemon.send.written", 1016, p1), rec("host.pty.read", 1040, pid=30), rec("daemon.output.host", 1050),
+               rec("daemon.output.attach", 1060)]
+    flows = assemble_flows(events, records)
+    assert [f["flow"] for f in flows] == [p1] and flows[0]["complete"], flows
+    assert flow_summary(flows, {})["key_to_commit_ms"]["n"] == 1
+    # Presses whose flow id no daemon record carries: the send had no `flow`, so nothing past the app can join.
+    events = [app(p2, hop, 2000.0 + i) for i, hop in enumerate(APP_KEY_HOPS)]
+    records = [rec("daemon.send.write", 2010), rec("host.pty.write", 2015)]
+    flows = assemble_flows(events, records)
+    warnings = flow_warnings(events, records, flows)
+    assert any("flow id" in w and "daemon.send.write" in w for w in warnings), warnings
+    assert flow_warnings([], [], []) == [], "a recording without flows warns about nothing"
+
 SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
@@ -3603,7 +3705,8 @@ SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_export_part_files, check_xctrace_clock, check_cef_validity, check_bound_inside_a_swallowing_wait,
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
-              check_import_with_a_fake_trace_processor, check_key_flows]
+              check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
+              check_flow_gaps_warn]
 
 
 def self_test():
