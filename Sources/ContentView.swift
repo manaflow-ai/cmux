@@ -16970,12 +16970,14 @@ struct TabItemView: View, Equatable {
         .safeHelp(workspaceSnapshot.displayTitle)
         .modifier(SidebarRowAccessibilityModifier(
             isEditing: isEditing,
+            accessibilityIdentifier: "sidebarWorkspace.\(workspaceId.uuidString)",
             label: accessibilityTitle,
             hint: accessibilityHintText,
             moveUpLabel: moveUpActionText,
             moveDownLabel: moveDownActionText,
             onMoveUp: { moveBy(-1) },
-            onMoveDown: { moveBy(1) }
+            onMoveDown: { moveBy(1) },
+            onActivate: { updateSelection(modifiers: []) }
         ))
         .contextMenu {
             TabItemWorkspaceContextMenuContent(row: self)
@@ -17130,8 +17132,8 @@ struct TabItemView: View, Equatable {
         actions.moveBy(delta)
     }
 
-    private func updateSelection() {
-        actions.select(NSEvent.modifierFlags)
+    private func updateSelection(modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
+        actions.select(modifiers)
     }
 
     private var pullRequestForegroundColor: Color {
