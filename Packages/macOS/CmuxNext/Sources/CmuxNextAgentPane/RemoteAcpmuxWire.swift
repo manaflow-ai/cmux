@@ -173,8 +173,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // The decision proof the host added (never the page): acpmux on that machine decides.
             let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            // A question's answers go along unchanged: that machine's acpmux checks them and the
+            // proof over them (dropped, the answer was refused there).
+            let answers = params["answers"].flatMap { $0 is NSNull ? nil : $0 }
+                .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
             run(id) { client in
-                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                try await client.permission(id: permission, option: option, answers: answers, decisionNonce: nonce,
+                                            personDecision: proof)
                 return Data("{}".utf8)
             }
         default:

@@ -155,15 +155,17 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-cancel", [:])
     }
 
-    /// `agent-session-permission`, with the person's decision proof of a relayed allow when there
-    /// is one (cx-0q7o): the daemon passes it to acpmux unchanged, and acpmux decides.
-    public func permission(id: String, option: String, decisionNonce: String? = nil, personDecision: String? = nil) async throws {
+    /// `agent-session-permission`, with a question's `answers` (a JSON object) and the person's
+    /// decision proof of a relayed allow when there is one (cx-0q7o): the daemon passes both to
+    /// acpmux unchanged, and acpmux decides (an answer's proof covers its answers).
+    public func permission(id: String, option: String, answers: Data? = nil, decisionNonce: String? = nil,
+                           personDecision: String? = nil) async throws {
         var params: [String: any Sendable] = ["permission_id": id, "option_id": option]
         if let decisionNonce, let personDecision {
             params["decision_nonce"] = decisionNonce
             params["person_decision"] = personDecision
         }
-        _ = try await call("agent-session-permission", params)
+        _ = try await call("agent-session-permission", params, answers: answers)
     }
 
     public func detach() async {
@@ -206,10 +208,14 @@ public actor AgentSessionAttachClient {
         return params
     }
 
-    /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal.
-    private func call(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+    /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal. `answers` (a
+    /// question's, as JSON) goes in the request as it is.
+    private func call(_ cmd: String, _ params: [String: any Sendable], answers: Data? = nil) async throws -> Data {
         let transport = try await liveTransport()
-        var object = params
+        var object: [String: Any] = params
+        if let answers {
+            object["answers"] = try JSONSerialization.jsonObject(with: answers, options: [.fragmentsAllowed])
+        }
         object["cmd"] = cmd
         object["surface"] = surface
         // Integers stay integers (the daemon reads u64 seqs and surface ids).

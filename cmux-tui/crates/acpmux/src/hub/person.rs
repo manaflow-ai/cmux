@@ -49,8 +49,8 @@
 //!   bounded store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses it again. A
 //!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
 //!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
-//!   nothing. A proof never covers question answers, a group's allow, a policy, a rule or a mode:
-//!   those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   nothing. A question's answers count only under [`decision_answers_proof`]. A proof never
+//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
 //!   agent it starts cannot read the key from its memory.
 //! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's session cannot check a
 //!   proof made with the peer's key, so it forwards every answer for that session (allow, deny,
@@ -509,13 +509,15 @@ impl PersonGate {
         permission: &str,
         option: &str,
         nonce: &str,
+        answers: Option<&Value>,
         proof: &str,
     ) -> bool {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let instance = self.instance();
-        let Some(expected) =
-            key.and_then(|k| decision_proof(&k, instance, session, permission, option, nonce))
-        else {
+        let Some(expected) = key.and_then(|k| match answers.filter(|a| !a.is_null()) {
+            None => decision_proof(&k, instance, session, permission, option, nonce),
+            Some(a) => decision_answers_proof(&k, instance, session, permission, option, nonce, a),
+        }) else {
             return false;
         };
         cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
@@ -654,6 +656,8 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     )))
 }
 
+mod decision_answers;
+pub use decision_answers::decision_answers_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();
@@ -1010,8 +1014,7 @@ impl Hub {
     }
 
     /// Whether a relayed allow carries the person's decision proof for the
-    /// pending prompt it answers (module docs, cx-0q7o). Question answers
-    /// are never covered by a proof.
+    /// pending prompt it answers (module docs, cx-0q7o), over its answers too.
     fn person_decided(&self, params: &Value, option: &Value) -> bool {
         let meta = params.pointer("/_meta/acpmux");
         let field = |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str);
@@ -1020,9 +1023,6 @@ impl Hub {
         else {
             return false;
         };
-        if params.get("answers").is_some_and(|v| !v.is_null()) {
-            return false;
-        }
         let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
         else {
             return false;
@@ -1034,7 +1034,7 @@ impl Hub {
             p.decision_nonce.clone()
         };
         cmux_local_auth::tokens_match(nonce, &pending_nonce)
-            && self.person.decision_proves(&s.id, pid, option, nonce, proof)
+            && self.person.decision_proves(&s.id, pid, option, nonce, params.get("answers"), proof)
     }
 
     /// Whether `option` is a reject the pending permission offered. Unknown

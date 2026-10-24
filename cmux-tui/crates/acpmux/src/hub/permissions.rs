@@ -715,13 +715,13 @@ impl Hub {
                 if (allows || answered_by.is_some()) && !ancestor_answers {
                     let proved = match (&option_id, answerer.decision) {
                         (Some(o), Some((nonce, proof))) => {
-                            answers.is_none()
-                                && cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                            cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
                                 && self.person.decision_proves(
                                     &session.id,
                                     permission_id,
                                     o,
                                     nonce,
+                                    answers.as_ref(),
                                     proof,
                                 )
                         }
