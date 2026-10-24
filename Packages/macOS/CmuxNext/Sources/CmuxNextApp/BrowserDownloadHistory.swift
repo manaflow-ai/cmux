@@ -54,14 +54,15 @@ final class BrowserDownloadHistory {
     }
 
     /// The rows the last run kept, oldest first (read on the files lane).
-    func load() async -> [Row] {
+    func load() async -> [Row]? {
         let storage = storage
-        // The Downloads list shows them.
-        return (try? await work.run(.userVisible, mayBlock: .files) {
+        // The Downloads list shows them. Nil only when the lanes refused the read (quit shut them down): the
+        // file was not read, so the caller must not write over it.
+        return try? await work.run(.userVisible, mayBlock: .files) {
             guard let data = try? storage.read(),
                   let document = try? JSONDecoder().decode(Document.self, from: data) else { return [Row]() }
             return document.downloads
-        }) ?? []
+        }
     }
 
     /// Records `rows` when they changed (written on the files lane, in order).

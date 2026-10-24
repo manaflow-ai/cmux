@@ -222,11 +222,10 @@ import Testing
             release.wait()
         }
         await blocked.wait()
-        // A save queued behind a held slot: quit's bounded shutdown waits for it.
+        // A save queued behind a held slot: quit's bounded shutdown waits for it. The slot is released only once
+        // the shutdown waits (its bound's clock sleeps only while a block-shutdown item is left).
         work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { saved.withLock { $0 = true } }
-        async let finished = work.shutdown(within: .seconds(30))
-        release.signal()
-        #expect(await finished)
+        #expect(await work.shutdown(within: .seconds(30), clock: SleepReportingClock { release.signal() }))
         #expect(saved.withLock { $0 })
     }
 
@@ -283,5 +282,19 @@ import Testing
         }
         #expect(WorkPriority(workClass) == expected)
         #expect(WorkPriority(WorkPriority(workClass).taskPriority) == expected)
+    }
+}
+
+/// A real clock that reports each sleep: BackgroundWork's bounded shutdown sleeps only while a block-shutdown
+/// item is left, so the report is the point at which it waits.
+struct SleepReportingClock: Clock {
+    typealias Duration = Swift.Duration
+    typealias Instant = ContinuousClock.Instant
+    let onSleep: @Sendable () -> Void
+    var now: Instant { ContinuousClock.now }
+    var minimumResolution: Swift.Duration { ContinuousClock().minimumResolution }
+    func sleep(until deadline: Instant, tolerance: Swift.Duration?) async throws {
+        onSleep()
+        try await ContinuousClock().sleep(until: deadline, tolerance: tolerance)
     }
 }

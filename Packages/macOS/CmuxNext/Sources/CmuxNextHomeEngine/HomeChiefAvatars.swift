@@ -1,6 +1,7 @@
 public import CmuxNextHome
 public import CmuxNextWakeups
 public import Foundation
+import CmuxNextCompat
 
 /// Each of this Mac's Chiefs' own avatar, keyed by participant id, for the Home list and each
 /// Chief's header, and the one way the app changes a Chief's picture.
@@ -85,7 +86,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func headerAvatar(chief: String, fallback: URL?) async -> (text: String?, picture: Data?) {
         let avatar: (text: String?, picture: Data?)
         switch await read(chief: chief) {
-        case .picture(let url)?: avatar = (nil, await Self.onFiles(work, nil) { try? Data(contentsOf: url) })
+        case .picture(let url)?: avatar = (nil, await Self.onFiles(work, nil) { try? Data(blockingContentsOf: url) })
         case .text(let text)?: avatar = (text, nil)
         case nil: avatar = (nil, nil)
         }
@@ -102,7 +103,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     private static func orFallback(_ avatar: (text: String?, picture: Data?), _ fallback: URL?,
                                    work: BackgroundWork) async -> (text: String?, picture: Data?) {
         guard avatar.text == nil, avatar.picture == nil, let fallback else { return avatar }
-        return (nil, await onFiles(work, nil) { try? Data(contentsOf: fallback) })
+        return (nil, await onFiles(work, nil) { try? Data(blockingContentsOf: fallback) })
     }
 
     /// `refs`: the registry's pictures (nil: no registry, or it cannot be reached).
