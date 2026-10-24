@@ -390,6 +390,22 @@ def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
     assert out["decision"]["sha"] == newer, out
 
 
+def test_fallback_never_promotes_a_descendant_of_an_older_requested_sha() -> None:
+    requested, later = "d" * 40, "e" * 40
+    commits = [
+        {"sha": later, "parents": [{"sha": requested}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": requested, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(
+        sha=requested, sourceHead=later, onSource={requested: "ahead"}, commits=commits,
+        runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out
+    assert "no earlier green source commit" in out["decision"]["reason"], out
+
+
 def test_admission_retries_while_the_index_lags() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"

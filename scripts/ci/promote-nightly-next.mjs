@@ -119,7 +119,7 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
 // source commit instead of waiting for the tip. This scan is bounded by the
 // workflow-run API page and only accepts same-repository push runs on the
 // source branch with the exact gate job green.
-async function newestGreenSourceCommit(github, owner, repo, sourceHead, excludeSha) {
+async function newestGreenSourceCommit(github, owner, repo, targetSha, excludeSha) {
   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
     owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: SOURCE, per_page: 100,
   });
@@ -132,7 +132,7 @@ async function newestGreenSourceCommit(github, owner, repo, sourceHead, excludeS
     let lineage;
     try {
       lineage = (await github.rest.repos.compareCommitsWithBasehead({
-        owner, repo, basehead: `${candidate}...${sourceHead}`,
+        owner, repo, basehead: `${candidate}...${targetSha}`,
       })).data.status;
     } catch {
       continue;
@@ -483,7 +483,7 @@ export async function decide({
     // G2: the trusted gate. If the requested tip is still compiling, use the
     // newest earlier source commit whose exact Release compile is already green.
     if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-      const fallback = await newestGreenSourceCommit(github, owner, repo, sourceHead, sha);
+      const fallback = await newestGreenSourceCommit(github, owner, repo, sha, sha);
       if (!fallback) {
         return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job, and no earlier green source commit was found`);
       }
