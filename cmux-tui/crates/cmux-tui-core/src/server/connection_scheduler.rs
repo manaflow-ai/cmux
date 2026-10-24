@@ -13,9 +13,12 @@ use super::ResponseErrorDelivery;
 use super::ServerSurfaceAdmissionError;
 use super::ServerSurfaceBytesPermit;
 use super::ServerSurfaceOperationAdmission;
+use super::attach_frames::ClientStreamId;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
+use super::stream_lanes::LaneRefusal;
+use super::stream_lanes::StreamLanes;
 use super::terminal_create;
 use crate::Mux;
 use crate::SurfaceId;
@@ -26,6 +29,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -81,6 +85,9 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) dispatcher: Mutex<Option<JoinHandle<()>>>,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
+    /// The lanes of the connection's client streams (`attach-streams-v1`),
+    /// made at the first request that names a stream.
+    pub(super) stream_lanes: OnceLock<StreamLanes<PendingSurfaceRequest>>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -114,6 +121,7 @@ impl ConnectionSurfaceScheduler {
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
+            stream_lanes: OnceLock::new(),
         }
     }
 }
@@ -198,6 +206,73 @@ impl ConnectionSurfaceScheduler {
         Some(true)
     }
 
+    /// Queues a per-view request on its client stream's lane: after that
+    /// stream's earlier requests, never behind another stream's or the
+    /// control lane's (server/stream_lanes.rs). Returns whether the
+    /// connection stays open.
+    pub(super) fn dispatch_on_stream(
+        self: &Arc<Self>,
+        mux: Arc<Mux>,
+        client: u64,
+        stream: ClientStreamId,
+        request: Request,
+        retained_bytes: usize,
+        writer: &MessageWriter,
+    ) -> bool {
+        let request_id = request.id.clone();
+        if self.state.lock().recover_poison().closed {
+            return false;
+        }
+        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
+            Ok(bytes) => bytes,
+            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
+                return send_request_error(
+                    writer,
+                    request_id,
+                    "server surface-operation byte budget is full; request was not executed",
+                );
+            }
+        };
+        let lanes = self.stream_lanes.get_or_init(|| {
+            let scheduler = Arc::downgrade(self);
+            let writer = writer.clone();
+            StreamLanes::new(
+                CONNECTION_SURFACE_QUEUE_CAPACITY,
+                CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY,
+                move |pending: PendingSurfaceRequest| {
+                    // The scheduler outlives its lanes (it owns them); a gone
+                    // one means the connection ended.
+                    let Some(scheduler) = scheduler.upgrade() else { return false };
+                    let keep_open = run_pending_request(&scheduler, &mux, client, pending, &writer);
+                    if !keep_open {
+                        // As on the control lane: a request that ends the
+                        // connection closes its scheduler, and the reader stops.
+                        scheduler.close();
+                    }
+                    keep_open
+                },
+            )
+        });
+        let pending =
+            PendingSurfaceRequest { request, retained_bytes, _bytes_permit: bytes_permit };
+        match lanes.submit(stream, pending, retained_bytes) {
+            Ok(()) => true,
+            Err(LaneRefusal::Closed) => false,
+            Err(LaneRefusal::Full) => send_request_error_with_delivery(
+                writer,
+                request_id,
+                "stream request queue is full; request was not executed",
+                Some(ResponseErrorDelivery::KnownNotDelivered),
+            ),
+            Err(LaneRefusal::Spawn) => send_request_error_with_delivery(
+                writer,
+                request_id,
+                "could not start a stream request worker; request was not executed",
+                Some(ResponseErrorDelivery::KnownNotDelivered),
+            ),
+        }
+    }
+
     pub(super) fn start_dispatcher(
         self: &Arc<Self>,
         mux: Arc<Mux>,
@@ -272,6 +347,9 @@ impl ConnectionSurfaceScheduler {
 
     pub(super) fn close(&self) {
         self.cancelled.cancel();
+        if let Some(lanes) = self.stream_lanes.get() {
+            lanes.close();
+        }
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();
@@ -332,13 +410,20 @@ impl ConnectionSurfaceScheduler {
 
     pub(super) fn finish_and_wait(&self) {
         self.finish();
+        if let Some(lanes) = self.stream_lanes.get() {
+            lanes.finish_and_wait();
+        }
         let drained = self.wait_for_completion(None);
         debug_assert!(drained, "unbounded graceful drain must settle");
     }
 
     pub(super) fn close_and_wait(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now().checked_add(timeout);
         self.close();
-        self.wait_for_completion(Some(timeout))
+        let lanes_done = self.stream_lanes.get().is_none_or(|lanes| lanes.close_and_wait(timeout));
+        let remaining =
+            deadline.map_or(timeout, |deadline| deadline.saturating_duration_since(Instant::now()));
+        self.wait_for_completion(Some(remaining)) && lanes_done
     }
 }
 
