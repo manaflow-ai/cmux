@@ -115,32 +115,6 @@ import Testing
         release.signal()
     }
 
-    @Test(.disabled("escalation handler removed: its runtime symbol is strong-linked and stops launch on macOS 14/15"))
-    func anEscalatedWaiterMovesItsQueuedItemUp() async throws {
-        guard #available(macOS 26.0, *) else { return }
-        let queued = Started()
-        let work = BackgroundWork(label: "test.escalate", onQueued: { _, _ in queued.signal() })
-        let release = DispatchSemaphore(value: 0)
-        let blocked = Started()
-        work.post(.bestEffort, mayBlock: .files) {
-            blocked.signal()
-            release.wait()
-        }
-        await blocked.wait()
-        // A best-effort waiter queues behind the held slot ...
-        let waiter = Task(priority: .utility) {
-            try await work.run(.bestEffort, mayBlock: .files) { Seen.here() }
-        }
-        // ... (it is queued, at best effort: its run read the waiter's priority before this escalation, so
-        // the boost at the call cannot be what moves it) ...
-        await queued.wait()
-        // ... until a user-blocking task waits for it: the escalation moves the item to the
-        // user-blocking slot, so it runs while the best-effort slot is still held.
-        let seen = try await Task(priority: .high) { try await waiter.value }.value
-        #expect(seen.queue == "test.escalate.files.userBlocking")
-        release.signal()
-    }
-
     @MainActor @Test func theMainActorKeepsRunningWhileItAwaitsBestEffortWork() async throws {
         let work = BackgroundWork(label: "test.main")
         let release = DispatchSemaphore(value: 0)

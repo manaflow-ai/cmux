@@ -168,4 +168,18 @@ import Testing
         #expect(outcome.succeeded)
         #expect(spawnedOnMain.withLock { $0 } == false)
     }
+
+    @Test func theChildRunsAtItsWaitersPriority() async throws {
+        // Process.qualityOfService clamps the child (posix_spawn's QoS clamp), so the child's own scheduler
+        // priority follows its waiter's: `ps` run by the child reports its shell's priority.
+        func childPriority(_ priority: TaskPriority) async throws -> Int {
+            let outcome = try await Task(priority: priority) {
+                try await processes.run(Self.tool("/bin/sh", "-c", "/bin/ps -o pri= -p $$"))
+            }.value
+            return try #require(Int(outcome.text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        }
+        let background = try await childPriority(.background)
+        let high = try await childPriority(.high)
+        #expect(background < high, "a background waiter's child runs below a high waiter's (\(background) vs \(high))")
+    }
 }
