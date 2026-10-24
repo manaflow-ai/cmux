@@ -1902,8 +1902,8 @@ fn run_main() {
     // SAFETY: still single-threaded startup, as for the captures above.
     #[cfg(unix)]
     unsafe {
-        startup_env::take_launch_open_file_limit()
-    };
+        startup_env::take_launch_open_file_limit();
+    }
     let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
