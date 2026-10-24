@@ -95,6 +95,13 @@ public final class FrameScheduler: NSObject {
     private let stall: DemandTimer
     private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
+    private let mediaTime: @MainActor () -> CFTimeInterval
+    /// The last link frame's timestamp (or the time the clients activated): where a stall starts.
+    private var lastLinkFrame: CFTimeInterval = 0
+    /// Times the stall timer was armed (each arm is one task and one cooperative-pool wake).
+    public private(set) var stallTimerArms = 0
+    /// The last frame stall seen (debug and tests).
+    public private(set) var lastStall: FrameStall?
     private var closeObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
@@ -105,8 +112,10 @@ public final class FrameScheduler: NSObject {
     let budget: MainFrameBudget?
 
     init(name: String, host: Host, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+         mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
          makeLink: LinkFactory? = nil, budget: MainFrameBudget?) {
         self.budget = budget
+        self.mediaTime = mediaTime
         self.name = name
         switch host {
         case .screen: isScreenHost = true
@@ -121,9 +130,11 @@ public final class FrameScheduler: NSObject {
     }
 
     /// A scheduler with a fake link (tests; budgeted work: ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``).
+    /// `clock` runs the stall timer; `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                makeLink: @escaping LinkFactory) -> FrameScheduler {
-        FrameScheduler(name: "test", host: .screen, clock: clock, ledger: ledger, makeLink: makeLink, budget: nil)
+        FrameScheduler(name: "test", host: .screen, clock: clock, ledger: ledger, mediaTime: mediaTime, makeLink: makeLink, budget: nil)
     }
 
     /// Owners of the clients that are ticking now.
@@ -152,6 +163,7 @@ public final class FrameScheduler: NSObject {
             lastTimestamp = nil
             link.isPaused = false
         }
+        if !stall.isScheduled { lastLinkFrame = mediaTime() }
         armStall()
     }
 
@@ -221,7 +233,9 @@ public final class FrameScheduler: NSObject {
     }
 
     private func armStall() {
-        stall.scheduleIfIdle(after: Self.stallTimeout) { @MainActor [weak self] in self?.frameStalled() }
+        guard !stall.isScheduled else { return }
+        stallTimerArms += 1
+        stall.schedule(after: Self.stallTimeout) { @MainActor [weak self] in self?.frameStalled() }
     }
 
     private func frameStalled() {
@@ -232,6 +246,7 @@ public final class FrameScheduler: NSObject {
             link?.invalidate()
             link = nil
         }
+        lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
         deliver(timestamp: nil, refreshInterval: nil)
         guard !clients.isEmpty else { return }
@@ -241,6 +256,7 @@ public final class FrameScheduler: NSObject {
 
     /// One display frame (the link's tick; tests call it directly).
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
+        lastLinkFrame = timestamp ?? mediaTime()
         stall.cancel()
         stalls = 0
         deliver(timestamp: timestamp, refreshInterval: refreshInterval)
