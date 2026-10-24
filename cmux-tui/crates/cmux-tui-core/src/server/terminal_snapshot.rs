@@ -839,6 +839,7 @@ impl SnapshotAttachParams {
     /// `server.rs`: mark the client attached, register the queue under the
     /// terminal lock, send the first READY snapshot before the reply, then
     /// start the worker.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn attach(
         &self,
         mux: &Arc<Mux>,

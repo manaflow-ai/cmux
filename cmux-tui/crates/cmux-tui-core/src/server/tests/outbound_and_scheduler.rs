@@ -1104,7 +1104,7 @@ fn clear_history_waits_for_its_surfaces_earlier_stream_input_and_nothing_else() 
     // The view's stream input for surface 1 is still running.
     let input =
         scheduler.take_order_ticket(&mut state, RequestOrder::Surface(1), OrderLane::Stream);
-    let mut queue = |state: &mut ConnectionSurfaceState, id: u64, cmd: Command| {
+    let queue = |state: &mut ConnectionSurfaceState, id: u64, cmd: Command| {
         let order = scheduler.take_order_ticket(state, cmd.request_order(), OrderLane::Control);
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), stream: None, cmd },
@@ -1122,7 +1122,11 @@ fn clear_history_waits_for_its_surfaces_earlier_stream_input_and_nothing_else() 
         "the clear of surface 1 ran before that surface's earlier stream input finished, \
          a later request of surface 1 overtook the clear, or surface 2 waited for surface 1"
     );
-    state.requests.remove(2);
+    // Run surface 2's read: its ticket drops without the state lock held.
+    let read = state.requests.remove(2);
+    drop(state);
+    drop(read);
+    let state = scheduler.state.lock().unwrap();
     assert_eq!(ConnectionSurfaceScheduler::next_runnable_index(&state), None);
     drop(state);
     // The input finished: the clear runs first, in wire order.
@@ -1148,7 +1152,7 @@ fn a_blocked_send_on_one_surface_delays_no_other_surfaces_close_or_keys() {
     // The send to surface 1 is blocked on its stream's lane.
     let blocked_send =
         scheduler.take_order_ticket(&mut state, RequestOrder::Surface(1), OrderLane::Stream);
-    let mut queue = |state: &mut ConnectionSurfaceState, id: u64, cmd: Command| {
+    let queue = |state: &mut ConnectionSurfaceState, id: u64, cmd: Command| {
         let order = scheduler.take_order_ticket(state, cmd.request_order(), OrderLane::Control);
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), stream: None, cmd },
