@@ -283,6 +283,7 @@ public struct ChiefSettingsView: View {
                 Text("Changes apply to Chief's next turn, on every device.")
             }
         }
+        .listRowBackground(ChiefInfoGeometry.card)
     }
 
     private var recentSection: some View {
@@ -298,6 +299,7 @@ public struct ChiefSettingsView: View {
                 .accessibilityElement(children: .combine)
             }
         }
+        .listRowBackground(ChiefInfoGeometry.card)
     }
 
     /// This phone's switches: they need the conversation, so without it they
@@ -322,6 +324,7 @@ public struct ChiefSettingsView: View {
             Text("Hide Alerts silences Chief's notifications on this iPhone. With Send Read Receipts off, reading Chief here does not mark it read on your Mac.")
         }
         .disabled(session.conversationID == nil)
+        .listRowBackground(ChiefInfoGeometry.card)
     }
 
     // MARK: Actions
@@ -388,6 +391,7 @@ public struct ChiefSettingsView: View {
         .font(.caption)
         .textSelection(.enabled)
         .accessibilityIdentifier("chief.settings.diagnostics")
+        .listRowBackground(ChiefInfoGeometry.card)
     }
     #endif
 
@@ -508,6 +512,8 @@ enum ChiefInfoGeometry {
     static let quickActionSpacing: CGFloat = 20
     static let quickActionsBelowTitle: CGFloat = 16
     static let sectionGap: CGFloat = 20
+    /// Messages' cards: the secondary background on the plain one.
+    static let card = Color(uiColor: .secondarySystemBackground)
     /// What the inset grouped list adds between a section header and its
     /// first row (measured on iOS 26.5).
     static let listGapAfterHeader: CGFloat = 0
@@ -515,14 +521,15 @@ enum ChiefInfoGeometry {
     static let edgeEffectAfter: CGFloat = 40
 }
 
-/// Messages' details backdrop: the grouped background with a soft wash of
+/// Messages' details backdrop: the system background (white, or black in
+/// dark mode) under cards in the secondary background, with a soft wash of
 /// the contact's color behind the header. Chief's color is its monogram's.
 struct ChiefInfoBackdrop: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color(uiColor: .systemGroupedBackground)
+            Color(uiColor: .systemBackground)
             Ellipse()
                 .fill(monogramGradient)
                 .frame(width: 520, height: 360)

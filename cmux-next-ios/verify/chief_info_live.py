@@ -142,14 +142,16 @@ def open_info(sim):
 
 
 def close_info(sim):
+    """Done on the old sheet; the bar's back control on a pushed page (its label is
+    the previous page's title, e.g. "Chief" or "Edit", so it is found by place)."""
     done = sim.find(ident="chief.settings.done")
     if done:
         sim.tap_el(done[0])
     else:
-        back = [e for e in sim.tree() if e.kind == "Button" and e.label == "Back" and e.frame[1] < 130]
+        back = [e for e in sim.tree() if e.kind == "Button" and e.frame[1] < 130 and 0 <= e.frame[0] < 70]
         if back:
             sim.tap_el(back[0])
-    time.sleep(1.2)
+    time.sleep(2.0)
 
 
 def appearance(udid, mode):
