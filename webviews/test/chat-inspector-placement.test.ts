@@ -14,7 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { papercutPane } from "./support/papercutChat";
+import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
 
 await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -61,7 +61,8 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
 
   /// The chat with the Inspector on (Debug Settings `agent.inspector`, pushed with the header
   /// state), open and done entering.
-  const openInspector = async (page: Page) => {
+  const openInspector = async (page: Page, push = false) => {
+    if (push) await inspectorPushAlways(page);
     await page.evaluate(() =>
       (
         window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
@@ -72,6 +73,10 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
     await toggle.waitFor({ timeout: 10_000 });
     if ((await panel.count()) === 0) await toggle.click({ force: true });
     await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+    // The chat's shift beside it settles.
+    await page.evaluate(() =>
+      Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+    );
     return { panel, toggle };
   };
   /// The panel's rect.
@@ -115,26 +120,53 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
       }
     });
 
-    // A pane of a split (560 and 700), a narrow window (900) and one whose gutter is still too narrow
-    // for the panel (1200).
+    // Leo, 2026-10-24: "making it not a part of the true agent pane area except in the case when both
+    // would fit if only the agent pane shifted left. then it doesnt weirdly cover up the top right
+    // buttons when it's open ... it was never supposed to be a sidebar". In a 1200px pane the two fit
+    // with the chat moved left: it floats and covers no row and not the composer. In a pane of a split
+    // (560 and 700) or a narrow window (900) they cannot: it floats over the chat, under the header,
+    // and the chat keeps its place.
     for (const width of [560, 700, 900, 1200]) {
-      test(`${name}: in a ${width}px pane it pushes the chat, and never covers a row or the composer`, async () => {
+      test(`${name}: in a ${width}px pane it floats under the header and takes no column`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
+          const chat = () => page.evaluate(() => document.querySelector(".acpmux-main")!.getBoundingClientRect().width);
+          const before = await chat();
           const { panel } = await openInspector(page);
           const box = await rect(page);
           const rows = await transcript(page);
+          const header = (await page.locator("header.acpmux-header").boundingBox())!;
           expect(rows.length).toBeGreaterThan(0);
           expect({
             placement: await panel.getAttribute("data-placement"),
-            covers: rows.filter((row) => meets(row, box)),
-          }).toEqual({ placement: "push", covers: [] });
+            chatWidth: await chat(),
+            underHeader: box.top >= header.y + header.height - 0.5,
+            covers: width === 1200 ? rows.filter((row) => meets(row, box)) : [],
+          }).toEqual({ placement: "overlay", chatWidth: before, underHeader: true, covers: [] });
         } finally {
           await page.close();
         }
       });
     }
+
+    // Settings > Agent Chat > Inspector: Push always takes a column and never covers a row or the composer.
+    test(`${name}: with Push always in a 700px pane it pushes the chat, and never covers a row or the composer`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 700, height: 700 });
+      try {
+        const { panel } = await openInspector(page, true);
+        const box = await rect(page);
+        const rows = await transcript(page);
+        expect(rows.length).toBeGreaterThan(0);
+        expect({
+          placement: await panel.getAttribute("data-placement"),
+          covers: rows.filter((row) => meets(row, box)),
+        }).toEqual({ placement: "push", covers: [] });
+      } finally {
+        await page.close();
+      }
+    });
 
     // A dropdown that hugs its sections, never a full-height column of empty glass (Leo 2026-10-21:
     // "this BECAME A FUCKING SIDEBAR FOR NO FUCKING REASON ALL THIS FUCKING DEAD SPACE"): floating or
@@ -156,7 +188,7 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
             placement: await panel.getAttribute("data-placement"),
             short: box.bottom - box.top < 700 * 0.5,
             foot,
-          }).toEqual({ placement: width === 1600 ? "overlay" : "push", short: true, foot: "the page" });
+          }).toEqual({ placement: "overlay", short: true, foot: "the page" });
         } finally {
           await page.close();
         }
@@ -166,8 +198,8 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
     // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
     // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
     // DOES IT FLICKER"). The pane's width was read in a ResizeObserver and set as state that React
-    // drew a frame or more later: the panel floated over the transcript at the narrower width, then
-    // the chat jumped aside under it.
+    // drew a frame or more later. The chat's move left to make room (ChatInspector.tsx
+    // inspectorChatShift) starts in that frame and slides; once it settles no row is under the panel.
     for (const [from, to] of [
       [1600, 1200],
       [1200, 1600],
@@ -178,30 +210,41 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
         try {
           await openInspector(page);
           await page.evaluate((to) => {
-            const w = window as unknown as { __placed?: { width: number; placement?: string; covers: number } };
+            const w = window as unknown as {
+              __placed?: { width: number; placement?: string; inset: number; shift: string };
+            };
             window.cmuxAfterPaint(() => {
               if (window.innerWidth !== to) return true;
               const panel = document.querySelector("aside.acpmux-chat-inspector")!.getBoundingClientRect();
-              const covers = [...document.querySelectorAll(".acpmux-row, .acpmux-composer-box")].filter((element) => {
-                const row = element.getBoundingClientRect();
-                return (
-                  panel.left < row.right && row.left < panel.right && panel.top < row.bottom && row.top < panel.bottom
-                );
-              }).length;
               w.__placed = {
                 width: window.innerWidth,
                 placement: document.querySelector<HTMLElement>("aside.acpmux-chat-inspector")?.dataset.placement,
-                covers,
+                inset: Math.round(window.innerWidth - panel.right),
+                shift: document
+                  .querySelector<HTMLElement>(".acpmux-shell")!
+                  .style.getPropertyValue("--acpmux-chat-shift"),
               };
               return false;
             });
           }, to);
           await page.setViewportSize({ width: to, height: 700 });
           await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
-          expect(await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed)).toEqual({
-            width: to,
-            placement: to === 1600 ? "overlay" : "push",
-            covers: 0,
+          const placed = await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed);
+          await page.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+          );
+          const settled = await page.evaluate(() => {
+            const panel = document.querySelector("aside.acpmux-chat-inspector")!.getBoundingClientRect();
+            return [...document.querySelectorAll(".acpmux-row, .acpmux-composer-box")].filter((element) => {
+              const row = element.getBoundingClientRect();
+              return (
+                panel.left < row.right && row.left < panel.right && panel.top < row.bottom && row.top < panel.bottom
+              );
+            }).length;
+          });
+          expect({ placed, settled }).toEqual({
+            placed: { width: to, placement: "overlay", inset: 8, shift: to === 1600 ? "0px" : "111px" },
+            settled: 0,
           });
         } finally {
           await page.close();
