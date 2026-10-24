@@ -21,6 +21,11 @@ public import AppKit
 ///   recomputes its own target. Every owner calls it; a `ChromeHover`
 ///   owner calls `ChromeHover.viewDidMoveToWindow()`.
 ///
+/// A key-window change refreshes that window only. The index learns which targets' owners
+/// forward their window moves (their first `ownerDidMoveToWindow()` marks them); a key change
+/// files again only the targets whose owners never did, so a view of such an owner that moved
+/// straight to another window is still found. With every owner forwarding, that set is empty.
+///
 /// The layout's divider hover (`ScreenDividers`) reads the same pointer.
 @MainActor
 public final class PointerHover: NSObject {
@@ -94,6 +99,7 @@ public final class PointerHover: NSObject {
     /// window and recomputes it, so a view moved there under a still pointer hovers at once (one
     /// target per moved view; a moved container's descendants get their own call from AppKit).
     public func ownerDidMoveToWindow() {
+        Self.index.noteForwardsMoves(self)
         refresh()
     }
 
@@ -247,11 +253,13 @@ public final class PointerHover: NSObject {
         }
     }
 
-    /// A key-window change: every target is filed under its window again (a view that moved
-    /// straight from one window to another is found), then `window` refreshes. O(all targets),
-    /// once per key change.
+    /// A key-window change: the targets whose owners do not forward their window moves are filed
+    /// under their windows again (a view that moved straight from one window to another is
+    /// found), then `window` refreshes. A forwarding owner files its target when it moves, so a
+    /// key change costs O(targets in `window` + non-forwarding targets), not O(every target):
+    /// twice per Cmd-Tab, with thousands of targets in a STRESS session.
     static func keyChanged(_ window: NSWindow?) {
-        index.placeAll()
+        index.placeNonForwarding()
         refreshNow(in: window)
     }
 
@@ -330,6 +338,9 @@ private final class TargetIndex {
     private var unplaced: [ObjectIdentifier: Weak] = [:]
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
+    /// Targets whose owners have not forwarded a window move (``PointerHover/ownerDidMoveToWindow()``):
+    /// a key change files these again.
+    private var nonForwarding: [ObjectIdentifier: Weak] = [:]
     private var nextOrder: UInt64 = 0
     /// Windows whose geometry changed this main run loop turn (``PointerHover/refresh(in:)``),
     /// refreshed once each by the turn's flush; not kept alive by it.
@@ -364,7 +375,13 @@ private final class TargetIndex {
         target.order = nextOrder
         target.indexedWindow = nil
         unplaced[ObjectIdentifier(target)] = Weak(value: target)
+        nonForwarding[ObjectIdentifier(target)] = Weak(value: target)
         place(target)
+    }
+
+    /// `target`'s owner forwards its window moves: a key change no longer files it.
+    func noteForwardsMoves(_ target: PointerHover) {
+        nonForwarding[ObjectIdentifier(target)] = nil
     }
 
     func noteHovering(_ target: PointerHover, _ hovers: Bool) {
@@ -398,13 +415,14 @@ private final class TargetIndex {
         return window
     }
 
-    /// Every target filed under its window again; freed targets and closed windows drop out.
-    func placeAll() {
+    /// The targets whose owners do not forward their window moves, filed under their windows
+    /// again; closed windows' buckets and freed non-forwarding targets drop out (freed targets
+    /// elsewhere drop out when a refresh of their window visits them).
+    func placeNonForwarding() {
         for (key, bucket) in buckets where bucket.window == nil { dropBucket(key) }
-        let all = buckets.values.flatMap { $0.targets.values.compactMap(\.value) } + unplaced.values.compactMap(\.value)
-        for (key, bucket) in buckets { buckets[key]?.targets = bucket.targets.filter { $0.value.value != nil } }
-        unplaced = unplaced.filter { $0.value.value != nil }
-        for target in all { place(target) }
+        for (key, entry) in nonForwarding {
+            if let target = entry.value { place(target) } else { nonForwarding[key] = nil }
+        }
     }
 
     /// The targets a refresh of `window` reads, in creation order with the hovering ones first
