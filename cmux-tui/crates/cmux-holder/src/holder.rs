@@ -1103,8 +1103,7 @@ impl Holder {
         // holder is never one nobody writes.
         let adopted = (version >= wire::RING_VERSION).then(|| {
             let payload = Out::default().u64(terminal.ring.oldest()).u64(terminal.ring.end()).0;
-            let fds: Vec<OwnedFd> =
-                terminal.ring.segment().and_then(|fd| fd.try_clone().ok()).into_iter().collect();
+            let fds: Vec<Arc<OwnedFd>> = terminal.ring.segment().cloned().into_iter().collect();
             (payload, fds)
         });
         self.terminals.insert(frame.chan, terminal);
