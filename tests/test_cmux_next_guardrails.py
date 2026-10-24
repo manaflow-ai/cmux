@@ -2444,11 +2444,11 @@ class HookTests(Fixture):
         stub.mkdir()
         (stub / "python3").write_text(
             f"#!{real} -I\n"
-            "# Stops install A's cleanup (the script it reads from stdin) at its first tree removal.\n"
+            "# Stops install A's cleanup (the -c program that removes `.deleting.` trees) at its first tree removal.\n"
             "import os, sys\n"
             "args = sys.argv[1:]\n"
-            "if args[:2] == ['-I', '-']:\n"
-            f"    args = ['-I', '-c', {prelude!r} + sys.stdin.read(), *args[2:]]\n"
+            "if args[:2] == ['-I', '-c'] and 'cmux-next-checks.deleting.' in args[2]:\n"
+            f"    args = ['-I', '-c', {prelude!r} + args[2], *args[3:]]\n"
             f"os.execv({real!r}, [{real!r}, *args])\n")
         (stub / "python3").chmod(0o755)
         first = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True,
@@ -2550,8 +2550,9 @@ class HookTests(Fixture):
         real = os.path.realpath(shutil.which("python3", path=self.env.get("PATH")))
         (stub / "python3").write_text(
             "#!/bin/bash\n"
-            "# Stops install A where it first takes a lock until the test releases it.\n"
-            f'case "$*" in *"fcntl.flock("*) echo reached > "{reached}"; read -r _ < "{release}" ;; esac\n'
+            "# Stops install A where it first takes a lock (the install lock holder, its first python3) until the test\n"
+            "# releases it; its cleanup, which takes the copies' locks later, runs through.\n"
+            f'case "$*" in *CMUX_HOOKS_INSTALL_LOCK_HELD*) echo reached > "{reached}"; read -r _ < "{release}" ;; esac\n'
             f'exec "{real}" "$@"\n')
         (stub / "python3").chmod(0o755)
         first = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True,
