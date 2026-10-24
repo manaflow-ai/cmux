@@ -22,5 +22,5 @@ python3 scripts/ci/pr_owned_findings.py \
   --prefix Packages/macOS/CmuxNext/ \
   --summary '^check-concurrency: (?P<count>\d+) violation' \
   --manifests '^Packages/macOS/CmuxNext/Package\.swift$' \
-  --rules '^(scripts/cmux-next/check-(concurrency\.sh|main-actor-work\.py)|scripts/ci/(crash-class-gate\.sh|pr_owned_findings\.py)|Packages/macOS/CmuxNext/Package\.swift|\.github/workflows/cmux-next-crash-class\.yml)$' \
+  --rules '^(scripts/cmux-next/(check-concurrency\.sh|check-main-actor-work\.py|swift_scope\.py)|scripts/ci/(crash-class-gate\.sh|pr_owned_findings\.py)|Packages/macOS/CmuxNext/Package\.swift|\.github/workflows/cmux-next-crash-class\.yml)$' \
   "$log"
