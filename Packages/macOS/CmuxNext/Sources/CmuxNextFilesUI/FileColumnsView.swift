@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextFiles
 
 /// The column layout: Miller columns over `NSBrowser`, one column per folder
@@ -58,14 +59,15 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     func reveal(_ name: String) {}
     func beginRename(_ name: String) {}
 
+    /// A click below a column's last row leaves no selection (`selectedColumn` -1): the checked
+    /// accessors answer nil there instead of raising (#24776).
     @objc private func clicked() {
-        guard !applying, let node = browser.item(atRow: browser.selectedRow(inColumn: browser.selectedColumn),
-                                                 inColumn: browser.selectedColumn) as? FileColumnNode else { return }
+        guard !applying, let node = browser.selectedItemIfValid as? FileColumnNode else { return }
         actions.browse(node.entry.url)
     }
 
     @objc private func doubleClicked() {
-        guard let node = browser.item(atRow: browser.clickedRow, inColumn: browser.clickedColumn) as? FileColumnNode else { return }
+        guard let node = browser.clickedItemIfValid as? FileColumnNode else { return }
         if node.entry.kind != .folder { actions.activate(node.entry) }
     }
 
@@ -112,7 +114,7 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     }
 
     func browser(_ browser: NSBrowser, willDisplayCell cell: Any, atRow row: Int, column: Int) {
-        guard let cell = cell as? NSBrowserCell, let node = browser.item(atRow: row, inColumn: column) as? FileColumnNode else { return }
+        guard let cell = cell as? NSBrowserCell, let node = browser.item(ifValidRow: row, inColumn: column) as? FileColumnNode else { return }
         let image = icons.icon(for: node.entry).copy() as? NSImage
         image?.size = NSSize(width: 16, height: 16)
         cell.image = image
