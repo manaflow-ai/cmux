@@ -11,6 +11,14 @@ public import Foundation
 /// ``invalidate()`` to stop early. For work that runs once and has no owner to stop it, use
 /// ``once(activities:order:mode:_:)``, which needs no token.
 ///
+/// An observer never wakes the main run loop. Its handler runs at the first matching stage of
+/// a pass that other work starts (an event, a timer, a queued block, a display cycle). "From
+/// any thread" below means only that adding, invalidating and releasing an observer are
+/// thread-safe, not that the handler runs soon: added off the main thread while the main run
+/// loop sleeps, it waits for unrelated main-thread work, for as long as that takes. For work
+/// from off the main thread that must run promptly, use ``MainRunLoopBlock/perform(mode:_:)``,
+/// which wakes the run loop.
+///
 /// ```swift
 /// keeper = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { _ in
 ///     ArrowCursorView.keepCursor()
@@ -40,6 +48,9 @@ public nonisolated final class MainRunLoopObserver {
 
     /// Adds an observer of `activities` to the main run loop in `mode`, from any thread.
     ///
+    /// It does not wake the main run loop: the first call comes at a matching stage of a pass
+    /// that other work starts (see the type's discussion).
+    ///
     /// - Parameters:
     ///   - activities: The run loop stages that call `handler` (for example `.beforeWaiting`,
     ///     which runs only in passes that other work started and never wakes the run loop).
@@ -64,6 +75,11 @@ public nonisolated final class MainRunLoopObserver {
     /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
     /// from any thread. The call returns no token: the run loop keeps the observer until that
     /// one call, then removes it, so the work cannot be cancelled.
+    ///
+    /// It does not wake the main run loop. Called on the main thread, `body` runs when the
+    /// pass in progress reaches that stage. Called off the main thread while the main run loop
+    /// sleeps, `body` waits for a pass that other work starts; use
+    /// ``MainRunLoopBlock/perform(mode:_:)`` for work that must run promptly.
     ///
     /// ```swift
     /// // After AppKit's display and Core Animation's commit of the current pass.

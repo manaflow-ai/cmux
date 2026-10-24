@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The Liquid Glass tint of a window backdrop moving to a new color with the color transition
@@ -49,7 +50,7 @@ final class GlassTintBlend {
         let current = generation
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        CATransaction.setCompletionBlock { [weak self] in
+        CATransaction.setMainCompletion { [weak self] in
             guard let self, self.generation == current else { return }
             self.overlay.isHidden = true
         }
