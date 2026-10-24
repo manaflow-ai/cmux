@@ -136,6 +136,59 @@ import Testing
         #expect(!seen(), "a conversation tab its pane no longer shows reports reads")
     }
 
+    /// The native Home as a pane tab (`home.tab`, `HomePageTab`) holds a transcript too: the
+    /// conversation it shows, and the New Message page's message box, report reads only while a
+    /// pane on screen presents the tab, by the same presence path as a conversation tab.
+    @Test func aHomePaneTabIsSeenOnlyWhileAPaneOnScreenPresentsIt() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.pages.register(HomePageTab(services: services))
+        let key = services.pages.open(.homeTab, in: "pane-home-seen", of: services.daemon.store)
+        let madePage = services.pages.view(for: key)
+        let page = try #require(madePage)
+        let content = page.content as? TopHomePageView
+        let home = try #require(content)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
+        window.contentView = container
+        page.frame = container.bounds
+        container.addSubview(page)
+        home.show(ConversationID("conv_seen"))
+        let shownHost = home.host
+        let host = try #require(shownHost)
+        host.transcript.isWindowSeen = { _ in true }
+        host.transcript.windowStateChanged()
+        let seen = { host.transcript.transcript.isVisibleToUser }
+        let observing = { host.transcript.isObservingWindow }
+        let composerPresented = { home.newMessage?.composer?.isPresented }
+        #expect(!seen(), "a Home tab no pane presents reports reads")
+        #expect(!observing(), "a Home tab no pane presents hears its window's notices")
+
+        let pane = Pane()
+        services.cache.present(key, by: pane, presence: .visible)
+        #expect(seen(), "a Home tab a pane on screen presents reports no reads")
+        services.cache.setPresence(.keepAlive, presenter: pane) // scrolled out of the strip, under a docked column
+        #expect(!seen(), "a Home tab in a pane off screen reports reads")
+        #expect(!observing(), "a Home tab in a pane off screen hears its window's notices")
+        // A conversation shown while the pane is off screen starts not presented.
+        home.show(ConversationID("conv_other"))
+        let otherHost = home.host
+        let other = try #require(otherHost)
+        let otherPresented = { other.transcript.isPresented }
+        #expect(!otherPresented(), "a conversation shown in a Home tab off screen counts as presented")
+        home.presentNewMessage()
+        #expect(composerPresented() == false, "the New Message box of a Home tab off screen counts as presented")
+        services.cache.setPresence(.hidden, presenter: pane) // a parked workspace, an inactive screen
+        #expect(!otherPresented())
+        services.cache.setPresence(.visible, presenter: pane)
+        #expect(otherPresented())
+        #expect(composerPresented() == true)
+        services.cache.withdraw(key, by: pane) // another tab of the pane selected
+        #expect(!otherPresented(), "a Home tab its pane no longer shows reports reads")
+    }
+
     @Test func aTranscriptInAWindowNobodySeesIsNotSeen() {
         let fixture = Self.fixture()
         defer { fixture.window.close() }
