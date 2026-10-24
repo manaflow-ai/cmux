@@ -46,10 +46,12 @@ final class BrowserTabService {
     /// Shows `text` on the page of `daemon`'s tab on `surface` when that page
     /// exists; false when it does not (TabContentCache wires it).
     var showNotice: @MainActor (DaemonService, SurfaceID, String) -> Bool = { _, _, _ in false }
-    /// Returns once the store shows every change the daemon made before
-    /// now (a write barrier after a create's reply), so the next link's
-    /// slot sees the tab the previous link made (`BrowserTabOpeners`).
-    var settled: @MainActor (DaemonService) async -> Void
+    /// Returns once the store shows every change the daemon made on
+    /// `connection` (the one the create ran on) before now (a write barrier
+    /// after a create's reply), so the next link's slot sees the tab the
+    /// previous link made (`BrowserTabOpeners`); whether it does (false: no
+    /// connection, or it ended or changed first).
+    var settled: @MainActor (DaemonService, DaemonConnection?) async -> Bool
     /// The browser profile a new tab in `pane` gets: the explicit one, else
     /// the workspace's, the room's or `default` (`BrowserProfileService`).
     var resolveProfile: @MainActor (_ pane: PaneModel, _ explicit: String?) -> String? = { _, explicit in explicit }
@@ -134,9 +136,9 @@ final class BrowserTabService {
                                                            activate: background ? false : nil, after: slot).surface
             }
         }
-        settled = { daemon in
-            guard let connection = daemon.connection else { return }
-            await daemon.appliedThroughReply(on: connection, after: "new browser tab")
+        settled = { daemon, connection in
+            guard let connection else { return false }
+            return await daemon.appliedThroughReply(on: connection, after: "new browser tab").isHeld
         }
         update = { daemon, surface, update in
             await daemon.run("update-frontend-browser-tab") { connection in

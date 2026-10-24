@@ -22,4 +22,17 @@ extension DaemonService {
         if waits { for await done in ObservationStream({ self.isLive || !present() }) where done { break } }
         return await failure(label, body)
     }
+
+    /// ``failureOnceConnected(_:waits:while:_:)`` for a command whose result the caller reads from the store
+    /// next (a close whose row stays hidden until the store drops it): after the reply, waits until the store
+    /// applied it on the connection that answered (``appliedThroughReply(on:after:)``). When that wait does not
+    /// hold, the command went through but the store cannot show it: ``ActionWorkFailure/resultNotShown``.
+    public func failureOnceApplied(_ label: String, waits: Bool, while present: @escaping @MainActor @Sendable () -> Bool,
+                                   _ body: DaemonCommandBody) async -> ActionWorkFailure? {
+        if waits { for await done in ObservationStream({ self.isLive || !present() }) where done { break } }
+        var answered: DaemonConnection?
+        if let failed = await failure(label, ticket: openTicket(label), body, replied: { answered = $0 }) { return failed }
+        guard let answered else { return .resultNotShown }
+        return await appliedThroughReply(on: answered, after: label).isHeld ? nil : .resultNotShown
+    }
 }

@@ -440,6 +440,13 @@ public final class DaemonService {
 
     func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
+        await failure(label, ticket: ticket, body, replied: { _ in })
+    }
+
+    /// ``failure(_:_:)`` that also hands `replied` the connection that answered, on success only (the
+    /// post-reply wait of ``failureOnceApplied(_:waits:while:_:)`` runs on that connection).
+    func failure(_ label: String, ticket: CommandTicket?, _ body: DaemonCommandBody,
+                 replied: (DaemonConnection) -> Void) async -> ActionWorkFailure? {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
@@ -448,6 +455,7 @@ public final class DaemonService {
         do {
             try await body(connection)
             await closeTicket(ticket, label: label, error: nil, replying: connection)
+            replied(connection)
             return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")

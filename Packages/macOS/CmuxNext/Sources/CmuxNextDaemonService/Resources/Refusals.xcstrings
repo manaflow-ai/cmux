@@ -30135,6 +30135,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.resultNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That went through, but cmux lost its connection before it could show the result."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمّت العملية، لكن cmux فقد اتصاله قبل أن يتمكن من عرض النتيجة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To je prošlo, ali cmux je izgubio vezu prije nego što je mogao prikazati rezultat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det gik igennem, men cmux mistede forbindelsen, før resultatet kunne vises."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das hat geklappt, aber cmux hat die Verbindung verloren, bevor das Ergebnis angezeigt werden konnte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se completó, pero cmux perdió la conexión antes de poder mostrar el resultado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’opération a abouti, mais cmux a perdu sa connexion avant de pouvoir afficher le résultat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’operazione è riuscita, ma cmux ha perso la connessione prima di poter mostrare il risultato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作は完了しましたが、結果を表示する前に cmux の接続が切れました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សកម្មភាពនោះបានសម្រេច ប៉ុន្តែ cmux បានបាត់ការតភ្ជាប់មុនពេលអាចបង្ហាញលទ្ធផល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업은 완료되었지만 결과를 표시하기 전에 cmux의 연결이 끊어졌습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det gikk gjennom, men cmux mistet tilkoblingen før resultatet kunne vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Operacja się powiodła, ale cmux utracił połączenie, zanim mógł pokazać wynik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso foi concluído, mas o cmux perdeu a conexão antes de poder mostrar o resultado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Операция выполнена, но cmux потерял соединение, прежде чем смог показать результат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดำเนินการแล้ว แต่ cmux ขาดการเชื่อมต่อก่อนจะแสดงผลลัพธ์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İşlem tamamlandı, ancak cmux sonucu gösteremeden bağlantısını kaybetti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Операцію виконано, але cmux втратив з’єднання, перш ніж зміг показати результат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác đã hoàn tất, nhưng cmux mất kết nối trước khi kịp hiển thị kết quả."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "操作已完成，但 cmux 在显示结果之前断开了连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "操作已完成，但 cmux 在顯示結果之前中斷了連線。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
