@@ -5,12 +5,12 @@ import CmuxNextCompat
 /// Attach-connection lines to channel events (byte replay and snapshot
 /// attach).
 extension TerminalAttachment {
-    private static let decodeLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
+    static let decodeLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
     /// Attach lines of a known event kind that failed to decode (a wire
     /// contract drift); diagnostics and tests.
     static let undecodableLines = Atomic<Int>(0)
 
-    private struct VTState: Decodable {
+    struct VTState: Decodable {
         var surface: SurfaceID?
         var cols: Int
         var rows: Int
@@ -20,9 +20,12 @@ extension TerminalAttachment {
         var kittyImageAliases: [KittyImageAlias]?
         var kittyGraphicsState: KittyGraphicsState?
         var pending: Data?
+        /// A REPLAY frame's meta: how many trailing payload bytes are the pending sequence.
+        var pendingLength: Int?
 
         enum CodingKeys: String, CodingKey {
             case surface, cols, rows, data, replay, colors, pending
+            case pendingLength = "pending_len"
             case kittyImageAliases = "kitty_image_aliases"
             case kittyGraphicsState = "kitty_graphics_state"
         }
@@ -45,7 +48,7 @@ extension TerminalAttachment {
     /// `snapshot {phase, generation, offset, version, cols?, rows?, colors?, data}`.
     /// `marker_epoch` and `active_top_marker` (row markers for
     /// `terminal-history`) are not used by the view.
-    private struct Snapshot: Decodable {
+    struct Snapshot: Decodable {
         var surface: SurfaceID?
         var phase: String
         var generation: UInt64
@@ -54,7 +57,9 @@ extension TerminalAttachment {
         var cols: Int?
         var rows: Int?
         var colors: TerminalColors?
-        var data: Data
+        /// Base64 in a JSON event; absent in a SNAPSHOT frame's meta (the
+        /// bytes follow the meta raw).
+        var data: Data?
         /// History chunks: `deflate` (raw DEFLATE) and the inflated length.
         var compression: String?
         var rawBytes: Int?
@@ -103,6 +108,27 @@ extension TerminalAttachment {
         }
     }
 
+    /// A decoded snapshot event (JSON) or SNAPSHOT frame meta with its bytes.
+    static func snapshotLine(_ snapshot: Snapshot, data: Data) -> DecodedAttachLine? {
+        guard let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
+              phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
+        else { return nil }  // A READY without its grid cannot lock the mirror's grid.
+        // An unknown codec or a bad chunk would corrupt the restore: refused.
+        guard let inflated = TerminalSnapshotInflate.inflate(data, compression: snapshot.compression,
+                                                             rawBytes: snapshot.rawBytes)
+        else {
+            decodeLogger.error("""
+                snapshot \(snapshot.phase, privacy: .public) chunk refused: compression \(snapshot.compression ?? "none", privacy: .public), \
+                raw_bytes \(snapshot.rawBytes ?? -1), \(data.count) bytes
+                """)
+            return nil
+        }
+        return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
+            phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
+            cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
+            localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: inflated)))
+    }
+
     /// The surface named by the first line of an attach (`vt-state`, or the
     /// READY `snapshot` of a snapshot attach); names an `unplaced` target.
     static func initialSurface(name: String, line: Data) -> SurfaceID? {
@@ -133,23 +159,8 @@ extension TerminalAttachment {
                 return DecodedAttachLine(event: .replay(state.terminalReplay))
             case "snapshot":
                 let snapshot = try decoder.decode(Snapshot.self, from: line)
-                guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
-                      phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
-                else { return nil }  // A READY without its grid cannot lock the mirror's grid.
-                // An unknown codec or a bad chunk would corrupt the restore: refused.
-                guard let data = TerminalSnapshotInflate.inflate(snapshot.data, compression: snapshot.compression,
-                                                                 rawBytes: snapshot.rawBytes)
-                else {
-                    decodeLogger.error("""
-                        snapshot \(snapshot.phase, privacy: .public) chunk refused: compression \(snapshot.compression ?? "none", privacy: .public), \
-                        raw_bytes \(snapshot.rawBytes ?? -1), \(snapshot.data.count) bytes
-                        """)
-                    return nil
-                }
-                return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
-                    phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
-                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
-                    localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
+                guard scoped(snapshot.surface), let data = snapshot.data else { return nil }
+                return snapshotLine(snapshot, data: data)
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }
