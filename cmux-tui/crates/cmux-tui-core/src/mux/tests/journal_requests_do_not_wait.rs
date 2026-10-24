@@ -8,7 +8,7 @@
 //! observation is queued for the writer and not waited for.
 
 use super::*;
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{SyncSender, sync_channel};
 
 fn persistent_mux(name: &str) -> (Arc<Mux>, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!(
@@ -22,7 +22,7 @@ fn persistent_mux(name: &str) -> (Arc<Mux>, std::path::PathBuf) {
 
 /// Pause the writer before a batch (a writer busy elsewhere): a terminal
 /// resize event takes it there.
-fn pause_writer(mux: &Mux) -> std::sync::mpsc::SyncSender<()> {
+fn pause_writer(mux: &Mux) -> SyncSender<()> {
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.journal_ingress.install_before_batch_hook_for_test(entered, release_receiver);
@@ -73,9 +73,10 @@ fn a_frontend_observation_answers_while_the_writer_is_paused() {
             "client_no_wait".to_string(),
             crate::FrontendJournalEvent::Resize {
                 event_id: "no-wait-resize-1".to_string(),
-                frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(
-                    format!("projection_{:032x}", 91),
-                )
+                frontend_projection_id: FrontendProjectionPublicId::parse(format!(
+                    "projection_{:032x}",
+                    91
+                ))
                 .unwrap(),
                 generation: "no-wait-generation".to_string(),
                 cols: 80,
