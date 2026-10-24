@@ -146,6 +146,17 @@ cmux.json:
   every hibernated tab wakes to its picture. They used to share the decoded
   32 MB preview cache at up to a quarter of it each, so only the last four kept
   one. Debug Settings > Tab Hibernation turns the old behavior back on.
+- A woken page keeps the tab's last frame over it until the page's own first
+  contentful paint (`BrowserWakeStandIn`; WebKit: `WebKitFirstPaintHandler`,
+  Paint Timing in its own content world), or until its load ends with nothing
+  painted, fails, is stopped, its process ends or the tab closes, and at most
+  500 ms (a page that paints later shows itself loading; `uncovered_wakes_total`
+  in `debug.surfaces` counts wakes whose page could show no picture). The web view
+  stays visible to the engine under the picture, so it paints. Chromium tabs
+  get the same with layer hosting (the picture over the page's CALayerHost,
+  PL-cef-layer); until then a woken Chromium page shows the theme color until
+  it paints. Known gap: WebKit restores the scroll position after the load,
+  so a page that paints before that shows its top for a moment.
 - Wakes are timed from the restore effect to the page being back and to its
   load ending, with whether a snapshot covered the pane and whether the tab
   was shown (`debug.surfaces` `wakes`, the latest 32).

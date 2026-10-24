@@ -99,6 +99,13 @@ final class BrowserHibernation {
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     private(set) var prewarmedCount = 0
+    /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
+    /// picture; a page that paints later than this shows itself loading rather than look frozen).
+    static let standInCap: Duration = .milliseconds(500)
+    /// The clock of the stand-in cap (a seam for tests).
+    var standInClock: any Clock<Duration> = ContinuousClock()
+    /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
+    var uncoveredWakes = 0
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).

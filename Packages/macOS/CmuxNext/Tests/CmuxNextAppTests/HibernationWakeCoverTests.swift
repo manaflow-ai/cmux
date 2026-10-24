@@ -18,6 +18,8 @@ import Testing
     @Test func theWokenPageKeepsItsPictureUntilItPaints() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
+        // The cap never runs out here: only the page's paint removes the picture.
+        rig.hibernation.standInClock = ManualClock()
         let picture = try #require(Self.picture())
         rig.hibernation.capture = { _ in picture }
         let key = try await rig.hide(rig.page("slow", body: Self.slowPaint))
@@ -34,6 +36,29 @@ import Testing
 
         try await rig.until("the page painted and its picture went") { Self.cover(over: page) == nil }
         #expect(Self.cover(over: page) == nil)
+    }
+
+    /// A page that paints later than the cap shows itself loading rather than a frozen picture.
+    @Test func thePictureGoesAtTheCapWhenThePageHasNotPainted() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let clock = ManualClock()
+        rig.hibernation.standInClock = clock
+        let picture = try #require(Self.picture())
+        rig.hibernation.capture = { _ in picture }
+        let never = "<script>const until = Date.now() + 8000; while (Date.now() < until) {}</script><p>late</p>"
+        let key = try await rig.hide(rig.page("late", body: never))
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        rig.window.contentView = rig.services.cache.browsers[key]?.tab.contentView
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the page was recreated") { !rig.isHibernated(key) }
+        let page = try #require(rig.services.cache.browsers[key]?.tab as? WebKitTab)
+        rig.window.contentView = page.contentView
+        try await rig.until("the recreated page shows the tab's picture") { Self.cover(over: page) != nil }
+        try await clock.waitForSleeper()
+        clock.advance(by: BrowserHibernation.standInCap)
+        try await rig.until("the picture went at the cap") { Self.cover(over: page) == nil }
     }
 
     /// An image view over the whole page, above the web view.
