@@ -78,6 +78,11 @@ for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-lega
 if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
     failures.append("legacy identity publication must wait for successful NEXT publication")
 legacy_publish = job("publish-nightly-identity-legacy")
+pause_exemption = "needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue'"
+if pause_exemption not in job("sign-nightly-identity-legacy"):
+    failures.append("parallel identity signing must honor the notary pause except for accepted continuations")
+if pause_exemption not in legacy_publish:
+    failures.append("parallel identity publication must honor the notary pause except for accepted continuations")
 if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
     failures.append("legacy identity publication must stop when NEXT publication was refused")
 if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
