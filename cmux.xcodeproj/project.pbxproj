@@ -529,6 +529,7 @@
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
 				"$(CMUX_TIMESTAMP)",
+				"$(CMUX_STRIP_TOOL)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
