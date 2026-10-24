@@ -73,7 +73,10 @@ Removed (batch 4, hard 31 -> 28; each edge was a type in the wrong layer, not a 
   The model and the drafts stay in CmuxNextHistory (already marked `mixes: domain`); the App makes
   the model and the service together (`HistoryPageService.stash`), and the service reloads the
   model through the seam. History does not depend on Stash: no ui -> service edge took its place.
-  Open: the model moves to a History domain package with History's own model (B4).
+  Open: the model moves to a History domain package with History's own model (B4). Open: the
+  service still pushes into the model through `StashPageClient`; it should publish a changes
+  stream that the composition root turns into `page.reload()`, keeping stash and restore's
+  "returns after the re-read" order on one App-side path (bead cx-277qa).
 - **DaemonService -> Layout.** The only Layout type DaemonService used was `LayoutDirection`, a
   pure value enum, in `RefusalStrings.direction(_:)`. The enum is core now
   (`CmuxNextCompat/Layout/LayoutDirection.swift`); Layout keeps the name as
@@ -90,7 +93,7 @@ Removed (batch 4, hard 31 -> 28; each edge was a type in the wrong layer, not a 
   its stdout lines on the main actor. A Service is an `actor` unless an AppKit API forces the main
   thread, and `Process` does not. Follow-up: make `LocalRemoteBrowserHost` an actor (or make
   `start` nonisolated with the deadline guard kept private), then delete its "process launch"
-  entry in `scripts/cmux-next/main-actor-work-baseline.json`.
+  entry in `scripts/cmux-next/main-actor-work-baseline.json` (bead cx-51wxe).
 
 Soft (12): Control, Diff, KeepAwake, MobileHost, PhoneAccess, RemoteLocalhostService, WebUpdates,
 AgentIntegrations, AgentUpdates, ComputerUse -> Settings; DaemonService, KeepAwake -> Bridge.
@@ -312,9 +315,10 @@ violations), sha ranges on feat-cmux-next:
 | 2026-10-23 | 1: A2 signposts, B1 4 dirs, A3 24 files | 1549981b654..5846e103ece | 141,393 | 148 | 253 | 130 | 32 / 12 |
 | 2026-10-23 | 2: review-1 fixes, A3 18 files, B1 53 leaf files, A4 WindowKeyFamily | this push | 139,814 | 148 | 228 | 108 | 32 / 12 |
 | 2026-10-23 | 3: DaemonCapabilities static, B2 CmuxNextDesignTokens, Release-test compiler crash fixes, generic-class deinit rule, bench config, signpost port, B3 BackdropRevision | cc7a964ef61..bc6284f47b6 | 140,765 (base grew) | 147 | 231 | 106 | 31 / 12 |
-| 2026-10-23 | 4: three hard edges (Stash -> History, DaemonService -> Layout, MobileHost -> RemoteBrowser), layer-import guardrail | arch-layers-three-edges (this push) | 141,368 (base grew) | 140 | 238 | 112 | 28 / 12 |
+| 2026-10-23 | 4: three hard edges (Stash -> History, DaemonService -> Layout, MobileHost -> RemoteBrowser), layer-import guardrail | arch-layers-three-edges (this push) | 141,368 (base grew) | 140 (base drift) | 238 (base drift) | 112 (base drift) | 28 / 12 |
 
-App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
+Batch 4 touches no singleton, assumeIsolated or observer: those cells are the tip's counts, and
+their change from batch 3 is other lanes' drift. App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
 lines during batch 2; batch 2 moved 2,399 lines out). Through batch 2 the hard/soft edges did not
 change: the moves only used existing edges by design. Batch 3 removed one (WorkspaceNaming off
 Design) and batch 4 three (Stash -> History, DaemonService -> Layout, MobileHost -> RemoteBrowser).
