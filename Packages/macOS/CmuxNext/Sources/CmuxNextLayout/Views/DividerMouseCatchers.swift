@@ -23,6 +23,10 @@ public final class DividerMouseCatchers {
     /// Panel frame changes since launch (`debug.layers`): each is a window server move (a new
     /// panel's first placement counts once), so a bench counts them over an action.
     public private(set) var panelUpdates = 0
+    /// Child window orderings since launch (add, remove, order out): window server round trips.
+    public private(set) var windowOrderings = 0
+    /// Panels made since launch (a window server window each).
+    public private(set) var panelsMade = 0
 
     public init(window: NSWindow) {
         self.window = window
@@ -55,6 +59,7 @@ public final class DividerMouseCatchers {
         for (id, panel) in panels where !ids.contains(id) {
             if panel.parent === window { window.removeChildWindow(panel) }
             panel.orderOut(nil)
+            windowOrderings += 2
             panels[id] = nil
         }
         for area in wanted {
@@ -69,7 +74,10 @@ public final class DividerMouseCatchers {
                 panel.setFrame(frame, display: false)
                 panelUpdates += 1
             }
-            if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
+            if panel.parent !== window {
+                window.addChildWindow(panel, ordered: .above)
+                windowOrderings += 1
+            }
         }
     }
 
@@ -79,6 +87,7 @@ public final class DividerMouseCatchers {
 
     private func makePanel(id: String) -> DividerMousePanel {
         let panel = DividerMousePanel()
+        panelsMade += 1
         panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
         return panel
     }
