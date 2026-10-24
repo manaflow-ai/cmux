@@ -30,6 +30,10 @@ public import Foundation
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
+/// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
+///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them only under
+///   `agentPane.links.outsideRoots = open`; never a deny-listed path. A chat on another machine
+///   reads nothing here and answers `{remote: true}`. Passive.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
@@ -45,11 +49,12 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case dragImage(src: String, name: String)
     case dragFile(String)
     case inspectPullRequest(URL)
+    case previewPath(String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
-        "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
+        "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect", "link.preview",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
@@ -69,6 +74,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.drag": ["src", "name"],
         "file.drag": ["path"],
         "pr.inspect": ["url"],
+        "link.preview": ["path"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
@@ -100,7 +106,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest, .previewPath: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile: false
         }
     }
@@ -170,6 +176,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "pr.inspect":
             guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
             self = .inspectPullRequest(url)
+        case "link.preview":
+            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
+            self = .previewPath(path)
         default:
             return nil
         }
