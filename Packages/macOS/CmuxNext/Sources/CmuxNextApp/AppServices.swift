@@ -33,6 +33,7 @@ import CmuxNextWorkspaceRepair
 import os
 import CmuxNextFocusUI
 import CmuxNextTabs
+import CmuxNextLaunch
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -49,6 +50,8 @@ final class AppServices {
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
     let launchReveal: LaunchReveal
+    /// The first window frame (AppDelegate opens it): launch work no first frame shows waits for it.
+    let firstFrame: FirstFrameGate
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
@@ -380,11 +383,15 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
-    /// - Parameter launchReveal: The launch load-in the windows' sidebars
-    ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
+    /// - Parameters:
+    ///   - launchReveal: The launch load-in the windows' sidebars hold for; the app-wide one by default.
+    ///   - firstFrame: The first window frame's gate, which the app delegate opens; an open one by
+    ///     default (a services graph built outside the app's launch, as in tests, waits for no frame).
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
+         firstFrame: FirstFrameGate = .alreadyOpen()) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
+        self.firstFrame = firstFrame
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus

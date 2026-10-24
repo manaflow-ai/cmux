@@ -70,6 +70,11 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "launch-first-window": {
+      "what": "launch to the first window frame: the launch files read off the main thread from `main` and only taken (LaunchRead) or handed over without a wait (SavedFrameDirectory) by the window build (#17587)",
+      "bench": "scripts/cmux-next/bench-startup.py --mode warm --profile realistic --launch-guard, then --profile stress --launch-guard",
+      "owner": "Performance Lead"
     }
   }
 }

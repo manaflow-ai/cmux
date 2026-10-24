@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextLaunch
 @testable import CmuxNextTerminal
+import Dispatch
+import ImageIO
 import Testing
 
 /// Leo (launch-speed-first): "the first frame is never blank". A terminal pane is held clear for
@@ -72,6 +75,7 @@ import Testing
         let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
         let frames = TerminalLaunchFrames(directory: directory)
+        await frames.decoded()  // read and decoded off the main thread (SavedFrameDirectory), as from `main`
         #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 1, "the pane shows its terminal's last frame at once")
         #expect(pane.content.layer?.animation(forKey: "opacity") == nil, "with no fade: it is the frame the pane showed")
@@ -87,7 +91,9 @@ import Testing
         let scale: CGFloat = pane.window.backingScaleFactor == 2 ? 1 : 2
         let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: scale)])
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(!TerminalLaunchFrames(directory: directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
+        let frames = TerminalLaunchFrames(directory: directory)
+        await frames.decoded()
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
                 "it would draw at the window's scale, twice or half its size")
         #expect(pane.content.alphaValue == 0)
     }
@@ -100,8 +106,38 @@ import Testing
         let surface = pane.session.surfaceView.bounds.size
         let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height), scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(!TerminalLaunchFrames(directory: directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        let frames = TerminalLaunchFrames(directory: directory)
+        await frames.decoded()
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")
         #expect(pane.held == nil)
+    }
+
+    /// #17587: the pane build never waits for a frame the launch has not decoded yet (the decode
+    /// below is held, so a take that waited would never return); the frame shows over the terminal
+    /// as soon as it is decoded, while the terminal has drawn nothing of its own.
+    @Test func aFrameDecodedAfterThePaneWasBuiltShowsWhenItIs() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // A test gate on the reader's own queue, not a lock on state: the decode waits until the pane was built.
+        let gate = DispatchSemaphore(value: 0)
+        let frames = TerminalLaunchFrames(frames: SavedFrameDirectory(url: directory, name: "test_frames") { file, scale in
+            gate.wait()
+            guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+            return SavedFrame(image: image, scale: scale)
+        })
+        let (shown, didShow) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        frames.onLateFrameShown = { didShow.yield() }
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "not decoded yet: nothing now, and no wait")
+        #expect(pane.content.alphaValue == 0)
+        gate.signal()
+        for await _ in shown { break }
+        #expect(pane.content.alphaValue == 1, "the pane shows its terminal's last frame once it is decoded")
+        #expect(pane.held?.frame.size == pane.session.surfaceView.frame.size)
     }
 }

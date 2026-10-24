@@ -19,7 +19,7 @@ struct AgentTabContent {
         let services = pane.services
         let focused = pane.workspace?.focus.state.pane
         let deferred = services.agentTabs.deferAtLaunch(
-            key, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
+            key, reveal: services.launchReveal, firstFrame: services.firstFrame, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
         ) { [weak pane] in
             if let pane, pane.currentTabKey == key { pane.showSelected() }
@@ -61,12 +61,28 @@ struct AgentTabContent {
     /// pane's own loading state stays off above it until the image goes.
     private func drawLastPage(_ key: String, until view: AgentPaneView?) {
         let paneView = pane.view
-        let images = pane.services.agentTabs.launchImages
+        let tabs = pane.services.agentTabs
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
-        let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
+        let image = {
+            // A saved image the launch has not decoded yet (LaunchFiles reads them off the main thread) comes later:
+            // it draws then, unless the pane shows another tab, has an image already or the page painted first.
+            tabs.launchImages.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) { [weak pane, weak tabs] image in
+                guard let pane, let tabs, pane.currentTabKey == key, pane.view.launchImageView == nil else { return }
+                let view = tabs.existingView(key)
+                guard view?.model.hasPainted != true else { return }
+                pane.view.showLaunchImage(image)
+                Self.holdLoadingState(of: view, under: pane.view)
+            } ?? newTabFrame()
+        }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
+        Self.holdLoadingState(of: view, under: paneView)
+    }
+
+    /// While `paneView` draws a launch image, `view`'s page keeps its loading state off (the image
+    /// is its first frame) and clears the image once it has faded in over it.
+    private static func holdLoadingState(of view: AgentPaneView?, under paneView: PaneContentView) {
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
         paneView.onLaunchImageCleared = { [weak view] in

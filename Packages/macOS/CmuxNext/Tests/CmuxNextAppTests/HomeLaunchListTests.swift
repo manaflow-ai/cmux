@@ -178,6 +178,29 @@ import UniformTypeIdentifiers
         #expect(cache.load(account: Self.account) != nil)
     }
 
+    /// #17587: the launch reads the list's file off the main thread from the top of `main`
+    /// (`LaunchFiles.homeList`) before the account is known; the Home list then adopts it for its
+    /// account and reads no file. Its first frame is the same list, and another account's read
+    /// is never shown.
+    @Test func aListReadOffTheMainThreadIsTheSameFirstFrame() async throws {
+        let cache = try Self.lastSession()
+        let url = cache.url
+        let read = await Task.detached { HomeSidebarLaunchCache(url: url).read() }.value
+        #expect(read != nil, "the read keeps any account's list; the account is checked when it is adopted")
+        let loaded = Launch()
+        loaded.prime(cache)
+        try FileManager.default.removeItem(at: url)  // nothing is read from here on
+        #expect(cache.adopt(read, account: "acct_someone_else") == nil)
+        let adopted = Launch()
+        let last = try #require(HomeSidebarLaunchCache(url: url).adopt(read, account: Self.account))
+        last.seed([adopted.local, adopted.cloud])
+        adopted.archived = last.archivedChiefs
+        adopted.avatars = last.chiefAvatars
+        adopted.harnesses = last.chiefHarnesses
+        adopted.lastRoster = last.roster
+        #expect(adopted.model() == loaded.model())
+    }
+
     @Test func noRowMovesOrPopsInWhileTheLiveAnswersLand() throws {
         let cache = try Self.lastSession()
         let launch = Launch()

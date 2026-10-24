@@ -68,9 +68,23 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
 
     /// The last snapshot for `account`; nil when there is none, it is another account's, or another version's.
     public func load(account: String) -> HomeSidebarLaunchSnapshot? {
+        adopt(read(), account: account)
+    }
+
+    /// The file's snapshot of any account (this version's), read and decoded now on the calling
+    /// thread: the Mac app reads it off the main thread from the top of `main` and hands it to
+    /// ``adopt(_:account:)`` when the Home list primes.
+    public func read() -> HomeSidebarLaunchSnapshot? {
         guard let data = try? Data(contentsOf: url),
               let snapshot = try? JSONDecoder().decode(HomeSidebarLaunchSnapshot.self, from: data),
-              snapshot.version == HomeSidebarLaunchSnapshot.currentVersion, snapshot.account == account else { return nil }
+              snapshot.version == HomeSidebarLaunchSnapshot.currentVersion else { return nil }
+        return snapshot
+    }
+
+    /// `snapshot` (this file's, from ``read()``) when it is `account`'s, kept as what the file holds
+    /// so an unchanged save is not written again; nil for another account's.
+    public func adopt(_ snapshot: HomeSidebarLaunchSnapshot?, account: String) -> HomeSidebarLaunchSnapshot? {
+        guard let snapshot, snapshot.account == account else { return nil }
         state.withLock { $0.written = snapshot }
         return snapshot
     }

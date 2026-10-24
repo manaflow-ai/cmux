@@ -15,6 +15,9 @@ import PackageDescription
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
+//   CmuxNextLaunch -> Compat, Wakeups (the launch's primitives: reads off the main thread begun in
+//     `main`, LaunchRead and SavedFrameDirectory, and FirstFrameGate; Daemon, Terminal, AgentPane,
+//     HomeEngine and App import it; #17587)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
@@ -221,6 +224,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
+                "CmuxNextLaunch",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -375,7 +379,7 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextLaunch", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -568,7 +572,7 @@ let package = Package(
             name: "CmuxNextHomeEngine",
             dependencies: [
                 "CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat",
-                "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextWakeups",
+                "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextLaunch", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
@@ -1203,6 +1207,19 @@ let package = Package(
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        // Launch-time reads (#17587): the values the launch draws or keeps (LaunchRead) and the panes'
+        // last frames (SavedFrameDirectory), read and decoded off the main thread from the top of
+        // `main`, on dispatch queues of their own (never the cooperative pool). Compat only.
+        .target(
+            name: "CmuxNextLaunch",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLaunchTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextLaunch"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextCompatTests",
             dependencies: ["CmuxNextCompat"],
@@ -1363,7 +1380,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextDaemon",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextLaunch", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1377,6 +1394,7 @@ let package = Package(
             name: "CmuxNextTerminal",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextLaunch",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
@@ -1596,6 +1614,7 @@ let package = Package(
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
+                "CmuxNextLaunch",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextNowPlaying",

@@ -179,15 +179,26 @@ public final class ActionRegistry {
     // MARK: - Catalog
 
     /// Adds or replaces descriptors by ID.
+    ///
+    /// The catalog (some 2,000 descriptors) is merged into local copies and stored once: one
+    /// observed change for the whole seed, not one tracked mutation of ``descriptors`` per row
+    /// inside the launch's `AppServices` build (#17587).
+    // perf-hot: 5ms launch-first-window (the registry's catalog seed inside AppServices.init, before the first window)
     public func seed(_ newDescriptors: [ActionDescriptor]) {
+        var merged = descriptors
+        var index = descriptorIndexByID
+        merged.reserveCapacity(merged.count + newDescriptors.count)
+        index.reserveCapacity(merged.count + newDescriptors.count)
         for descriptor in newDescriptors {
-            if let index = descriptorIndexByID[descriptor.id] {
-                descriptors[index] = descriptor
+            if let existing = index[descriptor.id] {
+                merged[existing] = descriptor
             } else {
-                descriptorIndexByID[descriptor.id] = descriptors.count
-                descriptors.append(descriptor)
+                index[descriptor.id] = merged.count
+                merged.append(descriptor)
             }
         }
+        descriptorIndexByID = index
+        descriptors = merged
         shortcutIndex = nil
     }
 

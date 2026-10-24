@@ -11,21 +11,20 @@ import os
 extension DaemonService {
     /// Applies the daemon's launch snapshot as a provisional tree, so the
     /// first frame shows the last layout instead of the connecting state.
-    /// The path comes from the last handshake, else from the daemon's state
-    /// directory (`stateDirectory`, a tagged build's), so cleared defaults do
-    /// not lose the snapshot; a missing, stale or unreadable file shows
-    /// nothing. The file is small (the daemon caps it at 8 MiB) and local,
-    /// and reading it replaces waiting for the daemon, so it is read before
-    /// the first window.
-    func showLaunchSnapshot(session: String, stateDirectory: URL?) {
-        guard let path = launchSnapshotLocation.path(session: session)
-            ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
+    /// `found` is the read the prestart began at the top of `main`, off the
+    /// main thread (`DaemonPrestart.launchSnapshot`), else a read made here (no
+    /// prestart: tests, a launcher that could not be made in `main`). The path
+    /// comes from the last handshake, else from the daemon's state directory
+    /// (a tagged build's), so cleared defaults do not lose the snapshot; a
+    /// missing, stale or unreadable file shows nothing.
+    func showLaunchSnapshot(_ found: LaunchSnapshot.Found) {
         let snapshot: LaunchSnapshot
-        // #17587's launch guard: this read and decode run on the main thread, inside applicationDidFinishLaunching.
-        Self.launchMark("launch_read_on_main.launch_snapshot")
-        do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
-            logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
+        switch found {
+        case .none: return
+        case .skipped(let skip):
+            logger.error("launch snapshot skipped: \(String(describing: skip), privacy: .public)")
             return
+        case .read(let read): snapshot = read
         }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows

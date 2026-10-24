@@ -75,6 +75,34 @@ public struct LaunchSnapshot: Sendable {
         return try read(data, session: session)
     }
 
+    /// What reading a session's launch snapshot found.
+    public enum Found: Sendable {
+        /// No snapshot file for the session (a first launch, or the path was never recorded).
+        case none
+        /// The decoded snapshot.
+        case read(LaunchSnapshot)
+        /// A file that was not used, and why (the launch shows the connecting state).
+        case skipped(Skip)
+    }
+
+    /// Finds, reads and decodes `session`'s launch snapshot: the path the last handshake recorded,
+    /// else the newest in `stateDirectory`, so cleared defaults do not lose it. Marks
+    /// `launch_snapshot_read` when a file was read (`DaemonLaunchTimings`, from any thread). The
+    /// launch runs it off the main thread from the top of `main` (`DaemonPrestart.launchSnapshot`).
+    public static func find(session: String, stateDirectory: URL?,
+                            location: LaunchSnapshotLocation = LaunchSnapshotLocation()) -> Found {
+        guard let path = location.path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else {
+            return .none
+        }
+        do throws(Skip) {
+            let snapshot = try load(path: path, session: session)
+            DaemonLaunchTimings.shared.mark("launch_snapshot_read")
+            return .read(snapshot)
+        } catch {
+            return .skipped(error)
+        }
+    }
+
     private struct File: Decodable {
         var schemaVersion: Int
         var session: String

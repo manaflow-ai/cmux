@@ -4,23 +4,40 @@ public import Foundation
 /// beside the launch snapshot: after a relaunch that tab opens as the chat with its draft, not as
 /// the New Tab page. Once the chat has a session acpmux keeps its draft, and this copy is gone.
 public final class AgentUnsentDrafts {
-    public static let fileName = "agent-unsent-drafts.json"
+    public nonisolated static let fileName = "agent-unsent-drafts.json"
     /// A longer text is not kept (acpmux's own draft limit).
     static let maximumCharacters = 1_000_000
 
     let file: URL?
     private var drafts: [String: String]
 
-    public init(file: URL?) {
+    /// The drafts `drafts`, saved to `file` from now on.
+    /// - Parameters:
+    ///   - file: Where edits are saved; nil keeps them in memory.
+    ///   - drafts: The drafts the last run saved there, read off the main thread at launch
+    ///     (``read(_:)`` through the app's `LaunchFiles`).
+    public init(file: URL?, drafts: [String: String]) {
         self.file = file
-        // concurrency-allow: one read of a small local state file when the tab store is made
+        self.drafts = drafts
+    }
+
+    /// The drafts in `file`, read now on the calling thread (tests, and a tab store made with no
+    /// launch read).
+    public convenience init(file: URL?) {
+        self.init(file: file, drafts: Self.read(file))
+    }
+
+    /// The drafts saved in `file` (empty when there is none or it does not decode). Runs on any
+    /// thread: the launch reads it on a background thread begun in `main` (#17587).
+    public nonisolated static func read(_ file: URL?) -> [String: String] {
+        // concurrency-allow: one read of a small local state file, off the main thread at launch
         let data = file.flatMap { try? Data(contentsOf: $0) }
-        drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        return data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?) {
-        self.init(file: directory?.appending(path: Self.fileName))
+    public nonisolated static func file(in directory: URL?) -> URL? {
+        directory?.appending(path: fileName)
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or

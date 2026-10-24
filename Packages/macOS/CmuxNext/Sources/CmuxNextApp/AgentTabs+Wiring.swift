@@ -108,16 +108,18 @@ extension AgentTabStore {
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
-        tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        // The launch's files were read off the main thread since `main` (LaunchFiles, #17587): here
+        // they are only taken. Without a launch read (tests) each is read here as before.
+        let launch = services.environment.launchFiles?.agent
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        // #17587's launch guard: both files are read (and the wake states decoded) on the main thread here.
-        DebugTimings.markLaunch("launch_read_on_main.unsent_drafts")
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        tabs.launchImages = launch.map { AgentPaneLaunchImages(frames: $0.pageImages) }
+            ?? AgentPaneLaunchImages(directory: state.map(AgentPaneLaunchImages.directory(beside:)))
+        let draftsFile = AgentUnsentDrafts.file(in: state)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: draftsFile, drafts: launch?.unsentDrafts.take() ?? AgentUnsentDrafts.read(draftsFile))
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
-        DebugTimings.markLaunch("launch_read_on_main.agent_wake_states")
-        tabs.wakeStates = tabs.relaunchWake.take()
+        tabs.wakeStates = launch?.wakeStates.take() ?? tabs.relaunchWake.take()
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }

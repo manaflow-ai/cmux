@@ -143,6 +143,8 @@ public final class DaemonService {
         if let prestart {
             launcher = prestart.launcher
             retryWake = prestart.wake
+            // The snapshot the prestart read was found through its location: record through the same one.
+            launchSnapshotLocation = prestart.launchSnapshotLocation
         } else {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
@@ -164,7 +166,9 @@ public final class DaemonService {
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.wsListen, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
-        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        showLaunchSnapshot(prestart?.launchSnapshot.take()
+            ?? LaunchSnapshot.find(session: launcher.configuration.session,
+                                   stateDirectory: launcher.configuration.stateDirectory, location: launchSnapshotLocation))
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
