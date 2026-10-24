@@ -203,6 +203,14 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 ## CI, review and merge
 
+For `feat-cmux-next` compile and build work, use fast checks first, then any
+free compatible owned Mac through the controller, and Blacksmith macOS only as
+the last resort. A compile or build must never depend on a single-host
+reservation without a fallback. The nightly app builder remains dedicated;
+Release gates do not share it. Signing, notarization and GUI steps that truly
+require macOS run on owned Macs first and Blacksmith macOS last, in parallel
+with the fast checks. Keep the target at zero queue.
+
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
   A bug-fix PR body names that command, its failure on the base and its pass on the head,

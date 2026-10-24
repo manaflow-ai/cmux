@@ -1385,7 +1385,8 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         for job in self.JOBS:
             with self.subTest(job=job):
                 permissions = self.document()["jobs"][job].get("permissions", {})
-                self.assertEqual(permissions.get("actions"), "read")
+                expected_actions = "write" if job == "release-compile" else "read"
+                self.assertEqual(permissions.get("actions"), expected_actions)
                 self.assertEqual(permissions.get("contents"), "read")
 
     def test_a_mini_release_compile_records_only_when_the_cef_checks_ran(self):
@@ -1409,6 +1410,8 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                     "Record this pass for the same inputs", "Save the pass")]
                 for index, step in enumerate(steps[start + 1:], start + 1):
                     if index in records:
+                        continue
+                    if step.get("name") == "Request nightly-next promotion after this gate":
                         continue
                     with self.subTest(step=step.get("name") or step.get("uses")):
                         self.assertIn(REUSE_GUARD, str(step.get("if", "")))
@@ -1932,6 +1935,7 @@ def evaluate(expression: str, context: dict):
     text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
     names = {
         "_ctx": _UnsetIsEmpty(context),
+        "always": lambda: True,
         "contains": lambda haystack, needle: needle in haystack,
         "startsWith": lambda value, prefix: str(value).startswith(prefix),
         "fromJSON": json.loads,
@@ -1968,6 +1972,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            "needs.release-compile-fast.result": "skipped",
+            "needs.release-compile-fast.outputs.verdict": "",
             # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).
             "needs.app-compile-fleet.outputs.verdict": "pass",
             # With macos-placement's outputs empty (it skipped), runs-on takes the shared route.
@@ -1988,7 +1994,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         context["needs.push-head-preflight.outputs.current"] = "false"
         context["github.run_id"] = "7"
         self.assertFalse(self.runs(context))
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-12vcpu-macos-26")
         group = self.job()["concurrency"]
         self.assertEqual(evaluate(group["group"], context), "cmux-next-release-compile-7")
         self.assertIs(group["cancel-in-progress"], False)
@@ -2013,6 +2019,31 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # Never the reserved promotion runner on a PR, with macos-placement skipped.
         self.assertEqual(evaluate(self.job()["runs-on"], labeled), "shared-side-route")
         self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], labeled), "shared-side-route")
+
+    def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        fast = jobs["release-compile-fast"]
+        self.assertIn("CI_COMPILE_CHECK_GATEWAY", fast["runs-on"])
+        run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
+        self.assertIn("compile-check --ref", run)
+        self.assertIn("--app", run)
+        for name in ("release-compile-fast", "release-compile"):
+            with self.subTest(job=name):
+                self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
+
+    def test_a_green_gate_rerun_requests_promotion_inside_the_gate_job(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = jobs["release-compile"]
+        self.assertEqual(gate["permissions"]["actions"], "write")
+        request = next(step for step in gate["steps"] if step.get("name") == "Request nightly-next promotion after this gate")
+        self.assertIn("github.event_name == 'push'", request["if"])
+        self.assertIn("request-nightly-next.sh", request["run"])
+
+    def test_generated_files_are_not_branch_wide_serialized(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        group = jobs["generated-files"]["concurrency"]["group"]
+        self.assertIn("github.sha", group)
+        self.assertNotIn("github.ref", group)
 
     def test_the_cx_ebm_59_5_file_mix_runs_the_release_compile(self):
         # 67ab9281307a: two CmuxNext Sources files and a proof script. The script made
@@ -2055,10 +2086,10 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertFalse(self.runs(self.context(["App/Info.plist"], head_repo="someone/cmux")))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",), head_repo="someone/cmux")))
 
-    def test_base_pushes_still_run_it_on_the_promotion_runner(self):
+    def test_base_pushes_still_run_it_on_the_blacksmith_fallback(self):
         context = self.context([], event="push")
         self.assertTrue(self.runs(context))
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-12vcpu-macos-26")
 
 
 class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
@@ -2091,6 +2122,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "needs.web-bundles.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
+            "needs.release-compile-fast.result": "skipped",
+            "needs.release-compile-fast.outputs.verdict": "",
         }
         for tier in ("macos", "native", "swift_canary", "scheme", "generated", "swift", "daemon"):
             context[f"needs.path_route.outputs.{tier}"] = "true"
@@ -2286,6 +2319,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         context = {
             # The build fleet compiled the PR's head (app-compile-fleet), so no Mac Release compile is needed.
             "needs.app-compile-fleet.outputs.verdict": fleet,
+            "needs.release-compile-fast.result": "skipped",
+            "needs.release-compile-fast.outputs.verdict": "",
             "github.event_name": event, "github.ref": ref,
             "github.base_ref": "feat-cmux-next" if event == "pull_request" else "",
             "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
