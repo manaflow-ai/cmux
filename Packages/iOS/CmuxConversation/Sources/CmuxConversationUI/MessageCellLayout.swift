@@ -267,8 +267,6 @@ extension NSAttributedString.Key {
 }
 
 extension MessageCellLayout {
-    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
-
     static func attributedBody(
         _ text: String,
         outgoing: Bool,
@@ -316,11 +314,10 @@ extension MessageCellLayout {
             ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: ConversationTheme.bubbleFont, lineHeight: ConversationTheme.bubbleFont.lineHeight)
         }
         let range = NSRange(text.startIndex..., in: text)
-        linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let match else { return }
-            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
-            result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: match.range)
-            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.conversationLink, value: url, range: match.range) }
+        for item in ConversationDataDetection.items(in: text) where NSMaxRange(item.range) <= NSMaxRange(range) {
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: item.range)
+            result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: item.range)
+            if let url = item.url { result.addAttribute(.conversationLink, value: url, range: item.range) }
         }
         // Markdown links (an agent's `[label](url)`): the label, underlined, opens the URL.
         for link in links where NSMaxRange(link.range) <= result.length {

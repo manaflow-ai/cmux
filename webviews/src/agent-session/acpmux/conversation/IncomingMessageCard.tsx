@@ -50,6 +50,7 @@ const replyDrafts = new Map<string, string>();
 export function IncomingMessageLine({
   id,
   message,
+  messageAt,
   images,
   onOpen,
   onReply,
@@ -59,6 +60,8 @@ export function IncomingMessageLine({
   /// The row's id, which keeps the line open across remounts.
   id: string;
   message: IncomingMessage;
+  /// The containing transcript row's epoch timestamp, used to date bare UTC times.
+  messageAt?: number;
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
@@ -229,7 +232,12 @@ export function IncomingMessageLine({
         <MessageScopeContext.Provider value={scope}>
           <div ref={textBox} className="cv-received__text">
             {text ? (
-              <Markdown githubRepository={repository} commits="quiet" thumbnails={host === undefined}>
+              <Markdown
+                githubRepository={repository}
+                commits="quiet"
+                thumbnails={host === undefined}
+                messageAt={messageAt}
+              >
                 {body}
               </Markdown>
             ) : (

@@ -33,7 +33,7 @@ final class QuitCoordinator {
     weak var watchdog: MainThreadWatchdog?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
     let deadline = QuitDeadline()
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
     var wedgesEngineStop = false
@@ -196,7 +196,7 @@ final class QuitCoordinator {
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
                 await services.cache.cef.shutdown()

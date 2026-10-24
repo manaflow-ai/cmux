@@ -39,9 +39,10 @@ final class RightSidebarView: NSView {
     /// - Parameters:
     ///   - modes: The sections with a provider, in bar order.
     ///   - title: A section's button tooltip (its action's title).
+    ///   - icon: A section's button image (``RightSidebarSections/icon(_:)``: made off the main thread at launch).
     ///   - makeSection: Makes a section's view the first time it shows.
     ///   - run: Runs an action (a button's switch action).
-    init(modes: [RightSidebarMode], title: (RightSidebarMode) -> String,
+    init(modes: [RightSidebarMode], title: (RightSidebarMode) -> String, icon: (RightSidebarMode) -> NSImage?,
          makeSection: @escaping @MainActor (RightSidebarMode) -> NSView?, run: @escaping @MainActor (ActionID) -> Void) {
         self.makeSection = makeSection
         self.run = run
@@ -50,8 +51,7 @@ final class RightSidebarView: NSView {
         bar.spacing = Metrics.space2
         bar.edgeInsets = NSEdgeInsets(top: 0, left: Metrics.space3, bottom: 0, right: Metrics.space3)
         for mode in modes {
-            let button = NSButton(image: NSImage(systemSymbolName: mode.symbol, accessibilityDescription: title(mode)) ?? NSImage(),
-                                  target: self, action: #selector(pick(_:)))
+            let button = NSButton(image: icon(mode) ?? NSImage(), target: self, action: #selector(pick(_:)))
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
             button.title = ""

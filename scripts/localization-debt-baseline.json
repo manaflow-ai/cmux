@@ -319,14 +319,6 @@
       "identical": 7,
       "needs_review": 423
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/Resources/Localizable.xcstrings": {
-      "identical": 27,
-      "needs_review": 964
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings": {
-      "identical": 16,
-      "needs_review": 284
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/Resources/HostedChief.xcstrings": {
       "identical": 8,
       "needs_review": 32

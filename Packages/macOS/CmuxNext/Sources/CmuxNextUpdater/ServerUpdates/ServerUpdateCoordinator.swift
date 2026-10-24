@@ -25,6 +25,9 @@ public final class ServerUpdateCoordinator {
 
     /// The notices to show now, one per server and host, oldest first.
     public private(set) var notices: [ServerUpdateNotice] = []
+    /// Counts handshakes taken in, so a view of ``settingsReport(socketPath:tailnetAddress:)`` updates
+    /// when a server's build changes without its notice changing.
+    public private(set) var handshakeRevision = 0
     @ObservationIgnored private var reported: [Key: Reported] = [:]
     /// Notices already restarted once this launch: a restart that gained nothing is not offered again.
     @ObservationIgnored private var restartedOnce: Set<String> = []
@@ -53,6 +56,7 @@ public final class ServerUpdateCoordinator {
     public func report(_ handshake: ServerHandshake, appCapabilities: Set<String>, bundledBuild: String?) {
         let key = Key(kind: handshake.kind, host: handshake.host)
         reported[key] = Reported(handshake: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild)
+        handshakeRevision += 1
         let notice = policy.notice(for: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild)
         setNotice(notice, for: key)
     }
@@ -61,6 +65,26 @@ public final class ServerUpdateCoordinator {
     /// one that advertises nothing, has none on.
     public func supports(_ capability: String, kind: ServerKind, host: ServerHost) -> Bool {
         reported[Key(kind: kind, host: host)]?.handshake.capabilities?.contains(capability) ?? false
+    }
+
+    /// Settings > Server: a row per server heard from. Unlike ``notices`` it ignores snoozes, since
+    /// the person opened Settings to look; a server restarted once that still lacks capabilities is
+    /// not offered again, as for the toast.
+    /// - Parameters:
+    ///   - socketPath: This Mac's cmux-tui control socket, if known.
+    ///   - tailnetAddress: This Mac's Tailscale address, if known.
+    public func settingsReport(socketPath: String?, tailnetAddress: String?) -> ServerSettingsReport {
+        _ = handshakeRevision
+        let ordered = reported.keys.sorted { ($0.kind.rawValue, $0.host.key) < ($1.kind.rawValue, $1.host.key) }
+        let rows = ordered.compactMap { key -> ServerSettingsRow? in
+            guard let entry = reported[key] else { return nil }
+            var notice = policy.notice(for: entry.handshake, appCapabilities: entry.appCapabilities,
+                                       bundledBuild: entry.bundledBuild)
+            if let current = notice, restartedOnce.contains(current.id) { notice = nil }
+            return ServerSettingsReport.row(handshake: entry.handshake, notice: notice, socketPath: socketPath,
+                                            tailnetAddress: tailnetAddress)
+        }
+        return ServerSettingsReport(rows: rows)
     }
 
     /// The last handshake of `kind` on `host`.
@@ -89,6 +113,7 @@ public final class ServerUpdateCoordinator {
         let previous = reported[key]
         reported[key] = Reported(handshake: successor, appCapabilities: previous?.appCapabilities ?? [],
                                  bundledBuild: previous?.bundledBuild)
+        handshakeRevision += 1
         let still = policy.notice(for: successor, appCapabilities: previous?.appCapabilities ?? [],
                                   bundledBuild: previous?.bundledBuild)
         notices.removeAll { $0.kind == notice.kind && $0.host == notice.host }
