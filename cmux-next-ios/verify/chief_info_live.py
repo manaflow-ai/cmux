@@ -227,7 +227,8 @@ def main():  # noqa: C901 - one live scenario
                 # The switch itself (a tap on the row's label does not toggle, as in Settings).
                 def flip():
                     x, y, w, h = sim.find(ident="chief.settings.hideAlerts")[0].frame
-                    sim.tap(x + w - 36, y + h / 2); time.sleep(1.5)
+                    # A held press, as the rig's Settings switches (a bare tap can miss a UISwitch).
+                    sim.press(x + w - 40, y + h / 2, hold=0.1); time.sleep(1.5)
                 before = hide[0].value
                 flip()
                 after = sim.find(ident="chief.settings.hideAlerts")[0].value
