@@ -226,8 +226,14 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     await Promise.resolve();
   });
   expect(doc.querySelector(".keys-recorder-light")).toBeNull();
+  // The app's order: the last modifier goes up as the release (a held "⌘" came just before it).
+  await act(async () => {
+    provider.hold("⌘");
+    await Promise.resolve();
+  });
   await releaseKeys();
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k", replaces: { key: "cmd+j" } });
+  expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeNull();
   expect(provider.recording).toBe(true);
   expect(doc.querySelector(".keys-recorder-light")).toBeTruthy();
   expect(row("Go to File")?.classList.contains("recording")).toBe(true);

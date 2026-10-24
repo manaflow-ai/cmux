@@ -309,7 +309,11 @@ export class KeybindingsStore {
     const recording = this.snapshot.recording;
     if (!recording) return;
     if (event.released) {
-      if (recording.target === "row" && recording.key) void this.confirm(recording);
+      if (recording.target !== "row") return;
+      // Every key is up: no modifier is held any more.
+      const released = { ...recording, held: "" };
+      this.set({ recording: released });
+      if (released.key) void this.confirm(released);
       return;
     }
     const finished = event.done || event.cancelled;
