@@ -83,7 +83,8 @@ def send_to_chief(sim, text):
 
 
 def open_settings_shot(sim, name):
-    sim.tap_q(ident="conversation.header.trailing")
+    # The header's name opens Chief's info (the trailing button is Invite to cmux).
+    sim.tap_q(ident="conversation.header.name")
     sim.wait(timeout=10, ident="chief.settings")
     time.sleep(2.5)
     path = sim.shot(name)
