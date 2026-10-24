@@ -141,15 +141,14 @@ extension WorkspaceContentController {
         let send = BenchSpans.measure("\(label).intend") { intend() }
         BenchSpans.measure("\(label).layout") { applyCurrent() }
         let logger = daemon.logger
-        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
         // After the create before it (a fast second press may target its stand-in).
-        let previous = pendingCreate
-        pendingCreate = Task { [services, state] in
+        let ordered = orderedCreate(send)
+        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
+        Task { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
-            await previous?.value
             do {
-                _ = try await send()
+                _ = try await ordered()
                 BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
                 then?()
@@ -158,6 +157,21 @@ extension WorkspaceContentController {
             }
             withExtendedLifetime((services, state)) {}
         }
+    }
+
+    /// `send` (a key-turn create's daemon command), sent after the key-turn create before it in this
+    /// workspace has been made and applied: a create pressed on a create in flight targets its stand-in,
+    /// which names the daemon's pane only then (``DaemonStore/daemonHandle(showing:)``). Called in the
+    /// key's turn, so the creates go out in the order of the presses. Returns the ordered send.
+    func orderedCreate<T: Sendable>(_ send: @escaping @MainActor () async throws -> T) -> @MainActor () async throws -> T {
+        let previous = pendingCreate
+        let mine = Task { @MainActor () async throws -> T in
+            await previous?.value
+            return try await send()
+        }
+        // The chain waits for this send to end, whatever its outcome; its caller gets the outcome.
+        pendingCreate = Task { _ = await mine.result }
+        return { try await mine.value }
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;
