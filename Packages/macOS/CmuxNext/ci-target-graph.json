@@ -147,6 +147,7 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
+        "CmuxNextLaunch",
         "CmuxNextPages",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
@@ -283,6 +284,7 @@
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
+        "CmuxNextLaunch",
         "CmuxNextLayout",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
@@ -382,6 +384,7 @@
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
+        "CmuxNextLaunch",
         "CmuxNextLayout",
         "CmuxNextMacScreen",
         "CmuxNextNowPlaying",
@@ -766,6 +769,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextLaunch",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1046,6 +1050,7 @@
         "CmuxNextDesign",
         "CmuxNextHome",
         "CmuxNextIcons",
+        "CmuxNextLaunch",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -1148,6 +1153,25 @@
       "targets": [
         "CmuxNextKeepAwake",
         "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextLaunch": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextLaunchTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLaunchTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextLaunch"
       ],
       "packages": [],
       "reads": []
@@ -1384,6 +1408,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPopupsTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextDesign",
         "CmuxNextPopups"
       ],
       "packages": [],
@@ -1666,6 +1691,7 @@
         "CmuxNextCopyMode",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextLaunch",
         "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
