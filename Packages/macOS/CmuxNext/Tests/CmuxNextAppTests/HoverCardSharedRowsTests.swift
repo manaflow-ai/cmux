@@ -83,7 +83,7 @@ import Testing
     @Test func theTabCardsRowsAreTheSharedRowIn13Points() {
         var item = TabItem(id: TabID("t"), title: "cargo build", subtitle: "~/Projects/cmux")
         item.hover = TabHoverFacts(kind: .terminal, activity: .running, since: Date().addingTimeInterval(-5))
-        let card = TabHoverCardView()
+        let card = TabHoverCardView(iconCaches: TabIconCaches())
         card.configure(.tab(item))
         let rows = Self.rows(in: card).filter { !$0.isHidden }
         #expect(rows.count == 3, "place, status and the memory dash: \(card.reportedLines)")

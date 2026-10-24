@@ -20,7 +20,7 @@ struct ProgramStatusHoverDetailTests {
         let item = try #require(SessionStreamItem.decode(Data(line.utf8)))
         store.session.apply(item, in: store)
         let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
-        let card = TabHoverCardView()
+        let card = TabHoverCardView(iconCaches: TabIconCaches())
         card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh")))
         return card.detailText
     }

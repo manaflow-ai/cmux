@@ -14,6 +14,8 @@ final class TabCell {
     /// The strip's handler behind the element's Mute tab / Unmute tab action.
     var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
+    /// The strip's icon images (``TabIconCaches``), passed once at construction.
+    let iconCaches: TabIconCaches
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
         didSet {
@@ -156,8 +158,9 @@ final class TabCell {
     /// Set while a hover change lays out, so the x and the title fade.
     private var animatesCloseChange = false
 
-    init(item: TabItem) {
+    init(item: TabItem, iconCaches: TabIconCaches) {
         self.item = item
+        self.iconCaches = iconCaches
         layer.actions = Self.noActions
         // Anchored at the leading edge: a strip move of the width never moves the tab's x, so a
         // dragged tab whose width still moves keeps its edge under the pointer.

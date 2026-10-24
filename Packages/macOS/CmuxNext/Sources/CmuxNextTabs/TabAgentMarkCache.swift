@@ -2,9 +2,11 @@ import AppKit
 import CmuxAgentBrands
 
 /// Agent brand marks drawn in the tab's tint (the mono style), cached per brand, tint, and scale.
+/// One per ``TabIconCaches``, which its owner injects.
 final class TabAgentMarkCache {
-    static let shared = TabAgentMarkCache()
     private var cache: [String: CGImage] = [:]
+    /// Images held now.
+    var count: Int { cache.count }
 
     /// The mark fills about the symbol's optical size inside the icon square.
     private static let fill: CGFloat = 0.82

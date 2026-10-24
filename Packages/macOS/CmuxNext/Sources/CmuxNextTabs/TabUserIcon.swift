@@ -9,6 +9,8 @@ import CoreText
 /// icon, an invalid wire string, a symbol this Mac cannot draw (a newer
 /// system's name), or an asset not read yet, so the tab keeps its kind icon.
 public struct TabUserIcon {
+    /// Not a stateless catalog: ``icon(_:asset:)`` reads the process-wide `TabUserIconImages`
+    /// cache of drawn emoji and known symbol names.
     public static let shared = TabUserIcon()
 
     public init() {}

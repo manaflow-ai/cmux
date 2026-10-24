@@ -15,6 +15,8 @@ public final class SavedGroupsBarView: NSView {
     public var contextMenuProvider: TabContextMenuProvider?
 
     private var chips: [TabGroupID: TabGroupChipCell] = [:]
+    /// The chips' icon images, passed to each chip once.
+    private let iconCaches: TabIconCaches
     private var order: [TabGroupID] = []
     private var hovered: TabGroupID?
     private var pressed: TabGroupID?
@@ -29,8 +31,15 @@ public final class SavedGroupsBarView: NSView {
     private(set) var scrollOffset: CGFloat = 0
     var maxScrollOffset: CGFloat { max(0, contentWidth - bounds.width) }
 
-    public init(model: SavedGroupsBarModel) {
+    /// Makes the bar for `model`.
+    ///
+    /// - Parameters:
+    ///   - model: The saved groups the bar shows.
+    ///   - iconCaches: The chips' icon images; pass the instance the window's tab strips use, so
+    ///     each icon is drawn once.
+    public init(model: SavedGroupsBarModel, iconCaches: TabIconCaches) {
         self.model = model
+        self.iconCaches = iconCaches
         super.init(frame: CGRect(x: 0, y: 0, width: 400, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -111,7 +120,7 @@ public final class SavedGroupsBarView: NSView {
     }
 
     private func makeChip(_ item: TabGroupItem, count: Int) -> TabGroupChipCell {
-        let chip = TabGroupChipCell(group: item, memberCount: count)
+        let chip = TabGroupChipCell(group: item, memberCount: count, iconCaches: iconCaches)
         chip.alwaysShowsCount = true
         chip.themeScope = themeScope
         chip.accessibility.setAccessibilityParent(self)

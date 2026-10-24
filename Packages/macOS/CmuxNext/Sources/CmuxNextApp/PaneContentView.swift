@@ -88,10 +88,13 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
 
-    /// - Parameter reveal: Holds the strip until the first tabs arrive and
-    ///   the content until the first terminal frame (launch load-in).
-    init(stripModel: TabStripModel, reveal: LaunchReveal = .shared) {
-        stripView = TabStripView(model: stripModel)
+    /// - Parameters:
+    ///   - iconCaches: The app's one set of tab icon images (`AppServices.tabIconCaches`), shared
+    ///     by every pane's strip so a new pane draws no icon another strip already drew.
+    ///   - reveal: Holds the strip until the first tabs arrive and
+    ///     the content until the first terminal frame (launch load-in).
+    init(stripModel: TabStripModel, iconCaches: TabIconCaches, reveal: LaunchReveal = .shared) {
+        stripView = TabStripView(model: stripModel, iconCaches: iconCaches)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder

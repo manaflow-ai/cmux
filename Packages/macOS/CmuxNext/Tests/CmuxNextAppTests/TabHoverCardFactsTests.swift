@@ -16,7 +16,7 @@ struct TabHoverCardFactsTests {
 
     /// The card's lines for `item` with `report` as its last sample.
     private func lines(_ item: TabItem, report: ResourceReport?) -> [String] {
-        let card = TabHoverCardView()
+        let card = TabHoverCardView(iconCaches: TabIconCaches())
         card.configure(.tab(item))
         card.setResources(report)
         return card.reportedLines

@@ -52,8 +52,11 @@ final class TabHoverCardView: NSView {
     private var report: ResourceReport?
     /// The tab's CPU of each sample since its card showed, newest last (the memory row's bars).
     private var cpuHistory: [Double] = []
+    /// The owner's icon images (``TabIconCaches``), which the title's glyph draws from.
+    private let iconCaches: TabIconCaches
 
-    init() {
+    init(iconCaches: TabIconCaches) {
+        self.iconCaches = iconCaches
         super.init(frame: .zero)
         let content = self
         titleLabel.font = Typography.bodyEmphasized
@@ -215,13 +218,13 @@ final class TabHoverCardView: NSView {
         let cg: CGImage? = switch item?.icon {
         case .image(let image)?: image.cgImage
         case .agentMark(let brand)?:
-            TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale)
+            iconCaches.agentMarks.image(brand: brand, tint: tint, size: size, scale: scale)
         case .icon(let name)?:
-            TabPackIconCache.shared.image(name: name, tint: tint, size: size, scale: scale)
-                ?? TabSymbolCache.shared.image(named: IconCatalog.bundled.entry(for: name)?.sf ?? "questionmark.square.dashed",
-                                               tint: tint, pointSize: size, size: size, scale: scale)
+            iconCaches.packIcons.image(name: name, tint: tint, size: size, scale: scale)
+                ?? iconCaches.symbols.image(named: IconCatalog.bundled.entry(for: name)?.sf ?? "questionmark.square.dashed",
+                                            tint: tint, pointSize: size, size: size, scale: scale)
         case .symbol(let name)?:
-            TabSymbolCache.shared.image(named: name, tint: tint, pointSize: Metrics.smallIconSize, size: size, scale: scale)
+            iconCaches.symbols.image(named: name, tint: tint, pointSize: Metrics.smallIconSize, size: size, scale: scale)
         case .none?, nil: nil
         }
         kindIcon.image = cg.map { NSImage(cgImage: $0, size: NSSize(width: size, height: size)) }

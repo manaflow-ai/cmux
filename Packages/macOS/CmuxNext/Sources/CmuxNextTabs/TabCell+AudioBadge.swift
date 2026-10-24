@@ -44,7 +44,7 @@ extension TabCell {
         let name: IconName = item.audio == .muted ? .browserTabMuted : .browserTabAudio
         icon.contentsScale = scale
         let tint = isAudioHovered || isAudioPressed ? Palette.textPrimary : Palette.textSecondary
-        icon.contents = TabPackIconCache.shared.image(name: name, tint: tint, size: Self.audioIconSize, scale: scale)
+        icon.contents = iconCaches.packIcons.image(name: name, tint: tint, size: Self.audioIconSize, scale: scale)
         audioBackgroundLayer?.backgroundColor = ChromeHover.fillColor(.init(hovering: isAudioHovered, pressed: isAudioPressed))?.cgColor
     }
 
