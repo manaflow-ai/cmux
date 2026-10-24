@@ -351,10 +351,13 @@ own key: `loopback-forward-v1` lines already use `stream` on the same connection
 `attach-surface` and `cancel-stream`. These run on that stream's lane: in order
 with the stream's earlier requests, never behind another stream's requests or
 the connection's other requests (which keep the serial order above). Requests of
-one surface keep their wire order across lanes, as on one serial connection: a
-stream request waits for its surface's earlier control requests (a
-`clear-history`, a `close-surface`, a read), and a control request waits for its
-surface's earlier stream requests (the input a `clear-history` must follow).
+one surface keep their wire order across lanes by acceptance: a stream request
+waits until its surface's earlier control requests are accepted (a
+`clear-history` applied, a `close-surface` done, a read taken, a `wait-for`
+registered), and a control request waits until its surface's earlier stream
+requests are accepted (the input a `clear-history` must follow). A request is
+accepted when its effect is applied; only `wait-for` replies later than that,
+so a key sent after a blocked `wait-for` of the same surface runs at once.
 Requests of different surfaces never wait for each other. Replies of different
 surfaces may therefore come out of wire order; match by `id`. `cancel-stream {attach_stream}` ends a stream at once (idempotent: a stream that
 is not open answers `{"outcome": "ended"}`).

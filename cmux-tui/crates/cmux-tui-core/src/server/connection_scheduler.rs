@@ -55,18 +55,43 @@ pub(super) enum OrderLane {
     Stream,
 }
 
-/// The requests of one surface that have not finished, by lane, as their
-/// arrival numbers on the connection. Requests of one surface keep their wire
-/// order across the control lane and the client streams' lanes (as on one
-/// serial connection): a stream request waits for the surface's earlier
-/// control requests (a clear-history barrier, a close, a read), and a control
-/// request is held behind the surface's earlier stream requests (the input a
-/// clear-history must follow). Requests of different surfaces never wait for
-/// each other.
+/// The requests of one surface that have not been accepted yet
+/// ([`RequestAcceptance`]), by lane, as their arrival numbers on the
+/// connection. Requests of one surface keep their wire order across the
+/// control lane and the client streams' lanes (as on one serial connection,
+/// but by acceptance, not completion): a stream request waits until the
+/// surface's earlier control requests are accepted (a clear-history applied, a
+/// close done, a wait-for registered), and a control request is held until the
+/// surface's earlier stream requests are accepted (the input a clear-history
+/// must follow). A blocked request's reply never holds anything up, and
+/// requests of different surfaces never wait for each other.
 #[derive(Default)]
 pub(super) struct SurfaceOrder {
     pub(super) control: BTreeSet<u64>,
     pub(super) streams: BTreeSet<u64>,
+}
+
+/// The moment a running request has been accepted: its effect is applied, or
+/// (a request that blocks until a condition, `wait-for`) its wait is
+/// registered. Later requests of its surface on the other lane wait only until
+/// then, never for a blocked request's reply. A request that does not call
+/// [`Self::accept`] is accepted when it finishes (its effect and its reply are
+/// one moment).
+pub(super) struct RequestAcceptance {
+    ticket: Mutex<Option<OrderTicket>>,
+}
+
+impl RequestAcceptance {
+    fn new(ticket: Option<OrderTicket>) -> Self {
+        Self { ticket: Mutex::new(ticket) }
+    }
+
+    /// The request is accepted: release its place in its surface's order.
+    /// Idempotent. Call with no scheduler lock held.
+    pub(super) fn accept(&self) {
+        let ticket = self.ticket.lock().recover_poison().take();
+        drop(ticket);
+    }
 }
 
 /// A request's entry in its surface's [`SurfaceOrder`]; dropping it (the
@@ -597,10 +622,19 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    // The ticket lives until the request finished: later requests of its
-    // surface on the other lane wait for that.
-    let PendingSurfaceRequest { request, _bytes_permit, order: _order, .. } = pending;
-    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    // The ticket is released when the request is accepted (by the handler,
+    // or at the latest when it finished): later requests of its surface on the
+    // other lane wait for that.
+    let PendingSurfaceRequest { request, _bytes_permit, order, .. } = pending;
+    let acceptance = RequestAcceptance::new(order);
+    handle_request_with_cancellation(
+        mux,
+        client,
+        request,
+        writer,
+        Some(&scheduler.cancelled),
+        Some(&acceptance),
+    )
 }
 
 fn run_connection_surface_dispatcher(

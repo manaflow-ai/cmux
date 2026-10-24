@@ -551,7 +551,7 @@ pub(super) fn subscribe_then_announce(
     target: Target,
     writer: &MessageWriter,
 ) -> bool {
-    let result = handle_command_with_cancellation(mux, client, cmd, writer, None);
+    let result = handle_command_with_cancellation(mux, client, cmd, writer, None, None);
     let subscribed = result.is_ok();
     let sent = send(writer, id, result);
     if subscribed && let Some(service) = mux.cloud_conversations() {
@@ -608,7 +608,7 @@ pub(super) fn start(
     let spawned = std::thread::Builder::new().name("mux-cloud-request".into()).spawn(move || {
         let _permit = permit;
         let result =
-            handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
+            handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None, None);
         send(&worker_writer, worker_id, result);
     });
     match spawned {
