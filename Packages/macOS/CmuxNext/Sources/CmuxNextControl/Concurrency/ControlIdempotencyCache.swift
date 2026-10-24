@@ -115,4 +115,7 @@ public final class ControlIdempotencyCache: Sendable {
     }
 
     var count: Int { state.withLock { $0.entries.count } }
+
+    /// Whether the run under `key` recorded its outcome (a retry then replays it at once).
+    func hasOutcome(_ key: String) -> Bool { state.withLock { $0.entries[key]?.outcome != nil } }
 }
