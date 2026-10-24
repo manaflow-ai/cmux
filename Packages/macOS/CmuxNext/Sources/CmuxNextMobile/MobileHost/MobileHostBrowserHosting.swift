@@ -26,3 +26,25 @@ public protocol MobileHostSurfaceHosting: Sendable {
     /// Stops every source (hostd restarted or stopped).
     func stopAll() async
 }
+
+/// ``MobileHostSurfaceHosting`` from three closures, so the app can hand hostd its simulator
+/// sources (CmuxNextPhone) without this package depending on them.
+public struct MobileHostSurfaceClosures: MobileHostSurfaceHosting {
+    private let startSource: @Sendable (String, @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String)
+    private let stopSource: @Sendable (String) async -> Void
+    private let stopSources: @Sendable () async -> Void
+
+    public init(start: @escaping @Sendable (String, @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String),
+                stop: @escaping @Sendable (String) async -> Void, stopAll: @escaping @Sendable () async -> Void) {
+        startSource = start
+        stopSource = stop
+        stopSources = stopAll
+    }
+
+    public func start(tab: String, onExit: @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String) {
+        try await startSource(tab, onExit)
+    }
+
+    public func stop(tab: String) async { await stopSource(tab) }
+    public func stopAll() async { await stopSources() }
+}
