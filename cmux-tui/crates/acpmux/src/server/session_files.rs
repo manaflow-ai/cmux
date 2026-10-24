@@ -190,7 +190,7 @@ mod tests {
     fn hub() -> std::sync::Arc<Hub> {
         let mut config = crate::config::Config::default();
         config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         Hub::new(config, store)
     }
 
