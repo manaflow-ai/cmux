@@ -28,6 +28,8 @@ import Testing
             (PageProbe(capturing: true), .capturing),
             (PageProbe(beforeUnload: true), .beforeUnload),
             (PageProbe(webRTC: true), .webRTC),
+            (PageProbe(connectedDevice: true), .connectedDevice),
+            (PageProbe(unreadableFrame: true), .unreadableFrame),
         ]
         for (probe, reason) in cases {
             #expect(probe.keepReason(pressure: pressure, doubted: false, showsFormSubmission: false) == reason)

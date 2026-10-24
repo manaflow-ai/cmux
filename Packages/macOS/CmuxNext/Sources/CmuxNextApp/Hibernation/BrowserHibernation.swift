@@ -37,7 +37,8 @@ import os
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
 /// A page never hibernates while it shows, plays (an element or Web Audio), captures, has DevTools
 /// open, an agent holds its lease or called it lately, a download it started runs, it holds the
-/// person's form input, its `beforeunload` would ask, or it has a connected WebRTC peer; the
+/// person's form input (also in a child frame it cannot read), its `beforeunload` would ask, or it
+/// has a connected WebRTC peer or an open device; the
 /// page's own answers keep it at every memory pressure (`PageProbe`). Pinned tabs and Never
 /// Hibernate hosts stay unless the setting says otherwise.
 @MainActor
@@ -445,7 +446,7 @@ final class BrowserHibernation {
         }
     }
 
-    /// Asks the page for playing media, Web Audio, capture and WebRTC, then freezes it
+    /// Asks the page for playing media, Web Audio, capture, WebRTC and open devices, then freezes it
     /// if it is still the same hidden page. A page that plays, or that still gets the
     /// benefit of the doubt (`PageProbeHistory`), stays awake and is asked again after
     /// `freezeSeconds`.
@@ -632,7 +633,8 @@ final class BrowserHibernation {
             let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
-                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload, webRTC: busy.webRTC)
+                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload, webRTC: busy.webRTC,
+                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
         } catch {
             return unanswered(tab)
         }
