@@ -1,7 +1,7 @@
 // The composer's side of a huge paste (pastedText.ts): it becomes a chip, unless Paste as Plain
 // Text just ran (⌘⇧V or the prompt's menu), and a chip's click puts its text back in the prompt.
 import { type RefObject, useEffect, useRef } from "react";
-import { MAX_ATTACHMENTS, type ComposerAttachment } from "../attachments";
+import type { ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { isLargePaste, pastedTextAttachment } from "../pastedText";
 
@@ -60,7 +60,7 @@ export function usePastedChips(
     /// Makes pasted `text` a chip when it is huge; true when it did. A composer already holding the
     /// most chips takes the text as it is.
     take(text: string): boolean {
-      if (raw() || !isLargePaste(text) || attachments.current.length >= MAX_ATTACHMENTS) return false;
+      if (raw() || !isLargePaste(text)) return false;
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.
       attachments.current = [...attachments.current, chip];
