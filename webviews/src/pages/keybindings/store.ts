@@ -47,6 +47,8 @@ export type Recording =
       /** Why the recorded keys were not saved (the app's refusal: a key another action always
        *  runs); the next key clears it. */
       refusal?: string;
+      /** The action that holds the refused keys, when the app names one. */
+      refusalOwner?: string;
       /** Counts the times the recorder said keys are taken (its red light plays on each). */
       warned: number;
     };
@@ -393,7 +395,7 @@ export class KeybindingsStore {
     if (!recording) return;
     // A refusal shows until the next key goes down (the next shortcut).
     if (recording.target === "row" && recording.refusal && (event.key || event.held) && !event.released) {
-      recording = { ...recording, refusal: undefined };
+      recording = { ...recording, refusal: undefined, refusalOwner: undefined };
       this.set({ recording });
     }
     // The recorder asks about a conflict: Return overwrites, Escape cancels, a new stroke drops
@@ -464,7 +466,7 @@ export class KeybindingsStore {
   private async commit(recording: Extract<Recording, { target: "row" }>, after: "continue" | "close"): Promise<void> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
-    const { conflicts, refusal } = same ? { conflicts: [] } : await this.conflictsOf(binding, key);
+    const { conflicts, refusal, owner } = same ? { conflicts: [] } : await this.conflictsOf(binding, key);
     const current = this.snapshot.recording;
     // Newer keys went down (or another row records) while the app answered: they decide.
     if (current?.target !== "row" || current.row !== recording.row || current.key !== key || current.prompt) return;
@@ -477,7 +479,7 @@ export class KeybindingsStore {
     }
     if (refusal) {
       // Never saved: the recorder says why and records the next shortcut.
-      await this.recapture({ ...current, key, display, held: "", warned, refusal });
+      await this.recapture({ ...current, key, display, held: "", warned, refusal, refusalOwner: owner });
       return;
     }
     const saved = await this.save({ ...current, key, display });
@@ -490,14 +492,17 @@ export class KeybindingsStore {
 
   /** The entries `key` would take from other actions, and the app's refusal of the keys; none
    *  when the app cannot say. */
-  private async conflictsOf(binding: Binding, key: string): Promise<{ conflicts: Binding[]; refusal?: string }> {
+  private async conflictsOf(
+    binding: Binding,
+    key: string,
+  ): Promise<{ conflicts: Binding[]; refusal?: string; owner?: string }> {
     try {
       const result = await this.client?.call<ConflictsResult>(KeybindingOps.conflicts, {
         command: binding.command,
         key,
         when: binding.when,
       });
-      return { conflicts: result?.bindings ?? [], refusal: result?.refusal };
+      return { conflicts: result?.bindings ?? [], refusal: result?.refusal, owner: result?.owner };
     } catch {
       return { conflicts: [] };
     }

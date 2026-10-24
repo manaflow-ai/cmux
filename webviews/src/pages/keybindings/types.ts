@@ -47,6 +47,9 @@ export interface BindingListResult {
  *  (a key another action always runs), before any write. */
 export interface ConflictsResult extends BindingListResult {
   refusal?: string;
+  /** The title of the action that holds the refused keys (one that always runs, a numbered
+   *  family), when there is one. */
+  owner?: string;
 }
 
 /** The entry a `set` replaces: the old keys and `when` of the same command. */

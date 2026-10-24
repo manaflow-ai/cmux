@@ -354,7 +354,7 @@ export class MockKeybindingsProvider implements PageClient {
     const owner = this.refused.get(normalized(params.key));
     return {
       ...(owner
-        ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.` }
+        ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.`, owner }
         : {}),
       bindings: bindings.filter(
         (b) =>

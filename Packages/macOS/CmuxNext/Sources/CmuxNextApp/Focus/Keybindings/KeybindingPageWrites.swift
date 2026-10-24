@@ -227,30 +227,31 @@ struct KeybindingPageWrites {
     }
 
     /// The refusal of `key` for `command` before any write (`cmux.keybindings.conflicts`): the
-    /// recorder's rules, as `set` checks them (a key another action always runs, a reserved key).
-    /// Nil when they may be saved; another action's keys in the same place are the page's
-    /// question (Overwrite takes them first), not this.
-    func refusal(_ params: [String: JSONValue]) -> String? {
+    /// recorder's rules, as `set` checks them (a key a system action always runs, a key of
+    /// another action's numbered family, a key macOS keeps), with the action that holds the key
+    /// when there is one. Nil when they may be saved; another action's keys in the same place
+    /// are the page's question (Overwrite takes them first), not this.
+    func refusal(_ params: [String: JSONValue]) -> (message: String, owner: ActionID?)? {
         guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
-              let first = keys.first else { return nil }
-        do {
-            try assess(first, for: id)
-            return nil
-        } catch let error as PageError where error.code == "cmux.keybindings.refused" {
-            return error.message
-        } catch {
-            return nil
+              let first = keys.first, case .refused(let refusal) = assessment(first, for: id) else { return nil }
+        let owner: ActionID? = switch refusal {
+        case .systemAction(let owner), .numberedFamily(let owner): owner
+        default: nil
         }
+        return (ShortcutAssessmentText(registry).refusal(refusal, shortcut: first, id: id), owner)
     }
 
     /// The palette recorder's rules (`ActionRegistry.assessShortcut`; one
     /// key of a numbered family, `assessKey`).
     private func assess(_ shortcut: Shortcut, for id: ActionID) throws {
+        try verdict(assessment(shortcut, for: id), shortcut: shortcut, for: id)
+    }
+
+    private func assessment(_ shortcut: Shortcut, for id: ActionID) -> ShortcutAssessment {
         let environment = ShortcutEditEnvironment(chromeChords: BrowserChordTable.chromeReserved)
-        let assessment = registry.descriptor(for: id)?.shortcutFamily == nil
+        return registry.descriptor(for: id)?.shortcutFamily == nil
             ? registry.assessShortcut(shortcut, for: id, environment: environment)
             : registry.assessKey(shortcut, for: id, environment: environment)
-        try verdict(assessment, shortcut: shortcut, for: id)
     }
 
     /// A refusal, or a conflict in the same place, is the page's error.

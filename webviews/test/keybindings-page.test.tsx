@@ -439,13 +439,15 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(sets()).toHaveLength(asked);
   expect(row("Open Command Palette")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
 
-  // Keys the app refuses with no action to take them from: its reason is the title; nothing is
-  // saved and the page's notice stays empty; the next shortcut clears it.
+  // Keys the app refuses (an action that always runs holds them): "Already used by" it, the
+  // app's reason under it, no Overwrite; nothing is saved and the page's notice stays empty; the
+  // next shortcut clears it.
   provider.refused.set("cmd+q", "Quit");
   const before = sets().length;
   await click(row("Go to File")?.querySelector(".keys-key-button"));
   await keys("cmd+q");
-  expect(title()).toContain("Quit");
+  expect(title()).toBe(strings.format("keybindings.page.recorder.alreadyUsedBy", "Quit"));
+  expect(recorder()?.textContent).toContain("which always runs");
   expect(choices()).toBeFalsy();
   expect(recorder()?.querySelector(".keys-recorder-keys.refused")).toBeTruthy();
   expect(doc.querySelector(".keys-notice")).toBeNull();

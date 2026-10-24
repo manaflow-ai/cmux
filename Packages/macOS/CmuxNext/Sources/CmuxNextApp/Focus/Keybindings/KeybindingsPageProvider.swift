@@ -46,7 +46,11 @@ final class KeybindingsPageProvider: PageProvider {
             if let settings = services.settings,
                let refusal = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
                    .refusal(fields) {
-                reply["refusal"] = .string(refusal)
+                reply["refusal"] = .string(refusal.message)
+                // The action that holds the keys (a system action that always runs, a numbered family).
+                if let owner = refusal.owner {
+                    reply["owner"] = .string(services.registry.title(for: owner) ?? owner.rawValue)
+                }
             }
             return .object(reply)
         case "cmux.keybindings.record.start":
