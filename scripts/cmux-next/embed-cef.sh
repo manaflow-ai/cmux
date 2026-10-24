@@ -123,12 +123,15 @@ identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 shim_for() { # <arch> <dist>
   CMUX_CEF_ARCH="$1" "$SCRIPT_DIR/build-cef-shim.sh" "$2" "$cache_root/shim" | tail -n 1
 }
-# The single-arch shim builds, whose wrappers the Chromium host links (3b).
+# The single-arch shim builds and their artifacts, which the Chromium host
+# builds against (1b).
 arch_shims=()
+arch_dists=()
 if (( ${#shim_archs[@]} == 2 )); then
   arm_shim="$(shim_for arm64 "$arm_dir")"
   x86_shim="$(shim_for x86_64 "$x86_dir")"
   arch_shims=("$arm_shim" "$x86_shim")
+  arch_dists=("$arm_dir" "$x86_dir")
   universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
   shim_out="$cache_root/shim/universal-${universal_key:0:16}"
   if [[ ! -f "$shim_out/.build-key" ]]; then
@@ -142,32 +145,56 @@ if (( ${#shim_archs[@]} == 2 )); then
 else
   shim_out="$(shim_for "${shim_archs[0]}" "$cef_dir")"
   arch_shims=("$shim_out")
+  arch_dists=("$cef_dir")
 fi
 
 # 1b. The Chromium host's executable (Debug builds only; see 3b), cached by
 # build-chromium-host.sh apart from the shim, so a host edit changes neither
 # the shim's key nor the runtime pack's.
+#
+# The host is a prototype that is off by default (browserHost.helperPrototype).
+# A host that does not build costs this Debug build the host app only: a
+# warning, and the app then reports that it has none. It never fails the
+# build, the way a missing CEF artifact does not. CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1
+# makes it a build failure (the prototype's own verification builds).
 host_out=""
 host_key=""
-if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
-  host_dirs=()
-  for arch_shim in "${arch_shims[@]}"; do
-    host_dirs+=("$("$SCRIPT_DIR/build-chromium-host.sh" "$arch_shim" "$cache_root/chromium-host" | tail -n 1)")
+# Sets host_out and host_key; non-zero when a host build fails. Called as an
+# `if` condition, where `set -e` does not apply, so every step checks itself.
+build_chromium_host() {
+  local dirs=() dir i tmp key
+  for i in "${!arch_shims[@]}"; do
+    dir="$(CMUX_CEF_ARCH="${shim_archs[$i]}" "$SCRIPT_DIR/build-chromium-host.sh" \
+      "${arch_dists[$i]}" "${arch_shims[$i]}" "$cache_root/chromium-host" | tail -n 1)" || return 1
+    [[ -x "$dir/cmux-chromium-host" && -f "$dir/.build-key" ]] || return 1
+    dirs+=("$dir")
   done
-  if (( ${#host_dirs[@]} == 2 )); then
-    host_key="$(printf '%s %s' "$(cat "${host_dirs[0]}/.build-key")" "$(cat "${host_dirs[1]}/.build-key")" | shasum -a 256 | awk '{print $1}')"
-    host_out="$cache_root/chromium-host/universal-${host_key:0:16}"
-    if [[ ! -f "$host_out/.build-key" ]]; then
-      host_tmp="$(mktemp -d "$cache_root/chromium-host/.universal.XXXXXX")"
-      lipo -create "${host_dirs[0]}/cmux-chromium-host" "${host_dirs[1]}/cmux-chromium-host" -output "$host_tmp/cmux-chromium-host"
-      chmod +x "$host_tmp/cmux-chromium-host"
-      printf '%s' "$host_key" > "$host_tmp/.build-key"
-      /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$host_tmp" "$host_out" 2>/dev/null || rm -rf "$host_tmp"
+  if (( ${#dirs[@]} == 2 )); then
+    key="$(printf '%s %s' "$(cat "${dirs[0]}/.build-key")" "$(cat "${dirs[1]}/.build-key")" | shasum -a 256 | awk '{print $1}')" || return 1
+    dir="$cache_root/chromium-host/universal-${key:0:16}"
+    if [[ ! -f "$dir/.build-key" ]]; then
+      tmp="$(mktemp -d "$cache_root/chromium-host/.universal.XXXXXX")" || return 1
+      lipo -create "${dirs[0]}/cmux-chromium-host" "${dirs[1]}/cmux-chromium-host" -output "$tmp/cmux-chromium-host" || { rm -rf "$tmp"; return 1; }
+      chmod +x "$tmp/cmux-chromium-host"
+      printf '%s' "$key" > "$tmp/.build-key"
+      /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$tmp" "$dir" 2>/dev/null || rm -rf "$tmp"
     fi
+    [[ -x "$dir/cmux-chromium-host" ]] || return 1
   else
-    host_out="${host_dirs[0]}"
-    host_key="$(cat "$host_out/.build-key")"
+    dir="${dirs[0]}"
+    key="$(cat "$dir/.build-key")" || return 1
   fi
+  host_out="$dir"
+  host_key="$key"
+}
+if [[ "${CONFIGURATION:-}" == "Debug" ]] && ! build_chromium_host; then
+  host_out=""
+  host_key=""
+  if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" ]]; then
+    echo "error: the Chromium host app did not build (build-chromium-host.sh)" >&2
+    exit 1
+  fi
+  echo "warning: the Chromium host app did not build (build-chromium-host.sh); this Debug build has none"
 fi
 
 # 2. Framework and shim.
