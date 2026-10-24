@@ -141,6 +141,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let control = control
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
+        let probeObject = ObjectIdentifier(self)
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
@@ -159,7 +160,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
+                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject)) }
                     queue.push(event)
                 }
             },
@@ -247,6 +248,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
     }
 
+    /// The typing probe's name for this terminal: its surface id once resolved (the session's IO names it
+    /// so too), else this attachment alone.
+    private nonisolated static func probeSource(_ surface: SurfaceID, object: ObjectIdentifier) -> TypingLatencyProbe.Source {
+        surface == unresolvedSurface ? .object(object) : .terminal(surface.rawValue)
+    }
+
     // MARK: TerminalByteChannel
 
     public nonisolated func write(_ data: Data) async {
@@ -259,14 +266,14 @@ public actor TerminalAttachment: TerminalByteChannel {
         guard !data.isEmpty else { return }
         let surface = surface
         let logger = logger
-        let flow = TypingLatencyProbe.shared.openFlow
+        let flow = TypingLatencyProbe.shared.openFlow(for: Self.probeSource(surface, object: ObjectIdentifier(self)))
         do {
             try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
                 logger.error("send failed: \(error.description, privacy: .public)")
             }) { id in
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
-            TypingLatencyProbe.shared.mark(.socketSubmit)
+            TypingLatencyProbe.shared.mark(.socketSubmit, source: Self.probeSource(surface, object: ObjectIdentifier(self)))
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }
