@@ -499,6 +499,103 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    /// `SharedLiveAgentIndex` reloads at most every 5 s while agent hooks write
+    /// the hook store, and each full reload posts `.sharedLiveAgentIndexDidChange`
+    /// without `userInfo`. Every workspace used to answer with
+    /// `objectWillChange`, which re-ran `WorkspaceContentView` and every pane's
+    /// `updateNSView` and portal reconciliation while the user was idle: the
+    /// burst that precedes the 0.65.x idle hangs (issue 22703).
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func testSharedAgentIndexReloadDoesNotReevaluatePaneContent() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewAgentIndexReloadTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        // Loading-card workspaces, as in the tests above, so no shell or git
+        // probe publishes during the measured window.
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        for index in 0..<3 {
+            tabManager.addWorkspace(
+                initialSurface: .cloudVMLoading,
+                select: index == 0,
+                autoWelcomeIfNeeded: false
+            )
+        }
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(TerminalNotificationStore.shared)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState(defaults: defaults))
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        #expect(counts.contentViewBody > 0)
+        #expect(counts.workspaceContentBody > 0)
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies while idle")
+
+        counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
+        var workspacePublishes = 0
+        let publishes = tabManager.tabs.map { workspace in
+            workspace.objectWillChange.sink { _ in workspacePublishes += 1 }
+        }
+        defer { publishes.forEach { $0.cancel() } }
+        // The post a full reload makes (SharedLiveAgentIndex.startReload).
+        NotificationCenter.default.post(
+            name: .sharedLiveAgentIndexDidChange,
+            object: SharedLiveAgentIndex.shared
+        )
+        await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
+
+        #expect(
+            workspacePublishes == 0,
+            "An agent-index reload must not publish any workspace (\(workspacePublishes) publishes)."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "An agent-index reload must not rebuild pane content (\(counts.workspaceContentBody) evaluations)."
+        )
+        #expect(
+            counts.contentViewBody == 0,
+            "An agent-index reload must not re-evaluate ContentView (\(counts.contentViewBody) evaluations)."
+        )
+    }
+
     @Test
     @MainActor
     func testUnreadApplyPublishesOneAtomicSnapshot() {

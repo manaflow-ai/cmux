@@ -4624,8 +4624,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
-        // Fork Conversation availability when a background refresh lands.
+        // Reconcile restored agents that a shared agent-index refresh reports as
+        // finished. The Fork Conversation menu reads availability from its
+        // provider when it opens, so a refresh must not publish this workspace:
+        // a full reload posts without userInfo at most every 5 s while agent
+        // hooks write the hook store, and each publish re-rendered every pane
+        // (issue 22703).
         sharedLiveAgentIndexObserver = NotificationCenter.default.addObserver(
             forName: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
@@ -4661,7 +4665,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
                     }
                 }
-                self.objectWillChange.send()
+                #if DEBUG
+                self.sharedLiveAgentIndexChangeHandledForTesting?()
+                #endif
             }
         }
         featureFlagsObserver = NotificationCenter.default.addObserver(
@@ -4691,6 +4697,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    #if DEBUG
+    /// Test seam: runs after this workspace handles a shared agent-index change.
+    var sharedLiveAgentIndexChangeHandledForTesting: (() -> Void)?
+    #endif
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
