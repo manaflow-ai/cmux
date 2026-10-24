@@ -5,7 +5,8 @@ import Testing
 
 /// A git run is awaited with no thread waiting (AsyncProcess): many slow runs at once never hold the
 /// cooperative pool (one thread per core), so other async work keeps running while they wait.
-/// Before: each run waited on a DispatchSemaphore inside Task.detached, holding one pool thread per run.
+/// Before: each run waited on a DispatchSemaphore inside Task.detached(priority: .userInitiated), holding
+/// one thread of that priority's pool per run. The pool is per QoS, so the burst runs at the same priority.
 @Suite(.timeLimit(.minutes(1))) nonisolated struct AgentPaneGitProcessPoolTests {
     @Test func slowGitRunsLeaveTheCooperativePoolFree() async {
         // More waiting runs than the pool has threads; each child sleeps far longer than the burst needs.
@@ -20,7 +21,7 @@ import Testing
         // Let the runs start first: each starts at a higher priority than this burst.
         for _ in 0..<count { await Task.yield() }
         let done = await withTaskGroup(of: Int.self) { group in
-            for index in 0..<(count * 4) { group.addTask { index } }
+            for index in 0..<(count * 4) { group.addTask(priority: .high) { index } }
             var finished = 0
             for await _ in group { finished += 1 }
             return finished
