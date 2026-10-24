@@ -12,6 +12,7 @@ use super::ConnectionCancellation;
 use super::DeliveryClassifiedError;
 use super::MessageWriter;
 use super::ProtocolKeyInput;
+use super::RequestAcceptance;
 use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
@@ -286,6 +287,7 @@ pub(super) fn read_scrollback(
 pub(super) fn wait_for(
     mux: &Arc<Mux>,
     cancellation: Option<&ConnectionCancellation>,
+    acceptance: Option<&RequestAcceptance>,
     surface: SurfaceId,
     pattern: String,
     timeout_ms: u64,
@@ -321,6 +323,12 @@ pub(super) fn wait_for(
         cancellation.register_interrupt(&interrupt);
     }
     attach.stream.wake_on(&interrupt);
+    // The wait is registered: every later byte reaches it, and the screen so
+    // far is checked next. Later requests of the surface (the input that may
+    // print the pattern) need not wait for this request's reply.
+    if let Some(acceptance) = acceptance {
+        acceptance.accept();
+    }
     if let Some(text) = check()? {
         return Ok(json!({
             "matched": true,
