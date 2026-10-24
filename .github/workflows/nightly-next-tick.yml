@@ -8,9 +8,10 @@ name: nightly-next tick
 # feat-cmux-next finishes, whatever its conclusion (a cancelled run finishes
 # too), and on demand, for the newest feat-cmux-next commit that is buildable
 # (green Release compile, published cmux-tui tree, fresh strings;
-# scripts/cmux-next/request-nightly-next.sh). No clock: the user wants nightlies
-# as soon as possible, not on a cron (2026-10-20; the dedicated builder Mac is
-# cmux22, plans/cmux-next/nightly-builder-DESIGN.md). Main's promote job ignores
+# scripts/cmux-next/request-nightly-next.sh). The event path still starts builds
+# as soon as possible, and a 30-minute catch-up handles missed workflow events
+# (the dedicated builder Mac is cmux22, plans/cmux-next/nightly-builder-DESIGN.md).
+# Main's promote job ignores
 # a request that does not move nightly-next forward, and the concurrency group
 # below keeps one tick running and one waiting, so a burst of finished runs
 # costs at most two ticks. GitHub runs `workflow_run` only from the default
@@ -20,6 +21,8 @@ on:
     workflows: ["cmux-next", "cmux-tui artifacts"]
     branches: [feat-cmux-next]
     types: [completed]
+  schedule:
+    - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
       sha:
@@ -37,6 +40,9 @@ env:
 
 concurrency:
   group: nightly-next-tick
+  # A burst of completed source runs keeps exactly one running tick and the
+  # newest pending tick. The pending tick reads the branch tip when it starts,
+  # so it coalesces the burst without cancelling work already in progress.
   cancel-in-progress: false
 
 jobs:
