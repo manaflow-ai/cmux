@@ -59,4 +59,21 @@ struct AgentPaneTranscriptStepTests {
             AgentPageEvent.command("nextBookmarkedPrompt").data,
         ])
     }
+
+    @Test func stopTurnSendsTheComposerStopCommand() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true))
+        let provider = try #require(view.pageEvents, "the shared page host has no event stream")
+        let received = Received()
+        let subscription = try await provider.subscribe(
+            AgentPageProvider.hostEvents, filter: .null, context: PageCallContext(page: PageDescriptor.agent.id)
+        ) { event in received.events.append(event) }
+        defer { subscription.cancel() }
+
+        view.stopTurn()
+
+        #expect(received.events.filter { $0["kind"] == .string("command") } == [
+            AgentPageEvent.command("stopTurn").data,
+        ])
+    }
 }
