@@ -264,6 +264,26 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
         self.assertNotRegex(observed, r"\bname\b")
         self.assertRegex(observed, r"1 sites\s+0 per-instance\s+didResignKeyNotification")
 
+    def test_a_linked_local_package_is_counted_like_the_arch_ratchet(self):
+        # The arch ratchet counts CmuxNext and its local package closure (arch_counts method v5). Once CmuxNext links
+        # CmuxMessagesLab, PaneHost's observer counts in section 1 and its target joins section 4's graph.
+        def observers() -> str:
+            report = health.report(self.repo)
+            row = next(line for line in report.splitlines() if line.startswith("| NotificationCenter observers"))
+            return [c.strip() for c in row.strip("|").split("|")][1]
+
+        self.write(PANE_HOST, marked("PaneHost", "home-key", "count += key") + WATCHER.split("\n", 1)[1])
+        self.commit("an observer in a Shared package CmuxNext does not link")
+        self.assertEqual(observers(), "2")
+        self.write("Packages/macOS/CmuxNext/Package.swift", PACKAGE.replace(
+            'name: "CmuxNext", ', 'name: "CmuxNext", dependencies: [.package(path: "../../Shared/CmuxMessagesLab")], '))
+        self.write("Packages/Shared/CmuxMessagesLab/Package.swift",
+                   'import PackageDescription\nlet package = Package(name: "CmuxMessagesLab", '
+                   'targets: [.target(name: "MessagesLabHome")])\n')
+        self.commit("CmuxNext links CmuxMessagesLab")
+        self.assertEqual(observers(), "4")
+        self.assertIn("manifests: 2 targets (2 non-test", health.report(self.repo), "MessagesLabHome joins the graph")
+
     def test_the_header_cites_the_feat_cmux_next_merge_base_not_a_local_commit(self):
         self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
         self.write("plans/cmux-next/notes.md", "local notes\n")
