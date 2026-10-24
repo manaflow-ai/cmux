@@ -11,6 +11,11 @@ import os
 /// logs the same text under ``subsystem``, which the harvest leaves out (``recordedSubsystems``),
 /// so nothing counts twice. Its text is redacted (``ErrorRedactor``) before it is logged.
 ///
+/// A fault is on disk when its record ends (the journal writes faults in the same turn), so the
+/// fault that explains a crash a moment later survives it. Errors and warnings are written in
+/// the journal's next batch (``ErrorJournalLimits/flushDelaySeconds``): a crash keeps every one
+/// older than that.
+///
 /// Make one per category from the app's journal (its composition root) and keep it:
 ///
 /// ```swift
@@ -93,6 +98,7 @@ public struct ErrorReporter: Sendable {
         logger.log(level: event.level == .fault ? .fault : .error, "\(logText, privacy: .public)")
         let recorder = recorder
         // task-owner: one record; the journal folds it and appends it in its next batched write
+        // (a fault: in the same journal turn)
         return Task { await recorder.record(event) }
     }
 }

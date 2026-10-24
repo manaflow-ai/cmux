@@ -3,7 +3,7 @@ public import WebKit
 /// Catches an app page's `console.error`, `console.warn`, uncaught errors and unhandled promise
 /// rejections and records each, redacted, when it happens (source `page:<page>`), through the
 /// one reporting path (``ErrorReporter``): into the recorder the page was made with (the app's
-/// ``ErrorJournal``), so a crash loses none and no log harvest is needed for them, and into the
+/// ``ErrorJournal``; on disk in its next batched write), so no log harvest is needed for them, and into the
 /// unified log under ``subsystem`` with the page name as category, for Console.app.
 /// ``OSLogErrorSource`` leaves that subsystem out, so nothing counts twice. Nothing flows back
 /// into the page; the page script drops all but 20 reports a second.
