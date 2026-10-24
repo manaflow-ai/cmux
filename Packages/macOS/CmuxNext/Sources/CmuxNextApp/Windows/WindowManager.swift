@@ -87,7 +87,7 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// When the panes' last frames no pane took are dropped (``LaunchFrameRelease``); made in
     /// ``restoreWhenLoaded()``.
-    private var launchFrameRelease: LaunchFrameRelease?
+    private(set) var launchFrameRelease: LaunchFrameRelease?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
