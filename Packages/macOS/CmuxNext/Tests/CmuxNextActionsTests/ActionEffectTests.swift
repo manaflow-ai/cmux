@@ -3,7 +3,7 @@ import Testing
 
 /// The action pipeline (``ActionEffect``): the handler's change is in place when `perform`
 /// returns, the registry (not the handler) starts the remote half after that, a capturing caller
-/// awaits it, a failure rolls back and is shown once, and a waiting effect is counted.
+/// awaits it, a failure rolls back and is shown once, and a waiting effect and a hidden wait are counted.
 @MainActor
 @Suite struct ActionEffectTests {
     private static let catalog = [ActionDescriptor(id: "test.rename", title: "Rename", category: .other)]
@@ -85,6 +85,46 @@ import Testing
         let registry = Self.registry(world, failing: false, wait: true)
         for task in registry.capturingWork({ registry.perform("test.rename"); registry.perform("test.rename") }) { _ = await task.value }
         #expect(registry.waitingRuns["test.rename"]?[.daemonEcho] == 2)
+    }
+
+    /// A typed handler that sends the command itself (`ctx.send` / `daemon.send` hand their task to
+    /// the registry through the daemon's work tracker) hid a wait behind `.done`: the run is still
+    /// effect-bound, and it is counted where the line rule cannot see it (a helper the handler calls).
+    @Test func aHandlerThatStartsItsOwnWorkIsCountedAsAHiddenWait() {
+        let registry = ActionRegistry(catalog: Self.catalog)
+        registry.bindEffect("test.rename", effect: { [unowned registry] _ in
+            registry.track(Task { nil })
+            return .done
+        })
+        registry.perform("test.rename")
+        registry.perform("test.rename")
+        #expect(registry.hiddenWaitRuns["test.rename"]?[.handlerSend] == 2)
+        #expect(registry.effectBoundCount == 1)
+    }
+
+    /// The remote half the registry starts for an effect is not the handler's own work, nor is a
+    /// confirmed apply (a rollback) or a store intent a hidden wait.
+    @Test func aConfirmedApplyAndAStoreIntentAreNotHiddenWaits() async {
+        let world = World()
+        let registry = Self.registry(world, failing: false)
+        for task in registry.capturingWork({ registry.perform("test.rename") }) { _ = await task.value }
+        #expect(world.sent == 1)
+        #expect(registry.hiddenWaitRuns.isEmpty)
+
+        let intent = ActionRegistry(catalog: Self.catalog)
+        intent.bindEffect("test.rename", effect: { _ in .applied(.storeIntent(send: { nil })) })
+        for task in intent.capturingWork({ intent.perform("test.rename") }) { _ = await task.value }
+        #expect(intent.hiddenWaitRuns.isEmpty)
+    }
+
+    /// An apply with no rollback that is not a store intent: either the send is the whole action
+    /// (nothing showed first) or a failure leaves the change shown. Counted.
+    @Test func anApplyWithNoRollbackIsCounted() async {
+        let registry = ActionRegistry(catalog: Self.catalog)
+        registry.bindEffect("test.rename", effect: { _ in .applied(ActionConfirmation(send: { nil })) })
+        for task in registry.capturingWork({ registry.perform("test.rename") }) { _ = await task.value }
+        #expect(registry.hiddenWaitRuns["test.rename"]?[.unconfirmedApply] == 1)
+        #expect(registry.hiddenWaitRuns["test.rename"]?[.handlerSend] == nil)
     }
 
     @Test func aRefusedEffectRefuses() {

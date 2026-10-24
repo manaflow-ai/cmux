@@ -109,6 +109,10 @@ public final class ActionBudgetReporter: Sendable {
             "waiting_runs": .object(Dictionary(uniqueKeysWithValues: registry.waitingRuns.map { id, reasons in
                 (id.rawValue, JSONValue.object(Dictionary(uniqueKeysWithValues: reasons.map { ($0.key.rawValue, JSONValue($0.value)) })))
             })),
+            // Effect-bound runs that waited where the effect does not say so (ActionHiddenWait).
+            "hidden_wait_runs": .object(Dictionary(uniqueKeysWithValues: registry.hiddenWaitRuns.map { id, waits in
+                (id.rawValue, JSONValue.object(Dictionary(uniqueKeysWithValues: waits.map { ($0.key.rawValue, JSONValue($0.value)) })))
+            })),
         ])
     }
 }
