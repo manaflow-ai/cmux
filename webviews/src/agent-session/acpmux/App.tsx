@@ -178,7 +178,8 @@ import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./suba
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
-import { workflowFromWire } from "./summary/workflow";
+import { createWorkflowAdapter } from "./summary/foldWorkflows";
+import type { WorkflowSummary } from "./summary/workflow";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -4706,13 +4707,18 @@ function AcpmuxPane() {
     () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
     [snapshot.sessions, shownSessionId],
   );
-  const workflow = useMemo(
-    () => (workflowLabsEnabled ? workflowFromWire(snapshot.workflow) : undefined),
-    [workflowLabsEnabled, snapshot.workflow],
+  const freshAgents = useMemo(
+    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
+    [snapshot.rows, snapshot.subagentViews],
+  );
+  const workflowAdapter = useMemo(createWorkflowAdapter, []);
+  const workflows = useMemo(
+    () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
+    [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
   );
   const summaryHasContent = useMemo(
-    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflow !== undefined,
-    [snapshot.rows, chatSubsessions, workflow],
+    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
+    [snapshot.rows, chatSubsessions, workflows],
   );
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
@@ -5416,10 +5422,6 @@ function AcpmuxPane() {
   // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
-  const freshAgents = useMemo(
-    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
-    [snapshot.rows, snapshot.subagentViews],
-  );
   const agentsKey = freshAgents
     .map((agent) =>
       [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
@@ -5704,6 +5706,27 @@ function AcpmuxPane() {
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     },
     [openFold],
+  );
+  const workflowActionsFor = useCallback(
+    (workflow: WorkflowSummary) => ({
+      onOpenTranscript: openWorkflowTranscript,
+      // Keep Claude's stop_task route and the workflow node identity intact.
+      onStop: stopSubagent
+        ? () => {
+            void stopSubagent(workflow.id).catch(() => undefined);
+          }
+        : undefined,
+      onDraftWorkflow: (resume: boolean) => {
+        const client = directClient.current;
+        if (!client || client.selectedSession !== workflow.sessionId) return false;
+        // The fold has no scriptPath/args launch contract. Refuse Resume visibly until a
+        // provider supplies it; Run again remains an explicit composer message.
+        if (resume) return false;
+        composerHandle.current?.prefill(t("workflow.runAgainPrompt", { name: workflow.title }));
+        return composerHandle.current !== null;
+      },
+    }),
+    [openWorkflowTranscript, stopSubagent, t],
   );
   const workingCounts = useMemo<WorkingCounts>(() => {
     return {
@@ -8649,8 +8672,8 @@ function AcpmuxPane() {
               localCwd && !quick && !readOnlySubagent ? () => void attachLinks().catch(() => undefined) : undefined
             }
             tools={chatTools}
-            workflow={workflow}
-            workflowActions={workflow ? { onOpenTranscript: openWorkflowTranscript } : undefined}
+            workflows={workflows}
+            workflowActionsFor={workflowActionsFor}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
