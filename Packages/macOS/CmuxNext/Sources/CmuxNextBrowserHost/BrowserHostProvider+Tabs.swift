@@ -13,7 +13,7 @@ struct AccessKey: Hashable {
 extension BrowserHostProvider {
     /// Reads the tab list and every CEF tab's extension access under
     /// Observation tracking, then sends what changed. Each tracking pass
-    /// fires once; a newer pass (or `refreshTabs`) makes older ones no-ops.
+    /// fires once; a newer pass makes older ones no-ops.
     func observeTabs() {
         observation += 1
         let pass = observation
