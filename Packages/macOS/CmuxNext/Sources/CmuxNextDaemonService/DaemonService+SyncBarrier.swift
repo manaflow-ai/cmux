@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import os
 
 extension DaemonService {
     /// After a command's reply on `connection`: waits until the store applied every event the daemon emitted
@@ -11,12 +12,18 @@ extension DaemonService {
     ///
     /// - Parameter connection: The connection that answered the command.
     /// - Returns: Whether the store holds the command's events.
+    /// - Parameter label: The command whose result the caller reads next; named in the log line when the wait
+    ///   does not hold, so a read that may lack the result is visible, never silent.
     @discardableResult
-    public func appliedThroughReply(on connection: DaemonConnection) async -> Bool {
+    public func appliedThroughReply(on connection: DaemonConnection, after label: String) async -> Bool {
         let epoch = store.connectionEpoch
         let sequence = await connection.eventSequence()
-        guard await store.appliedThrough(sequence, since: epoch) else { return false }
-        return self.connection === connection
+        let held = await store.appliedThrough(sequence, since: epoch)
+        guard held, self.connection === connection else {
+            logger.error("\(label, privacy: .public): the store did not catch up with the reply (\(sequence == nil ? "no event sequence" : "the connection changed", privacy: .public)); reading it may miss the command's result")
+            return false
+        }
+        return true
     }
 
     /// Read-your-writes against the daemon: one round trip on the current connection, then waits until the
@@ -25,14 +32,14 @@ extension DaemonService {
     /// any client.
     ///
     /// - Throws: ``DaemonError/notConnected`` with no connection, or when the wait did not hold
-    ///   (``appliedThroughReply(on:)``: no event sequence after the reply, a drop during the wait, another
+    ///   (``appliedThroughReply(on:after:)``: no event sequence after the reply, a drop during the wait, another
     ///   connection now); the request's error.
     /// - Returns: The store's applied sequence after the wait.
     @discardableResult
     public func appliedThroughSyncBarrier() async throws -> UInt64 {
         guard let connection else { throw DaemonError.notConnected }
         _ = try await connection.request(IdentifyRequest())
-        guard await appliedThroughReply(on: connection) else { throw DaemonError.notConnected }
+        guard await appliedThroughReply(on: connection, after: "sync barrier") else { throw DaemonError.notConnected }
         await store.sessionStateResolved()
         guard self.connection === connection else { throw DaemonError.notConnected }
         return store.appliedSequence
