@@ -6,6 +6,7 @@ extension PageWebView {
     public func close() {
         _ = claimState.end()
         router.close()
+        endWindowVisibility()
         bridge.uninstall()
         endChromium()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)

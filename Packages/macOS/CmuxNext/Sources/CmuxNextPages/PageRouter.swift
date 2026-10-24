@@ -15,10 +15,9 @@ public import Foundation
 public final class PageRouter {
     public private(set) var descriptor: PageDescriptor
     private var routes: [PageRoute]
-    /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
-    public var send: ((JSONValue) -> Void)?
-    /// Script pipeline entry that reports envelopes dropped by a page reset.
-    public var sendWithDrop: ((JSONValue, @escaping @MainActor () -> Void) -> Void)?
+    /// Runs envelopes in the page, in order, in one script (`window.__cmuxPageReceive(<json>)`
+    /// each), each with what runs if a page reset drops it undelivered. Usually one envelope.
+    public var send: (([PageDelivery]) -> Void)?
     /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
     /// has not delivered yet, which belong to the subscriptions that just ended.
     public var didClose: (() -> Void)?
@@ -39,6 +38,10 @@ public final class PageRouter {
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
 
+    /// Whether nobody can see the page now: out of a window, hidden, parked, or its window covered
+    /// (the page view sets it, ``PageWebView``).
+    public var isPageHidden = false
+
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
@@ -51,12 +54,19 @@ public final class PageRouter {
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
 
-    /// The script that delivers `envelope` to the page.
-    /// One buffer: the envelope's JSON is appended in place, never built and copied.
-    public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
-        envelope.appendCompactText(to: &script)
-        script += ");"
+    /// The script that delivers `envelopes` to the page, in order. With more than one, each runs
+    /// in its own `try`, so a page error in one does not drop the rest.
+    /// One buffer: each envelope's JSON is appended in place, never built and copied.
+    public nonisolated static func receiveScript(_ envelopes: [JSONValue]) -> String {
+        var script = ""
+        let guarded = envelopes.count > 1
+        for envelope in envelopes {
+            if guarded { script += "try {" }
+            script += "window.__cmuxPageReceive && window.__cmuxPageReceive("
+            envelope.appendCompactText(to: &script)
+            script += ");"
+            if guarded { script += "} catch (e) { console.error(e) }\n" }
+        }
         return script
     }
 
@@ -239,7 +249,7 @@ public final class PageRouter {
             guard let stream else { return }
             stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
         }
-        if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
+        send?([PageDelivery(envelope, dropped: dropped)])
     }
 
     private func unsubscribe(_ sub: UInt64) {
@@ -287,7 +297,7 @@ public final class PageRouter {
         nextCall += 1
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
-            send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+            send([PageDelivery(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])])
         }
     }
 

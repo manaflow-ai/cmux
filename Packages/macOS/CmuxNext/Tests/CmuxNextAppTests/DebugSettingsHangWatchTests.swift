@@ -122,10 +122,13 @@ import Testing
         let page = try #require(view.content as? PageWebView, "Debug Settings did not open as its React page")
         await page.waitUntilLoaded() // a document committing later would reset the router itself
         let (delivered, deliver) = AsyncStream<JSONValue>.makeStream()
-        let send = page.router.sendWithDrop
-        page.router.sendWithDrop = { envelope, dropped in
-            send?(envelope, dropped)
-            deliver.yield(envelope)
+        // Out of a window the page counts as hidden and holds its events (PageRouterHiddenPageTests
+        // guards that); this test follows the hang watch, so the page reads events as a shown one.
+        page.router.isPageHidden = false
+        let send = page.router.send
+        page.router.send = { deliveries in
+            send?(deliveries)
+            for delivery in deliveries { deliver.yield(delivery.envelope) }
         }
         let reply = await page.router.handle(["t": "sub", "id": .number(1), "stream": "cmux.debug.tunables.changed",
                                               "filter": .object([:])])
