@@ -8,8 +8,8 @@ import Network
 /// until ``stop()`` or the app quits; links are never written anywhere.
 ///
 /// Connections and the listener deliver their events on the main queue (event delivery only,
-/// through `MainQueueNetworkEvents`), so all state stays on the main actor; a page's file read and
-/// Markdown render run off it.
+/// through `MainQueueNetworkEvents`), so all state stays on the main actor; a page's file read runs off
+/// it.
 final class MarkdownLiveShareServer {
     enum Failure: Error, Equatable {
         case listenerFailed(String)
@@ -163,11 +163,10 @@ final class MarkdownLiveShareServer {
         case .page(let token):
             guard let share = shares[token] else { break }
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            // task-owner: one per page request; ends when the page is sent.
-            Task { [weak self, file = share.file, name = share.name, renderer = self.renderer] in
-                let page = await Self.page(file, title: name, eventsPath: events, renderer: renderer)
-                guard let self else { return connection.cancel() }
-                self.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            Task { [weak self, file = share.file, name = share.name] in // one off-main read per page request
+                let text = await Task.detached { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }.value
+                guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
+                self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
             }
             return
         case .events(let token):
@@ -183,15 +182,6 @@ final class MarkdownLiveShareServer {
         connection.send(content: data, completion: .contentProcessed { _ in
             if close { connection.cancel() }
         })
-    }
-
-    /// Reads and renders a shared file's page off the main actor: the read is file I/O and a long
-    /// file's Markdown parse is heavy CPU.
-    @concurrent
-    nonisolated private static func page(_ file: URL, title: String, eventsPath: String,
-                                         renderer: MarkdownHTMLRenderer) async -> String {
-        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-        return renderer.document(text, title: title, eventsPath: eventsPath)
     }
 
     // MARK: Changes

@@ -20,6 +20,8 @@ public final class MacScreenShareHost {
     @ObservationIgnored public var checkScreenRecording: () -> Bool = { CGPreflightScreenCaptureAccess() }
     @ObservationIgnored public var checkAccessibility: () -> Bool = { AXIsProcessTrusted() }
 
+    /// Makes a share host that rechecks permissions on app activation posted to `center`.
+    ///
     /// - Parameter center: The center ``activate()`` observes app activation on (tests pass their own).
     public init(center: NotificationCenter = .default) {
         self.center = center
