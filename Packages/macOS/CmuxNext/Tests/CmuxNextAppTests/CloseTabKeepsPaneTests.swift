@@ -16,17 +16,16 @@ import Testing
 ///
 /// The rule: a closed tab's pane keeps the focus while it has tabs, on the neighbour the close
 /// selects (the next tab, else the previous). Only the close of a pane's last tab moves the focus
-/// to another pane, and the quick presses after that one close nothing there
-/// (``EmptiedPaneCloseRun``). Runs the app's Close Tab against a same-tree cmux-tui daemon.
+/// to another pane; a press aimed at the emptied pane (made before the frame showing the new
+/// focus, or a repeat of the held key) closes nothing there (``PaneCloseAim``). Runs the app's
+/// Close Tab against a same-tree cmux-tui daemon.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CloseTabKeepsPaneTests {
     /// An agent chat on the left; on the right a pane of three browser tabs opened from the chat.
-    /// Cmd-W three times, then once more at once: the focus stays in the browser pane while it
-    /// has tabs, each close selects the neighbour, and the chat survives all four presses.
+    /// Cmd-W three times: the focus stays in the browser pane while it has tabs, each close
+    /// selects the neighbour, and the chat survives.
     @Test func cmdWClosesTheBrowserPanesTabsAndNeverTheAgentChat() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            // The presses wait on the daemon between them; a loaded host must not end the run early.
-            services.quickPressWindow = { 60 }
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
@@ -76,11 +75,6 @@ struct CloseTabKeepsPaneTests {
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ store.tab(id: ids[0]) == nil && content.focusedPane === agentPane },
                                             report: { "closing the last tab: " + Self.describe(content, chatID) })
-            // A quick press after it is part of the same burst: it closes nothing in the chat's pane.
-            _ = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
-            try await Task.sleep(for: .milliseconds(500))
-            #expect(store.tab(id: chatID) != nil, "the press after the pane closed closed the agent chat")
-            #expect(agentPane.orderedIDs.map(\.rawValue).contains(chatID), "the agent chat left its pane")
         }
     }
 
@@ -220,25 +214,6 @@ struct CloseTabKeepsPaneTests {
         #expect(next("b", ["a", "b", "c"]) == "c")
         #expect(next("c", ["a", "c"]) == "a")
         #expect(next("a", ["a"]) == nil)
-    }
-
-    /// Pure: the run that starts when a Cmd-W empties its pane (``EmptiedPaneCloseRun``).
-    @Test func quickPressesAfterAPaneEmptiedCloseNothingUntilAPause() {
-        var run = EmptiedPaneCloseRun()
-        // A press at each time, in order: whether it closed nothing.
-        func presses(_ times: [TimeInterval]) -> [Bool] { times.map { run.swallows(at: $0, window: 0.5) } }
-        // No run: a press closes.
-        let before = presses([10])
-        #expect(before == [false])
-        run.emptied(at: 10)
-        // Quick presses and key repeats each extend the run; a pause ends it, and the quick press after that closes too.
-        let burst = presses([10.3, 10.7, 11.1, 11.7, 11.8])
-        #expect(burst == [true, true, true, false, false])
-        #expect(run.last == nil)
-        // A clock that went back never swallows.
-        run.emptied(at: 20)
-        let backwards = presses([19])
-        #expect(backwards == [false])
     }
 
     /// Splits the focused pane right and gives the new pane's controller once the daemon confirmed it.
