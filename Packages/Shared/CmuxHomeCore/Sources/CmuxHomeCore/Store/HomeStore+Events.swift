@@ -100,6 +100,10 @@ extension HomeStore {
     func handle(_ event: HomeEvent) {
         switch event {
         case .connection(let state):
+            // Offline again (each failed reconnect of a down owner, with a new `since`) or the same
+            // state again is no new information: the store stays offline since it first went
+            // offline, and nothing below has anything left to do.
+            guard !Self.isSameConnection(connection, state) else { return }
             let wasOnline = connection == .online
             connection = state
             if state != .online {
@@ -192,6 +196,15 @@ extension HomeStore {
             settle()
             rebuildRows()
             if case .gap(let stream) = outcome { scheduleRefetch(stream) }
+        }
+    }
+
+    /// True when `next` is the connection the store already has: equal, or offline after offline
+    /// (whatever its `since`).
+    static func isSameConnection(_ current: HomeConnection, _ next: HomeConnection) -> Bool {
+        switch (current, next) {
+        case (.offline, .offline): true
+        default: current == next
         }
     }
 
