@@ -39,7 +39,7 @@ final class FeedPageService: InternalPageProvider {
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
         let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
-        return FeedHostView(model: feed.model, layoutOverride: layout) { reportID, reply in
+        return FeedHostView(model: feed.model, layoutOverride: layout) { [services] reportID, reply in
             // A report poster's authenticated identity is its ACP session. A
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
