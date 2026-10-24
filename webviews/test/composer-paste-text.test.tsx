@@ -234,47 +234,117 @@ test("inline payloads return only from history undo, in their original order", a
   expect(chips(composer).map((chip) => chip.id)).toEqual(original);
 });
 
-test("custom inline clipboard replacement removes selected payloads even with the same mark count", async () => {
+test("custom inline clipboard replacement keeps payloads through undo and redo", async () => {
   const composer = await openComposer();
   await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
-  const original = chips(composer)[0]!;
-  const replacement = { ...original, id: "replacement-inline-payload" };
+  await paste("", [new File(["b"], "b.txt", { type: "text/plain" })]);
+  const original = chips(composer).map((chip) => chip.id);
+  const replacements = chips(composer).map((chip, index) => ({ ...chip, id: `replacement-inline-payload-${index}` }));
   await act(async () => markdownField().selectAll());
   const data = {
     getData: (type: string) =>
       type === "application/x-cmux-inline-attachments"
-        ? JSON.stringify({ text: "\uFFFC", attachments: [replacement] })
+        ? JSON.stringify({ text: "\uFFFC\uFFFC", attachments: replacements })
         : "",
   };
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", { value: data });
   await act(async () => field().dispatchEvent(event));
   await settle();
-  expect(chips(composer).map((chip) => chip.id)).toEqual([replacement.id]);
+  expect(chips(composer).map((chip) => chip.id)).toEqual(replacements.map((chip) => chip.id));
   await act(async () => markdownField().undo());
   await settle();
-  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+  expect(chips(composer).map((chip) => chip.id)).toEqual(original);
+  await act(async () => markdownField().redo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual(replacements.map((chip) => chip.id));
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual(original);
 });
 
-test("undoing a custom inline paste at an empty caret drops its cloned payload", async () => {
+test("inline remove buttons remove every attachment kind and its mark", async () => {
   const composer = await openComposer();
-  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
-  const original = chips(composer)[0]!;
-  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
-  const data = {
-    getData: (type: string) =>
-      type === "application/x-cmux-inline-attachments"
-        ? JSON.stringify({ text: "\uFFFC", attachments: [{ ...original, id: "copied-inline-payload" }] })
-        : "",
-  };
-  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clipboardData", { value: data });
-  await act(async () => field().dispatchEvent(event));
+  const attachments: ComposerAttachment[] = [
+    { id: "inline-image", kind: "image", name: "shot.png", mimeType: "image/png", size: 1, data: "AA==" },
+    { id: "inline-pdf", kind: "document", name: "brief.pdf", mimeType: "application/pdf", size: 1, data: "JVBERi0=" },
+    { id: "inline-audio", kind: "audio", name: "voice.m4a", mimeType: "audio/mp4", size: 1, data: "AA==" },
+    {
+      id: "inline-file",
+      kind: "link",
+      name: "archive.zip",
+      mimeType: "application/zip",
+      size: 1,
+      path: "/tmp/archive.zip",
+    },
+    { id: "inline-paste", kind: "pasted", name: "log", mimeType: "text/plain", size: 1, text: "log" },
+  ];
+  for (const attachment of attachments) await act(async () => composer.current!.attach(attachment));
   await settle();
-  expect(chips(composer)).toHaveLength(2);
+  const remove = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-md-inline-remove")];
+  expect(remove).toHaveLength(attachments.length);
+  await act(async () => {
+    for (const button of remove) button.click();
+  });
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  expect(markdownField().value()).not.toContain("\uFFFC");
+});
+
+test("inline X removal restores and re-removes the payload through undo and redo", async () => {
+  const composer = await openComposer();
+  const attachment: ComposerAttachment = {
+    id: "x-file",
+    kind: "link",
+    name: "archive.zip",
+    mimeType: "application/zip",
+    size: 1,
+    path: "/tmp/archive.zip",
+  };
+  await act(async () => composer.current!.attach(attachment));
+  await settle();
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-md-inline-remove")!.click());
+  await settle();
+  expect(chips(composer)).toEqual([]);
   await act(async () => markdownField().undo());
   await settle();
-  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+  expect(chips(composer).map((chip) => chip.id)).toEqual([attachment.id]);
+  await act(async () => markdownField().redo());
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([attachment.id]);
+});
+
+test("cut inline payloads restore and re-remove through undo and redo", async () => {
+  const composer = await openComposer();
+  const attachment: ComposerAttachment = {
+    id: "cut-file",
+    kind: "link",
+    name: "cut.zip",
+    mimeType: "application/zip",
+    size: 1,
+    path: "/tmp/cut.zip",
+  };
+  await act(async () => composer.current!.attach(attachment));
+  await settle();
+  await act(async () => markdownField().selectAll());
+  const cut = new dom.window.Event("cut", { bubbles: true, cancelable: true });
+  Object.defineProperty(cut, "clipboardData", { value: { setData() {} } });
+  await act(async () => field().dispatchEvent(cut));
+  await act(async () => markdownField().writeText("", 0, 0));
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([attachment.id]);
+  await act(async () => markdownField().redo());
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([attachment.id]);
 });
 
 test("reverse decoder completion follows live mark order after the caret moves", async () => {

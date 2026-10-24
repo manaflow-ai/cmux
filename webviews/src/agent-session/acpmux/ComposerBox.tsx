@@ -42,6 +42,8 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
+  onInlineAttachmentRemove?(id: string): void;
+  onRemovePendingAttachment?(id: string): void;
   onRestoreAttachment?(ids: readonly string[]): void;
   onDiscardAttachment?(ids: readonly string[]): void;
   onPasteAttachments?(attachments: ComposerAttachment[], index: number): void;
@@ -95,6 +97,7 @@ export function ComposerBox({
   attachError,
   codex = false,
   onRemoveAttachment,
+  onInlineAttachmentRemove,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -109,6 +112,7 @@ export function ComposerBox({
   chromeItems,
   bottom,
   showAttachmentTray = false,
+  onRemovePendingAttachment,
   onRestoreAttachment,
   onDiscardAttachment,
   onPasteAttachments,
@@ -191,6 +195,7 @@ export function ComposerBox({
             {...(attachError ? { error: attachError } : {})}
             codex={codex}
             onRemove={onRemoveAttachment}
+            {...(onRemovePendingAttachment ? { onRemovePending: onRemovePendingAttachment } : {})}
             onExpand={pastedChips.expand}
           />
         )}
@@ -201,7 +206,7 @@ export function ComposerBox({
             ref={setPrompt}
             {...field}
             inlineAttachments={inlineAttachments}
-            onInlineAttachmentRemove={onRemoveAttachment}
+            onInlineAttachmentRemove={onInlineAttachmentRemove ?? onRemoveAttachment}
             onInlineAttachmentRestore={onRestoreAttachment}
             onInlineAttachmentDiscard={onDiscardAttachment}
             onInlineAttachmentPaste={onPasteAttachments}

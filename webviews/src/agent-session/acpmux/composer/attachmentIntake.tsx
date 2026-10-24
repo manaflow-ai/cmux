@@ -2,7 +2,7 @@
 // pictures in the new tab area but it works in the existing chats"): a chat's composer (Composer.tsx)
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
-import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -160,6 +160,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const cancelled = useRef(new Set<string>());
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -243,18 +244,22 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
     // The composer moved to another chat meanwhile: the chips are the chat's they were pasted in.
     const now = live.current.options;
+    const discarded = new Set(shown.map((chip) => chip.id).filter((id) => cancelled.current.has(id)));
+    const resolved = taken.attachments.filter((attachment) => !discarded.has(attachment.id));
     if (batch.scope !== now.scope) {
       read();
-      if (batch.scope !== undefined && taken.attachments.length) now.elsewhere?.(batch.scope, taken.attachments);
+      for (const id of discarded) cancelled.current.delete(id);
+      if (batch.scope !== undefined && resolved.length) now.elsewhere?.(batch.scope, resolved);
       return;
     }
     const delivered = new Set(taken.attachments.map((attachment) => attachment.id));
-    const refused = shown.map((chip) => chip.id).filter((id) => !delivered.has(id));
+    const refused = shown.map((chip) => chip.id).filter((id) => !delivered.has(id) && !discarded.has(id));
     if (refused.length) current.releaseInline?.(refused);
     // Resolve while pending ids are still in the field's inline list; then remove their placeholders.
     // This ordering also stays correct on hosts that do not batch promise callbacks.
-    setAttachments((staged) => insertResolvedAttachments(staged, taken.attachments, insertionIndex, now.inlineIndex));
+    setAttachments((staged) => insertResolvedAttachments(staged, resolved, insertionIndex, now.inlineIndex));
     read();
+    for (const id of discarded) cancelled.current.delete(id);
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
@@ -293,11 +298,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
-  const discardPending = useCallback((ids: readonly string[]) => {
-    if (!ids.length) return;
-    const removed = new Set(ids);
-    setPending((chips) => chips.filter((chip) => !removed.has(chip.id)));
-  }, []);
+  const removePending = (id: string) => {
+    cancelled.current.add(id);
+    setPending((chips) => chips.filter((chip) => chip.id !== id));
+    live.current.options.releaseInline?.([id]);
+  };
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {
@@ -310,7 +315,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     drop,
     dropLanded,
     attach,
-    discardPending,
+    removePending,
   };
 }
 
@@ -374,6 +379,7 @@ export function AttachmentStrip({
   error,
   codex = false,
   onRemove,
+  onRemovePending,
   onExpand,
 }: {
   attachments: readonly ComposerAttachment[];
@@ -382,6 +388,7 @@ export function AttachmentStrip({
   error?: string;
   codex?: boolean;
   onRemove(id: string): void;
+  onRemovePending?(id: string): void;
   /// A pasted text chip's click: its text goes back into the prompt (pastedText.ts). Unset, the chip
   /// only shows.
   onExpand?(id: string): void;
@@ -410,7 +417,7 @@ export function AttachmentStrip({
         />
       ))}
       {pending.map((chip) => (
-        <PendingChip key={chip.id} chip={chip} />
+        <PendingChip key={chip.id} chip={chip} onRemove={onRemovePending ?? onRemove} />
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
     </fieldset>
@@ -419,7 +426,7 @@ export function AttachmentStrip({
 
 /// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
 /// name, marked busy. No ×: it is a chip (or a refusal's note) in a moment.
-function PendingChip({ chip }: { chip: PendingAttachment }) {
+function PendingChip({ chip, onRemove }: { chip: PendingAttachment; onRemove: (id: string) => void }) {
   const t = useT();
   if (chip.image)
     return (
@@ -429,11 +436,27 @@ function PendingChip({ chip }: { chip: PendingAttachment }) {
         aria-label={imageLabel(t, { name: chip.name })}
       >
         <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+        <button
+          type="button"
+          className="acpmux-attachment-remove"
+          aria-label={`Remove ${chip.name}`}
+          onClick={() => onRemove(chip.id)}
+        >
+          ×
+        </button>
       </div>
     );
   return (
     <div className="acpmux-attachment acpmux-attachment-file acpmux-attachment-pending" aria-busy="true">
       <span>{chip.name}</span>
+      <button
+        type="button"
+        className="acpmux-attachment-remove"
+        aria-label={`Remove ${chip.name}`}
+        onClick={() => onRemove(chip.id)}
+      >
+        ×
+      </button>
     </div>
   );
 }

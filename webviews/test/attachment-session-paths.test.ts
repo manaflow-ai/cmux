@@ -122,3 +122,32 @@ test("a small image is reencoded too, so metadata is never passed through", asyn
   expect(drawn).toEqual([{ width: 320, height: 240 }]);
   expect(result).toMatchObject({ kind: "image", data: btoa("clean pixels") });
 });
+
+test("a Finder or Messages zip uses a path or streamed upload without reading the whole file", async () => {
+  const size = 26.5 * 1024 * 1024;
+  const local = new File([], "quarantine.zip", { type: "application/octet-stream" });
+  Object.defineProperty(local, "size", { value: size });
+  Object.defineProperty(local, "arrayBuffer", {
+    value: () => {
+      throw new Error("must not read the whole Finder file");
+    },
+  });
+  const linked = await intakeFiles([local], {
+    allowImages: true,
+    localPaths: async () => [{ path: "/Users/you/Downloads/quarantine.zip", folder: false }],
+  });
+  expect(linked.error).toBeUndefined();
+  expect(linked.attachments[0]).toMatchObject({ kind: "link", path: "/Users/you/Downloads/quarantine.zip", size });
+
+  let streamed: File[] = [];
+  const uploaded = await intakeFiles([local], {
+    allowImages: true,
+    upload: async (files) => {
+      streamed = files;
+      return { paths: ["/session/quarantine.zip"] };
+    },
+  });
+  expect(streamed).toEqual([local]);
+  expect(uploaded.error).toBeUndefined();
+  expect(uploaded.attachments[0]).toMatchObject({ kind: "link", path: "/session/quarantine.zip", size });
+});
