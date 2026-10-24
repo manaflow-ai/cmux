@@ -29,7 +29,10 @@ parser.add_argument("--workspaces", type=int, default=15)
 parser.add_argument("--every", type=int, default=10)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
+parser.add_argument("--limits", default="finder", help="finder: launchd's soft limits (256 open files); inherit: this step's")
 opts, _unknown = parser.parse_known_args()
+if opts.limits == "inherit":
+    os.environ["BENCH_LAUNCH_LIMITS"] = "inherit"  # bench_launch.finder_limits keeps this process's limits
 os.makedirs(opts.out, exist_ok=True)
 PAGE = os.path.join(tempfile.mkdtemp(prefix="cef-count-"), "page.html")
 open(PAGE, "w").write("<!doctype html><title>count</title><body>" + "".join(f"<p>line {i}</p>" for i in range(40)) + "</body>")
@@ -74,8 +77,38 @@ def copy_crash_reports(since):
     return copied
 
 
+def set_aside_old_reports():
+    """Moves (never deletes) older crash reports into a dated subfolder: osanalyticshelper writes no
+    new report once 25 of a type are there ("the limit of 25 logs has been reached")."""
+    folder = os.path.expanduser("~/Library/Logs/DiagnosticReports")
+    aside = os.path.join(folder, "set-aside-" + time.strftime("%Y%m%d-%H%M%S"))
+    moved = 0
+    for path in glob.glob(os.path.join(folder, "*.ips")):
+        os.makedirs(aside, exist_ok=True)
+        shutil.move(path, aside)
+        moved += 1
+    return moved
+
+
+def system_log(since, until):
+    """The window's memory pressure, jetsam and launchd session lines (third hypothesis), and the
+    bootstrap lookup failures seen before the cmux-ci deaths (first hypothesis)."""
+    start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(since))
+    end = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(until))
+    predicate = ('eventMessage CONTAINS[c] "memorystatus" OR eventMessage CONTAINS[c] "jetsam" OR '
+                 'eventMessage CONTAINS[c] "Too many open files" OR eventMessage CONTAINS "No such process" OR '
+                 '(process == "launchd" AND eventMessage CONTAINS[c] "cmux")')
+    out = subprocess.run(["log", "show", "--style", "compact", "--start", start, "--end", end, "--predicate", predicate],
+                         capture_output=True, text=True, timeout=300).stdout
+    path = os.path.join(opts.out, "system-log.txt")
+    open(path, "w").write(out)
+    return {"lines": out.count("\n"), "path": path}
+
+
 def main():
     started = time.time()
+    moved = set_aside_old_reports()
+    print(f"crash reports set aside: {moved}", flush=True)
     bench.launch(settle=2)
     rows, failure, opened = [], None, 0
     per_workspace = max(1, opts.tabs // max(1, opts.workspaces))
@@ -96,15 +129,17 @@ def main():
             rows.append(row)
             print("COUNT " + json.dumps(row), flush=True)
             if not alive:
-                failure = f"the app stopped answering at {opened} tabs ({cef.get('error') or 'exited ' + str(bench.process.poll())})"
+                failure = f"the app stopped answering at {opened} tabs, {round(time.time() - started)} s after launch ({cef.get('error') or 'exited ' + str(bench.process.poll())})"
     soft = ((rows[-1] if rows else {}).get("open_files") or {}).get("soft")
     if failure is None and (soft is None or soft <= 256):
         failure = f"the app's soft open-file limit is {soft}"
+    if failure:
+        time.sleep(15)  # test harness: ReportCrash writes the report after the process is gone
     crashes = copy_crash_reports(started) if failure else []
-    if failure and crashes:
-        time.sleep(0)  # reports copied above; a crash report written late is copied by wait_for_crash_report
+    log = system_log(started, time.time()) if failure else None
     result = {"host": os.uname().nodename, "tabs": opts.tabs, "rows": rows, "failure": failure, "crash_reports": crashes,
-              "log": bench.log_path}
+              "log": bench.log_path, "system_log": log, "limits": opts.limits, "seconds": round(time.time() - started),
+              "launch_limits": getattr(bench, "limits", None)}
     print("RESULT " + json.dumps({k: v for k, v in result.items() if k != "rows"}), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
