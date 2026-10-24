@@ -11,14 +11,12 @@ public import AppKit
 /// the person is idle and reused. The warm-up still costs that main-thread time once, at a
 /// pause or while cmux is in the background. The logic is ``MadeAheadPanelStore``'s; when the
 /// warm-up may run is ``OpenPanelWarmGate``'s.
+///
+/// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
+/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), `PageOpenPanel` and Home's `HomeAttachmentPanel`. Each
+/// instance keeps its own panel, so a test makes its own and never shares one with the app.
 @MainActor
 public final class MadeAheadOpenPanel {
-    // Recorded exception (review 2 of pl-fleet-gui): a runtime-state singleton the CLAUDE.md DI rule forbids in a
-    // rewritten file. Its four users (AgentPaneView, AgentPaneFilePicker, PageOpenPanel, HomeAttachmentPanel) are
-    // static or shared entry points with no init to inject through; making one at the composition root and passing it
-    // down is a separate change across three packages. The logic under it (MadeAheadPanelStore) is injected.
-    public static let shared = MadeAheadOpenPanel()
-
     private let store: MadeAheadPanelStore<NSOpenPanel>
 
     /// Whether the panel was made ahead of a click.

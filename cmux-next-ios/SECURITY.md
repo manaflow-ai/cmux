@@ -527,7 +527,7 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   its options at its own number. A terminal that moved on (a shell, another
   prompt, another question) gets nothing, and the card says so.
 - Which question: a notification answers only the question it was sent for (its push is
-  named `q-<tool use id>`; the phone types only while that question is pending), never a
+  named by a hash of the question and its options; the phone types only while that question is pending), never a
   newer one on the same tab.
 - When: a notification's answer is a foreground action (the app is open and
   unlocked); nothing is typed from the lock screen. Lock-screen terminal input

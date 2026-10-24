@@ -23,10 +23,24 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
-exact pull-request head. App diffs also require the completed
-`macos / macOS compile admission` check. A missing, queued, stale, or
-unsuccessful check is a refusal, and the helper prints the repair pointer.
+The branch rules are the source of required status checks. `gh-merge-green`
+is the main-branch helper because main's rules also carry the live freeze and
+fix-forward policy; it requires the checks that main's base actually reports,
+including `ci-status` when that workflow is present. It is not the
+feat-cmux-next landing command.
+
+The feat-cmux-next path is owned by `next-autoland` while its path-dependent
+compile and review predicates are being migrated into branch rules. It reads
+the exact head, treats ordinary pending and base-red findings as non-blocking,
+and still holds a required compile, risk, fast-gates or freeze verdict. Do not
+use `gh-merge-green` as a second gate for a feat-cmux-next PR.
+
+`ci-status` is an aggregate verdict, not a useful build step. On the feature
+line it waits on 11 legacy jobs even though its own verdict job took 3 seconds
+and the sampled run took 52 seconds from creation to completion (run
+40031108486, head `c1fe5958290d7199a32fba42256504a5da0a259e`). Main samples
+showed the same 3–4 second verdict after 36–125 minutes of upstream work.
+Those upstream jobs, rather than the verdict script, determine the wait.
 
 When a known red check is safe to waive, pass a written reason with at least
 eight words:
@@ -78,6 +92,10 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+
+Fork pull requests may use the same ephemeral Blacksmith size as the trusted
+Linux compile or test job. They keep read-only contents permissions and receive
+no secrets; small routing/status jobs may remain on the 4-vCPU lane.
 
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that

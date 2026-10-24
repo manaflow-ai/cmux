@@ -52,10 +52,39 @@ pub const TERMINAL_SURFACE_GAP: Duration = Duration::from_secs(10);
 /// At most this many terminal pushes a minute from this Mac.
 pub const TERMINAL_PER_MINUTE: usize = 10;
 
-/// A question with no tool use id this soon after the same questions were pushed on the
-/// same tab is that ask told again (Claude Code's PermissionRequest hook carries no
-/// `tool_use_id`).
+/// The same question this soon after it was pushed is that ask told again (Claude Code
+/// posts PreToolUse and PermissionRequest for one AskUserQuestion, in either order).
 pub const QUESTION_REPEAT_WINDOW: Duration = Duration::from_secs(30);
+
+/// A terminal question's push id: `q-` and the 64-bit FNV-1a, in hex, of its prompts and
+/// option labels (`prompt \u{1} label \u{2} label ...`, questions joined by `\u{0}`).
+/// None when it asks nothing.
+pub fn question_event_id(question: &Value) -> Option<String> {
+    let questions = question.get("questions")?.as_array()?;
+    let text = questions
+        .iter()
+        .filter_map(|q| {
+            let prompt = q.get("question")?.as_str()?;
+            let labels: Vec<&str> = q
+                .get("options")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|o| o.get("label").and_then(Value::as_str))
+                .collect();
+            Some(format!("{prompt}\u{1}{}", labels.join("\u{2}")))
+        })
+        .collect::<Vec<_>>()
+        .join("\u{0}");
+    if text.is_empty() {
+        return None;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    Some(format!("q-{hash:016x}"))
+}
 
 /// Turns daemon `notification` events into `terminal` pushes.
 #[derive(Debug, Default)]
@@ -66,12 +95,9 @@ pub struct TerminalClassifier {
     last: HashMap<u64, (String, Instant)>,
     /// When the pushes of the last minute went.
     sent: VecDeque<Instant>,
-    /// Terminal questions already pushed, by their event id (`q-<tool use id>`): Claude
-    /// Code fires two hooks for one AskUserQuestion, and the daemon posts each (bounded).
-    asked: HashSet<String>,
-    asked_order: VecDeque<String>,
-    /// Per surface: the last pushed question's text (all its prompts) and when.
-    last_question: HashMap<u64, (String, Instant)>,
+    /// Terminal questions pushed lately, by their event id: Claude Code fires two hooks
+    /// for one AskUserQuestion, and the daemon posts each.
+    asked_at: HashMap<(Option<u64>, String), Instant>,
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -187,38 +213,22 @@ impl TerminalClassifier {
             .and_then(|p| valid_id(&p.workspace_id, 128))
             .or_else(|| text("workspace_id").and_then(|w| valid_id(w, 128)));
         if ask {
-            // Named by its tool use: one push per question, which the phone matches an
-            // answer to (a question without one is never answered from a notification).
-            let tool = event
-                .pointer("/question/tool_use_id")
-                .and_then(Value::as_str)
-                .filter(|t| t.chars().any(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-')));
-            let event_id = match tool {
-                Some(tool) => crate::notify::event_id("q", &[tool]),
-                None => format!("n-{id}"),
-            };
-            let prompts: String = questions.iter().map(|q| q.question.as_str()).collect::<Vec<_>>().join("\u{0}");
-            if tool.is_none()
-                && let Some(surface) = surface
-                && self.last_question.get(&surface).is_some_and(|(text, at)| {
-                    *text == prompts && now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW
-                })
+            // Named by what it asks (its prompts and option labels, which both of Claude
+            // Code's hooks for one AskUserQuestion carry, in either order): one push per
+            // question, and the phone answers a notification only while that very question
+            // is pending on its tab (TerminalFeed.Entry.eventID computes the same key).
+            let event_id = event.get("question").and_then(question_event_id)?;
+            let key = (surface, event_id.clone());
+            if self
+                .asked_at
+                .get(&key)
+                .is_some_and(|at| now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW)
             {
                 return None;
             }
-            if let Some(surface) = surface {
-                self.last_question.insert(surface, (prompts, now));
-            }
-            if tool.is_some() {
-                if !self.asked.insert(event_id.clone()) {
-                    return None;
-                }
-                self.asked_order.push_back(event_id.clone());
-                if self.asked_order.len() > SEEN_LIMIT
-                    && let Some(old) = self.asked_order.pop_front()
-                {
-                    self.asked.remove(&old);
-                }
+            self.asked_at.insert(key, now);
+            if self.asked_at.len() > SEEN_LIMIT {
+                self.asked_at.retain(|_, at| now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW);
             }
             return Some(NotifyEvent {
                 event_id,
@@ -578,11 +588,13 @@ mod tests {
             hook
         };
         let first = c.handle_at(&ask(70, "toolu_A1"), &places(), t0).expect("the question pushes");
-        assert_eq!(first.event_id, "q-toolu_A1");
+        // Named by what it asks (the phone computes the same: TerminalFeed.Entry.eventID).
+        assert_eq!(first.event_id, "q-16b02b79af1ebede");
         assert!(c.handle_at(&ask(71, "toolu_A1"), &places(), t0 + Duration::from_millis(200)).is_none());
-        // The next question (another tool use) is new.
-        let next = c.handle_at(&ask(72, "toolu_B2"), &places(), t0 + Duration::from_secs(1)).unwrap();
-        assert_eq!(next.event_id, "q-toolu_B2");
+        // Another question is new.
+        let mut other = ask(72, "toolu_B2");
+        other["question"]["questions"][0]["question"] = json!("Which tag?");
+        assert!(c.handle_at(&other, &places(), t0 + Duration::from_secs(1)).is_some());
     }
 
     /// Live (Claude Code 2.1.309): the PermissionRequest hook of an AskUserQuestion carries
@@ -603,12 +615,21 @@ mod tests {
             hook["question"] = q;
             hook
         };
-        assert_eq!(c.handle_at(&ask(1, Some("toolu_X")), &places(), t0).unwrap().event_id, "q-toolu_X");
+        assert_eq!(
+            c.handle_at(&ask(1, Some("toolu_X")), &places(), t0).unwrap().event_id,
+            "q-396d98c066fa8647"
+        );
         assert!(c.handle_at(&ask(3, None), &places(), t0 + Duration::from_millis(300)).is_none());
+        // Either order (the hooks are detached): the one without a tool use first.
+        let mut d = TerminalClassifier::default();
+        assert_eq!(d.handle_at(&ask(5, None), &places(), t0).unwrap().event_id, "q-396d98c066fa8647");
+        assert!(d.handle_at(&ask(6, Some("toolu_X")), &places(), t0 + Duration::from_millis(30)).is_none());
         // On another tab, or after the agent moved on (a while later), it is a new push.
         let mut later = ask(4, None);
         later["notification"] = json!(4);
-        assert!(c.handle_at(&later, &places(), t0 + QUESTION_REPEAT_WINDOW + Duration::from_secs(1)).is_some());
+        assert!(
+            c.handle_at(&later, &places(), t0 + QUESTION_REPEAT_WINDOW + Duration::from_secs(1)).is_some()
+        );
     }
 
     /// Claude Code reports its own "asks a question" program status (an OSC the terminal
@@ -676,7 +697,7 @@ mod tests {
         // tab limit (the same question again is: `one_terminal_question_pushes_once_named_by_its_tool_use`).
         let mut again = hook.clone();
         again["notification"] = json!(53);
-        again["question"]["tool_use_id"] = json!("toolu_2");
+        again["question"]["questions"][0]["question"] = json!("Which tag?");
         assert_eq!(
             c.handle_at(&again, &places(), Instant::now() + Duration::from_secs(21)).unwrap().kind,
             "question"

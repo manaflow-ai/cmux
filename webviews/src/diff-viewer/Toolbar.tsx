@@ -11,6 +11,7 @@ import {
   overflowMenuItems,
   sourceMenuModel,
   toolbarPillButtons,
+  type OverflowCapabilities,
   type OverflowMenuItemId,
   type PillButtonId,
   type SourceTarget,
@@ -22,6 +23,7 @@ import type { DiffSource } from "../diff/generated/protocol";
 import {
   type SelectSessionSource,
   diffSourceRepoRoot,
+  hideWhitespaceAvailable,
   repoSelectionWithActiveSource,
   sourceSelectionWithActiveRepo,
   validDiffSource,
@@ -59,6 +61,7 @@ export function Toolbar({
     <header id="toolbar">
       <SourceControls
         activeSessionSource={activeSessionSource}
+        hideWhitespace={state.options.hideWhitespace}
         items={state.items}
         label={label}
         onNavigate={onNavigate}
@@ -82,6 +85,7 @@ export function Toolbar({
  * menu rows the reference viewer has, then the remaining view options.
  */
 export function DiffPill({
+  capabilities = NO_HOST_CAPABILITIES,
   dispatch,
   externalURL,
   label,
@@ -91,6 +95,8 @@ export function DiffPill({
   onSetOption,
   state,
 }: {
+  /** Which "..." rows this host and source can apply (toolbar-model.ts); none by default. */
+  capabilities?: OverflowCapabilities;
   dispatch: React.Dispatch<AppAction>;
   externalURL: string | null;
   label: DiffViewerLabelResolver;
@@ -128,17 +134,28 @@ export function DiffPill({
   const onMenuItem = (id: OverflowMenuItemId) => {
     switch (id) {
       case "load-full-files":
-        onSetOption("expandUnchanged", !state.options.expandUnchanged);
+        // Loads the files' sides; the gaps' chevrons then show more lines, a click at a time.
+        onSetOption("loadFullFiles", !state.options.loadFullFiles);
         return;
       case "word-diffs":
         onSetOption("wordDiffs", !state.options.wordDiffs);
         return;
+      case "hide-whitespace":
+        // Reloads the diff (App.tsx setOption): the sidecar leaves white space changes out.
+        onSetOption("hideWhitespace", !state.options.hideWhitespace);
+        return;
+      case "hide-imports":
+        // Reloads the diff (App.tsx setOption): the page leaves import-only hunks out.
+        onSetOption("hideImports", !state.options.hideImports);
+        return;
       case "copy-git-apply":
         onCopyGitApply();
         return;
+      case "rich-preview":
+        // No reload: the Preview buttons show or hide.
+        onSetOption("richPreview", !state.options.richPreview);
+        return;
       default:
-        // Rich preview, Hide white space and Hide imports have nothing the viewer
-        // can apply yet; their rows are unavailable (NO_HOST_CAPABILITIES).
         return;
     }
   };
@@ -146,7 +163,7 @@ export function DiffPill({
     <FloatingToolbar
       buttons={toolbarPillButtons({ ...state, splitFits: splitFits(state.viewerWidth) })}
       label={label}
-      menuItems={overflowMenuItems(state.options, NO_HOST_CAPABILITIES)}
+      menuItems={overflowMenuItems(state.options, capabilities, state.whitespaceHidden)}
       menuOpen={state.optionsOpen}
       onButton={onButton}
       onCloseMenu={() => dispatch({ type: "set-options-open", open: false })}
@@ -245,6 +262,7 @@ function ViewOptionsMenuRows({
 function SourceControls({
   activeSessionSource,
   children,
+  hideWhitespace,
   items,
   label,
   onNavigate,
@@ -256,6 +274,7 @@ function SourceControls({
   activeSessionSource: DiffSource | null;
   /** Controls after the source and base pills (the jump-to-file button). */
   children?: React.ReactNode;
+  hideWhitespace: boolean;
   items: DiffItem[];
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
@@ -314,6 +333,7 @@ function SourceControls({
       {sourceModel.selected?.id === "uncommitted" ? null : (
         <BaseControl
           activeSessionSource={activeSessionSource}
+          hideWhitespace={hideWhitespace}
           label={label}
           onNavigate={onNavigate}
           onSelectSessionSource={onSelectSessionSource}
@@ -333,6 +353,7 @@ function SourceControls({
  */
 function BaseControl({
   activeSessionSource,
+  hideWhitespace,
   label,
   onNavigate,
   onSelectSessionSource,
@@ -340,6 +361,7 @@ function BaseControl({
   transport,
 }: {
   activeSessionSource: DiffSource | null;
+  hideWhitespace: boolean;
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
   onSelectSessionSource: SelectSessionSource;
@@ -382,6 +404,9 @@ function BaseControl({
     return (
       <BranchBasePicker
         key={branchPickerStateKey(picker)}
+        ignoreWhitespace={
+          hideWhitespace && hideWhitespaceAvailable(payload, { kind: "branch", repoRoot: picker.repoRoot })
+        }
         label={label}
         onNavigate={onNavigate}
         onBranchSessionOpened={(session) =>

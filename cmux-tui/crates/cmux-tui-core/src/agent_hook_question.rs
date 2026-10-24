@@ -170,11 +170,13 @@ mod tests {
     #[test]
     fn the_second_hook_keeps_the_first_hooks_tool_use_id() {
         let first = json!({"harness":"claude","tool_use_id":"toolu_A","questions":[{"question":"Which?","options":[]}]});
-        let mut second = json!({"harness":"claude","questions":[{"question":"Which?","options":[]}]});
+        let mut second =
+            json!({"harness":"claude","questions":[{"question":"Which?","options":[]}]});
         carry_tool_use_id(&mut second, Some(&first));
         assert_eq!(second["tool_use_id"], "toolu_A");
         // Another question keeps none; one with its own id keeps its own.
-        let mut other = json!({"harness":"claude","questions":[{"question":"Other?","options":[]}]});
+        let mut other =
+            json!({"harness":"claude","questions":[{"question":"Other?","options":[]}]});
         carry_tool_use_id(&mut other, Some(&first));
         assert!(other.get("tool_use_id").is_none());
         let mut own = json!({"harness":"claude","tool_use_id":"toolu_B","questions":[{"question":"Which?","options":[]}]});

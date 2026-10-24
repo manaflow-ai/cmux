@@ -2,6 +2,7 @@
 import "../../pages/shared/desktop";
 // The shared icon+label button (cx-s6zvc); the pane does not load the rest of ui.css.
 import "../../ui/ghost.css";
+import "./composerFooterShared.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp } from "./App";
@@ -9,6 +10,7 @@ import { PaneBoundary } from "./PaneBoundary";
 import { AcpmuxDirectClient, nextFrame } from "./direct";
 import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
+import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
@@ -34,6 +36,10 @@ const root = document.getElementById("root")!;
 // the shared page host's popup ops, else the legacy bridge's.
 const popupHost =
   appPopupHost(pageHostClient()) ?? (window.webkit?.messageHandlers?.agentSession ? nativePopupHost(postNative) : null);
+// Right-click menus are the app's native menus (ui/nativeMenu.ts): the shared page host installs
+// its call with the page client; the legacy bridge answers `contextMenu.show`.
+if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
+  installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
 createRoot(root).render(
   <UiProvider container={root} popupHost={popupHost}>
     <PaneBoundary>

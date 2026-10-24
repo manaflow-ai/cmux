@@ -67,6 +67,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
+    /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
+    /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
+    public static var openPanel: MadeAheadOpenPanel?
+    /// This page's file chooser (its web view holds the UI delegate weakly).
+    private var fileChooser: PageOpenPanel?
     var loaded = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
@@ -293,7 +298,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self
-        webView.uiDelegate = PageOpenPanel.shared
+        fileChooser = Self.openPanel.map { PageOpenPanel(openPanel: $0) }
+        webView.uiDelegate = fileChooser
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
         webView.pageAcceptsFirstMouse = { [weak self] in
             guard let self else { return false }
@@ -306,12 +312,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PageRegistry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
+        router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):

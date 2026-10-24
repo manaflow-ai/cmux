@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -55,6 +55,10 @@ public final class AgentPaneView: NSView {
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let savePanel = AgentPaneSavePanel()
+    /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
+    private let openPanel: MadeAheadOpenPanel?
+    /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
+    private let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -125,9 +129,14 @@ public final class AgentPaneView: NSView {
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
     ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
+    ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
+    ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                 openPanel: MadeAheadOpenPanel? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
+        self.openPanel = openPanel
+        fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
         self.model = model
         self.source = source
         self.renderRate = renderRate
@@ -145,7 +154,11 @@ public final class AgentPaneView: NSView {
             webView = page.webKitView
             inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
-                if let event = AgentPageEvent.dictation(update) { provider?.publish(event) }
+                if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
+                    // The page host reports bounded replay backpressure; reconnecting the acpmux
+                    // transport resyncs the chat while the provider's replay state restores chrome.
+                    if let connection = model.transport.connection { model.transport.close(connection: connection) }
+                }
             })
         } else {
             let configuration = WKWebViewConfiguration()
@@ -212,8 +225,14 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
-        model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
-        model.onChooseAttachments = { [weak self] in await AgentPaneFilePicker.pickAttachments(window: self?.window) }
+        model.onChooseFiles = { [weak self] in
+            guard let self, let openPanel else { return [] }
+            return await AgentPaneFilePicker(openPanel: openPanel).pick(window: window)
+        }
+        model.onChooseAttachments = { [weak self] in
+            guard let self, let openPanel else { return [] }
+            return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
+        }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
@@ -233,7 +252,7 @@ public final class AgentPaneView: NSView {
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
-            webView.uiDelegate = PageOpenPanel.shared
+            webView.uiDelegate = fileChooser
             addSubview(webView)
             source.load(into: webView)
         }
@@ -392,7 +411,7 @@ public final class AgentPaneView: NSView {
             popupHostStorage?.dismiss()
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
-            MadeAheadOpenPanel.shared.warmWhenIdle()
+            openPanel?.warmWhenIdle()
         }
         applyTheme()
     }
@@ -439,7 +458,9 @@ public final class AgentPaneView: NSView {
         if let pageEvents {
             guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
             deliveredThemeEvent = event
-            pageEvents.publish(event)
+            if !pageEvents.publish(event), let connection = model.transport.connection {
+                model.transport.close(connection: connection)
+            }
         } else {
             if let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript {
                 deliveredThemeScript = script
@@ -453,7 +474,10 @@ public final class AgentPaneView: NSView {
     /// Sends a push to the page: events on the page host, scripts on the old host (only built there).
     func deliver(_ events: [AgentPageEvent], scripts: @autoclosure () -> [String]) {
         if let pageEvents {
-            for event in events { pageEvents.publish(event) }
+            for event in events where !pageEvents.publish(event) {
+                if let connection = model.transport.connection { model.transport.close(connection: connection) }
+                break
+            }
         } else {
             for script in scripts() { evaluateScript(script) }
         }

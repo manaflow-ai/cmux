@@ -55,7 +55,8 @@ final class FeedInstallPrincipal {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         for (name, value) in identity.requestHeaders { request.setValue(value, forHTTPHeaderField: name) }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // The install token never goes through the shared, caching session.
+        let (data, response) = try await CloudAPIClient.noStoreTransport.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 { await identity.invalidate() }
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
