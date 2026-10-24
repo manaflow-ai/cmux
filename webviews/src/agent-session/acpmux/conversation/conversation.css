@@ -1537,11 +1537,9 @@ pre.cv-math-source {
 /* The running turn's line as its last row (`below`): its words stand 16px under a reply (the reply
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
-   The gap comes out of the row's bottom padding, so the line's row is the chat's last footer's
-   32px (its 24px line and the 8px message gap) and the turn's end, which swaps one for the other,
-   moves nothing. */
+   The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
 .cv-worked.is-below {
-  height: calc(var(--cv-meta-row) + var(--cv-message-gap));
+  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
 }
 /* Its time is quieter than its words, as the tool rows' time is. */
@@ -2598,8 +2596,8 @@ a.cv-sha:focus-visible {
 /* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
    all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
    over that gap (24px, the line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
-   took a full line). The chat's last footer has only the 8px message gap, too short for the line,
-   so there it draws nothing: the prompt's own hover row has the same Fork and age. */
+   took a full line). The chat's last footer keeps that same gap, so its hidden controls never add a
+   second band over the composer. */
 .cv-turn-actions--empty {
   position: absolute;
   inset: 0 0 auto;
@@ -3909,9 +3907,9 @@ article.acpmux-row:empty {
   min-height: 0;
   padding-bottom: var(--cv-turn-gap);
 }
-/* The chat's last footer: the message gap, so no band sits over the composer. */
+/* The chat's last footer keeps the normal turn gap above the composer. */
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
-  padding-bottom: var(--cv-message-gap);
+  padding-bottom: var(--cv-turn-gap);
 }
 
 /* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action

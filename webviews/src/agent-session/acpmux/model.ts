@@ -693,10 +693,6 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
-/// Room kept under the last row, over the bottom stack's: a streaming reply's newest line sits a
-/// line and a half above the composer instead of on its edge, as in ChatGPT and Claude desktop.
-/// It is always there, streaming or not, so a reply that starts or ends moves nothing.
-export const TRANSCRIPT_RUNWAY = 24;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
@@ -876,11 +872,11 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   (!next ||
     (next.kind === "user" &&
       (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
-/// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
+/// What the row after a row changes about its height (`beforeFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
 
-function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, lastFooter = false): number {
+function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
@@ -911,8 +907,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
-  // `.cv-worked.is-below`) and its row's gap, the footer's too.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return META_ROW + MESSAGE_GAP;
+  // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return META_ROW + TURN_GAP;
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
   if (row.kind === ACTIVITY_LINE) return 36;
@@ -945,9 +941,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (row.kind === "sessionStart") return 37;
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
-  // A turn's footer: its meta line, then the turn gap (the message gap for the chat's last one). An
-  // empty footer (only hover controls, conversation/turns.ts isEmptyFooter) takes no line.
-  if (row.kind === "turnSummary") return (isEmptyFooter(row) ? 0 : META_ROW) + (lastFooter ? MESSAGE_GAP : TURN_GAP);
+  // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
+  // conversation/turns.ts isEmptyFooter) takes no line but keeps that same gap.
+  if (row.kind === "turnSummary") return (isEmptyFooter(row) ? 0 : META_ROW) + TURN_GAP;
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
@@ -1092,12 +1088,11 @@ function measuredRowHeight(
   width: number,
   cache: Map<string, PreparedRow>,
   beforeFooter = false,
-  lastFooter = false,
 ): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + MESSAGE_GAP;
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
-  if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+  if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
   // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
   // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
   // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
@@ -1118,7 +1113,7 @@ function measuredRowHeight(
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -1143,7 +1138,7 @@ function measuredRowHeight(
           ? PASTE_CHIP_HEIGHT
           : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
   } else {
-    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter);
     contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
     for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
   }
@@ -1203,7 +1198,7 @@ export function layoutConversation(
       height =
         customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
           ? customHeight
-          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last");
+          : measuredRowHeight(row, width, cache, edge === "footer");
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;
