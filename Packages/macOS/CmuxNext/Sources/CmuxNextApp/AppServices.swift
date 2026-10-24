@@ -25,6 +25,7 @@ import CmuxNextPhoneAccess
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
@@ -293,7 +294,8 @@ final class AppServices {
     private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
-    let inputDispatch = InputDispatchContext()
+    /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
+    let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
