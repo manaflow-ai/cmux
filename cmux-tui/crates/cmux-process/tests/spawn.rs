@@ -106,6 +106,74 @@ mod daemon_spawn {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A new PTY: its master (close-on-exec) and its slave's path.
+    fn open_pty() -> (OwnedFd, std::path::PathBuf) {
+        // SAFETY: posix_openpt returns a new descriptor or -1.
+        let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) };
+        assert!(master >= 0, "posix_openpt: {}", std::io::Error::last_os_error());
+        // SAFETY: a new descriptor the test owns.
+        let master = unsafe { OwnedFd::from_raw_fd(master) };
+        let raw = std::os::fd::AsRawFd::as_raw_fd(&master);
+        // SAFETY: plain calls on the master the test owns; ptsname's static
+        // buffer is copied at once (one PTY test in this binary).
+        let name = unsafe {
+            assert_eq!(libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC), 0);
+            assert_eq!(libc::grantpt(raw), 0);
+            assert_eq!(libc::unlockpt(raw), 0);
+            let name = libc::ptsname(raw);
+            assert!(!name.is_null(), "ptsname");
+            std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned()
+        };
+        (master, std::path::PathBuf::from(name))
+    }
+
+    /// `open_stdin_path` with `new_session` (the shell spawn of a PTY):
+    /// the child's 0, 1 and 2 are the PTY slave and the slave is its
+    /// controlling terminal (`/dev/tty` opens and writing to it reaches the
+    /// master), as `cmux-mux2`'s `spawn_pty` makes it.
+    #[test]
+    fn a_pty_slave_opened_as_stdin_is_the_new_sessions_controlling_terminal() {
+        let (master, slave) = open_pty();
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "tty; echo via-ctty > /dev/tty && echo ctty-ok; echo err-on-pty >&2"])
+            .new_session()
+            .open_stdin_path(&slave)
+            .spawn()
+            .unwrap();
+        // Read the master until the child's last line (the deadline only
+        // fails a child that never writes it).
+        let (sent, got) = std::sync::mpsc::channel();
+        let mut reader = std::fs::File::from(master);
+        std::thread::spawn(move || {
+            let mut all = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                match reader.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        all.extend_from_slice(&chunk[..n]);
+                        if String::from_utf8_lossy(&all).contains("err-on-pty") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let _ = sent.send(String::from_utf8_lossy(&all).into_owned());
+        });
+        let text =
+            got.recv_timeout(Duration::from_secs(30)).expect("the child never wrote to its PTY");
+        assert!(child.wait().unwrap().success(), "{text}");
+        let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+        assert_eq!(
+            lines.first().copied(),
+            Some(slave.to_str().unwrap()),
+            "stdin is not the slave: {text}"
+        );
+        assert!(lines.contains(&"via-ctty"), "/dev/tty did not reach this PTY: {text}");
+        assert!(lines.contains(&"ctty-ok"), "/dev/tty did not open: {text}");
+        assert!(lines.contains(&"err-on-pty"), "stderr is not the PTY: {text}");
+    }
+
     #[test]
     fn the_child_runs_in_its_working_directory() {
         let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
