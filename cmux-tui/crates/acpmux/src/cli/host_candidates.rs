@@ -11,7 +11,7 @@ use crate::client::Client;
 use crate::tailnet::{Node, Status};
 use anyhow::Result;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// How many ssh probes run at once.
