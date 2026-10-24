@@ -98,6 +98,17 @@ private final class CallCounter: @unchecked Sendable {
         #expect(!driver.relaunchGate.isWaiting)
     }
 
+    @Test func aSessionPreservingHostRelaunchesAnAutomaticInstallOverLiveWork() {
+        let driver = makeDriver()
+        driver.holdsUserInstalls = false
+        driver.relaunchIsAutomatic = true
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 4)
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+        #expect(model.state == .idle)
+    }
+
     @Test func restartNowAfterAnAutomaticLaterIsAUserInstallOnAHostThatDoesNotHoldThem() {
         let driver = makeDriver()
         driver.holdsUserInstalls = false
