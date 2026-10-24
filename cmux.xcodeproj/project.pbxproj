@@ -276,7 +276,16 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-mcp",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-run",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/start-cmux-profiling",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/submit-cmux-profile",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-runner",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-dev-shim-install",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-macos-profile",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-open-url",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/open",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/xdg-open",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-mode",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/toolchain-licenses",
 			);
@@ -363,7 +372,16 @@
 			);
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/acpmux",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-app-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-cloud",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-browser-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-holder",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-agent-screen-detection",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/daemon-capabilities.json",
 				"$(TARGET_TEMP_DIR)/bundle-cmux-tui.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -417,7 +435,9 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/optchat-chief",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/optchat-chief.version",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/chief-codex",
 				"$(TARGET_TEMP_DIR)/bundle-optchat-chief.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -450,7 +470,8 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-mobile-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-mobile-host.version",
 				"$(TARGET_TEMP_DIR)/bundle-mobile-host.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -486,7 +507,13 @@
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/Chromium Embedded Framework.framework",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libcmux_cef_shim.dylib",
-				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper.app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (GPU).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Renderer).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Plugin).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Alerts).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Chromium Host.app",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Extensions/ublock-origin",
 				"$(TARGET_TEMP_DIR)/embed-cef.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -655,9 +682,9 @@
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources",
 				"$(SRCROOT)/Resources/markdown-viewer/webviews-app",
-				"$(SRCROOT)/Native/OptChat/optchat-chief/inspector",
-				"$(SRCROOT)/Resources/xcstrings",
-				"$(SRCROOT)/settings",
+				"$(SRCROOT)/schemas/settings",
+				"$(SRCROOT)/Resources/markdown-viewer/marked.min.js",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources",
 			);
 			name = "Verify web bundles";
 			outputFileListPaths = (
@@ -667,7 +694,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nstamp=\"${TARGET_TEMP_DIR}/verify-web-bundles.stamp\"\ntrap 'mkdir -p \"$(dirname \"$stamp\")\"; printf \"completed\\n\" > \"$stamp\"' EXIT\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
+			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nstamp=\"${TARGET_TEMP_DIR}/verify-web-bundles.stamp\"\nrm -f \"$stamp\"\non_exit() { status=$?; if [ \"$status\" -eq 0 ]; then mkdir -p \"$(dirname \"$stamp\")\"; printf \"completed\\n\" > \"$stamp\"; fi; exit \"$status\"; }\ntrap on_exit EXIT\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

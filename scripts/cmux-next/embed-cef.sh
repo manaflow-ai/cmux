@@ -37,7 +37,16 @@ LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cef.stamp"
-trap 'mkdir -p "$(dirname "$stamp")"; printf "completed\n" > "$stamp"' EXIT
+on_exit() {
+  status=$?
+  if (( status == 0 )); then
+    mkdir -p "$(dirname "$stamp")"
+    printf 'completed\n' > "$stamp"
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+rm -f "$stamp"
 
 # The built-in full uBlock Origin (a Chromium extension, so it rides on this
 # phase; it does not need the CEF artifact). Its own failures are warnings

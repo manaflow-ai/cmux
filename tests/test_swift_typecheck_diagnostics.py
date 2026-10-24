@@ -68,6 +68,16 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
         self.assertIn('"$(TARGET_TEMP_DIR)/embed-cef.stamp"', source)
         self.assertNotIn('"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cef"', source)
         self.assertIn('"$(TARGET_TEMP_DIR)/verify-web-bundles.stamp"', source)
+        for script in (
+            "bundle-cmux-tui.sh",
+            "bundle-optchat-chief.sh",
+            "bundle-mobile-host.sh",
+            "embed-cef.sh",
+            "bundle-ghostty-resources.sh",
+        ):
+            text = (ROOT / "scripts/cmux-next" / script).read_text()
+            self.assertIn("if (( status == 0 )); then", text)
+            self.assertIn('rm -f "$stamp"', text)
 
 
 if __name__ == "__main__":

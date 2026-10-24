@@ -42,6 +42,7 @@ OPT_OUT_FILE="RemoteBrowserHostOptOut.txt"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 dest="$app/Contents/Helpers/$RBH_NAME.app"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-remote-browser-host.stamp"
+rm -f "$stamp"
 opt_out="$app/Contents/Resources/$OPT_OUT_FILE"
 rm -f "$opt_out"
 

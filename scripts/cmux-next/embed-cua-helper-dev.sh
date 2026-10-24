@@ -16,6 +16,7 @@ app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cua-helper-dev.stamp"
+rm -f "$stamp"
 skip() {
   echo "note: not embedding the Computer Use helper (dev): $1"
   rm -rf "$dest"

@@ -70,7 +70,16 @@ set -euo pipefail
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/cmux"
 stamp="${TARGET_TEMP_DIR:?}/bundle-cmux-tui.stamp"
-trap 'mkdir -p "$(dirname "$stamp")"; printf "completed\n" > "$stamp"' EXIT
+on_exit() {
+  status=$?
+  if (( status == 0 )); then
+    mkdir -p "$(dirname "$stamp")"
+    printf 'completed\n' > "$stamp"
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+rm -f "$stamp"
 aliases=(cmux-tui acpmux)
 
 # Names other than the real file point at it, relative so the bundle stays
