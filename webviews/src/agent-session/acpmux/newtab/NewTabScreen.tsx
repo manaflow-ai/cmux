@@ -337,6 +337,9 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    loading,
+    cancel,
+    retry,
     attachError,
     drop,
     dropLanded,
@@ -347,7 +350,7 @@ export function NewTabScreen(props: Props) {
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const holdForAttachments = useSendWhenAttached(reading.length);
+  const holdForAttachments = useSendWhenAttached(loading);
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {
@@ -1223,6 +1226,11 @@ export function NewTabScreen(props: Props) {
               setAttachments((current) => current.filter((item) => item.id !== id));
               field.current?.focus();
             }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
           />
           {!pill && !split && pickers}
         </div>

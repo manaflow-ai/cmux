@@ -162,7 +162,56 @@
   width: 104px;
 }
 .acpmux-attachment-file.acpmux-attachment-pending {
-  padding-right: 10px;
+  gap: 6px;
+}
+/* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
+   rather than this placeholder that doesn't do anything"); its × cancels it. */
+.acpmux-attachment-spinner {
+  flex: none;
+}
+/* A file that could not be attached: why, cut to the tile (its tooltip has all of it), Retry, and
+   its × (composer/attachmentIntake.tsx PendingChip). */
+.acpmux-attachment-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--agent-muted);
+  text-align: center;
+}
+.acpmux-attachment-image.acpmux-attachment-failed {
+  width: 104px;
+}
+.acpmux-attachment-file.acpmux-attachment-failed {
+  flex-direction: row;
+  max-width: min(260px, 70vw);
+  padding: 0 32px 0 10px;
+}
+.acpmux-attachment-failed .acpmux-attachment-failed-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.acpmux-attachment-retry {
+  flex: none;
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.acpmux-attachment-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 20%, transparent);
+}
+.acpmux-attachment-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
 }
 .acpmux-attachment-file {
   display: flex;
