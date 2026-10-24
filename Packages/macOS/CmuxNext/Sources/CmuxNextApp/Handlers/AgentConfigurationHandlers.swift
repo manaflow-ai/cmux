@@ -90,7 +90,13 @@ enum AgentConfigurationHandlers {
                 guard let short = harnessID.split(separator: "/").last.map(String.init) else { continue }
                 if aliases[short] != nil { collisions.insert(short) } else { aliases[short] = choices }
             }
-            for collision in collisions { aliases[collision] = nil }
+            for collision in collisions {
+                aliases[collision] = nil
+                // The pane records only the final harness component. If a
+                // peer and local profile share it, fail closed instead of
+                // showing either profile's models for an ambiguous session.
+                modelsByHarness[collision] = nil
+            }
             store.modelsByHarness = modelsByHarness.merging(aliases) { current, _ in current }.mapValues { choices in
                 choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             }
