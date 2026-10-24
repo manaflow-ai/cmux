@@ -302,7 +302,7 @@ def incomplete_rows(rows, baseline, manifest, only):
             # A baseline row with a missing current value already has a concrete
             # reason above; otherwise retain the manifest-level reason so a new
             # baseline cannot be written from a partial run.
-            if any(name in baseline for name in matched):
+            if any(name in baseline for name in matched) or any(re.fullmatch(pattern, name) for name in baseline):
                 continue
             missing.append({"name": pattern, "reason": "manifest row not measured"})
     return missing
@@ -315,14 +315,20 @@ def completeness_counts(rows, baseline, manifest, only, incomplete, regressed):
     baseline exists, the manifest patterns are the expected entries instead.
     """
     selected = [pattern for part in only for pattern in manifest.get(part, [])]
+    measured_names = {row.get("name") for row in rows if row.get("name") and row.get("p95") is not None}
     expected_names = {name for name in baseline
                       if not selected or any(re.fullmatch(pattern, name) for pattern in selected)}
-    if not expected_names:
-        expected_names.update(selected)
-    measured_names = {row.get("name") for row in rows if row.get("name") and row.get("p95") is not None}
+    if expected_names:
+        expected = len(expected_names)
+        measured = len(expected_names & measured_names)
+    else:
+        matched = {pattern for pattern in selected
+                   if any(re.fullmatch(pattern, name) for name in measured_names)}
+        expected = len(selected)
+        measured = len(matched)
     incomplete_names = {item["name"] for item in incomplete}
-    return {"expected": len(expected_names),
-            "measured": len(expected_names & measured_names),
+    return {"expected": expected,
+            "measured": measured,
             "unsupported": 0,
             "failed": len(regressed),
             "incomplete": len(incomplete_names)}

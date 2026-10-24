@@ -96,6 +96,17 @@ class PerfBudgetManifestTests(unittest.TestCase):
         )
         self.assertEqual(counts, {"expected": 1, "measured": 1, "unsupported": 0, "failed": 0, "incomplete": 0})
 
+    def test_receipt_counts_a_manifest_family_without_baseline(self):
+        counts = pb.completeness_counts(
+            [{"name": "panes.split.4x2.frame", "p95": 8.0}],
+            {},
+            {"panes": [r"panes\..*\.frame"], "home": [r"home\.scroll\.frame"]},
+            ["panes", "home"],
+            [{"name": r"home\.scroll\.frame", "reason": "manifest row not measured"}],
+            [],
+        )
+        self.assertEqual(counts, {"expected": 2, "measured": 1, "unsupported": 0, "failed": 0, "incomplete": 1})
+
     def test_unmeasured_row_blocks_a_new_baseline(self):
         rows = [{"name": "panes.split.4x2.frame", "p95": None}]
         self.assertEqual(pb.incomplete_rows(rows, {}, {"panes": [r"panes\..*\.frame"]}, ["panes"]),

@@ -988,7 +988,7 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     baseline = baseline_doc.get("rows", {})
     def unsupported_entries(document):
         entries = {}
-        for item in document.get("unsupported", []):
+        for item in document.get("unsupported") or []:
             if isinstance(item, str):
                 entries[item] = "explicitly allowlisted"
             elif isinstance(item, dict) and item.get("key"):
