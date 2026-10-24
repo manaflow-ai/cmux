@@ -583,11 +583,6 @@ pub fn pool_dir(hosts: &Path) -> PathBuf {
     hosts.join(POOL_DIR_NAME)
 }
 
-/// Whether `dir` is a pooled-host directory.
-pub fn is_pool_dir(dir: &Path) -> bool {
-    dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
-}
-
 /// A session took a pooled host: move its lock, then its record, from the
 /// pool directory `from` into the hosts directory `to`, where adoption finds
 /// it. The host keeps its lock (`flock` follows the open file, not the name)

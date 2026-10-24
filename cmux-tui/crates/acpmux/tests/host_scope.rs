@@ -5,10 +5,11 @@
 //! already had theirs, `session_scope.rs`, but a host ends its harness when
 //! it gets SIGTERM), so after
 //! `systemctl --user restart` the same host and harness pids are alive and
-//! the new daemon drives the session again. A pooled host stays in the
-//! unit (it ends with its daemon) until a session takes it; then it moves
-//! and survives too. With `ACPMUX_HOST_SCOPES=0` the same restart ends them,
-//! which shows the test can fail.
+//! the new daemon drives the session again. Pooled hosts move too: a taken
+//! one survives like any other, and an untaken one still ends with its
+//! daemon (it never relied on the unit), also when the daemon is SIGKILLed.
+//! With `ACPMUX_HOST_SCOPES=0` the same restart ends them, which shows the
+//! test can fail.
 //!
 //! Needs a user systemd manager (a Linux login with linger); without one
 //! each test says so and passes.
@@ -274,18 +275,6 @@ fn in_own_scope(pid: i64) -> bool {
         .any(|l| l.starts_with("0::") && l.contains(&prefix) && l.trim_end().ends_with(".scope"))
 }
 
-/// Waits (test polling, bounded) until `pid` is in its own host scope.
-async fn moves_within(pid: i64, within: Duration) -> bool {
-    let deadline = Instant::now() + within;
-    while !in_own_scope(pid) {
-        if Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    true
-}
-
 fn pool_host(home: &Path) -> i64 {
     let dir = home.join("hosts").join("pool");
     let found = std::fs::read_dir(&dir)
@@ -298,7 +287,7 @@ fn pool_host(home: &Path) -> i64 {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_pooled_host_moves_when_a_session_takes_it_and_an_untaken_one_ends_with_the_unit() {
+async fn pooled_hosts_move_a_taken_one_survives_and_an_untaken_one_ends_with_its_daemon() {
     if !user_manager() {
         eprintln!("no user systemd manager here: skipped");
         return;
@@ -308,15 +297,10 @@ async fn a_pooled_host_moves_when_a_session_takes_it_and_an_untaken_one_ends_wit
     let mut rpc = Rpc::connect(&home).await;
     rpc.pool_ready(&home, "fakeb").await;
     let waiting = pool_host(&home);
-    assert!(
-        cgroup(waiting).trim_end().ends_with(&format!("/{}", unit.name)),
-        "a pooled host left the daemon's unit before a session took it: {}",
-        cgroup(waiting)
-    );
+    assert!(in_own_scope(waiting), "pooled host not in its scope: {}", cgroup(waiting));
     let taken = rpc.new_session(&home, "fakeb").await;
     let (host, harness) = pids(&home, &taken);
     assert_eq!(host, waiting, "the session did not take the pooled host");
-    assert!(moves_within(host, Duration::from_secs(10)).await, "taken host: {}", cgroup(host));
     assert!(
         !cgroup(harness).contains(&format!("/{}", unit.name)),
         "the taken host's harness stayed in the daemon's unit: {}",
@@ -324,6 +308,7 @@ async fn a_pooled_host_moves_when_a_session_takes_it_and_an_untaken_one_ends_wit
     );
     rpc.pool_ready(&home, "fakeb").await;
     let untaken = pool_host(&home);
+    assert!(in_own_scope(untaken), "pooled host not in its scope: {}", cgroup(untaken));
     drop(rpc);
 
     unit.restart();
@@ -340,6 +325,30 @@ async fn a_pooled_host_moves_when_a_session_takes_it_and_an_untaken_one_ends_wit
     drop(rpc);
     drop(unit);
     assert!(gone_within(host, Duration::from_secs(10)), "host {host} outlived its deleted home");
+}
+
+/// SIGKILL to the daemon (no shutdown path, no unit stop): the untaken pooled
+/// host in its own scope ends once its controller is gone, and systemd starts
+/// no new daemon (the unit has no `Restart=`) to sweep it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_untaken_pooled_host_ends_when_its_daemon_is_killed() {
+    if !user_manager() {
+        eprintln!("no user systemd manager here: skipped");
+        return;
+    }
+    let home = scratch("kill");
+    let unit = Unit::start(&home, "kill", true);
+    let mut rpc = Rpc::connect(&home).await;
+    rpc.pool_ready(&home, "fakeb").await;
+    let pooled = pool_host(&home);
+    assert!(in_own_scope(pooled), "pooled host not in its scope: {}", cgroup(pooled));
+    drop(rpc);
+    let killed = Command::new("systemctl")
+        .args(["--user", "kill", "--kill-whom=main", "--signal=SIGKILL", &unit.name])
+        .status()
+        .expect("systemctl kill");
+    assert!(killed.success(), "kill {}: {killed}", unit.name);
+    assert!(gone_within(pooled, Duration::from_secs(10)), "pooled host {pooled} outlived its daemon");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

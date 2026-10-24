@@ -6,20 +6,20 @@
 //! one) a daemon restart then sent SIGTERM to every agent host, and a
 //! `MemoryHigh` on the unit throttled the daemon for its agents' memory: on
 //! huge-blue it stopped answering for 37 minutes. So the daemon moves each
-//! session's host into its own transient scope
+//! host it starts into its own transient scope
 //! `acpmux-agent-host-<pid>-<tag>.scope` in [`HOST_SLICE`] of the same user
-//! manager. A stop or restart of the daemon's unit then leaves the host and
-//! its harness for the next daemon to adopt, whatever the unit's `KillMode`
-//! (`acpmux.service` also has `KillMode=process`, `cli/hosts.rs`). Logout
+//! manager ([`place`]), within the start budget and before the host gets its
+//! spawn spec, so before it starts its harness. A stop or restart of the
+//! daemon's unit then leaves the host and its harness for the next daemon to
+//! adopt, whatever the unit's `KillMode`: the same as under
+//! `KillMode=process`, which `acpmux.service` has (`cli/hosts.rs`). Logout
 //! without linger and machine shutdown still stop the scope with SIGTERM,
 //! which a host honors.
 //!
-//! - A session's own host moves before it gets its spawn spec, and so before
-//!   it starts its harness ([`place`]), within the start budget.
-//! - A pooled host belongs to its daemon until a session takes it, so it
-//!   stays in the daemon's unit and ends with it. When a session takes it,
-//!   the host and the processes under it that are still in the daemon's
-//!   cgroup move ([`place_taken`]), in the background.
+//! Pooled hosts move too. They never depended on the unit to end with their
+//! daemon: an untaken pooled host ends when its controller goes
+//! (`host.rs`, `still_pooled`), and the next daemon ends any left in the
+//! pool directory before it adopts hosts (`sweep_pool_hosts`).
 //!
 //! Only a daemon in a user manager's service unit moves hosts: one in a
 //! terminal, a login session scope or under launchd leaves them where they
@@ -70,8 +70,8 @@ pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
     unified(cgroup).is_some_and(|path| path.ends_with(&format!("/{HOST_SLICE}/{unit}")))
 }
 
-/// The `busctl` arguments that create the scope `unit` holding `pids`.
-pub(crate) fn busctl_args(unit: &str, pids: &[u32]) -> Vec<String> {
+/// The `busctl` arguments that create the scope `unit` holding `pid`.
+pub(crate) fn busctl_args(unit: &str, pid: u32) -> Vec<String> {
     let mut args: Vec<String> = [
         "--user",
         "--quiet",
@@ -86,8 +86,7 @@ pub(crate) fn busctl_args(unit: &str, pids: &[u32]) -> Vec<String> {
     .map(str::to_owned)
     .collect();
     args.extend([unit.to_owned(), "fail".into(), "3".into()]);
-    args.extend(["PIDs".into(), "au".into(), pids.len().to_string()]);
-    args.extend(pids.iter().map(u32::to_string));
+    args.extend(["PIDs".into(), "au".into(), "1".into(), pid.to_string()]);
     args.extend(["Slice".into(), "s".into(), HOST_SLICE.into()]);
     args.extend(["CollectMode".into(), "s".into(), "inactive-or-failed".into()]);
     args.push("0".into());
@@ -149,43 +148,22 @@ mod linux {
         daemon_cgroup().is_some() && !backing_off(*FAILED_AT.lock_or_recover(), Instant::now())
     }
 
-    fn tag() -> String {
+    fn tag() -> Result<String, String> {
         let mut bytes = [0u8; 4];
-        // A pid-only name on a failed draw: the move may then fail on a
-        // stale scope, which is logged.
-        let _ = getrandom::fill(&mut bytes);
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
+        getrandom::fill(&mut bytes).map_err(|e| format!("the OS random generator: {e}"))?;
+        Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
     }
 
     /// Move the host `pid` this process just started, and has not reaped
     /// (its pid cannot be reused), into its own scope. Never fails the spawn.
     pub(crate) async fn place(pid: u32) {
         if enabled() {
-            report(pid, try_place(&scope_unit(pid, &tag()), &[pid]).await);
+            let placed = match tag() {
+                Ok(tag) => try_place(&scope_unit(pid, &tag), pid).await,
+                Err(e) => Err(e),
+            };
+            report(pid, placed);
         }
-    }
-
-    /// Move the pooled host `pid` a session just took into its own scope,
-    /// with the processes under it that are still in the daemon's cgroup (a
-    /// harness without a session scope, the MCP servers it started).
-    pub(crate) async fn place_taken(pid: u32) {
-        let Some(own) = daemon_cgroup().filter(|_| enabled()) else { return };
-        let in_unit = move |p: u32| {
-            std::fs::read_to_string(format!("/proc/{p}/cgroup"))
-                .is_ok_and(|c| unified(&c) == Some(own))
-        };
-        let is_host = std::fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| {
-            c.split(|b| *b == 0).any(|arg| arg == super::super::HOST_ARG.as_bytes())
-        });
-        if !is_host || !in_unit(pid) {
-            return;
-        }
-        let under = tokio::task::spawn_blocking(move || super::super::tree::descendants(&[pid]))
-            .await
-            .unwrap_or_default();
-        let mut pids = vec![pid];
-        pids.extend(under.into_iter().map(|p| p.pid).filter(|p| in_unit(*p)));
-        report(pid, try_place(&scope_unit(pid, &tag()), &pids).await);
     }
 
     fn report(pid: u32, result: Result<(), String>) {
@@ -198,7 +176,7 @@ mod linux {
         );
     }
 
-    async fn try_place(unit: &str, pids: &[u32]) -> Result<(), String> {
+    async fn try_place(unit: &str, host: u32) -> Result<(), String> {
         let busctl = BUSCTL
             .iter()
             .find(|p| std::path::Path::new(p).is_file())
@@ -211,7 +189,7 @@ mod linux {
             uid,
         );
         let call = tokio::process::Command::new(busctl)
-            .args(busctl_args(unit, pids))
+            .args(busctl_args(unit, host))
             .env_clear()
             .envs(env)
             .stdin(Stdio::null())
@@ -232,7 +210,6 @@ mod linux {
         }
         // StartTransientUnit only queues the job; the host must not start its
         // harness before the move is done, or the harness stays in the unit.
-        let host = pids[0];
         let deadline = Instant::now() + PLACEMENT_WAIT;
         loop {
             let cgroup =
@@ -249,14 +226,11 @@ mod linux {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) use linux::{place, place_taken};
+pub(crate) use linux::place;
 
 /// Hosts move into scopes only under a Linux user manager.
 #[cfg(not(target_os = "linux"))]
 pub(crate) async fn place(_pid: u32) {}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) async fn place_taken(_pid: u32) {}
 
 #[cfg(test)]
 mod tests {
@@ -303,9 +277,9 @@ mod tests {
     }
 
     #[test]
-    fn the_scope_request_names_every_pid_and_the_host_slice_on_the_user_bus() {
+    fn the_scope_request_names_the_host_pid_and_the_host_slice_on_the_user_bus() {
         let unit = scope_unit(4242, "0a1b2c3d");
-        let joined = busctl_args(&unit, &[4242, 4300, 4301]).join(" ");
+        let joined = busctl_args(&unit, 4242).join(" ");
         assert!(joined.starts_with("--user --quiet call org.freedesktop.systemd1 "), "{joined}");
         assert!(
             joined.contains(
@@ -313,7 +287,7 @@ mod tests {
             ),
             "{joined}"
         );
-        assert!(joined.contains("PIDs au 3 4242 4300 4301 Slice"), "{joined}");
+        assert!(joined.contains("PIDs au 1 4242 Slice"), "{joined}");
         assert!(joined.contains("Slice s acpmuxhosts.slice"), "{joined}");
         assert!(joined.ends_with("CollectMode s inactive-or-failed 0"), "{joined}");
     }

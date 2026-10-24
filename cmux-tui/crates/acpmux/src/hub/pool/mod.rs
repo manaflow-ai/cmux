@@ -615,9 +615,6 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
-        // Taken: from now on it waits for the next daemon, so it leaves the
-        // daemon's unit (`agent_host/scope.rs`). In the background; best effort.
-        tokio::spawn(agent_host::scope::place_taken(p.record.host_pid));
         self.forget_adopted_caller(&session.id);
         self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
