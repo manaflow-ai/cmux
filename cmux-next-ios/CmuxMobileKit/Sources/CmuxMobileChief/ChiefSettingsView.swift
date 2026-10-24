@@ -43,8 +43,14 @@ public struct ChiefSettingsView: View {
     @State private var scrolled: CGFloat = 0
 
     // Kept across pushes so the next push lays out at once, without a jump.
-    @MainActor private static var lastWindowSafeTop: CGFloat = 0
+    @MainActor private static var lastWindowSafeTop: CGFloat = sceneSafeTop()
     @MainActor private static var lastRestRowTop: CGFloat = -1
+
+    /// The key window's top inset, before this page has a window of its own.
+    @MainActor private static func sceneSafeTop() -> CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.lazy.compactMap(\.keyWindow).first?.safeAreaInsets.top ?? 0
+    }
 
     public init(session: ChiefSession, onMessage: (() -> Void)? = nil) {
         self.session = session
@@ -76,8 +82,6 @@ public struct ChiefSettingsView: View {
         // sits in the bar's row. The list starts under the bar, so the header
         // is never clipped to its row.
         .ignoresSafeArea(.container, edges: .top)
-        // Links and actions in system blue, as Messages' rows; switches green.
-        .tint(Color(uiColor: .systemBlue))
         .background { ChiefInfoBackdrop() }
         .background { WindowSafeTopReader { windowSafeTop = $0; Self.lastWindowSafeTop = $0 } }
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, now in
@@ -284,6 +288,9 @@ public struct ChiefSettingsView: View {
             }
         }
         .listRowBackground(ChiefInfoGeometry.card)
+        // Links and actions in system blue, as Messages' rows (the bar and
+        // the Edit pages keep the app's tint).
+        .tint(Color(uiColor: .systemBlue))
     }
 
     private var recentSection: some View {
@@ -605,7 +612,6 @@ struct WindowSafeTopReader: UIViewControllerRepresentable {
         override func viewIsAppearing(_ animated: Bool) {
             super.viewIsAppearing(animated)
             send()
-            enableBackSwipe()
         }
 
         override func viewDidAppear(_ animated: Bool) {
@@ -616,7 +622,6 @@ struct WindowSafeTopReader: UIViewControllerRepresentable {
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
             send()
-            enableBackSwipe()
         }
 
         override func viewSafeAreaInsetsDidChange() {
@@ -631,10 +636,16 @@ struct WindowSafeTopReader: UIViewControllerRepresentable {
             Task { @MainActor [report] in report?(top) }
         }
 
+        /// Only while this page is the settled top of its stack, with nothing over it.
         private func enableBackSwipe() {
-            guard view.window != nil, let navigation = navigationController, navigation.viewControllers.count > 1 else { return }
+            guard view.window != nil, let navigation = navigationController, navigation.viewControllers.count > 1,
+                  navigation.transitionCoordinator == nil, navigation.presentedViewController == nil,
+                  let top = navigation.topViewController else { return }
+            var ancestor: UIViewController? = self
+            while let current = ancestor, current !== top { ancestor = current.parent }
+            guard ancestor != nil else { return }
             navigation.interactivePopGestureRecognizer?.isEnabled = true
-            if #available(iOS 26.0, *) { navigation.interactiveContentPopGestureRecognizer?.isEnabled = true }
+            navigation.interactiveContentPopGestureRecognizer?.isEnabled = true
         }
     }
 }

@@ -202,6 +202,13 @@ def main():  # noqa: C901 - one live scenario
             steps = j.run(only={"fresh_install", "sign_in", "choose_space", "mac_discovered"})
         log(f"setup: {[(s['id'], s['status']) for s in steps]}")
         if any(st["status"] != "pass" for st in steps):
+            # The connect step's Continue sometimes does not advance (the rig's known
+            # onboarding flake, journey.s_choose_space): relaunch and take it again.
+            log("setup failed once; relaunching the app and retrying choose_space")
+            sim.launch(BUNDLE)
+            steps = j.run(only={"choose_space", "mac_discovered"})
+            log(f"setup retry: {[(s['id'], s['status']) for s in steps]}")
+        if any(st["status"] != "pass" for st in steps):
             raise RuntimeError(f"setup failed: {steps}")
         appearance(udid, "light")
         loaded = open_chief(j)
