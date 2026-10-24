@@ -111,6 +111,8 @@ enum DebugLayers {
             ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
+        // The window's screen less the menu bar and Dock (screen points, null on no screen).
+        fields["screen_visible_frame"] = window.screen.map { rect($0.visibleFrame) } ?? .null
         #if DEBUG
         fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
         fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
@@ -169,7 +171,10 @@ enum DebugLayers {
             target.origin = CGPoint(x: visible.midX - target.width / 2, y: visible.midY - target.height / 2)
         }
         window.setFrame(target, display: true)
-        return .object(["frame": rect(window.frame), "screen": .string(window.screen?.localizedName ?? "")])
+        // `visible_frame`: the window's screen less the menu bar and Dock (screen points, null on no
+        // screen), so a caller can check that the window fits on its screen.
+        let visible: JSONValue = window.screen.map { rect($0.visibleFrame) } ?? .null
+        return .object(["frame": rect(window.frame), "screen": .string(window.screen?.localizedName ?? ""), "visible_frame": visible])
     }
 
     /// `debug.drop_highlight` (DEBUG builds): drives the layout's in-process
