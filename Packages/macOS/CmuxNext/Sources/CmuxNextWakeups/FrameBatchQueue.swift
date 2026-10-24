@@ -23,7 +23,10 @@ public final class FrameBatchQueue {
     /// Its work's class: ``MainWorkClass/frame`` for a frame queue, else the budgeted class.
     public let workClass: MainWorkClass
     private let source: Source
-    private var pending: [@MainActor () -> Void] = []
+    /// Queued work from ``head`` on (a run slot is cleared so its captures go at once); the
+    /// array is compacted when it empties, or when the run prefix is most of it.
+    private var pending: [(@MainActor () -> Void)?] = []
+    private var head = 0
     /// Built in init (lazy because its callback captures self; no IUO).
     private lazy var client: FrameClient = {
         switch source {
@@ -78,28 +81,50 @@ public final class FrameBatchQueue {
     }
 
     /// Work queued and not run yet.
-    public var count: Int { pending.count }
+    public var count: Int { pending.count - head }
 
-    /// Runs queued work while the class may run (the scheduler let the first task start); keeps
-    /// the rest, ahead of work queued meanwhile. True while work is left.
+    /// Runs the work queued before this frame, from the front, while the class may run (the
+    /// scheduler let the first task start); the rest stays in place, ahead of work queued
+    /// meanwhile, which waits for the next frame. No copy and no re-insert: a backlog of N costs
+    /// O(N) over all its frames. True while work is left.
     private func drain(_ budget: MainFrameBudget, _ mainClass: MainWorkClass, _ taskOwner: MainTaskOwner) -> Bool {
-        let works = pending
-        pending.removeAll(keepingCapacity: true)
+        let end = pending.count
         var ran = 0
-        for work in works {
+        while head < end {
             if ran > 0, !budget.mayRun(mainClass) { break }
-            budget.run(mainClass, owner: taskOwner) { work() }
+            let work = takeHead()
+            budget.run(mainClass, owner: taskOwner) { work?() }
             ran += 1
         }
-        if ran < works.count { pending.insert(contentsOf: works.dropFirst(ran), at: 0) }
-        return !pending.isEmpty
+        compact()
+        return head < pending.count
     }
 
-    /// Runs everything queued (a frame queue); true while more arrived during it.
+    /// Runs everything queued before this frame (a frame queue); true while more arrived during it.
     private func drainAll() -> Bool {
-        let works = pending
-        pending.removeAll(keepingCapacity: true)
-        for work in works { work() }
-        return !pending.isEmpty
+        let end = pending.count
+        while head < end { takeHead()?() }
+        compact()
+        return head < pending.count
+    }
+
+    /// The work at ``head``, its slot cleared.
+    private func takeHead() -> (@MainActor () -> Void)? {
+        let work = pending[head]
+        pending[head] = nil
+        head += 1
+        return work
+    }
+
+    /// Drops the run prefix: all of it, keeping the buffer, once the queue is empty; otherwise
+    /// once it is most of the array (amortized O(1) per item under a standing backlog).
+    private func compact() {
+        if head == pending.count {
+            pending.removeAll(keepingCapacity: true)
+            head = 0
+        } else if head >= 64, head * 2 >= pending.count {
+            pending.removeFirst(head)
+            head = 0
+        }
     }
 }
