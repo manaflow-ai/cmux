@@ -120,6 +120,9 @@ CASES = {
          "func w() {\n    _ = group.blockingWait(timeout: .now() + 1)\n}\n"),
     ],
     "raw-blocking ": [
+        (SERVICE, "func start() {\n    _ = posix_spawn(&pid, path, nil, nil, argv, envp)\n}\n", "raw-blocking"),
+        (SERVICE, "func start() {\n    _ = blockingPosixSpawn(&pid, path, nil, nil, argv, envp)\n}\n", None),
+        (UI, "func start() throws {\n    try process.blockingRun()\n}\n", "main-blocking"),
         (SERVICE, "func save() {\n    try? data.write(to: url)\n}\n", "raw-blocking"),
         (SERVICE, "func save() {\n    try? data.blockingWrite(to: url)\n}\n", None),
         (SERVICE, "func load() async {\n    try await backoff.wait(owner: self)\n}\n", None),
