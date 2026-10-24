@@ -75,6 +75,7 @@ public struct HangRecord: Sendable, Hashable {
         ]
         let resolved = frames
         object["frames"] = .array(resolved.map { .string($0.description) })
+        object["frame_details"] = .array(resolved.map(\.detailJSON))
 
         object.merge(details) { current, _ in current }
         return .object(object)

@@ -83,7 +83,13 @@ public struct StackSymbolicator: Sendable {
     /// `starts` is the image's function starts, nil when it has none.
     static func frame(address: UInt, lookup: UInt, image: String?, imageOffset: UInt?, symbol: String?, symbolOffset: UInt?,
                       starts: FunctionStarts?) -> HangFrame {
-        guard let symbol, let symbolOffset, let imageOffset else {
+        // dladdr names the nearest exported symbol before the address. A function that starts in
+        // between (a stripped local one, such as libswift_Concurrency's executor and job frames) proves
+        // that name wrong: the frame keeps only its image and offset, which the build's dSYM resolves
+        // (never "swift_Concurrency_fatalError + 43120").
+        let lookupOffset = imageOffset.map { $0 &- (address &- lookup) }
+        guard let symbol, let symbolOffset, let imageOffset, let lookupOffset,
+              starts?.startsBetween(symbolOffset: symbolOffset, addressOffset: lookupOffset) != true else {
             return HangFrame(address: address, image: image, symbol: nil, offset: 0, imageOffset: imageOffset)
         }
         return HangFrame(address: address, image: image, symbol: demangle(symbol), offset: imageOffset &- symbolOffset,
