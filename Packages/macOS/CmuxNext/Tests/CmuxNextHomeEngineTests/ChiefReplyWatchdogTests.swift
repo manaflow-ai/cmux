@@ -47,4 +47,28 @@ struct ChiefReplyWatchdogTests {
     @Test func readsTimesWithoutMilliseconds() {
         #expect(ChiefReplyWatchdog.date("2026-10-21T10:00:00Z") == Self.at)
     }
+
+    /// Foundation writes the minutes in the notice's own language, so no translation carries a minute noun
+    /// that has to agree with the count (Arabic wrote the singular "دقيقة" after every count, wrong for 3 to 10
+    /// and for 2). The language is pinned and the digits are Latin, so the host's language does not matter.
+    @Test(arguments: [2, 3, 11, 100])
+    func theNoticeWritesTheMinutesInItsOwnLanguage(minutes: Int) {
+        let latin = Locale(identifier: "en_US@numbers=latn")
+        #expect(HomeStrings.chiefNoReply(minutes: minutes, preferredLocalizations: ["en"], locale: latin)
+            == "No reply from the Chief for \(minutes) min. It retries on its own and tells you if it cannot answer.")
+        let arabic = HomeStrings.chiefNoReply(minutes: minutes, preferredLocalizations: ["ar"], locale: latin)
+        let shortMinutes = Duration.seconds(minutes * 60).formatted(.units(allowed: [.minutes], width: .abbreviated)
+            .locale(Locale(identifier: "ar_US@numbers=latn")))
+        #expect(arabic.hasPrefix("لا رد من Chief"), "not the Arabic notice: \(arabic)")
+        #expect(arabic.contains(shortMinutes + "."), "no Arabic short unit: \(arabic)")
+        #expect(!arabic.contains("دقيقة") && !arabic.contains("دقائق"), "a minute noun after the count: \(arabic)")
+        #expect(!arabic.contains("min"), "an English unit in the Arabic notice: \(arabic)")
+    }
+
+    /// A language cmux has no strings for reads the English notice with the English unit, not an English
+    /// sentence around a unit in the person's language.
+    @Test func anUnsupportedLanguageGetsTheEnglishUnitToo() {
+        #expect(HomeStrings.chiefNoReply(minutes: 5, preferredLocalizations: ["he"], locale: Locale(identifier: "en_US@numbers=latn"))
+            == "No reply from the Chief for 5 min. It retries on its own and tells you if it cannot answer.")
+    }
 }
