@@ -199,7 +199,12 @@ enum WorkspaceBulkClose {
     static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
                        title: String? = nil) async -> DestructiveConfirmation.Prompt? {
         var programs: [String] = []
-        if warn { for (workspace, daemon) in members { programs += await DestructiveConfirmation.runningPrograms(in: workspace, on: daemon) } }
+        if warn {
+            // Every workspace's terminals are asked at once: each answers within its own short deadline.
+            // task-owner: one process-info lookup per workspace, all awaited right here.
+            let lookups = members.map { member in Task { @MainActor in await DestructiveConfirmation.runningPrograms(in: member.0, on: member.1) } }
+            for lookup in lookups { programs += await lookup.value }
+        }
         guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }
         let count = String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(members.count) workspaces?", table: "Handlers", bundle: .module)
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).

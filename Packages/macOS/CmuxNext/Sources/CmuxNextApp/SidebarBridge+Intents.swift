@@ -72,9 +72,12 @@ extension SidebarBridge {
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
-            for id in ids {
-                services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue))
+            // Several selected rows (Cmd-W, the row menu's Close, Delete) close as one batch.
+            guard ids.count > 1 else {
+                for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
+                return
             }
+            WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services)
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
