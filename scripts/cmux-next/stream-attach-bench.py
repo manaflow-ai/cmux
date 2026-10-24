@@ -162,7 +162,7 @@ def attach_legacy(path, surface):
 
 def attach_stream(wire, stream, surface):
     started = now()
-    rid = wire.send({"cmd": "attach-surface", "stream": stream, "surface": surface, "cols": 80, "rows": 24})
+    rid = wire.send({"cmd": "attach-surface", "attach_stream": stream, "surface": surface, "cols": 80, "rows": 24})
     wire.reply(rid)
     return (now() - started) * 1000
 
@@ -173,7 +173,7 @@ def decode_output(kind, value):
         frame_kind, stream, _, payload = value
         return (stream, payload) if frame_kind == 1 else None
     if value.get("event") == "output":
-        return value.get("stream"), base64.b64decode(value.get("data", ""))
+        return value.get("attach_stream"), base64.b64decode(value.get("data", ""))
     return None
 
 
@@ -216,13 +216,13 @@ def echo_streams(path, surfaces, floods, echoes):
                           "capabilities": ["attach-streams-v1", "attach-frames-v1"]}))
     for index, surface in enumerate(flooding, start=2):
         attach_stream(wire, index, surface)
-        wire.send({"cmd": "send", "stream": index, "surface": surface,
+        wire.send({"cmd": "send", "attach_stream": index, "surface": surface,
                    "text": "yes 0123456789abcdefghijklmnop\r"})
     attach_stream(wire, 1, measured)
     drained = [0]
-    samples = echo_loop(wire, lambda: wire.send({"cmd": "send", "stream": 1, "surface": measured, "text": "q"}),
+    samples = echo_loop(wire, lambda: wire.send({"cmd": "send", "attach_stream": 1, "surface": measured, "text": "q"}),
                         lambda kind, value: decode_output(kind, value), 1, echoes,
-                        lambda: wire.send({"cmd": "send", "stream": 1, "surface": measured, "text": "\b"}),
+                        lambda: wire.send({"cmd": "send", "attach_stream": 1, "surface": measured, "text": "\b"}),
                         drained)
     wire.close()
     return samples, drained[0]

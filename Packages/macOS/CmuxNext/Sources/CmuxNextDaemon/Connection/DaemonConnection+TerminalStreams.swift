@@ -11,6 +11,9 @@ extension DaemonConnection {
     /// `device`; the daemon merges it into the handshake's): the declaration
     /// every per-view connection used to send for itself.
     ///
+    /// - Parameter device: The views' device for shared sizing, declared once
+    ///   per connect; nil declares none.
+    /// - Returns: The carrier, or nil when views open their own connections.
     /// - Throws: `DaemonError.notConnected` while the connection is down, so a
     ///   view waits for it (its attach retries) instead of opening a connection
     ///   of its own meanwhile.

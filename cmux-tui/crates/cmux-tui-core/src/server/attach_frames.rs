@@ -278,13 +278,14 @@ pub(crate) fn encode_meta_frame(
     encode_frame(budget, kind, stream, offset, &parts)
 }
 
-/// `json` (one serialized JSON object) with `"stream":id` as its first
-/// member: the JSON shape of a client stream's event.
+/// `json` (one serialized JSON object) with `"attach_stream":id` as its
+/// first member: the JSON shape of a client stream's event. Its own key: other
+/// protocols on the same connection already use `stream` (`loopback-forward-v1`).
 pub(crate) fn tag_json_object(json: &str, stream: ClientStreamId) -> Option<String> {
     let rest = json.strip_prefix('{')?;
     let empty = rest.trim_start().starts_with('}');
     let mut tagged = String::with_capacity(json.len() + 16);
-    tagged.push_str("{\"stream\":");
+    tagged.push_str("{\"attach_stream\":");
     tagged.push_str(&stream.get().to_string());
     if !empty {
         tagged.push(',');

@@ -20,7 +20,9 @@ extension LineTransport {
         var attachStream: UInt16?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error, type, reason, retryable, data, stream
+            case id, ok, event, error, type, reason, retryable, data
+            /// Not `stream`: `loopback-forward-v1` events use that key.
+            case stream = "attach_stream"
             case errorCode = "error_code"
             case streamID = "stream_id"
         }

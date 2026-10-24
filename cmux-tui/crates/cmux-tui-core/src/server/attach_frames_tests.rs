@@ -78,9 +78,9 @@ fn a_meta_frame_carries_its_meta_length_meta_and_raw_data() {
 #[test]
 fn a_tagged_event_names_its_stream_first_and_stays_valid_json() {
     let tagged = tag_json_object(r#"{"event":"output","surface":3}"#, stream(42)).unwrap();
-    assert_eq!(tagged, r#"{"stream":42,"event":"output","surface":3}"#);
+    assert_eq!(tagged, r#"{"attach_stream":42,"event":"output","surface":3}"#);
     let empty = tag_json_object("{}", stream(1)).unwrap();
-    assert_eq!(empty, r#"{"stream":1}"#);
+    assert_eq!(empty, r#"{"attach_stream":1}"#);
     assert!(tag_json_object("[1]", stream(1)).is_none());
 }
 
