@@ -36,10 +36,15 @@ public final class MainTaskBoard: Sendable {
     private let pendingInput = Atomic<Int>(0)
     /// Owner names by index (index 0 is reserved for "no task").
     private let owners = Mutex<(names: [String], indices: [String: UInt32])>(([""], [:]))
-    /// Called on the main thread at every task start while installed (the watchdog's wake, DEBUG
-    /// and bench builds only), so it can sample a task that runs past its budget.
+    /// Called on the main thread at every task and span start once installed (the watchdog's wake,
+    /// DEBUG and bench builds only), so it can sample work that runs past its budget. Set once
+    /// (``setTaskStartHook(_:)``); `hookState` says whether it is, so a board with no watchdog takes
+    /// no lock at all. The lock is held only to copy the closure: it is contended only while the
+    /// one setter runs, at launch.
     private let taskStartHook = Mutex<(@Sendable () -> Void)?>(nil)
-    private let hookInstalled = Atomic<Bool>(false)
+    /// 0: no hook, 1: being set, 2: set (readable).
+    private let hookState = Atomic<Int>(0)
+    private let spanSequence = Atomic<UInt32>(0)
     /// Receives each finished task that ran past its budget, on the main thread.
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
 
@@ -63,7 +68,7 @@ public final class MainTaskBoard: Sendable {
         budgetNanos.store(budget, ordering: .relaxed)
         let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
         current.store(packed, ordering: .releasing)
-        if notify, hookInstalled.load(ordering: .relaxed) { taskStartHook.withLock { $0 }?() }
+        if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
     }
 
     /// Publishes the end of the running task (main thread); reports it when it ran past its budget.
@@ -123,13 +128,64 @@ public final class MainTaskBoard: Sendable {
     /// Installs (or removes, with nil) the call made at every task start. The watchdog installs
     /// one in DEBUG and bench builds to wake its thread, so it samples a task that runs past its
     /// budget; it must return at once (a semaphore signal).
-    public func setTaskStartHook(_ hook: (@Sendable () -> Void)?) {
+    /// Set once: a later call is ignored (the one watchdog of a board installs it at launch).
+    public func setTaskStartHook(_ hook: @escaping @Sendable () -> Void) {
+        guard hookState.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged else { return }
         taskStartHook.withLock { $0 = hook }
-        hookInstalled.store(hook != nil, ordering: .releasing)
+        hookState.store(2, ordering: .releasing)
     }
 
     /// Whether a task start hook is installed (the watchdog samples over-budget tasks only then).
-    public var hasTaskStartHook: Bool { hookInstalled.load(ordering: .acquiring) }
+    public var hasTaskStartHook: Bool { hookState.load(ordering: .acquiring) == 2 }
+
+    // MARK: Action spans
+
+    /// What ``endSpan(_:nowNanos:)`` needs: the span itself and the task it covered.
+    public struct SpanToken: Sendable {
+        let packed: UInt64
+        let startNanos: UInt64
+        let budgetNanos: UInt64
+        let previous: (packed: UInt64, startNanos: UInt64, budgetNanos: UInt64)
+    }
+
+    /// The index `name` is published under: intern an action id once, off the action's path, then
+    /// pass the index to ``beginSpan(_:owner:budgetNanos:startNanos:)`` (which takes no lock).
+    public func internOwner(_ name: String) -> UInt32 { ownerIndex(name) }
+
+    /// Publishes a person's action (input dispatch to its commit) as the running work, with a
+    /// caller-given budget: the watchdog samples it once it runs past that budget and names it in
+    /// a stall. Atomics only, no allocation; main thread. A span inside a scheduled task (an action
+    /// a control request runs) covers it until ``endSpan(_:nowNanos:)`` puts it back.
+    ///
+    /// - Parameters:
+    ///   - workClass: Its class (``MainWorkClass/input`` for a person's action).
+    ///   - owner: ``internOwner(_:)`` of the action id.
+    ///   - budgetNanos: Its budget (an action: 10 ms to its committed frame).
+    ///   - startNanos: When it began (`CLOCK_UPTIME_RAW` nanoseconds; the input event's time for a key).
+    /// - Returns: The token ``endSpan(_:nowNanos:)`` takes.
+    public func beginSpan(_ workClass: MainWorkClass, owner: UInt32, budgetNanos: UInt64, startNanos start: UInt64) -> SpanToken {
+        let previous = runningPacked
+        let sequence = spanSequence.add(1, ordering: .relaxed).newValue | 0x8000_0000
+        begin(workClass, owner: owner, sequence: sequence, startNanos: start, budgetNanos: budgetNanos)
+        let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
+        return SpanToken(packed: packed, startNanos: start, budgetNanos: budgetNanos, previous: previous)
+    }
+
+    /// Ends the span `token` began and puts back the work it covered; a span that ran past its
+    /// budget is reported to the over-budget sink (the watchdog's `over_budget` record, with the
+    /// stack it sampled). Atomics only unless it ran over.
+    ///
+    /// - Parameter nowNanos: Its end (`CLOCK_UPTIME_RAW` nanoseconds; an action's commit end).
+    public func endSpan(_ token: SpanToken, nowNanos: UInt64) {
+        let previous = token.previous
+        startNanos.store(previous.startNanos, ordering: .relaxed)
+        budgetNanos.store(previous.budgetNanos, ordering: .relaxed)
+        current.store(previous.packed, ordering: .releasing)
+        let elapsed = nowNanos &- token.startNanos
+        guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.withLock({ $0 }),
+              let task = task(packed: token.packed, startNanos: token.startNanos, budgetNanos: token.budgetNanos) else { return }
+        sink(task, elapsed)
+    }
 
     /// Installs (or removes) the receiver of finished over-budget tasks (main thread, must return at once).
     public func setOverBudgetSink(_ sink: (@Sendable (Task, _ durationNanos: UInt64) -> Void)?) {

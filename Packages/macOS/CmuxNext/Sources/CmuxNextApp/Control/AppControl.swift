@@ -15,7 +15,7 @@ import CmuxNextWakeups
 @MainActor
 final class AppControl {
     let watchdog = MainThreadWatchdog()
-    private let frames = FrameBatcher(owner: "Control.frames", workClass: .automation)
+    private let frames = FrameBatcher(owner: "Control.frames", kind: .budgeted(.automation))
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()

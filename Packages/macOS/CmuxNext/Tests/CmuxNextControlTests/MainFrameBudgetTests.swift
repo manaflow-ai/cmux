@@ -186,7 +186,7 @@ import Testing
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
-        let queue = FrameBatchQueue(owner: "store", workClass: .visible, scheduler: scheduler)
+        let queue = FrameBatchQueue(owner: "store", kind: .budgeted(.visible), scheduler: scheduler)
         var ran: [Int] = []
         for index in 0..<3 { queue.enqueue { ran.append(index); clock.advance(ms: 1.5) } }
         scheduler.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
@@ -199,6 +199,34 @@ import Testing
         #expect(ran == [0, 1, 2, 3], "the held task runs first next frame, ahead of work queued after it")
         #expect(queue.count == 0)
         #expect(budget.board.running == nil)
+    }
+
+    /// A person's action is never budgeted (CLAUDE.md: a slow visible action is fixed by removing
+    /// the work, never by delaying it): what it hands a frame queue (the content a tab switch shows)
+    /// runs in the next frame however much daemon churn, automation and background work is queued
+    /// and while the person keeps typing.
+    @Test func workAPersonsActionQueuedRunsInTheNextFrameUnderEveryLoad() {
+        let clock = BudgetClock()
+        let input = FakeInputPending()
+        let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
+        let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let churn = FrameBatchQueue(owner: "DaemonStore.drain", kind: .budgeted(.visible), scheduler: scheduler)
+        let agents = FrameBatchQueue(owner: "Control.frames", kind: .budgeted(.automation), scheduler: scheduler)
+        let idle = FrameBatchQueue(owner: "background", kind: .budgeted(.background), scheduler: scheduler)
+        for _ in 0..<50 {
+            churn.enqueue { clock.advance(ms: 2) }
+            agents.enqueue { clock.advance(ms: 2) }
+            idle.enqueue { clock.advance(ms: 2) }
+        }
+        let action = FrameBatchQueue(owner: "ContentPresentation", scheduler: scheduler)
+        var shown = 0
+        for frame in 1...5 {
+            input.pending = frame.isMultiple(of: 2)
+            action.enqueue { shown += 1 }
+            clock.advance(ms: 17)
+            scheduler.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
+            #expect(shown == frame, "frame \(frame): the action's work waited")
+        }
     }
 
     // MARK: Control work queue

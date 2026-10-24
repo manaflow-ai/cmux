@@ -24,11 +24,7 @@ extension MainThreadWatchdog {
     ///   - recordTaskBudgets: Record over-budget tasks (default ``recordsTaskBudgets``).
     public func attach(board: MainTaskBoard, recordTaskBudgets: Bool = MainThreadWatchdog.recordsTaskBudgets) {
         boardSink.withLock { $0 = board }
-        guard recordTaskBudgets else {
-            board.setTaskStartHook(nil)
-            board.setOverBudgetSink(nil)
-            return
-        }
+        guard recordTaskBudgets else { return }
         board.setTaskStartHook { [weak self] in self?.wakeForTask() }
         board.setOverBudgetSink { [weak self] task, nanos in self?.recordOverBudget(task, nanos: nanos) }
     }

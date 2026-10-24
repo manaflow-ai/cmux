@@ -79,7 +79,7 @@ final class AppBrowserHost {
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
             credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, opener: tabs,
             // Agent frames run as automation work: below the person's input and visible updates.
-            frames: FrameBatchQueue(owner: "browser-host.frames", workClass: .automation))
+            frames: FrameBatchQueue(owner: "browser-host.frames", kind: .budgeted(.automation)))
         provider.onAgentBundle = { [driver] bundle, _ in
             // A new bundle: driven tabs install it again on their next call.
             guard driver.agentBundle != bundle else { return }

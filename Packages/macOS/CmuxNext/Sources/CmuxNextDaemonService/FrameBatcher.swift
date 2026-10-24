@@ -11,11 +11,10 @@ public import CmuxNextWakeups
 /// scheduler's stall deadline keeps work moving while the displays sleep
 /// (state-audit D4).
 ///
-/// Each batcher has a ``MainWorkClass`` (visible updates by default) and runs through a
-/// ``FrameBatchQueue``: after the frame's frame-locked clients and higher classes, its queued work
-/// one task at a time under the class's per-frame budget (``MainFrameBudget``), and what is left,
-/// in order, on the next frame. While a person's input is pending the batch yields, so the key or
-/// click is dispatched first.
+/// Each batcher runs through a ``FrameBatchQueue`` of a kind its owner picks: `frame` (all of it
+/// every frame, for what a person's action caused) or a budgeted class (one task at a time under
+/// the class's per-frame budget, ``MainFrameBudget``, yielding to a person's pending input, the
+/// rest on the next frame).
 @MainActor
 public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The queue that runs the batches (``FrameBatchQueue``, the one batch primitive).
@@ -27,12 +26,16 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
 
     /// - Parameters:
     ///   - owner: Names the batcher in the wakeup ledger, debug.wakeups and the watchdog's stall records.
-    ///   - workClass: `visible` for model changes that show on screen, `automation` for
-    ///     control-socket work, `background` for work nobody sees this frame.
+    ///   - kind: ``FrameBatchQueue/Kind/frame`` for work a person's action caused (never held);
+    ///     budgeted `visible` for screen updates no action of the person caused (the daemon's churn),
+    ///     `automation` for control-socket work, `background` for work nobody sees this frame.
     ///   - scheduler: The frame scheduler (default ``FrameScheduler/app``).
-    public init(owner: String, workClass: BudgetedWorkClass = .visible, scheduler: FrameScheduler = .app) {
-        queue = FrameBatchQueue(owner: owner, workClass: workClass, scheduler: scheduler)
-        self.workClass = workClass.workClass
+    public init(owner: String, kind: FrameBatchQueue.Kind = .frame, scheduler: FrameScheduler = .app) {
+        queue = FrameBatchQueue(owner: owner, kind: kind, scheduler: scheduler)
+        switch kind {
+        case .frame: workClass = .frame
+        case .budgeted(let budgeted): workClass = budgeted.workClass
+        }
         self.mainTaskBoard = scheduler.budget.board
     }
 

@@ -290,7 +290,11 @@ public final class MainActorWorkQueue: Sendable {
             if !more { state.framePending = false }
             return (more, ran > 0 ? state.afterFrame : nil)
         }
-        hook?()
+        // The hook (the control snapshot publish) is automation work too: named and charged to the
+        // automation budget, so a request storm's per-frame publish counts against it.
+        if let hook {
+            if let budget { budget.run(.automation, owner: "control.publish") { hook() } } else { hook() }
+        }
         if more { scheduleDrain() }
     }
 }
