@@ -95,6 +95,20 @@ if "--suite=config-parity" in sys.argv:
         raise SystemExit("config-parity: the Release build failed")
     suite = os.path.join(here, "bench-config-parity.py")
     os.execv(sys.executable, [sys.executable, suite, "--release", paths[-1], "--bench", bench_app, "--out", out] + passthrough)
+# `--suite=cef-pin-staging`: the staging check of a new CEF pin, scripts/cmux-next/cef-pin-staging.sh (layer hosting
+# verify on and off: window-server images, real CGEvents; Chromium internal pages, restore) against this app.
+# `--parts=internal,restore` runs only those parts (a baseline of the current pin).
+if "--suite=cef-pin-staging" in sys.argv:
+    rest = [a for a in sys.argv[1:] if a != "--suite=cef-pin-staging"]
+    named = {k: rest[i + 1] for i, k in enumerate(rest[:-1]) if k in ("--tag", "--app", "--out")}
+    parts = next((a.split("=", 1)[1] for a in rest if a.startswith("--parts=")), "verify,internal,restore")
+    env = dict(os.environ, NX_APP=named.get("--app", ""), NX_APP_TAG=named.get("--tag", ""),
+               NX_ARTIFACTS=named.get("--out", "."), STAGING_PARTS=parts)
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    code = subprocess.run(["bash", os.path.join(root, "scripts/cmux-next/cef-pin-staging.sh")], env=env).returncode
+    with open(os.path.join(named.get("--out", "."), "report.json"), "w") as report:
+        json.dump({"suite": "cef-pin-staging", "parts": parts, "exit": code}, report)
+    sys.exit(code)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
