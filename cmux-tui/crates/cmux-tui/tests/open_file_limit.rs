@@ -345,3 +345,33 @@ fn an_owner_started_raised_gives_its_own_ptys_the_launch_limit_and_not_the_varia
     });
     assert_eq!(terminal_sees(&daemon), format!("{SOFT_LIMIT} unset"));
 }
+
+/// A launch limit of 0 is not a limit to restore: before the check every
+/// child got a soft limit of 0 and could not even open its own binary
+/// (pl-cef-tab-nofile review 2). The owner drops it, so its terminals keep
+/// the limit the owner started with.
+#[test]
+fn an_owner_told_a_zero_launch_limit_drops_it() {
+    let raised = raised_soft_limit();
+    let daemon = Daemon::start(Launch {
+        soft: raised,
+        launch_limit: Some(0),
+        ephemeral: true,
+        holder: false,
+    });
+    assert_eq!(terminal_sees(&daemon), format!("{raised} unset"));
+}
+
+/// A launch limit above the owner's own soft limit would raise its
+/// children's limit instead of restoring it: the owner drops it, and its
+/// children get the limit the owner started with (its own raise records it).
+#[test]
+fn an_owner_told_a_launch_limit_above_its_own_drops_it() {
+    let daemon = Daemon::start(Launch {
+        soft: SOFT_LIMIT,
+        launch_limit: Some(4 * SOFT_LIMIT),
+        ephemeral: true,
+        holder: false,
+    });
+    assert_eq!(terminal_sees(&daemon), format!("{SOFT_LIMIT} unset"));
+}
