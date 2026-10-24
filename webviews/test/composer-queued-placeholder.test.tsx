@@ -87,6 +87,7 @@ async function render(
   snapshot: AcpmuxSnapshot,
   blocked?: { reason?: never },
   extra: {
+    blockSend?: boolean;
     onOpenInWindow?: () => void;
     handle?: React.Ref<ComposerHandle>;
     onSend?: (text: string, attachments?: unknown, steer?: boolean) => boolean;
@@ -108,6 +109,7 @@ async function render(
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         blocked={blocked}
+        blockSend={extra.blockSend}
         {...extra}
       />,
     ),
@@ -235,6 +237,14 @@ test("an idle chat keeps the usual placeholder", async () => {
 test("a running turn whose composer cannot send keeps the usual placeholder", async () => {
   await render(started({ isWorking: true }), {});
   expect(shown()).toBe("Type / for commands");
+});
+
+test("a trust read's empty block does not disable Send", async () => {
+  await render(started(), {});
+  const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
+  expect(send.disabled).toBe(false);
+  await render(started(), undefined, { blockSend: true });
+  expect(host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!.disabled).toBe(true);
 });
 
 // Leo's nightly (d5829ff): a dictated prompt, the agent working with three prompts queued, and

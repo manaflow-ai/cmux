@@ -276,6 +276,9 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// A separate hard stop for a new chat waiting on its folder choice. An empty `blocked` object
+  /// is also used while trust is being read; that transient state must not make Send silently inert.
+  blockSend?: boolean;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -336,6 +339,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  blockSend = false,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -782,7 +786,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (blocked && !force) return false;
+    if ((blockSend || blocked?.reason) && !force) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -1199,7 +1203,7 @@ export function Composer({
     onStop: stopTurn,
   });
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
-  const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blockSend && !blocked?.reason;
   // An agent that steers takes Return into the running turn: it reads the prompt when its current
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
   // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
@@ -1250,7 +1254,7 @@ export function Composer({
   );
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>
-      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
+      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blockSend && !blocked?.reason
         ? promptSuggestion(
             snapshot.sessions,
             { sessionId: snapshot.sessionId, cwd, branch },
@@ -1263,6 +1267,7 @@ export function Composer({
       snapshot.isWorking,
       snapshot.rows.length,
       remote.canSend,
+      blockSend,
       blocked,
       snapshot.sessions,
       snapshot.sessionId,
@@ -1759,8 +1764,8 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={Boolean(blocked) && !shell}
-              className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
+              disabled={(blockSend || Boolean(blocked?.reason)) && !shell}
+              className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
                 shell
