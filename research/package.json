@@ -1,0 +1,8 @@
+{
+  "name": "cmux-hero-research",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.54.2"
+  }
+}

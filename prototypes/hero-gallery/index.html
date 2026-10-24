@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="cmux surface gallery prototype" />
+    <title>cmux surface gallery</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-variant="focus">
+    <div class="ambient ambient-a" aria-hidden="true"></div>
+    <div class="ambient ambient-b" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="wordmark" href="#gallery" aria-label="cmux surface gallery home">
+        <span class="wordmark-mark" aria-hidden="true">c</span>
+        <span>cmux <span class="wordmark-slash">/</span> surface lab</span>
+      </a>
+      <div class="topbar-meta">
+        <span class="status-indicator"><i aria-hidden="true"></i> prototype</span>
+        <span class="topbar-date">24 OCT 2026</span>
+      </div>
+    </header>
+
+    <main id="gallery" class="gallery">
+      <section class="hero-copy" aria-labelledby="hero-title">
+        <div class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span><span id="variant-kicker">surface 01 / focus</span></div>
+        <h1 id="hero-title">Make every pane<br /><span>intentional.</span></h1>
+        <p id="hero-description">A calm launch surface for the moment before work starts. The preview gives the next action a place to land.</p>
+
+        <div class="hero-actions">
+          <button class="button button-primary" id="primary-action" type="button">
+            <span id="primary-label">Open focus surface</span>
+            <kbd>⌘K</kbd>
+          </button>
+          <button class="button button-quiet" id="sequence-action" type="button">Preview sequence <span aria-hidden="true">↗</span></button>
+        </div>
+
+        <div class="variant-switcher" role="tablist" aria-label="Surface variants">
+          <button class="variant-tab is-active" type="button" role="tab" aria-selected="true" data-variant="focus">
+            <span class="tab-index">01</span><span>Focus</span>
+          </button>
+          <button class="variant-tab" type="button" role="tab" aria-selected="false" data-variant="cloud">
+            <span class="tab-index">02</span><span>Cloud</span>
+          </button>
+          <button class="variant-tab" type="button" role="tab" aria-selected="false" data-variant="agent">
+            <span class="tab-index">03</span><span>Agent</span>
+          </button>
+          <span class="tab-rule" aria-hidden="true"><i></i></span>
+        </div>
+
+        <div class="hero-footnote">
+          <span>three bounded states</span>
+          <span class="footnote-separator" aria-hidden="true"></span>
+          <span>motion follows input</span>
+        </div>
+      </section>
+
+      <section class="surface-stage" aria-label="Interactive surface preview">
+        <div class="surface-label"><span id="surface-label">focus / ready</span><span class="surface-label-rule" aria-hidden="true"></span><span>live preview</span></div>
+        <div class="preview-shell" id="preview-shell">
+          <div class="preview-chrome">
+            <div class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span class="preview-title" id="preview-title">morning / workspace</span>
+            <span class="preview-shortcut">⌘ 1</span>
+          </div>
+          <div class="preview-body" id="preview-body"></div>
+          <div class="preview-footer">
+            <span><i class="footer-dot" aria-hidden="true"></i><span id="preview-status">3 panes ready</span></span>
+            <span class="preview-footer-hint">drag to inspect</span>
+          </div>
+          <div class="pointer-glow" id="pointer-glow" aria-hidden="true"></div>
+        </div>
+        <div class="surface-caption"><span id="surface-caption">anchored preview / pointer-aware</span><span class="caption-arrow" aria-hidden="true">↘</span></div>
+      </section>
+
+      <aside class="metrics-card" aria-live="polite">
+        <div class="metrics-heading"><span>frame receipts</span><span class="metrics-live"><i aria-hidden="true"></i> local</span></div>
+        <div class="metric-row"><span>first beat</span><strong>1 ×</strong><small>title settles</small></div>
+        <div class="metric-row"><span>peek-open</span><strong>180 ms</strong><small>transform / opacity</small></div>
+        <div class="metric-row"><span>anchor-settle</span><strong>240 ms</strong><small>preview follows input</small></div>
+        <div class="metric-row"><span>stage-step</span><strong>340 ms</strong><small>bounded sequence</small></div>
+        <div class="metrics-last" id="metrics-last">Waiting for an interaction.</div>
+      </aside>
+    </main>
+
+    <div class="palette-backdrop" id="palette-backdrop" hidden></div>
+    <section class="command-palette" id="command-palette" role="dialog" aria-modal="true" aria-labelledby="palette-title" hidden>
+      <div class="palette-topline"><span class="palette-kicker">command surface</span><button class="palette-close" id="palette-close" type="button" aria-label="Close command surface">Esc</button></div>
+      <h2 id="palette-title">Open a workspace</h2>
+      <p>Choose a destination. The surface keeps the next step in view.</p>
+      <div class="palette-options" role="list">
+        <button class="palette-option is-selected" type="button" data-destination="morning / workspace"><span class="option-key">01</span><span><strong>morning / workspace</strong><small>three panes · local</small></span><span class="option-arrow">↗</span></button>
+        <button class="palette-option" type="button" data-destination="cloud / fleet"><span class="option-key">02</span><span><strong>cloud / fleet</strong><small>two warm machines · us-west1</small></span><span class="option-arrow">↗</span></button>
+        <button class="palette-option" type="button" data-destination="agent / queue"><span class="option-key">03</span><span><strong>agent / queue</strong><small>four pending tasks · resumable</small></span><span class="option-arrow">↗</span></button>
+      </div>
+      <div class="palette-footer"><span>return to open</span><span>esc to close</span></div>
+    </section>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
