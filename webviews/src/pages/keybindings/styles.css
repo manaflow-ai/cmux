@@ -1,5 +1,13 @@
 /* Keyboard Shortcuts page; the shared base (colors, menu) is shared/pageBase.css. No blue:
    selection, hover and the "on" state of a toggle are the foreground at low alpha. */
+/* The recorder's two lights: taken keys in the diff viewer's standard deletion red, a save in its
+   standard addition green (appearance.ts STANDARD_DELETION / STANDARD_ADDITION), softer than the
+   system's danger red and success green. */
+:root {
+  --keys-taken: light-dark(#b42318, #ff8a80); /* theme-fixed: the diff's standard deletion red */
+  --keys-saved: light-dark(#257a3e, #8fd88f); /* theme-fixed: the diff's standard addition green */
+}
+
 .keys-page {
   display: flex;
   flex-direction: column;
@@ -569,7 +577,7 @@
   max-width: 280px;
   font-size: var(--text-body);
   font-weight: 600;
-  color: var(--cmux-app-danger, #ff453a);
+  color: var(--keys-taken);
 }
 
 .keys-recorder-refusal .keys-recorder-owner {
@@ -577,8 +585,8 @@
 }
 
 .keys-recorder-keys.refused .keys-recorder-cap {
-  color: var(--cmux-app-danger, #ff453a);
-  background: color-mix(in srgb, var(--cmux-app-danger, #ff453a) 18%, transparent);
+  color: var(--keys-taken);
+  background: color-mix(in srgb, var(--keys-taken) 18%, transparent);
 }
 
 /* The keys turn red as the taken light shines through (with motion; at once without). */
@@ -597,12 +605,12 @@
   /* Brightest at the rim, through the whole glass, almost gone at the bottom. */
   background: radial-gradient(
     150% 130% at 50% 0%,
-    color-mix(in srgb, var(--cmux-app-danger, #ff453a) 34%, transparent) 0%,
-    color-mix(in srgb, var(--cmux-app-danger, #ff453a) 14%, transparent) 45%,
-    color-mix(in srgb, var(--cmux-app-danger, #ff453a) 4%, transparent) 85%,
+    color-mix(in srgb, var(--keys-taken) 16%, transparent) 0%,
+    color-mix(in srgb, var(--keys-taken) 6%, transparent) 45%,
+    color-mix(in srgb, var(--keys-taken) 2%, transparent) 85%,
     transparent 100%
   );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cmux-app-danger, #ff453a) 80%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--keys-taken) 45%, transparent);
 }
 
 .keys-recorder-stroke {
@@ -730,17 +738,20 @@
 
 .keys-recorder-light {
   position: absolute;
-  inset: 0 0 auto;
-  height: 32px;
+  inset: 0;
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
+  /* As the taken light, in green: brightest at the rim, through the whole glass, almost gone at
+     the bottom; it flashes once per save. */
   background: radial-gradient(
-    120% 100% at 50% 0%,
-    color-mix(in srgb, var(--cmux-app-success, #34c759) 55%, transparent) 0%,
-    transparent 70%
+    150% 130% at 50% 0%,
+    color-mix(in srgb, var(--keys-saved) 16%, transparent) 0%,
+    color-mix(in srgb, var(--keys-saved) 6%, transparent) 45%,
+    color-mix(in srgb, var(--keys-saved) 2%, transparent) 85%,
+    transparent 100%
   );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cmux-app-success, #34c759) 80%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--keys-saved) 45%, transparent);
 }
 
 @keyframes keys-recorder-light {
@@ -755,9 +766,11 @@
   }
 }
 
-/* The motion scale's ceiling (desktop.css `--cmux-motion-large`); Reduce Motion keeps it (a fade). */
+/* The motion scale's ceiling (desktop.css `--cmux-motion-large`) and 200ms more (Lucas
+   2026-10-24: the save light read too short at the ceiling); a fade, not a move, so Reduce
+   Motion keeps it; motion off: none. */
 :root:not([data-cmux-motion="off"]) .keys-recorder-light {
-  animation: keys-recorder-light var(--cmux-motion-large, 240ms) ease-out;
+  animation: keys-recorder-light calc(var(--cmux-motion-large, 240ms) + 200ms) ease-out;
 }
 
 /* The taken light rises once, then holds. */
