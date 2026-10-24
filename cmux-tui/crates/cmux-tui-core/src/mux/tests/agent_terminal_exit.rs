@@ -68,7 +68,7 @@ fn assert_terminal_end_ends_its_working_agent(
     // The tab stays, dead, and no view lists its agent working.
     assert!(mux.list_agents(None, Some(AgentState::Working)).is_empty(), "{case}");
     assert!(
-        mux.agent_roster.lock().unwrap().roster.entries.get(terminal.as_str()).is_none(),
+        !mux.agent_roster.lock().unwrap().roster.entries.contains_key(terminal.as_str()),
         "{case}"
     );
     let projections = mux

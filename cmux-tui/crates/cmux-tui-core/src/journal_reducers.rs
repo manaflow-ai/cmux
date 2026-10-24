@@ -585,6 +585,14 @@ impl AgentRoster {
             .and_then(|fence| fence.waiting_agent.as_deref())
     }
 
+    /// The hook session that owns `terminal_id` and has not ended.
+    pub(crate) fn live_hook_session(&self, terminal_id: &str) -> Option<&str> {
+        self.hook_fences
+            .get(terminal_id)
+            .filter(|fence| !fence.ended)
+            .map(|fence| fence.session_id.as_str())
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.

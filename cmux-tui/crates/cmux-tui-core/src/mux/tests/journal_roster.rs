@@ -62,7 +62,7 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
     // The journal replays the agent working; its terminal did not survive the restart, so the
     // reopen ends that session (#22995) and the entry leaves the roster.
     assert!(terminal_exit_end_journaled(&reopened, head, terminal_id.as_str()), "{live_entries:?}");
-    assert!(rederived.get(terminal_id.as_str()).is_none(), "{rederived:?}");
+    assert!(!rederived.contains_key(terminal_id.as_str()), "{rederived:?}");
 
     // Folding the tail after an ended session removes the entry, and
     // that removal survives the next reopen through the snapshot.
@@ -480,7 +480,7 @@ fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
         "invalid snapshots must replay the retained journal"
     );
     assert!(
-        reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none()
+        !reopened.agent_roster.lock().unwrap().roster.entries.contains_key(terminal_id.as_str())
     );
     reopened.shutdown();
     drop(reopened);
@@ -597,7 +597,7 @@ fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
         "an ahead cursor must replay the retained journal"
     );
     assert!(
-        reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none()
+        !reopened.agent_roster.lock().unwrap().roster.entries.contains_key(terminal_id.as_str())
     );
     let (live_head, cursor, snapshot) = {
         let registry = reopened.workspace_registry.lock().unwrap();

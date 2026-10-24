@@ -442,7 +442,10 @@ impl Mux {
     /// (or wait in the pending-hook queue until a respawn gives the terminal a
     /// surface again). Best effort: an exit never fails on it.
     pub(super) fn end_agent_session_of_exited_terminal(&self, terminal_id: &TerminalPublicId) {
-        let agent = {
+        // The roster decides, from its own fence: the projector's fence can lag it (a new
+        // session's start waiting in the pending-hook queue), and an end that names the old
+        // session would leave the roster's live one spinning.
+        let (agent, session) = {
             let host = self.agent_roster.lock().unwrap();
             let Some(entry) = host.roster.entries.get(terminal_id.as_str()) else { return };
             if entry.agent_source() != AgentSource::Hook
@@ -450,17 +453,8 @@ impl Mux {
             {
                 return;
             }
-            entry.agent.clone().unwrap_or_else(|| "cmux".to_owned())
-        };
-        let Some(session) = self
-            .agent_hook_fences
-            .lock()
-            .unwrap()
-            .get(terminal_id)
-            .filter(|fence| !fence.ended)
-            .map(|fence| fence.session_id.clone())
-        else {
-            return;
+            let Some(session) = host.roster.live_hook_session(terminal_id.as_str()) else { return };
+            (entry.agent.clone().unwrap_or_else(|| "cmux".to_owned()), session.to_owned())
         };
         let ingress = match crate::agent_hooks::terminal_exit_session_ended_journal_ingress(
             terminal_id,

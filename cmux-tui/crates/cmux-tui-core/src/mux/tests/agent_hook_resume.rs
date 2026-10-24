@@ -142,10 +142,10 @@ fn a_subagent_tool_call_does_not_end_the_main_agent_wait() {
     );
 }
 
-/// A restart keeps whose wait it is. The hook projector restores its fences from the durable
-/// projection, which keeps no wait, and takes the wait from the roster's restored fence; the
-/// roster still ignores a subagent's tool hook while the session's own agent waits. (A test
-/// mux has no terminal host after a reopen, so only the roster applies the later hooks.)
+/// A restart keeps whose wait it is: the hook projector restores its fences from the durable
+/// projection, which keeps no wait, and takes the wait from the roster's restored fence. A
+/// test mux has no terminal host after a reopen, so the waiting agent's terminal did not
+/// survive the restart: the reopen then ends that session (#22995) and no row is left waiting.
 #[test]
 fn a_restart_keeps_whose_wait_it_is() {
     let session = "agent-wait-restart";
@@ -162,19 +162,16 @@ fn a_restart_keeps_whose_wait_it_is() {
     mux.shutdown();
     drop(mux);
 
+    let head = WorkspaceRegistry::open(&root, session).unwrap().session_journal_head().unwrap();
     let reopened = open_persistent_test_mux(session, &root);
     let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
     assert_eq!(fence.waiting_agent.as_deref(), Some(""), "the projector knows whose wait it is");
     assert_eq!(reopened.agent_records.lock().unwrap()[&terminal_id].state, AgentState::Blocked);
-    let roster = |mux: &Mux| {
-        mux.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state.clone()
-    };
-    let append = claude(&reopened, &terminal_id);
-    append("PostToolUse", "w-4", serde_json::json!({"tool_name": "Read", "agent_id": "sub-1"}));
-    assert_eq!(roster(&reopened), "blocked");
-    append("PostToolUse", "w-5", serde_json::json!({"tool_name": "Bash"}));
-    assert_eq!(roster(&reopened), "working");
-    drop(append);
+    assert!(terminal_exit_end_journaled(&reopened, head, terminal_id.as_str()));
+    assert!(
+        !reopened.agent_roster.lock().unwrap().roster.entries.contains_key(terminal_id.as_str()),
+        "the lost terminal's waiting agent leaves the roster"
+    );
     reopened.shutdown();
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
