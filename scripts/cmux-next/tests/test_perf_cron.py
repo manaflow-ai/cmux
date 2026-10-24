@@ -1908,6 +1908,8 @@ class PendingAndBuildingTests(unittest.TestCase):
                          "three held values in a row restart the baseline from them")
         self.assertTrue(self.state["unconfirmed"][0]["restarted"])
         self.assertIn("restarted", self.state["unconfirmed"][0]["why"])
+        self.assertEqual(self.state["baseline_restarts"][-1]["after"], [31.0, 31.5, 32.0])
+        self.assertIn("Baseline restarts", cron.issue_body(self.state, "o/r", at(self.n)))
 
 
 if __name__ == "__main__":

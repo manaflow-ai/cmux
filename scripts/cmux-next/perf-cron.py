@@ -1434,6 +1434,10 @@ def hz(refresh_ms):
     return f"{round(1000 / refresh_ms)} Hz" if refresh_ms else "n/a"
 
 
+def fmt_list(values):
+    return "[" + ", ".join(fmt(v) for v in values or []) + "]"
+
+
 def fmt(v):
     return "n/a" if v is None else (f"{v:g}" if isinstance(v, (int, float)) else str(v))
 
@@ -1475,6 +1479,12 @@ def issue_body(state, repo, now):
             sha_link = f"[`{str(u.get('sha'))[:11]}`]({u.get('run_url')})" if u.get("sha") else "?"
             lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('max'))} | "
                          f"{u.get('samples')} | {sha_link} | {u.get('why')} |")
+    restarts = [x for x in state.get("baseline_restarts") or [] if isinstance(x, dict)][-5:]
+    if restarts:
+        lines += ["", "Baseline restarts (a row whose baseline was building held 3 higher values in a row; its earlier "
+                      "values may have been low, or a regression landed while it built: check these by hand):"]
+        lines += [f"- {x.get('name')} at {x.get('at')}: {fmt_list(x.get('before'))} -> {fmt_list(x.get('after'))} "
+                  f"([run]({x.get('run_url')}))" for x in restarts]
     if last:
         refresh = last.get("refresh_ms")
         macos = f" (macOS {last['macos']})" if last.get("macos") else ""
@@ -1712,6 +1722,10 @@ def confirm_regressions(state, regs, cur, run_url, t, regression):
                 building.pop(r["name"], None)
                 state.setdefault("row_history", {})[r["name"]] = [{"at": e["at"], "p95": e["p95"]} for e in held]
                 entry["restarted"] = True
+                restarts = state.setdefault("baseline_restarts", [])
+                restarts.append({"name": r["name"], "at": iso(t), "sha": cur["sha"], "run_url": run_url,
+                                 "before": samples, "after": [e["p95"] for e in held]})
+                state["baseline_restarts"] = restarts[-20:]
                 entry["why"] = (f"the baseline restarted from {len(held)} values held while it built (its earlier "
                                 f"{len(samples)} value(s) were lower; a regression in that window is not judged)")
             else:

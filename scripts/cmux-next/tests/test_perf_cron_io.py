@@ -41,14 +41,18 @@ class ReferenceTests(unittest.TestCase):
         # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: never 10 % above the max of the runs before it,
         # so the confirmation rule (outside the baseline's spread twice) catches it against the values at least
         # CREEP_DAYS old, one run every 2 days here.
+        # The creep starts after a full baseline (3 values): a creep while the baseline still builds is held out of it
+        # and, after 3 held values, restarts it (listed in the issue's baseline restarts).
         state = cron.empty_state(T0)
         self.assertEqual(measure_tip(state, sha(1), {"panes.close.stress.e2e": row(40.0)}, at(0)), "first")
+        measure_tip(state, sha(2), {"panes.close.stress.e2e": row(40.2)}, at(1))
+        measure_tip(state, sha(3), {"panes.close.stress.e2e": row(39.9)}, at(2))
         events, value = [], 40.0
-        for i in range(2, 9):
+        for i in range(4, 11):
             value = round(value * 1.08, 2)
-            events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(48 * (i - 1))))
+            events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(48 * (i - 3))))
         self.assertIn("regressed", events, f"a +8 % creep for 2 weeks must regress, got {events}")
-        self.assertNotIn("regressed", events[:4], "not before a week-old value exists")
+        self.assertNotIn("regressed", events[:3], "not before a week-old value exists")
 
     def test_one_noisy_run_does_not_move_the_reference(self):
         state = cron.empty_state(T0)
