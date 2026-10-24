@@ -79,6 +79,10 @@ class XbenchGateTests(unittest.TestCase):
             current_path = self.write(directory, "current.json", current)
             self.assertEqual(xbench.gate(current_path, baseline_path, 0.15), 0)
 
+    def test_checked_in_baseline_is_a_valid_self_comparison(self):
+        baseline = ROOT / "scripts/perf-bench/baseline/apple-m6-macos27.json"
+        self.assertEqual(xbench.gate(str(baseline), str(baseline), 0.15), 0)
+
 
 class PerfBudgetManifestTests(unittest.TestCase):
     def test_missing_baseline_is_not_silently_complete(self):

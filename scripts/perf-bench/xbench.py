@@ -1009,6 +1009,11 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
             continue  # budgets.json gates these (advisory or enforced), not the baseline's 15 %
         unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
         for browser in (*CMUX, TAB_SWITCH_BROWSER):
+            # The checked-in baseline is the manifest for each row. Resource
+            # budget and Debug-only surfaces have separate reports and are not
+            # present in the cross-browser baseline.
+            if browser not in per:
+                continue
             expected += 1
             base = per.get(browser, {}).get("median")
             now = results.get(row, {}).get(browser, {}).get("median")
