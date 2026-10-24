@@ -36,7 +36,9 @@ extension LayoutRootView {
 
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
-        guard overlayIsStale else { return }
+        // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
+        // live again (`setLive`).
+        guard overlayIsStale, isLive else { return }
         syncOverlay()
     }
 
