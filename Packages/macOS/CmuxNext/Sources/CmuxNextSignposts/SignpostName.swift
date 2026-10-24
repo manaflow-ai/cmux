@@ -47,6 +47,12 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
 
     /// Reserved. A key event received by the app to the committed frame that shows its effect.
     case keyToFrame
+    /// One hop of a key press's flow across processes (a point event, not an interval), emitted only
+    /// while `CMUX_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
+    /// age_us=<n>`, where `flow` is the id the app minted for the key press (the daemon's `send`
+    /// request carries it) and `age_us` the key event's age at the hop, or -1.
+    /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
+    case keyFlow
 
     // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
 
@@ -80,6 +86,7 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .motionFrame: "motion.frame"
         case .motionRun: "motion.run"
         case .keyToFrame: "key.frame"
+        case .keyFlow: "key.flow"
         case .switchWorkspace: "switch.workspace"
         case .switchTab: "switch.tab"
         case .switchPaneFocus: "switch.pane_focus"
