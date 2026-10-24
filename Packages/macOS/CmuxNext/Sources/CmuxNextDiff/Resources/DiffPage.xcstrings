@@ -1050,132 +1050,433 @@
       }
     },
     "diff.page.revert.manyTitle": {
+      "comment": "Title of the sheet that reverts the changes to several files (%lld: the file count, 2 or more; one file uses diff.page.revert.oneTitle). Each plural form agrees with the count; languages that write the count without an inflected noun (pl/ru/uk: \"(%lld)\") repeat one sentence.",
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revert changes to %lld files?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Revert changes to %lld file?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Revert changes to %lld files?"
+                }
+              }
+            }
           }
         },
         "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "هل تريد التراجع عن التغييرات في %lld ملفات؟"
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "هل تريد التراجع عن التغييرات في %lld ملف؟"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "هل تريد التراجع عن التغييرات في %lld ملف؟"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "هل تريد التراجع عن التغييرات في %lld ملفين؟"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "هل تريد التراجع عن التغييرات في %lld ملفات؟"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "هل تريد التراجع عن التغييرات في %lld ملفًا؟"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "هل تريد التراجع عن التغييرات في %lld ملف؟"
+                }
+              }
+            }
           }
         },
         "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vratiti izmjene u %lld datoteka?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vratiti izmjene u %lld datoteci?"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vratiti izmjene u %lld datoteke?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Vratiti izmjene u %lld datoteka?"
+                }
+              }
+            }
           }
         },
         "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fortryd ændringerne i %lld filer?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Fortryd ændringerne i %lld fil?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Fortryd ændringerne i %lld filer?"
+                }
+              }
+            }
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Änderungen an %lld Dateien zurücksetzen?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Änderungen an %lld Datei zurücksetzen?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Änderungen an %lld Dateien zurücksetzen?"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "¿Revertir los cambios de %lld archivos?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "¿Revertir los cambios de %lld archivo?"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "¿Revertir los cambios de %lld archivos?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "¿Revertir los cambios de %lld archivos?"
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Annuler les modifications de %lld fichiers ?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Annuler les modifications de %lld fichier ?"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Annuler les modifications de %lld fichiers ?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Annuler les modifications de %lld fichiers ?"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ripristinare le modifiche a %lld file?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ripristinare le modifiche a %lld file?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ripristinare le modifiche a %lld file?"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 個のファイルの変更を元に戻しますか？"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のファイルの変更を元に戻しますか？"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のファイルの変更を元に戻しますか？"
+                }
+              }
+            }
           }
         },
         "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រឡប់ការផ្លាស់ប្តូរនៅក្នុងឯកសារ %lld វិញឬ?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ត្រឡប់ការផ្លាស់ប្តូរនៅក្នុងឯកសារ %lld វិញឬ?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ត្រឡប់ការផ្លាស់ប្តូរនៅក្នុងឯកសារ %lld វិញឬ?"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "파일 %lld개의 변경 사항을 되돌릴까요?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "파일 %lld개의 변경 사항을 되돌릴까요?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "파일 %lld개의 변경 사항을 되돌릴까요?"
+                }
+              }
+            }
           }
         },
         "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilbakestille endringene i %lld filer?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Tilbakestille endringene i %lld fil?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Tilbakestille endringene i %lld filer?"
+                }
+              }
+            }
           }
         },
         "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cofnąć zmiany w plikach (%lld)?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Cofnąć zmiany w plikach (%lld)?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Cofnąć zmiany w plikach (%lld)?"
+                }
+              }
+            }
           }
         },
         "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reverter as alterações em %lld arquivos?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Reverter as alterações em %lld arquivo?"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Reverter as alterações em %lld arquivos?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Reverter as alterações em %lld arquivos?"
+                }
+              }
+            }
           }
         },
         "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Откатить изменения в файлах (%lld)?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Откатить изменения в файлах (%lld)?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Откатить изменения в файлах (%lld)?"
+                }
+              }
+            }
           }
         },
         "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้อนกลับการเปลี่ยนแปลงใน %lld ไฟล์หรือไม่"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ย้อนกลับการเปลี่ยนแปลงใน %lld ไฟล์หรือไม่"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ย้อนกลับการเปลี่ยนแปลงใน %lld ไฟล์หรือไม่"
+                }
+              }
+            }
           }
         },
         "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld dosyadaki değişiklikler geri alınsın mı?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld dosyadaki değişiklikler geri alınsın mı?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld dosyadaki değişiklikler geri alınsın mı?"
+                }
+              }
+            }
           }
         },
         "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкотити зміни у файлах (%lld)?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Відкотити зміни у файлах (%lld)?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Відкотити зміни у файлах (%lld)?"
+                }
+              }
+            }
           }
         },
         "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hoàn tác thay đổi trong %lld tệp?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Hoàn tác thay đổi trong %lld tệp?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Hoàn tác thay đổi trong %lld tệp?"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要还原对 %lld 个文件的更改吗？"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "要还原对 %lld 个文件的更改吗？"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "要还原对 %lld 个文件的更改吗？"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要還原對 %lld 個檔案的變更嗎？"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "要還原對 %lld 個檔案的變更嗎？"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "要還原對 %lld 個檔案的變更嗎？"
+                }
+              }
+            }
           }
         }
       }
