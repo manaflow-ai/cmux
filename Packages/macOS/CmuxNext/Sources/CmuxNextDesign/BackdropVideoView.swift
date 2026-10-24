@@ -1,5 +1,6 @@
 public import AppKit
 public import AVFoundation
+import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
@@ -31,7 +32,8 @@ public final class BackdropVideoView: NSView {
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
-    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    /// The window, app and workspace notifications while in a window; each token stops observing when released.
+    private var observers: [MainActorObservation] = []
     private var readyObservation: NSKeyValueObservation?
     private var screensAsleep = false
     private var sessionInactive = false
@@ -120,7 +122,6 @@ public final class BackdropVideoView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for (center, observer) in observers { center.removeObserver(observer) }
         observers = []
         guard window != nil else { return detach() }
         observe()
@@ -221,11 +222,7 @@ public final class BackdropVideoView: NSView {
         names += [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
                   NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification].map { (workspace, $0, nil) }
         observers = names.map { center, name, object in
-            (center, center.addObserver(forName: name, object: object, queue: .main) { [weak self] note in
-                let name = note.name
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.note(name) }
-            })
+            MainActorObservation(name, object: object, center: center) { [weak self] in self?.note(name) }
         }
     }
 
