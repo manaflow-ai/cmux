@@ -435,11 +435,9 @@ export class KeybindingsStore {
       this.set({ recording });
     }
     if (event.released) {
-      // Search by keys: every key up ends the search's recording; its keys stay the filter.
-      if (recording.target === "search") {
-        if (event.key) this.endRecording();
-        return;
-      }
+      // Search by keys: every key up ends that shortcut; the search records on, and the next
+      // key starts a new one, which replaces it as the filter.
+      if (recording.target === "search") return;
       // Every key is up: no modifier is held any more.
       const released = { ...recording, held: "" };
       this.set({ recording: released });

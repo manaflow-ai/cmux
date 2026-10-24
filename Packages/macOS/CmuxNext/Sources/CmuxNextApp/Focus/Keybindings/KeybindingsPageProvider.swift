@@ -22,8 +22,6 @@ final class KeybindingsPageProvider: PageProvider {
     private var flagsMonitor: Any?
     /// A stroke was recorded and some of its keys are still down.
     private var awaitingRelease = false
-    /// Every key up ends the shortcut (a row's recorder; the search's records a chord's strokes).
-    private var resetsOnRelease = false
     /// The held modifiers last sent: a keyboard can repeat a modifier change with nothing new.
     private var sentHeld = ""
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
@@ -60,8 +58,8 @@ final class KeybindingsPageProvider: PageProvider {
             }
             return .object(reply)
         case "cmux.keybindings.record.start":
-            // A row's recorder starts a new shortcut after each release; the search's keeps the chord.
-            startRecording(resetsOnRelease: params.objectValue?["target"]?.stringValue == "row")
+            // A row's recorder and the search's start a new shortcut after each release.
+            startRecording()
             return .object([:])
         case "cmux.keybindings.record.stop":
             stopRecording()
@@ -149,9 +147,8 @@ final class KeybindingsPageProvider: PageProvider {
         return ["path": .string(url.path)]
     }
 
-    private func startRecording(resetsOnRelease: Bool) {
+    private func startRecording() {
         recorder = KeyRecorder()
-        self.resetsOnRelease = resetsOnRelease
         awaitingRelease = false
         sentHeld = ""
         services.keyRouter.keyRecorder = { [weak self] event, window in
@@ -202,9 +199,10 @@ final class KeybindingsPageProvider: PageProvider {
         if awaitingRelease, held.isEmpty {
             awaitingRelease = false
             send(recorder.keys, done: false, cancelled: false, held: "", released: true)
-            // Every key up ends the shortcut (the page saves it): the next key starts a new one,
-            // which replaces it. A chord is typed with a modifier held between its strokes.
-            if resetsOnRelease { self.recorder = KeyRecorder() }
+            // Every key up ends the shortcut (the page saves it, or searches by it): the next key
+            // starts a new one, which replaces it. A chord is typed with a modifier held between
+            // its strokes.
+            self.recorder = KeyRecorder()
             return
         }
         if event.type == .flagsChanged, held != sentHeld { send(recorder.keys, done: false, cancelled: false, held: held) }
