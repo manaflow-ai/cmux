@@ -514,6 +514,16 @@
   box-shadow: inset 0 0 0 0.5px var(--ui-line);
 }
 
+/* "Press ⌫ to delete" reads as one line of text: the glyph in the text's own size and ink, no
+   keycap box, as a native menu writes a key. */
+.keys-recorder-hint > .keys-recorder-hint-cap {
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: inherit;
+}
+
 .keys-recorder-keys {
   display: flex;
   flex-wrap: wrap;
