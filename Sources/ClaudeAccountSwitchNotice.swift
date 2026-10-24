@@ -4,9 +4,10 @@ import Foundation
 /// What the user is told after a Claude account switch that did not end with the conversation
 /// resumed on the new account. One case per way a switch can fall short.
 enum ClaudeAccountSwitchNotice: Equatable, Sendable {
-    /// The pane now runs on `accountName`, but the resume command was never typed, so the user
-    /// resumes `sessionID` by hand.
-    case resumeManually(accountName: String, sessionID: String)
+    /// The pane now runs on `accountName`, but cmux never typed the resume `command`, so the
+    /// user runs it. `paneClosed` means the respawned pane is gone, so there is nothing to type
+    /// it into.
+    case resumeManually(accountName: String, command: String, paneClosed: Bool)
     /// No registered account has this name.
     case unknownAccount(String)
     /// The pane already runs on this account.
@@ -35,8 +36,12 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
         switch result {
         case .switched:
             return nil
-        case .switchedWithoutResume(let plan, _):
-            self = .resumeManually(accountName: plan.target.name, sessionID: plan.sessionID)
+        case .switchedWithoutResume(let plan, _, let manualResume):
+            self = .resumeManually(
+                accountName: plan.target.name,
+                command: manualResume.command,
+                paneClosed: manualResume.paneWasReplaced
+            )
         case .refused(.noClaudeSession):
             self = .noClaudeSession
         case .refused(.missingWorkingDirectory):
@@ -64,10 +69,16 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
         return true
     }
 
+    /// Whether the alert can offer to type the resume command into the respawned pane.
+    var offersTypingResumeCommand: Bool {
+        if case .resumeManually(_, _, paneClosed: false) = self { return true }
+        return false
+    }
+
     /// The alert's headline.
     var title: String {
         switch self {
-        case .resumeManually(let accountName, _):
+        case .resumeManually(let accountName, _, _):
             return String(
                 format: String(
                     localized: "dialog.claudeAccountSwitch.resumeManually.title",
@@ -86,13 +97,22 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// The alert's explanation.
     var message: String {
         switch self {
-        case .resumeManually(_, let sessionID):
+        case .resumeManually(_, let command, paneClosed: false):
+            // The command is shown verbatim: it unsets the account keys the shell may re-export.
             return String(
                 format: String(
                     localized: "dialog.claudeAccountSwitch.resumeManually.message",
-                    defaultValue: "cmux couldn't resume the conversation automatically. To continue it, run claude --resume %@ in this terminal."
+                    defaultValue: "cmux couldn't resume the conversation automatically. To continue it in this terminal, choose Type Resume Command, or run:\n\n%@"
                 ),
-                sessionID
+                command
+            )
+        case .resumeManually(_, let command, paneClosed: true):
+            return String(
+                format: String(
+                    localized: "dialog.claudeAccountSwitch.resumeManuallyPaneClosed.message",
+                    defaultValue: "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
+                ),
+                command
             )
         case .unknownAccount(let name):
             return String(

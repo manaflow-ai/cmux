@@ -16,6 +16,16 @@ extension Workspace {
         case timedOut
     }
 
+    /// How delivering a switch's resume input ended.
+    enum ClaudeAccountSwitchResumeDelivery: Equatable {
+        /// The input reached the respawned shell.
+        case typed
+        /// The pane was closed, moved or respawned again first; there is no pane to type into.
+        case paneReplaced
+        /// The shell reported no prompt in time, or the terminal refused the input.
+        case notTyped
+    }
+
     /// Upper bound on waiting for the respawned shell to reach its prompt.
     private static let claudeAccountSwitchPromptTimeout: Duration = .seconds(15)
 
@@ -24,20 +34,37 @@ extension Workspace {
     /// Typing earlier would land while rc files still run in canonical mode, where an rc-time
     /// stdin reader can eat the command (#5473). Nothing is typed when the pane goes away or no
     /// prompt arrives in time.
-    ///
-    /// - Returns: Whether the input reached the terminal.
     @MainActor
     func deliverClaudeAccountSwitchResumeInput(
         _ input: String,
         to panel: TerminalPanel,
         panelId: UUID
-    ) async -> Bool {
-        let readiness = await waitForClaudeAccountSwitchShellPrompt(
+    ) async -> ClaudeAccountSwitchResumeDelivery {
+        switch await waitForClaudeAccountSwitchShellPrompt(
             panelId: panelId,
             panel: panel,
             timeout: Self.claudeAccountSwitchPromptTimeout
-        )
-        guard readiness == .prompt else { return false }
+        ) {
+        case .replaced:
+            return .paneReplaced
+        case .timedOut:
+            return .notTyped
+        case .prompt:
+            return typeClaudeAccountSwitchResumeInput(input, into: panel, panelId: panelId) ? .typed : .notTyped
+        }
+    }
+
+    /// Types a switch's resume input into `panel` now, without waiting for a prompt. Nothing is
+    /// typed when the pane no longer holds `panel`: it was closed, moved or respawned again.
+    ///
+    /// - Returns: Whether the input reached the terminal.
+    @MainActor
+    func typeClaudeAccountSwitchResumeInput(
+        _ input: String,
+        into panel: TerminalPanel,
+        panelId: UUID
+    ) -> Bool {
+        guard terminalPanel(for: panelId) === panel else { return false }
         return panel.sendInputResult(input).accepted
     }
 

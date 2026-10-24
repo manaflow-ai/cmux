@@ -7280,9 +7280,10 @@ struct ContentView: View {
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
         let context = commandsContext.snapshot
-        let contributions = commandPaletteCommandContributions()
+        let claudeAccountSwitchTargets = focusedPaneClaudeAccountSwitchTargetNames()
+        let contributions = commandPaletteCommandContributions(claudeAccountSwitchTargets: claudeAccountSwitchTargets)
         var handlerRegistry = CommandPaletteHandlerRegistry()
-        registerCommandPaletteHandlers(&handlerRegistry)
+        registerCommandPaletteHandlers(&handlerRegistry, claudeAccountSwitchTargets: claudeAccountSwitchTargets)
         let cloudCapabilityPolicy = CommandPaletteCloudCapabilityPolicy()
 
         var commands: [CommandPaletteCommand] = []
@@ -7649,7 +7650,7 @@ struct ContentView: View {
 
     /// Builds command-palette contributions from synchronous context and cached async availability.
     /// Builds the complete Cmd-Shift-P contribution list before filtering.
-    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+    private func commandPaletteCommandContributions(claudeAccountSwitchTargets: [String]) -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -8800,7 +8801,7 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(contentsOf: claudeAccountSwitchCommandContributions(subtitle: terminalPanelSubtitle))
+        contributions.append(contentsOf: Self.claudeAccountSwitchCommandContributions(targetNames: claudeAccountSwitchTargets, subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
@@ -9011,7 +9012,7 @@ struct ContentView: View {
     }
 
     /// Registers runnable handlers for every built-in command-palette contribution.
-    private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+    private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry, claudeAccountSwitchTargets: [String]) {
         registry.register(commandId: "palette.browseSidebarTemplates") {
             CmuxExtensionSidebarSelection.browseTemplates()
         }
@@ -9720,7 +9721,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
             forkFocusedAgentConversationToNewWorkspace()
         }
-        registerClaudeAccountSwitchHandlers(&registry)
+        registerClaudeAccountSwitchHandlers(&registry, targetNames: claudeAccountSwitchTargets)
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)

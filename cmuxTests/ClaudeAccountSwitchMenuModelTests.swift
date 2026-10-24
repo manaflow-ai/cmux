@@ -127,6 +127,28 @@ struct ClaudeAccountSwitchMenuModelTests {
     }
 
     @Test
+    func everyPaletteCommandHasAHandlerFromTheSameTargetList() throws {
+        let targetNames = ["default", "alt"]
+        var registry = CommandPaletteHandlerRegistry()
+        var switchedTo: [String] = []
+        ContentView.registerClaudeAccountSwitchHandlers(&registry, targetNames: targetNames) {
+            switchedTo.append($0)
+        }
+
+        let contributions = ContentView.claudeAccountSwitchCommandContributions(
+            targetNames: targetNames,
+            subtitle: { _ in "" }
+        )
+
+        #expect(contributions.count == targetNames.count)
+        for contribution in contributions {
+            let handler = try #require(registry.handler(for: contribution.commandId))
+            handler()
+        }
+        #expect(switchedTo == targetNames)
+    }
+
+    @Test
     func paneWithoutClaudeOffersNoSwitch() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

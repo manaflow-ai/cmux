@@ -75,9 +75,9 @@ extension Workspace {
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed returns
-    /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:)``. The pane stays marked as
-    /// switching until then. Remote panes are refused. Confirming a running turn is the
-    /// caller's job; this never asks.
+    /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:_:)`` with the built command. The
+    /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
+    /// turn is the caller's job; this never asks.
     @MainActor
     func switchClaudeAccount(
         panelId: UUID,
@@ -117,7 +117,8 @@ extension Workspace {
             return .refused(refusal)
         }
         // Built before anything changes, so an unresumable session never costs the pane its agent.
-        guard let resumeInput = ClaudeAccountSwitchResumeInput(snapshot: snapshot, plan: plan).typedInput() else {
+        let resume = ClaudeAccountSwitchResumeInput(snapshot: snapshot, plan: plan)
+        guard let resumeCommand = resume.posixCommand(), let resumeInput = resume.typedInput() else {
             return .refused(.noClaudeSession)
         }
 
@@ -160,15 +161,20 @@ extension Workspace {
         await Self.waitForReplacedClaudeProcessesToExit(replacedProcesses)
         let resync = try? await sync.sync(request)
         let outcome = preflight == .alreadyCurrent ? (resync ?? preflight) : preflight
-        let resumed = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
+        let delivery = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) trigger=\(trigger) " +
                 "from=\(plan.source.name) to=\(plan.target.name) transcript=\(outcome.rawValue) " +
-                "resumed=\(resumed ? 1 : 0)"
+                "resume=\(delivery)"
         )
 #endif
-        return resumed ? .switched(plan, outcome) : .switchedWithoutResume(plan, outcome)
+        guard delivery != .typed else { return .switched(plan, outcome) }
+        return .switchedWithoutResume(plan, outcome, ClaudeAccountSwitchManualResume(
+            command: resumeCommand,
+            typedInput: resumeInput,
+            paneWasReplaced: delivery == .paneReplaced
+        ))
     }
 
     /// The pane's Claude session: the Fork Conversation selection, then cached lifecycle and

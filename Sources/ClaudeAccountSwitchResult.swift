@@ -7,9 +7,13 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     case switched(ClaudeAccountSwitchPlan, ClaudeTranscriptAccountSyncOutcome)
     /// The pane respawned on the target account and the transcript is there, but the resume
     /// command was never typed: the pane was closed or replaced, or its new shell did not
-    /// report a prompt in time. The pane may sit at a bare shell, so callers tell the user to
-    /// resume the plan's session by hand.
-    case switchedWithoutResume(ClaudeAccountSwitchPlan, ClaudeTranscriptAccountSyncOutcome)
+    /// report a prompt in time. The pane may sit at a bare shell, so callers hand the user the
+    /// built resume command from the ``ClaudeAccountSwitchManualResume``.
+    case switchedWithoutResume(
+        ClaudeAccountSwitchPlan,
+        ClaudeTranscriptAccountSyncOutcome,
+        ClaudeAccountSwitchManualResume
+    )
     /// The planner refused the switch; nothing changed. A session cmux cannot confirm or
     /// resume also lands here as ``ClaudeAccountSwitchRefusal/noClaudeSession``.
     case refused(ClaudeAccountSwitchRefusal)

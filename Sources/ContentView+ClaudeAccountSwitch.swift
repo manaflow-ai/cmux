@@ -12,17 +12,19 @@ extension ContentView {
         claudeAccountSwitchCommandIdPrefix + accountName
     }
 
-    /// One "Switch Claude Account: <name>" command per account the focused pane can switch to.
-    func claudeAccountSwitchCommandContributions(
-        subtitle: @escaping (CommandPaletteContextSnapshot) -> String
-    ) -> [CommandPaletteCommandContribution] {
-        Self.claudeAccountSwitchCommandContributions(
-            targetNames: focusedPaneClaudeAccountSwitchTargetNames(),
-            subtitle: subtitle
-        )
+    /// The accounts the focused terminal can switch to, from the model the terminal menu uses.
+    /// Read once per palette build and passed to both the commands and their handlers, so the
+    /// two always name the same accounts.
+    func focusedPaneClaudeAccountSwitchTargetNames() -> [String] {
+        guard let context = focusedPanelContext,
+              context.panel.panelType == .terminal else {
+            return []
+        }
+        return context.workspace.claudeAccountSwitchMenuModel(panelId: context.panelId)?.switchTargetNames ?? []
     }
 
-    /// The switch commands for `targetNames`, shown only on a terminal that hosts Claude.
+    /// One "Switch Claude Account: <name>" command per name in `targetNames`, shown only on a
+    /// terminal that hosts Claude.
     static func claudeAccountSwitchCommandContributions(
         targetNames: [String],
         subtitle: @escaping (CommandPaletteContextSnapshot) -> String
@@ -49,33 +51,40 @@ extension ContentView {
         }
     }
 
-    /// Registers a handler for each command ``claudeAccountSwitchCommandContributions(subtitle:)``
-    /// contributes. Each runs the same ``ClaudeAccountSwitchUserFlow`` as the terminal menu.
-    func registerClaudeAccountSwitchHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        for accountName in focusedPaneClaudeAccountSwitchTargetNames() {
-            registry.register(commandId: Self.claudeAccountSwitchCommandId(accountName: accountName)) {
-                guard let context = focusedPanelContext,
-                      context.panel.panelType == .terminal else {
-                    NSSound.beep()
-                    return
-                }
-                Task { @MainActor in
-                    await ClaudeAccountSwitchUserFlow().run(
-                        workspace: context.workspace,
-                        panelId: context.panelId,
-                        accountName: accountName
-                    )
-                }
+    /// Registers a handler for each command
+    /// ``claudeAccountSwitchCommandContributions(targetNames:subtitle:)`` makes from the same
+    /// `targetNames`. Each runs the same ``ClaudeAccountSwitchUserFlow`` as the terminal menu.
+    func registerClaudeAccountSwitchHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        targetNames: [String]
+    ) {
+        Self.registerClaudeAccountSwitchHandlers(&registry, targetNames: targetNames) { accountName in
+            guard let context = focusedPanelContext,
+                  context.panel.panelType == .terminal else {
+                NSSound.beep()
+                return
+            }
+            Task { @MainActor in
+                await ClaudeAccountSwitchUserFlow().run(
+                    workspace: context.workspace,
+                    panelId: context.panelId,
+                    accountName: accountName
+                )
             }
         }
     }
 
-    /// The accounts the focused terminal can switch to, from the model the terminal menu uses.
-    private func focusedPaneClaudeAccountSwitchTargetNames() -> [String] {
-        guard let context = focusedPanelContext,
-              context.panel.panelType == .terminal else {
-            return []
+    /// Registers, for each name in `targetNames`, a handler under its switch command id that
+    /// calls `run` with that name.
+    static func registerClaudeAccountSwitchHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        targetNames: [String],
+        run: @escaping (_ accountName: String) -> Void
+    ) {
+        for accountName in targetNames {
+            registry.register(commandId: claudeAccountSwitchCommandId(accountName: accountName)) {
+                run(accountName)
+            }
         }
-        return context.workspace.claudeAccountSwitchMenuModel(panelId: context.panelId)?.switchTargetNames ?? []
     }
 }

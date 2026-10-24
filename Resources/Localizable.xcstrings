@@ -671055,55 +671055,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't resume the conversation automatically. To continue it, run claude --resume %@ in this terminal."
+            "value": "cmux couldn't resume the conversation automatically. To continue it in this terminal, choose Type Resume Command, or run:\n\n%@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها، شغّل claude --resume %@ في هذه الطرفية."
+            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها في هذه الطرفية، اختر «كتابة أمر الاستئناف» أو شغّل:\n\n%@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Führen Sie claude --resume %@ in diesem Terminal aus, um sie fortzusetzen."
+            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Um sie in diesem Terminal fortzusetzen, wählen Sie „Fortsetzungsbefehl eingeben“ oder führen Sie Folgendes aus:\n\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla, ejecuta claude --resume %@ en esta terminal."
+            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla en esta terminal, elige «Escribir comando de reanudación» o ejecuta:\n\n%@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre, exécutez claude --resume %@ dans ce terminal."
+            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre dans ce terminal, choisissez « Saisir la commande de reprise » ou exécutez :\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は会話を自動で再開できませんでした。続けるには、このターミナルで claude --resume %@ を実行してください。"
+            "value": "cmux は会話を自動で再開できませんでした。このターミナルで続けるには、「再開コマンドを入力」を選択するか、次を実行してください:\n\n%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 계속하려면 이 터미널에서 claude --resume %@ 명령을 실행하세요."
+            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 이 터미널에서 계속하려면 '재개 명령 입력'을 선택하거나 다음을 실행하세요:\n\n%@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 无法自动继续对话。如需继续，请在此终端中运行 claude --resume %@。"
+            "value": "cmux 无法自动继续对话。如需在此终端中继续，请选择“输入继续命令”，或运行：\n\n%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法自動繼續對話。若要繼續，請在此終端機中執行 claude --resume %@。"
+            "value": "cmux 無法自動繼續對話。若要在此終端機中繼續，請選擇「輸入繼續指令」，或執行：\n\n%@"
           }
         }
       }
@@ -671576,6 +671576,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "切換 Claude 帳號"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.resumeManuallyPaneClosed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.typeResumeCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type Resume Command"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتابة أمر الاستئناف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzungsbefehl eingeben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribir comando de reanudación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisir la commande de reprise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開コマンドを入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재개 명령 입력"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入继续命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入繼續指令"
           }
         }
       }
