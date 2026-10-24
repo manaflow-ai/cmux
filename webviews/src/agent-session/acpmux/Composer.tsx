@@ -474,7 +474,7 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
-  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach } =
+  const { attachments, setAttachments, pending, loading, cancel, retry, attachError, setAttachError, drop, dropLanded, attach } =
     useAttachmentIntake({
       allowImages,
       dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -504,7 +504,7 @@ export function Composer({
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
+  const holdForAttachments = useSendWhenAttached(loading, sessionId);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -1629,6 +1629,11 @@ export function Composer({
           setAttachments((current) => current.filter((item) => item.id !== id));
           field.current?.focus();
         }}
+        onCancelAttachment={(id) => {
+          cancel(id);
+          field.current?.focus();
+        }}
+        onRetryAttachment={retry}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={

@@ -42,6 +42,9 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
+  /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
+  onCancelAttachment?(id: string): void;
+  onRetryAttachment?(id: string): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -89,6 +92,8 @@ export function ComposerBox({
   attachError,
   codex = false,
   onRemoveAttachment,
+  onCancelAttachment,
+  onRetryAttachment,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -160,6 +165,8 @@ export function ComposerBox({
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
           onRemove={onRemoveAttachment}
+          {...(onCancelAttachment ? { onCancel: onCancelAttachment } : {})}
+          {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           onExpand={pastedChips.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}

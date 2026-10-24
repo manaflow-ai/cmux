@@ -9,6 +9,30 @@ const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 
+/// How long one step of an upload (begin, one chunk, finish) may wait for the host: past it the
+/// upload fails with a note and its chip offers Retry, never loading forever (Leo, 2026-10-24: "I
+/// can't even cancel these... supposedly in-progress attachments").
+export const UPLOAD_STEP_DEADLINE_MS = 30_000;
+export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
+
+/// `call`, refused with UPLOAD_TIMED_OUT when the host does not answer within `ms`.
+export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
+  return (method, params) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(UPLOAD_TIMED_OUT)), ms);
+      call(method, params).then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+}
+
 function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
 }
@@ -28,7 +52,8 @@ function uploadedPaths(value: unknown): string[] {
     : [];
 }
 
-export async function uploadToMachine(files: File[], call: Call): Promise<UploadResult> {
+export async function uploadToMachine(files: File[], host: Call): Promise<UploadResult> {
+  const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
   const paths: string[] = [];
   const manifest = files.map(({ name, size }) => ({ name, size }));
