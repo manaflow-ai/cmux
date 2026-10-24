@@ -421,6 +421,8 @@ def main() -> int:
     ap.add_argument("--app", default="/Applications/cmux NIGHTLY.app")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--steps", type=int, default=1000)
+    ap.add_argument("--minutes", type=float, default=0,
+                    help="stop the walk after this many minutes (0: run every step); the run's time bound")
     ap.add_argument("--hang-ms", type=int, default=1000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--replay", help="steps.jsonl from an earlier run")
@@ -483,7 +485,11 @@ def main() -> int:
         except Exception as e:  # screenshot is best effort
             rec["screenshot_error"] = str(e)
 
+    walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
     for i, step in enumerate(steps):
+        if walk_end is not None and time.time() >= walk_end:
+            summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
+            break
         started = time.time()
         if g.refocus():
             summary["refocus"] = summary.get("refocus", 0) + 1

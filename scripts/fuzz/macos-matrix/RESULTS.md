@@ -1,4 +1,18 @@
-# macOS matrix fuzz results
+# macOS matrix results
+
+## Smoke (smoke.py)
+
+One line per major. Build perf-1023-2138-v1 = fleet DEV build job 41616be56ffa91bfe6ad62d4 (commit 86d19391a0c, Linux
+pool build). Host aws-m4pro-6 (macOS 26.5.2, Tart 2.40.1, the pinned Cirrus Labs base images), run by hand with
+vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not comparable".
+
+| Date (UTC) | Build             | macOS           | Result | Failed steps | Crashes | Hang reports | Faults | Note |
+|------------|-------------------|-----------------|--------|--------------|---------|--------------|--------|------|
+| 2026-10-24 | perf-1023-2138-v1 | 14.8.7 (23J520) | PASS   | -            | 0       | 0            | 0      |      |
+| 2026-10-24 | perf-1023-2138-v1 | 15.7.7 (24G720) | PASS   | -            | 0       | 0            | 0      | the image's "Allow sshd-session to find devices on local networks?" prompt is the guest SSH session, not cmux |
+| 2026-10-24 | perf-1023-2138-v1 | 26.6.2          | PASS   | -            | 0       | 0            | 0      | reference major |
+
+## Fuzz (fuzz.py)
 
 One line per run. Steps include the 16-step feature tour. "Dead" counts app deaths (each one restarts the app).
 Faults are unified-log faults of the cmux processes. Host: cmux15 (macOS 27.0.1, Tart 2.41.1, Cirrus Labs vanilla
