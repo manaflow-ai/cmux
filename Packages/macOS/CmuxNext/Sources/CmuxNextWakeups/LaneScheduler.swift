@@ -6,8 +6,11 @@ import Dispatch
 /// A slot is a serial `DispatchQueue` that runs one item at a time at the item's QoS (`.enforceQoS`);
 /// GCD makes a thread only while a slot has work. A `perPriority` lane (files) has one slot per
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
-/// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
-/// highest-priority pending item first.
+/// user-blocking read. A `shared` lane (system, cpu) has `width` slots and starts the highest-priority
+/// pending item first; background items (``WorkPriority/bestEffort`` and ``WorkPriority/idle``) never take
+/// the last slot, so hung background calls (six `getaddrinfo`s of up to 30 s) cannot hold a
+/// ``WorkPriority/userBlocking`` or ``WorkPriority/userVisible`` item (Chrome's thread pool keeps
+/// separate foreground and background groups). A width of 1 gets a second slot, kept for foreground.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
@@ -16,7 +19,8 @@ final class LaneScheduler: Sendable {
 
     private struct State {
         var pending: [[LaneJob]] = Array(repeating: [], count: WorkPriority.allCases.count)
-        var busy: [Bool]
+        /// The priority each slot runs now; nil when it is free.
+        var running: [WorkPriority?]
         var closed = false
     }
 
@@ -35,12 +39,18 @@ final class LaneScheduler: Sendable {
         self.policy = policy
         let names: [String] = switch policy {
         case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
-        case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
+        case .shared(let width): (0..<Self.slotCount(width: width)).map { "\(label).\($0)" }
         }
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
-        state = Mutex(State(busy: Array(repeating: false, count: names.count)))
+        state = Mutex(State(running: Array(repeating: nil, count: names.count)))
     }
+
+    /// The slots of a `shared` lane of `width`: at least two, so one is always kept for foreground work.
+    static func slotCount(width: Int) -> Int { max(2, width) }
+
+    /// Whether `priority` is background work, which may not take a `shared` lane's last free slot.
+    private static func isBackground(_ priority: WorkPriority) -> Bool { priority < .userVisible }
 
     /// What ``submit(_:at:unless:)`` did with an item.
     enum Submitted {
@@ -101,18 +111,27 @@ final class LaneScheduler: Sendable {
         var starts: [Start] = []
         switch policy {
         case .perPriority:
-            for level in WorkPriority.allCases where !state.busy[level.rawValue] && !state.pending[level.rawValue].isEmpty {
+            for level in WorkPriority.allCases where state.running[level.rawValue] == nil && !state.pending[level.rawValue].isEmpty {
                 starts.append(Start(job: state.pending[level.rawValue].removeFirst(), slot: level.rawValue, priority: level))
             }
         case .shared:
-            for slot in state.busy.indices where !state.busy[slot] {
+            // Background items fill at most every slot but one; the highest pending level goes first, so a
+            // background level here means no foreground item waits.
+            let backgroundLimit = state.running.count - 1
+            var background = state.running.compactMap { $0 }.filter(Self.isBackground).count
+            for slot in state.running.indices where state.running[slot] == nil {
                 guard let level = WorkPriority.allCases.reversed().first(where: { !state.pending[$0.rawValue].isEmpty })
                 else { break }
+                if Self.isBackground(level) {
+                    if background >= backgroundLimit { break }
+                    background += 1
+                }
+                state.running[slot] = level
                 starts.append(Start(job: state.pending[level.rawValue].removeFirst(), slot: slot, priority: level))
             }
         }
         for start in starts {
-            state.busy[start.slot] = true
+            state.running[start.slot] = start.priority
         }
         return starts
     }
@@ -128,7 +147,7 @@ final class LaneScheduler: Sendable {
 
     private func finish(_ id: UInt64, slot: Int) {
         let starts = state.withLock { state in
-            state.busy[slot] = false
+            state.running[slot] = nil
             return pump(&state)
         }
         launch(starts)

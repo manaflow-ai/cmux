@@ -29,6 +29,7 @@ import Testing
         func signal() { continuation.yield() }
 
         func wait(_ count: Int = 1) async {
+            guard count > 0 else { return }
             var left = count
             for await _ in stream {
                 left -= 1
@@ -81,11 +82,12 @@ import Testing
         let work = BackgroundWork(cpuWidth: 3, label: "test.cpu")
         let arrived = OSAllocatedUnfairLock(initialState: 0)
         let all = DispatchSemaphore(value: 0)
-        // Each item waits until all three run: it passes only when the lane runs three at once.
+        // Each item waits until all three run: it passes only when the lane runs three at once. Foreground items
+        // may take every slot (background ones all but one).
         try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<3 {
-                group.addTask {
-                    try await work.run(.bestEffort, mayBlock: .cpu) {
+                group.addTask(priority: .medium) {
+                    try await work.run(.userVisible, mayBlock: .cpu) {
                         if arrived.withLock({ $0 += 1; return $0 }) == 3 { for _ in 0..<3 { all.signal() } }
                         all.wait()
                     }
@@ -93,6 +95,32 @@ import Testing
             }
             try await group.waitForAll()
         }
+    }
+
+    @Test(arguments: [(BlockingLane.system, BackgroundWork.systemWidth), (.cpu, 3), (.cpu, 1)])
+    func hungBackgroundCallsNeverHoldAForegroundItem(lane: BlockingLane, width: Int) async throws {
+        let queued = Started()
+        let work = BackgroundWork(cpuWidth: width, label: "test.reserve", onQueued: { _, _ in queued.signal() })
+        let hang = DispatchSemaphore(value: 0)
+        let started = Started()
+        // As many hung background calls as the lane is wide (six getaddrinfo calls of up to 30 s): all but one
+        // slot start, the rest wait.
+        let slots = max(2, width)
+        let hung = width
+        for _ in 0..<hung {
+            work.post(.bestEffort, mayBlock: lane) {
+                started.signal()
+                hang.wait()
+            }
+        }
+        await started.wait(slots - 1)
+        await queued.wait(hung - (slots - 1))
+        // A call a person waits for still gets the kept slot (posted from a high task: the top level, no boost).
+        let ran = try await Task(priority: .high) {
+            try await work.run(.userBlocking, mayBlock: lane) { true }
+        }.value
+        #expect(ran)
+        for _ in 0..<hung { hang.signal() }
     }
 
     @Test func aWaiterAbovePriorityBoostsTheItemPastBlockedLowerWork() async throws {
@@ -119,17 +147,19 @@ import Testing
         let work = BackgroundWork(label: "test.main")
         let release = DispatchSemaphore(value: 0)
         let ran = OSAllocatedUnfairLock(initialState: false)
-        // The main actor awaits a best-effort item that cannot finish until a main-actor probe has run:
-        // a synchronous wait (the inversion) would deadlock here; the await lets the probe run.
-        async let result: Bool = try work.run(.bestEffort, mayBlock: .system) {
+        // A main-actor probe: it can run only while the main actor is free, and only it releases the item.
+        let probe = Task { @MainActor in
+            ran.withLock { $0 = true }
+            release.signal()
+        }
+        // Awaited in the main-actor body itself (no child task): a synchronous wait inside run would hold the
+        // main actor, the probe could never run, and this await would never return.
+        let result = try await work.run(.bestEffort, mayBlock: .system) {
             release.wait()
             return ran.withLock { $0 }
         }
-        await Task { @MainActor in
-            ran.withLock { $0 = true }
-            release.signal()
-        }.value
-        #expect(try await result)
+        await probe.value
+        #expect(result)
     }
 
     @Test func aCancelledQueuedItemNeverRuns() async throws {
@@ -216,7 +246,7 @@ import Testing
     }
 
     @Test func quitNeverWaitsForStartedWorkThatIsNotBlockShutdown() async {
-        let work = BackgroundWork(cpuWidth: 2, label: "test.quit.others")
+        let work = BackgroundWork(cpuWidth: 3, label: "test.quit.others")
         let hang = DispatchSemaphore(value: 0)
         let started = Started()
         // Running items that hang, but did not promise quit anything.

@@ -24,7 +24,7 @@ import Testing
     }
 
     @Test func quitStopsTheEnginesOnlyAfterTheBlockShutdownSaveAndNeverWaitsForOtherWork() async {
-        let work = BackgroundWork(cpuWidth: 2, label: "test.quit.drain")
+        let work = BackgroundWork(cpuWidth: 3, label: "test.quit.drain")
         let save = DispatchSemaphore(value: 0)
         let hang = DispatchSemaphore(value: 0)
         let log = OSAllocatedUnfairLock<[String]>(initialState: [])
