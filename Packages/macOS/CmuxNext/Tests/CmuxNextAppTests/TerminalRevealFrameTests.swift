@@ -147,10 +147,10 @@ import Testing
 
         // Ensure the OSC action was handled while the surface had never joined a window.
         let actionBy = ContinuousClock.now.advanced(by: .seconds(5))
-        while session.surfaceView.model.backgroundOverride == nil, ContinuousClock.now < actionBy {
+        while session.model.backgroundOverride == nil, ContinuousClock.now < actionBy {
             await Task.yield()
         }
-        try #require(session.surfaceView.model.backgroundOverride != nil, "OSC 11 was not handled before reveal")
+        try #require(session.model.backgroundOverride != nil, "OSC 11 was not handled before reveal")
         #expect(session.surfaceView.window == nil, "the regression setup must parse off-window")
 
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
