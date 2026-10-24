@@ -4,7 +4,8 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (a new `while` around a sleep, `struct` -> `class` around a static).
+line that gives them their context (a new `while` around a sleep, `struct` -> `class` around a static, an
+edited or deleted deinit in a generic class's body).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed one-shot delay does not pay for a new poll), and an added line whose
@@ -55,6 +56,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+# The lexical helpers and the generic-class deinit detector check-concurrency.sh's crash-class rule shares.
+_SCOPE = importlib.util.spec_from_file_location("cmux_next_swift_scope", Path(__file__).resolve().parent / "swift_scope.py")
+swift_scope = importlib.util.module_from_spec(_SCOPE)
+sys.modules[_SCOPE.name] = swift_scope  # its NamedTuple resolves its module through sys.modules
+_SCOPE.loader.exec_module(swift_scope)
+code_of, escaped, enclosing_openers = swift_scope.code_of, swift_scope.escaped, swift_scope.enclosing_openers
+COMMENT_LINE, ATTRIBUTE_LINE = swift_scope.COMMENT_LINE, swift_scope.ATTRIBUTE_LINE
+
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
@@ -70,8 +79,6 @@ UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
-COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
-ATTRIBUTE_LINE = re.compile(r"^\s*@\w+(\([^)]*\))?\s*$")
 PERF_HOT = re.compile(r"//\s*perf-hot:\s*(?P<budget>\S+)(?:\s+(?P<path>[\w-]+))?")
 DECL = re.compile(r"\b(func|init|deinit|subscript|var)\b")
 
@@ -90,47 +97,6 @@ def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
                           capture_output=True, env=env).returncode == 0
 
 
-def code_of(line: str) -> str:
-    """LINE without a trailing `//` comment (outside string literals) and with string contents blanked."""
-    if '"' not in line and "/" not in line:
-        return line
-    if COMMENT_LINE.match(line):
-        return ""
-    out, in_string, i = [], False, 0
-    while i < len(line):
-        c = line[i]
-        if in_string:
-            if c == "\\":
-                i += 2
-                continue
-            if c == '"':
-                in_string = False
-                out.append(c)
-            i += 1
-            continue
-        if c == '"':
-            in_string = True
-            out.append(c)
-        elif line.startswith("//", i):
-            break
-        else:
-            out.append(c)
-        i += 1
-    return "".join(out)
-
-
-def escaped(lines: list[str], index: int, marker: re.Pattern) -> bool:
-    """MARKER on the line, on the previous code line's trailing comment, or in the comment block above."""
-    if marker.search(lines[index]):
-        return True
-    j = index - 1
-    while j >= 0 and (COMMENT_LINE.match(lines[j]) or ATTRIBUTE_LINE.match(lines[j])):
-        if marker.search(lines[j]):
-            return True
-        j -= 1
-    return j >= 0 and j == index - 1 and bool(marker.search(lines[j]))
-
-
 @dataclass
 class Added:
     """A changed line: an added line (NUMBER is 1-based in head) or a removed one (1-based in base)."""
@@ -143,14 +109,20 @@ class Added:
 class Version:
     """One side of a changed file: its lines and the 1-based lines the push changed on that side.
 
-    TYPES answers which type names are generic at that side's revision (the generic-class rule reads an
-    extension's context with it); without one, only the file's own declarations count.
+    TOUCHED is CHANGED plus, around each hunk that is empty on one side (a pure deletion or insertion), the
+    unchanged line before and after it, marked on both sides: a context rule reads it, so a deletion inside a
+    class body or a loop still touches its context, and the base side marks the same lines, so old debt there
+    pairs with itself. TYPES answers which type names are generic at that side's revision (the generic-class
+    rule reads an extension's context with it); without one, only the file's own declarations count.
+    MAIN_DEFAULT is whether the file's target is main actor by default (uiSwiftSettings).
     """
     path: str
     lines: list[str]
     changed: set[int]
+    touched: set[int] = field(default_factory=set)
     memo: dict = field(default_factory=dict)
     types: "GenericTypes | None" = None
+    main_default: bool = True
 
 
 @dataclass
@@ -165,14 +137,23 @@ class FileChange:
     has_perf_hot: bool = False
     head_types: "GenericTypes | None" = None
     base_types: "GenericTypes | None" = None
+    # The unchanged lines around each hunk that is empty on one side, numbered on each side (Version.touched).
+    head_anchors: set[int] = field(default_factory=set)
+    base_anchors: set[int] = field(default_factory=set)
+    head_main: bool = True
+    base_main: bool = True
 
     @property
     def head(self) -> Version:
-        return Version(self.path, self.head_lines, {a.number for a in self.added}, types=self.head_types)
+        changed = {a.number for a in self.added}
+        return Version(self.path, self.head_lines, changed, changed | self.head_anchors, types=self.head_types,
+                       main_default=self.head_main)
 
     @property
     def base(self) -> Version:
-        return Version(self.path, self.base_lines, {r.number for r in self.removed}, types=self.base_types)
+        changed = {r.number for r in self.removed}
+        return Version(self.path, self.base_lines, changed, changed | self.base_anchors, types=self.base_types,
+                       main_default=self.base_main)
 
 
 @dataclass
@@ -202,10 +183,11 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
     """The debt among VERSION's CHANGED lines, plus (context rules) unchanged matches whose context changed.
 
     A line counts when MATCHER's pattern matches its code, KEEP holds for it in VERSION's text and it carries
-    no escape there. For a context rule, an unchanged line also counts when an opener that makes it debt is a
-    changed line: a new `while` around an old sleep, `struct` -> `final class` around an old static, a view
-    renamed to `...Row` around an old store reference (head side); on the base side the same lines are the
-    debt the push takes away, so `while a {` -> `while b {` around a sleep pairs with itself.
+    no escape there. For a context rule, an unchanged line also counts when a line that makes it debt (an
+    opener KEEP returns) is touched (Version.touched): a new `while` around an old sleep, `struct` ->
+    `final class` around an old static, a view renamed to `...Row` around an old store reference, an edit or a
+    deletion inside a generic class's body (head side); on the base side the same lines are the debt the push
+    takes away, so `while a {` -> `while b {` around a sleep pairs with itself.
     """
     out = []
     lines = version.lines
@@ -221,7 +203,7 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
     for line in changed:
         if matcher.pattern.search(code_of(line.text)) and is_debt(line.number - 1)[0]:
             out.append(line)
-    if matcher.keep is None or not version.changed:
+    if matcher.keep is None or not version.touched:
         return out
     for index, text in enumerate(lines):
         if index + 1 in version.changed or not matcher.pattern.search(text):
@@ -229,7 +211,7 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
         if not matcher.pattern.search(code_of(text)):
             continue
         debt, openers = is_debt(index)
-        if debt and any(o in version.changed for o in openers):
+        if debt and any(o in version.touched for o in openers):
             out.append(Added(version.path, index + 1, text))
     return out
 
@@ -292,29 +274,6 @@ def matcher_rule(matcher: Matcher) -> Callable[[list[FileChange], collections.Co
 def line_rule(pattern: str, escape: str | None) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
     marker = re.compile(r"//\s*" + re.escape(escape) + r"\s*\S") if escape else None
     return matcher_rule(Matcher(re.compile(pattern), marker))
-
-
-def enclosing_openers(lines: list[str], index: int, stop: re.Pattern, prefix: str = "") -> list[tuple[str, int]]:
-    """The block openers around LINES[INDEX], innermost first, up to one matching STOP, as (code, 1-based line).
-
-    PREFIX is the code before the point of interest on LINES[INDEX] itself (a one-line `while x { sleep }`).
-    Each opener is its line's code up to and including the `{`.
-    """
-    openers, depth = [], 0
-    above = ((code_of(lines[j]), j + 1) for j in range(index - 1, -1, -1))
-    for code, number in itertools.chain([(prefix, index + 1)], above):
-        for pos in range(len(code) - 1, -1, -1):
-            c = code[pos]
-            if c == "}":
-                depth += 1
-            elif c == "{":
-                if depth == 0:
-                    openers.append((code[:pos + 1], number))
-                    if stop.search(code[:pos + 1]):
-                        return openers
-                else:
-                    depth -= 1
-    return openers
 
 
 SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b")
@@ -754,23 +713,15 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     return hits
 
 
-# A class with an implicit deinit in a generic context: its own generic parameters, or those of a type, extension
-# or function it is declared in (ObservedMap.Slot is generic through ObservedMap). In a main-actor target (the
-# default of every UI and test target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and
-# swift-frontend 6.3.3 (Xcode 26.6) crashes on it in -O: signal 11 in EarlyPerfInliner,
-# isCallerAndCalleeLayoutConstraintsCompatible, on the class's deallocating deinit (`...CfD`). It broke
-# `swift build --build-tests -c release` twice on 2026-10-23 (PageTestWait.Once, CloudPaneTests.Seen) and can hit
-# any edit of such a class. An `isolated deinit` is that isolated deinit written out, so only a `nonisolated deinit`
-# or a plain `deinit` (nonisolated unless marked) is the fix.
-CLASS_DECL = re.compile(r"(^|[\s)])(final\s+)?(?P<kw>class)\s+(?!(?:func|var|let|subscript|init|deinit|override)\b)"
-                        r"(?P<name>[A-Za-z_]\w*)\s*(<|:|\{|\bwhere\b|$)")
-GENERIC_CLASS_ALLOW = re.compile(r"//\s*generic-class-allow:\s*\S")
-GENERIC_TYPE = re.compile(r"\b(?:class|struct|enum|actor)\s+([A-Za-z_]\w*)\s*<")
-GENERIC_DECL = re.compile(r"\b(?:class|struct|enum|actor)\s+[A-Za-z_]\w*\s*<|\b(?:func|subscript)\s+[^\s(<]*\s*<|\binit\??\s*<")
-DECL_OPENER = re.compile(r"\b(class|struct|enum|actor|extension|protocol|func|init|subscript)\b")
-EXTENSION = re.compile(r"\bextension\s+([A-Za-z_][\w.]*)")
-NEVER = re.compile(r"(?!)")
-EXPLICIT_DEINIT = re.compile(r"\b(isolated\s+)?deinit\b")
+# The generic main-actor class deinit crash (swift_scope.py has the evidence): swift-frontend 6.3.3 crashes in -O
+# on the isolated deinit of a main-actor class generic by itself or by context. swift_scope.judge is the one
+# detector check-concurrency.sh's CI crash-class rule uses too; this rule applies it to what a push adds in Sources
+# and Tests, and only a `nonisolated deinit` is the fix.
+CLASS_DECL = swift_scope.CLASS_DECL
+GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
+GENERIC_TYPE = swift_scope.GENERIC_TYPE
+MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+TARGET_ROOTS = (SOURCES, TESTS)
 
 
 class GenericTypes:
@@ -805,71 +756,32 @@ class GenericTypes:
         return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
 
 
-def declaration_of(lines: list[str], number: int, opener: str) -> str:
-    """The declaration an opener (`{` line) belongs to, joined with the lines above it that continue it
-    (`final class Cache<\n    Key\n> {`), up to 8 lines."""
-    text, j = opener, number - 2
-    while not DECL_OPENER.search(text) and j >= 0 and number - 1 - j <= 8:
-        above = code_of(lines[j]).strip()
-        if not above or above.endswith(("{", "}", ";")):
-            break
-        text, j = above + " " + text, j - 1
-    return text
-
-
-def generic_context(version: Version, index: int, prefix: str) -> list[int]:
-    """The 1-based lines of the generic declarations LINES[INDEX] is nested in: a generic type or function, a
-    `where` clause, or an extension of a generic type (this file, the push's files, or the type's own file)."""
-    if "generic" not in version.memo:
-        version.memo["generic"] = set(GENERIC_TYPE.findall("\n".join(version.lines)))
-    local = version.memo["generic"]
-    found = []
-    for opener, number in enclosing_openers(version.lines, index, NEVER, prefix):
-        decl = declaration_of(version.lines, number, opener)
-        if not DECL_OPENER.search(decl):
-            continue  # a control-flow block (`for x in xs where ...`) is no generic context
-        extension = EXTENSION.search(decl)
-        generic = bool(GENERIC_DECL.search(decl) or re.search(r"\bwhere\b", decl))
-        if not generic and extension:
-            names = extension.group(1).split(".")
-            generic = any(n in local or (version.types is not None and n in version.types) for n in names)
-        if generic:
-            found.append(number)
-    return found
+def main_by_default(path: str, targets: dict[str, bool]) -> bool:
+    """Whether PATH's target is main actor by default, from TARGETS (swift_scope.target_isolation of the
+    revision's Package.swift). A target the manifest does not name (or no manifest) counts as main actor."""
+    for root in TARGET_ROOTS:
+        if path.startswith(root):
+            return targets.get(path[len(root):].split("/", 1)[0], True)
+    return True
 
 
 def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
-    """A class declared here, not `nonisolated`, generic itself or by context, whose body declares no
-    `nonisolated deinit` or plain `deinit` (an `isolated deinit` is the crashing one)."""
-    code = code_of(version.lines[index])
-    match = CLASS_DECL.search(code)
-    if match is None or re.search(r"\bnonisolated\b", code[:match.start("kw")]):
+    """swift_scope.judge for a class declared here. Its context is the generic declarations around it and every
+    line of its own body, so a push that only edits or deletes its deinit (or any member) judges it."""
+    memo = version.memo
+    if "main" not in memo:
+        memo["main"] = swift_scope.main_lines(version.lines, version.main_default)
+        memo["generic"] = swift_scope.generic_names("\n".join(version.lines))
+    local, types = memo["generic"], version.types
+
+    def is_generic(name: str) -> bool:
+        return name in local or (types is not None and name in types)
+
+    judged = swift_scope.judge(version.lines, index, is_generic, memo["main"], version.main_default)
+    if judged is None:
         return False, []
-    own = GENERIC_TYPE.match(code, match.start("kw")) is not None
-    context = generic_context(version, index, code[:match.start("kw")])
-    if not own and not context:
-        return False, []
-    # The class body at depth 1 (its own members, not those of nested types).
-    depth, opened, members = 0, False, []
-    for j in range(index, len(version.lines)):
-        line = code_of(version.lines[j]) if j > index else code[match.start("kw"):]
-        for c in line:
-            if c == "{":
-                depth += 1
-                opened = True
-            elif c == "}":
-                depth -= 1
-                if opened and depth <= 0:
-                    break
-            elif depth == 1:
-                members.append(c)
-        if opened and depth <= 0:
-            break
-        members.append("\n")
-    for deinit in EXPLICIT_DEINIT.finditer("".join(members)):
-        if deinit.group(1) is None:
-            return False, []
-    return True, context
+    first, last = judged.span
+    return True, judged.context + list(range(first, last + 1))
 
 
 singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
@@ -932,14 +844,15 @@ RULES = (
          "// row-snapshot-allow: <why>",
          row_store),
     Rule("generic-class-deinit",
-         "A class generic by itself or by context (nested in a generic type, extension or function) with an "
-         "implicit or `isolated` deinit (main-actor by default)",
+         "A main-actor class generic by itself or by context (nested in a generic type, extension or function) "
+         "with no `nonisolated deinit` (an implicit, plain or `isolated` deinit is isolated there)",
          "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the isolated deinit of a generic "
          "main-actor class (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible): the Release test build "
          "and every Release bench stop (2026-10-23: PageTestWait.Once, CloudPaneTests.Seen, ObservedMap.Slot)",
-         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup; not `isolated deinit`), "
-         "declare the class `nonisolated`, or move it out of the generic context",
-         "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
+         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup; not a plain or "
+         "`isolated deinit`), declare the class `nonisolated`, or move it out of the generic context; "
+         "check-concurrency.sh's CI crash-class rule refuses the same classes in Sources",
+         "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
     Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
@@ -990,14 +903,22 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
             if current is not None:
                 current.is_new = pending_new
         elif line.startswith("@@") and current is not None:
-            old = re.search(r"-(\d+)", line)
+            old = re.search(r"-(\d+)(?:,(\d+))?", line)
             old_number = int(old.group(1)) if old else 0
+            old_count = int(old.group(2)) if old and old.group(2) is not None else 1
             match = re.search(r"\+(\d+)(?:,(\d+))?", line)
             number = int(match.group(1)) if match else 0
             count = int(match.group(2)) if match and match.group(2) is not None else 1
             if count == 0:
                 current.touched.add(max(number, 1))  # a pure deletion after line `number`
                 current.touched.add(number + 1)
+            # A side with no lines in this hunk gives context rules nothing to read: mark the unchanged line
+            # before and after the hunk on both sides (an empty range starts at the line before it).
+            if count == 0 or old_count == 0:
+                head_before = number if count == 0 else number - 1
+                base_before = old_number if old_count == 0 else old_number - 1
+                current.head_anchors.update(n for n in (head_before, head_before + 1 + count) if n >= 1)
+                current.base_anchors.update(n for n in (base_before, base_before + 1 + old_count) if n >= 1)
         elif current is not None and line.startswith("+"):
             current.added.append(Added(current.path, number, line[1:]))
             current.touched.add(number)
@@ -1175,7 +1096,7 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
                          "Performance Lead (PL-guardrails) with the output of: git diff -U0 " + f"{base} {head} | head"))
     paths = sorted(changes)
     texts = blobs(repo, [(head, p) for p in paths] + [(base, p) for p in paths]
-                  + [(head, BENCHES), (head, OWNERS)])
+                  + [(head, BENCHES), (head, OWNERS), (head, MANIFEST), (base, MANIFEST)])
     for path in paths:
         change = changes[path]
         text = texts.get((head, path), "")
@@ -1184,8 +1105,12 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         change.has_perf_hot = "perf-hot:" in text
     head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in paths])
     base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
+    head_targets = swift_scope.target_isolation(texts.get((head, MANIFEST), ""))
+    base_targets = swift_scope.target_isolation(texts.get((base, MANIFEST), ""))
     for path in paths:
-        changes[path].head_types, changes[path].base_types = head_types, base_types
+        change = changes[path]
+        change.head_types, change.base_types = head_types, base_types
+        change.head_main, change.base_main = main_by_default(path, head_targets), main_by_default(path, base_targets)
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
