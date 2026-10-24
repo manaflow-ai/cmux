@@ -35,12 +35,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         columns: Int = 80,
         rows: Int = 24
     ) throws {
-        var environment = ProcessInfo.processInfo.environment
-        for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
-            environment.removeValue(forKey: key)
-        }
-        environment.merge(Self.terminalEnvironment()) { _, new in new }
-        environment.merge(extra) { _, new in new }
+        let environment = Self.childEnvironment(extra: extra)
 
         // Everything the child touches is allocated before fork: after fork
         // only async-signal-safe calls are allowed.
@@ -94,6 +89,22 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         exitSource.resume()
         writeSource.setEventHandler { [input, writeSource, master] in input.flush(to: master, source: writeSource) }
         writeSource.setCancelHandler { [master] in close(master) }
+    }
+
+    /// Builds the local shell environment from the app's inherited values and
+    /// per-launch overrides. The final sanitization keeps child PTYs from
+    /// retaining host terminal capability claims.
+    static func childEnvironment(
+        inherited: [String: String] = ProcessInfo.processInfo.environment,
+        extra: [String: String] = [:]
+    ) -> [String: String] {
+        var environment = inherited
+        for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
+            environment.removeValue(forKey: key)
+        }
+        environment.merge(Self.terminalEnvironment()) { _, new in new }
+        environment.merge(extra) { _, new in new }
+        return environment
     }
 
     deinit {
