@@ -37,8 +37,9 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
 
     static func arguments(layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,
                           environment: [String: String]) -> [String] {
-        // The host refuses a fork without layer hosting, so the switch set is the one for
-        // the resize-sync fork API (no AsyncLiveResize).
+        // The host refuses a fork below API 27 (kMinForkAPI in chromium_host_wire.h; it exits 66):
+        // layer hosting (26) and the resize sync (27). So the switch set is the one for API 27
+        // (no AsyncLiveResize), which is every fork the host runs on.
         let switches = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
                                            bundleIdentifier: bundleIdentifier, environment: environment).arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.

@@ -1,5 +1,6 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
+import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -13,6 +14,23 @@ nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertibl
     var description: String {
         if let signal { return "signal \(signal)" }
         return "exit \(status ?? -1)"
+    }
+
+    /// The exit statuses of a host that could not start (`kExit*` in
+    /// `ChromiumHost/src/chromium_host_wire.h`), with what each means.
+    static let startFailures: [Int32: String] = [
+        64: "launched without the wire",
+        65: "the Chromium framework did not load",
+        66: "the Chromium fork is older than the host needs",
+        67: "CefInitialize failed",
+    ]
+
+    /// Why the host could not start, when it exited with one of
+    /// ``startFailures``; nil for a crash, a signal or any other exit. A new
+    /// host would fail the same way, so the session does not restart it.
+    var startFailure: String? {
+        guard signal == nil, let status, let reason = Self.startFailures[status] else { return nil }
+        return "could not start (exit \(status)): \(reason)"
     }
 }
 
@@ -42,14 +60,19 @@ nonisolated protocol ChromiumHostLaunching: Sendable {
 /// Starts a host with `posix_spawn`: one stream `socketpair` per direction
 /// (cmux to host on the host's fd 3, host to cmux on its fd 4), stdin from
 /// /dev/null, stdout and stderr as cmux's, and no other descriptor of cmux
-/// (`POSIX_SPAWN_CLOEXEC_DEFAULT`).
+/// (`POSIX_SPAWN_CLOEXEC_DEFAULT`). The host starts with an empty signal mask
+/// and every signal at its default action (`POSIX_SPAWN_SETSIGMASK`,
+/// `POSIX_SPAWN_SETSIGDEF`), not with the mask of the thread that spawns it or
+/// cmux's ignored signals. It gets cmux's environment.
 ///
-/// All four socket descriptors are close-on-exec from the moment each pair
-/// exists (macOS has no `SOCK_CLOEXEC`), so another child that cmux forks
-/// meanwhile without `POSIX_SPAWN_CLOEXEC_DEFAULT` (a `forkpty` terminal)
-/// never inherits a wire end: a stray copy of cmux's write end would keep the
-/// host from reading EOF after cmux dies. The spawn's `dup2` to fds 3 and 4
-/// clears the flag on the host's copies only.
+/// The four socket descriptors are made close-on-exec right after each
+/// `socketpair` returns. macOS has no `SOCK_CLOEXEC`, so a small window
+/// remains: another thread of cmux that forks between `socketpair` and
+/// `fcntl` without `POSIX_SPAWN_CLOEXEC_DEFAULT` (a `forkpty` terminal) can
+/// get a copy of a wire end, and a copy of cmux's write end keeps the host
+/// from reading EOF after cmux dies. The host then still ends at
+/// ``ChromiumHostFrame/quitLimit`` after a `quit`, but not after cmux dies.
+/// The spawn's `dup2` to fds 3 and 4 clears the flag on the host's copies only.
 nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     enum LaunchError: Error, Equatable {
         case socketPair(Int32)
@@ -85,7 +108,13 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
+        var everySignal = sigset_t()
+        sigfillset(&everySignal)
+        posix_spawnattr_setsigmask(&attributes, &emptyMask)
+        posix_spawnattr_setsigdefault(&attributes, &everySignal)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
         let argv = ([executable.path] + arguments).map { strdup($0) } + [nil]
         defer { argv.forEach { free($0) } }
         var pid: pid_t = 0
@@ -101,24 +130,43 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     }
 
     func exit(of pid: pid_t) async -> ChromiumHostExit {
-        await withCheckedContinuation { continuation in
-            // One blocked thread per host for its lifetime (no async process-exit
-            // API for a posix_spawn'ed pid). WNOWAIT keeps the zombie until reap(_:).
-            let thread = Thread {
-                var info = siginfo_t()
-                var result = waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT)
-                while result < 0 && errno == EINTR { result = waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) }
-                guard result == 0 else {
-                    continuation.resume(returning: ChromiumHostExit(signal: nil, status: nil))  // not our child: nothing to wait for
-                    return
-                }
-                continuation.resume(returning: info.si_code == CLD_EXITED
-                    ? ChromiumHostExit(signal: nil, status: info.si_status)
-                    : ChromiumHostExit(signal: info.si_status, status: nil))
+        if let ended = Self.exited(pid, blocking: false) { return ended }
+        return await withCheckedContinuation { continuation in
+            // DispatchSource process source: the carve-out for a child's exit (no Foundation async
+            // API for a posix_spawn'ed pid); it never reaps, so the zombie stays until reap(_:).
+            let queue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit.\(pid)")
+            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            // One-shot resume guard (the lock carve-out): the exit event and the check after arming race.
+            let done = Mutex(false)
+            let finish: @Sendable (ChromiumHostExit) -> Void = { ended in
+                guard done.withLock({ done in defer { done = true }; return !done }) else { return }
+                source.cancel()
+                continuation.resume(returning: ended)
             }
-            thread.name = "com.cmuxterm.chromium-host.exit"
-            thread.start()
+            source.setEventHandler {
+                // The exit event can come before the status is collectable; this wait then
+                // returns as soon as it is.
+                finish(Self.exited(pid, blocking: true) ?? ChromiumHostExit(signal: nil, status: nil))
+            }
+            source.resume()
+            // A host that ended before the source was armed posts no event: it is a zombie now.
+            queue.async { if let ended = Self.exited(pid, blocking: false) { finish(ended) } }
         }
+    }
+
+    /// The exit of `pid` without reaping it (`WNOWAIT`): nil while it runs
+    /// (`blocking` false), or a status-less exit when it is not a child of
+    /// this process (nothing to wait for).
+    private static func exited(_ pid: pid_t, blocking: Bool) -> ChromiumHostExit? {
+        var info = siginfo_t()
+        let options = WEXITED | WNOWAIT | (blocking ? 0 : WNOHANG)
+        var result = waitid(P_PID, id_t(pid), &info, options)
+        while result < 0 && errno == EINTR { result = waitid(P_PID, id_t(pid), &info, options) }
+        guard result == 0 else { return ChromiumHostExit(signal: nil, status: nil) }  // not our child
+        guard info.si_pid == pid else { return nil }  // WNOHANG: still running
+        return info.si_code == CLD_EXITED
+            ? ChromiumHostExit(signal: nil, status: info.si_status)
+            : ChromiumHostExit(signal: info.si_status, status: nil)
     }
 
     func reap(_ pid: pid_t) {
