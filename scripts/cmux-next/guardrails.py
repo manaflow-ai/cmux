@@ -5,7 +5,8 @@ Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain lo
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
 line that gives them their context (a new `while` around a sleep, `struct` -> `class` around a static, an
-edited or deleted deinit in a generic class's body).
+edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
+extensions, read in every Sources and Tests file that extends it: generic_signature_context).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed one-shot delay does not pay for a new poll), and an added line whose
@@ -766,6 +767,68 @@ def main_by_default(path: str, targets: list) -> bool:
     return True if main is None else main
 
 
+@dataclass
+class Attributed(Added):
+    """A hit in a file the push did not change: CAUSE names the push's change that makes it debt there."""
+    cause: str = ""
+
+
+def generic_signature_context(repo: Path, head: str, changes: dict[str, FileChange],
+                              head_types: GenericTypes, base_types: GenericTypes) -> tuple[list[FileChange], dict[str, str]]:
+    """(unchanged files the generic-class rule must judge, {path: cause}) for the push's generic-signature changes.
+
+    A push that adds or removes a type's generic parameters (`struct Ledger {` -> `struct Ledger<Entry> {`) makes
+    or unmakes every class in an extension of that type generic by context, also in files the push does not
+    change. Each `extension` line of such a type is marked touched on both sides (Version.touched): in the
+    push's own files, and in every Sources and Tests file at HEAD that extends the type, which is added here
+    unchanged (its base text is its head text). The rule then judges those classes against the base, so the
+    push owns the candidates it makes and a class that was already debt pairs with itself. A type whose
+    parameters only change (`Ledger<Entry>` -> `Ledger<Entry, Key>`) stays generic and marks nothing.
+    """
+    flipped: dict[str, str] = {}  # type name -> "path:line" of the declaration whose generic signature changed
+    for path, change in sorted(changes.items()):
+        if not path.endswith(".swift"):
+            continue
+        head_decls = swift_scope.generic_declarations("\n".join(change.head_lines))
+        base_decls = swift_scope.generic_declarations("\n".join(change.base_lines))
+        for name in sorted(set(head_decls) ^ set(base_decls)):
+            if (name in head_types) != (name in base_types):
+                flipped.setdefault(name, f"{path}:{(head_decls.get(name) or base_decls[name])[0]}")
+    if not flipped:
+        return [], {}
+    names = frozenset(flipped)
+
+    def anchors(lines: list[str]) -> dict[int, set[str]]:
+        found = {}
+        for number, line in enumerate(lines, 1):
+            if "extension" in line and (extended := swift_scope.extended_names(line, names)):
+                found[number] = extended
+        return found
+
+    for path, change in changes.items():
+        if path.endswith(".swift"):
+            change.head_anchors.update(anchors(change.head_lines))
+            change.base_anchors.update(anchors(change.base_lines))
+    pattern = (r"extension[[:space:]]+([A-Za-z_][A-Za-z0-9_]*\.)*(" + "|".join(sorted(names))
+               + r")([^A-Za-z0-9_]|$)")
+    listed = git(repo, "grep", "-l", "-E", pattern, head, "--", SWIFT_SOURCES, SWIFT_TESTS, check=False)
+    others = sorted({line.split(":", 1)[1] for line in listed.splitlines() if ":" in line} - set(changes))
+    texts = blobs(repo, [(head, p) for p in others])
+    added, causes = [], {}
+    for path in others:
+        if (head, path) not in texts:
+            continue
+        lines = texts[(head, path)].split("\n")
+        marks = anchors(lines)
+        if not marks:
+            continue
+        added.append(FileChange(path, lines, base_lines=lines, head_anchors=set(marks), base_anchors=set(marks)))
+        extended = sorted(set().union(*marks.values()))
+        causes[path] = "generic by context: it extends " + ", ".join(
+            f"`{name}`, whose generic signature this push changes at {flipped[name]}" for name in extended)
+    return added, causes
+
+
 def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     """swift_scope.judge for a class declared here. Its context is the generic declarations around it and every
     line of its own body, so a push that only edits or deletes its deinit (or any member) judges it."""
@@ -1108,20 +1171,29 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
     head_targets = swift_scope.package_targets(texts.get((head, MANIFEST), ""))
     base_targets = swift_scope.package_targets(texts.get((base, MANIFEST), ""))
-    for path in paths:
-        change = changes[path]
+    try:
+        # Classes in extensions of a type whose generic signature the push changes, in files it does not change.
+        context_files, causes = generic_signature_context(repo, head, changes, head_types, base_types)
+    except Exception as error:  # fail open for this reading only: the rules still judge the push's own files
+        context_files, causes = [], {}
+        warnings.append(("guardrails", check_failure("generic-signature context", error)))
+    for change in [changes[p] for p in paths] + context_files:
         change.head_types, change.base_types = head_types, base_types
-        change.head_main, change.base_main = main_by_default(path, head_targets), main_by_default(path, base_targets)
+        change.head_main = main_by_default(change.path, head_targets)
+        change.base_main = main_by_default(change.path, base_targets)
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
     for rule in RULES:
-        scoped = [f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
+        # The unchanged context files hold no added or removed line: only their touched context can add debt.
+        scoped = [f for f in files + context_files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
         try:
             hits = rule.find(scoped, moved)
         except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
             warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
             continue
+        hits = [Attributed(h.path, h.number, h.text, causes[h.path]) if h.path in causes and type(h) is Added else h
+                for h in hits]
         warnings += [(rule.id, f"{h.path}:{h.number}: {h.text}") for h in hits if getattr(h, "warn", False)]
         hits = [h for h in hits if not getattr(h, "warn", False)]
         if hits:
@@ -1222,6 +1294,8 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
         lines.append(f"  [{rule.id}] {rule.title}")
         for hit in hits[:20]:
             lines.append(f"    {hit.path}:{hit.number}: {hit.text.strip()[:140]}")
+            if getattr(hit, "cause", ""):
+                lines.append(f"      ({hit.cause})")
         if len(hits) > 20:
             lines.append(f"    ... {len(hits) - 20} more")
         lines.append(f"    why: {rule.why}")
