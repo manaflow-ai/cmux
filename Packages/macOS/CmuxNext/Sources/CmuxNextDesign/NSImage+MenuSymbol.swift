@@ -10,12 +10,14 @@ extension NSImage {
     ///
     /// `name` may also be an icon pack name (`browser.menu.cast`): it draws as the SF Symbol the
     /// icon catalog pairs with it (`airplayvideo`). Nil when neither names a symbol.
+    ///
+    /// The symbol is made once per row: a lookup that made it and threw it away, then a second
+    /// copy, parsed its SVG twice per row (sweep 2026-10-23: 169 ms of main thread in one STRESS
+    /// Responsive Design menu of dozens of rows).
     public static func menuSymbol(_ name: String) -> NSImage? {
-        let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
-            ? name : IconCatalog.bundled.entry(for: IconName(name))?.sf
-        guard let symbol,
-              let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                  .withSymbolConfiguration(menuSymbolConfiguration)
+        func symbol(_ name: String?) -> NSImage? { name.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } }
+        guard let image = (symbol(name) ?? symbol(IconCatalog.bundled.entry(for: IconName(name))?.sf))?
+            .withSymbolConfiguration(menuSymbolConfiguration)
         else { return nil }
         image.isTemplate = true
         return image
