@@ -436,6 +436,7 @@
 				"$(SRCROOT)/cmux-tui/Cargo.lock",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN)",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN).ref",
+				"$(CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF)",
 				"$(ARCHS)",
 				"$(CONFIGURATION)",
 			);
@@ -474,6 +475,7 @@
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-ffi",
 				"$(CMUX_NEXT_MOBILE_HOST_BIN)",
 				"$(CMUX_NEXT_MOBILE_HOST_BIN).ref",
+				"$(CMUX_NEXT_REQUIRE_MOBILE_HOST)",
 				"$(ARCHS)",
 				"$(CONFIGURATION)",
 			);
