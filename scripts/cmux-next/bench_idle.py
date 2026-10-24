@@ -24,10 +24,16 @@ so the bench itself adds no wakeups to the app. When the build has
 too. Pass criteria (defaults, per process; tune with flags): app and
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
 Chromium helpers < 1% on the static and hidden pages. With Home hidden
-(cmux-pages-hidden): no more renderers than cmux pages that started, each
-renderer < 0.05% CPU and < 1 wakeup/s (a frozen hidden Chromium tab measured
-0.2/s, speed-of-sound-DESIGN.md section 7), and every Chromium cmux page frozen
-or not started within the freeze grace.
+(cmux-pages-hidden): every Chromium cmux page frozen or not started within the
+freeze grace, and each renderer that hosts only frozen (or hidden) cmux pages
+< 0.05% CPU and < 1 wakeup/s (a frozen hidden Chromium tab measured 0.2/s,
+speed-of-sound-DESIGN.md section 7). Renderers are matched to pages by the
+renderer client ids `debug.page list` reports per page: a renderer that also
+hosts a seen page (the New Tab spare) is listed as unjudged, and one that
+hosts no cmux page (a browser tab, Chromium's spare renderer) is listed as
+unowned; both keep only the generic helper limit. Target, expected red until
+the CEF fork gives the cmux-page scheme one shared renderer (EXPECTED_RED):
+all started cmux pages share one renderer.
 
 Usage:
   scripts/cmux-next/bench-idle.sh <tag> [--app PATH] [--measure 60]
@@ -215,22 +221,65 @@ def wait_for(condition, limit_s):
 
 
 def cmux_pages(control):
-    """[(page id, Chromium lifecycle)] of every cmux page, read without a call into any page
-    (debug.page list), so the probe thaws nothing."""
+    """[{page, chromium, renderer_clients}] of every cmux page, read without a call into any page
+    (debug.page list), so the probe thaws nothing. `chromium` is the page's Chromium lifecycle;
+    `renderer_clients` the renderer client ids hosting its frames (None on a build that does not
+    report them, or a page whose Chromium page has not started)."""
     response = control.call("debug.page", {"action": "list"}, timeout=10)
     pages = (response.get("result") or {}).get("pages") or []
-    return [(page.get("page"), page.get("chromium")) for page in pages]
+    return [{"page": page.get("page"), "chromium": page.get("chromium"),
+             "renderer_clients": page.get("renderer_clients")} for page in pages]
+
+
+STARTED = ("seen", "hidden", "frozen")
+# Lifecycles whose renderer must cost what a frozen page costs: unseen (awake pages fail on their own).
+UNSEEN = ("hidden", "frozen")
 
 
 def started_in_chromium(pages):
-    """Pages whose Chromium page started (a renderer may be theirs)."""
-    return [page for page in pages if page[1] in ("seen", "hidden", "frozen")]
+    """Pages whose Chromium page started (they host renderer frames)."""
+    return [page for page in pages if page["chromium"] in STARTED]
 
 
 def awake_hidden(pages):
     """Chromium pages that started and are neither seen nor frozen (a lifecycle the build does not
     report counts as awake: a build without the freeze has none)."""
-    return [page for page in pages if page[1] not in ("seen", "frozen", "waiting", "webkit")]
+    return [page for page in pages if page["chromium"] not in ("seen", "frozen", "waiting", "webkit")]
+
+
+def renderer_client_ids(app_pid):
+    """{renderer pid: renderer client id}: each Chromium renderer helper's `--renderer-client-id=`
+    switch, the id `debug.page list` reports for the frames it hosts."""
+    clients = {}
+    for pid, ppid, cmd in process_table():
+        if ppid != app_pid or "(Renderer)" not in cmd:
+            continue
+        for argument in cmd.split():
+            if argument.startswith("--renderer-client-id="):
+                value = argument.split("=", 1)[1]
+                if value.isdigit():
+                    clients[pid] = int(value)
+    return clients
+
+
+# Checks that are red until a named change lands (strict: a check that turns green while it is
+# listed here fails the run, so the change that turns it green removes it in the same push).
+EXPECTED_RED = {
+    "cmux-pages-shared-renderer": "until the CEF fork gives the cmux-page scheme one shared renderer "
+                                  "(PL-cef-layer, cmux.34); browser tabs and cross-origin subframes stay separate",
+}
+
+
+def shared_renderer(result):
+    """Whether every started cmux page has a frame in one common renderer (the cmux-page scheme's
+    shared renderer; cross-origin subframes may add renderers of their own, browser tabs are not
+    cmux pages): (passed, detail), or None when fewer than two pages report their renderers."""
+    pages = [page for page in started_in_chromium(result.get("cmux_pages", [])) if page.get("renderer_clients")]
+    if len(pages) < 2:
+        return None
+    common = set.intersection(*(set(page["renderer_clients"]) for page in pages))
+    detail = ", ".join(f"{page['page']}={sorted(page['renderer_clients'])}" for page in pages)
+    return bool(common), f"renderer client ids per started cmux page: {detail}"
 
 
 def prepare(scenario, control, args, app_pid, bundle):
@@ -271,22 +320,49 @@ def prepare(scenario, control, args, app_pid, bundle):
     return None
 
 
+def judge_renderers(result):
+    """Sorts the cmux-pages-hidden renderer rows by the pages whose frames they host: `judged`
+    (only unseen cmux pages: the frozen limits apply), `unjudged` (also a seen page, such as the
+    New Tab spare: it may work) and `unowned` (no cmux page: a browser tab, Chromium's spare
+    renderer). Each row gets `renderer_client` and `pages`."""
+    owners = {}
+    for page in started_in_chromium(result.get("cmux_pages", [])):
+        for client in page.get("renderer_clients") or []:
+            owners.setdefault(client, []).append(page)
+    sorted_rows = {"judged": [], "unjudged": [], "unowned": []}
+    for row in result["processes"]:
+        if row["kind"] != "cef-renderer":
+            continue
+        hosted = owners.get(row.get("renderer_client"), [])
+        row["pages"] = [f"{page['page']} ({page['chromium']})" for page in hosted]
+        if not hosted:
+            sorted_rows["unowned"].append(row)
+        elif all(page["chromium"] in UNSEEN for page in hosted):
+            sorted_rows["judged"].append(row)
+        else:
+            sorted_rows["unjudged"].append(row)
+    return sorted_rows
+
+
 def criteria(scenario, result, args):
     failures = []
     if scenario == "cmux-pages-hidden":
-        renderers = [row for row in result["processes"] if row["kind"] == "cef-renderer"]
-        started = result.get("started_pages", 0)
-        if len(renderers) > started:
-            failures.append(f"{scenario}: {len(renderers)} Chromium renderers for {started} started cmux pages")
-        for page, lifecycle in result.get("awake_pages", []):
-            failures.append(f"{scenario}: cmux page {page} still awake while Home is hidden ({lifecycle})")
-        for row in renderers:
+        for page in result.get("awake_pages", []):
+            failures.append(f"{scenario}: cmux page {page['page']} still awake while Home is hidden ({page['chromium']})")
+        for page in started_in_chromium(result.get("cmux_pages", [])):
+            if page.get("renderer_clients") is None:
+                failures.append(f"{scenario}: cmux page {page['page']} reports no renderer_clients (debug.page list): "
+                                "its renderers cannot be told from the others")
+            elif not page["renderer_clients"]:
+                failures.append(f"{scenario}: cmux page {page['page']} started in Chromium ({page['chromium']}) but hosts no renderer frame")
+        for row in judge_renderers(result)["judged"]:
             if row.get("partial"):
                 continue
+            pages = ", ".join(row["pages"])
             if row["cpu_percent"] > args.max_hidden_renderer_cpu:
-                failures.append(f"{scenario}: renderer {row['pid']} {row['cpu_percent']}% CPU > {args.max_hidden_renderer_cpu}%")
+                failures.append(f"{scenario}: renderer {row['pid']} of {pages}: {row['cpu_percent']}% CPU > {args.max_hidden_renderer_cpu}%")
             if row["wakeups_per_s"] > args.max_hidden_renderer_wakeups:
-                failures.append(f"{scenario}: renderer {row['pid']} {row['wakeups_per_s']} wakeups/s > {args.max_hidden_renderer_wakeups}")
+                failures.append(f"{scenario}: renderer {row['pid']} of {pages}: {row['wakeups_per_s']} wakeups/s > {args.max_hidden_renderer_wakeups}")
     for row in result["processes"]:
         if row.get("partial"):
             if row["kind"] in ("app", "daemon"):
@@ -382,6 +458,7 @@ def main():
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
     report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}, **report_env}
     failures = []
+    expected_red = []
     try:
         control = wait_for_socket(socket_path)
         identity = control.call("system.identify").get("result", {})
@@ -402,25 +479,47 @@ def main():
                 report["scenarios"][scenario] = {"skipped": skipped}
                 print(f"== {scenario}: skipped ({skipped})")
                 continue
-            pages = None
             if scenario == "cmux-pages-hidden":
                 # Every Chromium cmux page freezes after the grace; the wait ends as soon as none is awake.
                 wait_for(lambda: not awake_hidden(cmux_pages(control)), args.freeze_grace + args.settle)
-                pages = cmux_pages(control)
             time.sleep(args.settle)  # test script: let the scenario settle
             result = measure(app_pid, bundle, args.measure, control)
-            if pages is not None:
-                result["cmux_pages"] = [{"page": page, "chromium": lifecycle} for page, lifecycle in pages]
+            if scenario == "cmux-pages-hidden":
+                # Read after the window: a page that woke during it counts as awake, and the
+                # renderers are matched to the pages they host as they stood when measured.
+                pages = cmux_pages(control)
+                clients = renderer_client_ids(app_pid)
+                for row in result["processes"]:
+                    if row["kind"] == "cef-renderer":
+                        row["renderer_client"] = clients.get(row["pid"])
+                result["cmux_pages"] = pages
                 result["started_pages"] = len(started_in_chromium(pages))
                 result["awake_pages"] = awake_hidden(pages)
+                judged = judge_renderers(result)
+                result["unjudged_renderers"] = [row["pid"] for row in judged["unjudged"]]
+                result["unowned_renderers"] = [row["pid"] for row in judged["unowned"]]
+                shared = shared_renderer(result)
+                if shared is not None:
+                    passed, detail = shared
+                    result["shared_renderer"] = {"passed": passed, "detail": detail}
+                    name = "cmux-pages-shared-renderer"
+                    if not passed and name in EXPECTED_RED:
+                        expected_red.append(f"{scenario}: cmux pages do not share one renderer ({detail}); "
+                                            f"expected red {EXPECTED_RED[name]}")
+                    elif not passed:
+                        failures.append(f"{scenario}: cmux pages do not share one renderer ({detail})")
+                    elif name in EXPECTED_RED:
+                        failures.append(f"{scenario}: cmux pages now share one renderer ({detail}): remove "
+                                        f"'{name}' from EXPECTED_RED in bench_idle.py in the same push")
             report["scenarios"][scenario] = result
             failures += criteria(scenario, result, args)
             print(f"== {scenario}")
             for row in result["processes"]:
+                pages = f"  [{', '.join(row['pages']) or 'no cmux page'}]" if "pages" in row else ""
                 if row.get("partial"):
-                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['note']}")
+                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['note']}{pages}")
                 else:
-                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['cpu_percent']:>7.3f}% CPU {row['wakeups_per_s']:>8.2f} wakeups/s")
+                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['cpu_percent']:>7.3f}% CPU {row['wakeups_per_s']:>8.2f} wakeups/s{pages}")
             if result.get("ledger"):
                 top = ", ".join(f"{e['owner']}:{e['reason']}={e['per_second']}/s" for e in result["ledger"][:6])
                 print(f"   ledger: {top}")
@@ -439,12 +538,15 @@ def main():
             except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
                 print(f"bench-idle: daemon teardown: {error}", file=sys.stderr)
     report["failures"] = failures
+    report["expected_red"] = expected_red
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"{args.sha}-idle-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)
     print(f"bench-idle: wrote {out}")
+    for item in expected_red:
+        print(f"EXPECTED RED {item}")
     for failure in failures:
         print(f"FAIL {failure}")
     if failures and not args.no_fail:
