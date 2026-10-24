@@ -45,6 +45,7 @@
     "CmuxNextPhoneAccess": {"layer": "service"},
     "CmuxNextComputerUse": {"layer": "service"},
     "CmuxNextStash": {"layer": "service", "plan": "History model moves to a domain package without views"},
+    "CmuxNextSidebarActions": {"layer": "ui", "mixes": ["domain"], "plan": "domain once CmuxNextSidebar's Store splits from its views (owner a590)"},
     "CmuxNextAgentUpdates": {"layer": "service"},
     "CmuxNextAgentIntegrations": {"layer": "service"},
     "CmuxNextWorkspaceRepair": {"layer": "service"},

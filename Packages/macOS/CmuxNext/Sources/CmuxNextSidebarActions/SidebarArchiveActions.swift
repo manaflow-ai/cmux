@@ -1,16 +1,18 @@
 public import CmuxNextActions
 public import CmuxNextSidebar
 
-/// What the archive actions read from the App: the sidebar document item behind a targeted
-/// workspace (or each selected row, for a person's menu run) and behind a targeted group.
+/// What the archive actions read from the App: the targeted workspace and group, the rows a person's
+/// run acts on, and the sidebar document item that places a workspace.
 @MainActor
 public protocol SidebarArchiveHost: AnyObject {
-    /// The document item of the invocation's workspace; throws when there is none or it is not placed yet.
-    func archiveItem(workspace invocation: ActionInvocation) throws -> String
-    /// The document items of every row the run acts on: the selection for a person's menu run, else the target.
-    func archiveItems(rows invocation: ActionInvocation) throws -> [String]
+    /// The invocation's workspace id; throws when it targets none.
+    func archiveWorkspace(_ invocation: ActionInvocation) throws -> String
+    /// The workspace ids the run acts on: the selection for a person's menu run, else the target.
+    func archiveRows(_ invocation: ActionInvocation) throws -> [String]
     /// The personal or document id of the invocation's group; throws when there is none.
     func archiveGroupID(_ invocation: ActionInvocation) throws -> String
+    /// The document item that places workspace `id`; nil while it is not placed yet.
+    func archiveItem(workspace id: String) -> String?
     /// What the person reads for an error the host threw.
     func archiveRefusal(_ error: any Error) -> String
 }
@@ -32,15 +34,12 @@ public final class SidebarArchiveActions {
         self.store = store
     }
 
-    /// The refusal for a workspace the document does not place yet.
-    public static var notPlacedYet: String { ArchiveStrings.notPlacedYet }
-
     public func bind(into registry: ActionRegistry) {
         let unavailable: @MainActor () -> String? = { [self] in self.activeStore() == nil ? ArchiveStrings.needsDocument : nil }
         registry.bindEffect("workspace.toggleArchive", unavailable: unavailable, effect: { [self] invocation in
             // Every selected row takes the right-clicked row's new state, as Pin does.
-            self.toggle(invocation, ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace) { host in
-                (try host.archiveItem(workspace: invocation), try host.archiveItems(rows: invocation))
+            self.toggle(invocation, ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace) { [self] host in
+                (try self.placed(host.archiveWorkspace(invocation)), try host.archiveRows(invocation).map { try self.placed($0) })
             }
         })
         registry.bindEffect("workspaceGroup.toggleArchive", unavailable: unavailable, effect: { [self] invocation in
@@ -58,7 +57,8 @@ public final class SidebarArchiveActions {
             }
         })
         ActionTargetTitles.set("workspace.toggleArchive", in: registry) { [self] invocation in
-            self.title(try? self.host.archiveItem(workspace: invocation), ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace)
+            let item = (try? self.host.archiveWorkspace(invocation)).flatMap { self.host.archiveItem(workspace: $0) }
+            return self.title(item, ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace)
         }
         ActionTargetTitles.set("workspaceGroup.toggleArchive", in: registry) { [self] invocation in
             let id = try? self.host.archiveGroupID(invocation)
@@ -92,6 +92,12 @@ public final class SidebarArchiveActions {
     private func title(_ item: String?, _ archive: String, _ unarchive: String) -> String? {
         guard let store = activeStore(), let item, store.records.items[item] != nil else { return nil }
         return store.records.isArchived(item: item) ? unarchive : archive
+    }
+
+    /// The document item that places workspace `id`; a workspace not placed yet (an adopt in flight) cannot be archived.
+    private func placed(_ id: String) throws -> String {
+        guard let item = host.archiveItem(workspace: id) else { throw ArchiveRefusal(message: ArchiveStrings.notPlacedYet) }
+        return item
     }
 
     /// The document item of group `id` (`itm_g_<id>` for a personal group, else the id itself).
