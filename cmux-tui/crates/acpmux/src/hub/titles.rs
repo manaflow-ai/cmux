@@ -388,11 +388,11 @@ impl Hub {
         }
         let started = std::time::Instant::now();
         let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
-        let title = result.get("text").and_then(Value::as_str).and_then(clean);
+        let title = result.get("text").and_then(serde_json::Value::as_str).and_then(clean);
         tracing::info!(
             event = "chat_title",
             harness,
-            model = result.get("model").and_then(Value::as_str).unwrap_or("default"),
+            model = result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default"),
             ms = started.elapsed().as_millis() as u64,
             input_bytes = request.len(),
             output_words = title.as_deref().map_or(0, |t| t.split_whitespace().count()),
