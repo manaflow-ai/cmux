@@ -15,6 +15,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToolText } from "../src/agent-session/acpmux/conversation/ToolText";
+import { setWorkingLook, type WorkingLook } from "../src/agent-session/shared/workingLook";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -46,13 +47,19 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   const bootstrap = readWebThemeBootstrap();
 
   // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words, as the row
-  // draws them (ToolText: the words and, while it runs, the shimmer's lit layer).
-  const working =
-    `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
-    `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
-    renderToStaticMarkup(createElement(ToolText, { working: true, children: "Compacting" })) +
-    `</div>`;
-  const paneLoops =
+  // draws them in `look` (ToolText: the words and, in the shimmer look only, the lit layer; the
+  // look reaches ToolText from the theme push, workingLook.ts, as it does in the pane).
+  const working = (look?: WorkingLook) => {
+    setWorkingLook(look);
+    const row =
+      `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
+      `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
+      renderToStaticMarkup(createElement(ToolText, { working: true, children: "Compacting" })) +
+      `</div>`;
+    setWorkingLook(undefined);
+    return row;
+  };
+  const paneLoops = (look?: WorkingLook) =>
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
@@ -60,7 +67,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
     `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
-    working +
+    working(look) +
     `<span class="hc-writing">writing</span>`;
   const diffLoops = `<span class="base-picker-spinner"></span><div id="status" data-pending="true">Loading</div>`;
 
@@ -117,7 +124,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   }
 
   test("the loops run by default (the check sees them)", async () => {
-    const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
+    const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops() + diffLoops, "no-preference");
     const running = await loops(p);
     await p.close();
     expect(running.length).toBeGreaterThanOrEqual(10);
@@ -132,8 +139,8 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
 
   test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {
     const looks: Record<string, string[]> = {};
-    for (const look of ["breathe", "shimmer", "spinner"]) {
-      const p = await page(`${desktop}${pane}`, `<span class="cv-spinner"></span>${working}`, "no-preference");
+    for (const look of ["breathe", "shimmer", "spinner"] as const) {
+      const p = await page(`${desktop}${pane}`, `<span class="cv-spinner"></span>${working(look)}`, "no-preference");
       await p.evaluate((value) => {
         document.documentElement.dataset.workingLook = value;
         return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -182,8 +189,8 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   // other pane, Home and diff loops, move on the compositor only.
   test("every pane loop, in each working look, animates only what the compositor moves", async () => {
     const painting: Record<string, string[]> = {};
-    for (const look of ["breathe", "shimmer", "spinner"]) {
-      const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
+    for (const look of ["breathe", "shimmer", "spinner"] as const) {
+      const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops(look) + diffLoops, "no-preference");
       await p.evaluate((value) => {
         document.documentElement.dataset.workingLook = value;
         return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -194,19 +201,36 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(painting).toEqual({ breathe: [], shimmer: [], spinner: [] });
   });
 
-  test("Static status indicators stop every pane loop", async () => {
-    const p = await page(`${desktop}${pane}${home}`, paneLoops, "no-preference", "static");
-    const running = await loops(p);
-    await p.close();
-    expect(running).toEqual([]);
-  });
+  /** `page`, with `look` set on the root as the theme push sets it (undefined: the default). */
+  async function inLook(p: Page, look?: WorkingLook): Promise<Page> {
+    if (look) {
+      await p.evaluate((value) => {
+        document.documentElement.dataset.workingLook = value;
+        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, look);
+    }
+    return p;
+  }
 
-  test("Reduce Motion stops every loop, the diff viewer's too", async () => {
-    const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "reduce");
-    const running = await loops(p);
-    await p.close();
-    expect(running).toEqual([]);
-  });
+  // In the default look and in the shimmer look, whose running rows carry the lit layer.
+  for (const look of [undefined, "shimmer"] as const) {
+    test(`Static status indicators stop every pane loop (${look ?? "default"} look)`, async () => {
+      const p = await inLook(await page(`${desktop}${pane}${home}`, paneLoops(look), "no-preference", "static"), look);
+      const running = await loops(p);
+      await p.close();
+      expect(running).toEqual([]);
+    });
+
+    test(`Reduce Motion stops every loop, the diff viewer's too (${look ?? "default"} look)`, async () => {
+      const p = await inLook(
+        await page(`${desktop}${pane}${home}${diff}`, paneLoops(look) + diffLoops, "reduce"),
+        look,
+      );
+      const running = await loops(p);
+      await p.close();
+      expect(running).toEqual([]);
+    });
+  }
 
   test("the diff base picker's spinner stops under Reduce Motion by its own rule", async () => {
     const p = await page(diff, diffLoops, "reduce");

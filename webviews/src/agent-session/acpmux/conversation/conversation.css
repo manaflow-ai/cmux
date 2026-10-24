@@ -1706,7 +1706,8 @@ pre.cv-math-source {
   display: none;
   fill: var(--cmux-accent, currentColor);
 }
-/* The shimmer's layers of a running row's words (ToolText.tsx): shown only in that look. */
+/* The shimmer's layers of a running row's words (ToolText.tsx): mounted only in that look (the
+   theme push, workingLook.ts) and shown only while its loops may run. */
 .cv-tool__shine {
   display: none;
 }
@@ -1761,6 +1762,12 @@ pre.cv-math-source {
     white-space: nowrap;
     color: var(--cv-text);
     animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  /* Plain-text words: the lit copy is generated content, so the DOM holds them once. */
+  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+    .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
+    .cv-tool__lit[data-text]::before {
+    content: attr(data-text);
   }
 }
 .cv-tool__icon {

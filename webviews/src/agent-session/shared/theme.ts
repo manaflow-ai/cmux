@@ -1,5 +1,6 @@
 import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import type { AgentSessionTheme } from "./types";
+import { setWorkingLook } from "./workingLook";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   isDark: null,
@@ -62,9 +63,11 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
   if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
   else delete root.dataset.statusIndicators;
-  // How agent work shows on running rows (conversation.css WORKING-LOOK).
+  // How agent work shows on running rows (conversation.css WORKING-LOOK); the components that
+  // mount a look's own layers read the same value (workingLook.ts).
   if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
   else delete root.dataset.workingLook;
+  setWorkingLook(theme.workingLook ?? undefined);
   // The opt-in scrollbar fade (scrollers.ts SCROLLER_FADE_ATTRIBUTE): shown scrollers fade at rest.
   root.toggleAttribute(SCROLLER_FADE_ATTRIBUTE, theme.scrollerFade === true);
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
