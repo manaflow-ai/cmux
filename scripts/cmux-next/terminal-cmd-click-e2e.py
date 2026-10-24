@@ -23,7 +23,7 @@ process left from the tag's bundle by exact PID.
 
 Usage: terminal-cmd-click-e2e.py --tag <tag> --app PATH [--file] [--captured] [--out DIR]
 """
-import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -39,6 +39,9 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 # The bundle's executable (MacOS/ also holds the debug and preview dylibs).
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+# The app's own bundle id: a fleet build of tag `a-b` is `com.cmuxterm.app.debug.a.b`.
+with open(os.path.join(APP, "Contents/Info.plist"), "rb") as info:
+    BUNDLE_ID = plistlib.load(info).get("CFBundleIdentifier") or f"com.cmuxterm.app.debug.{TAG}"
 SCRATCH = tempfile.mkdtemp(prefix=f"cmdclick-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
@@ -66,7 +69,7 @@ LAUNCHED = []
 
 def run(*args, timeout=30):
     """The bundled CLI against the tagged app (as scripts/cmux-debug-cli.sh sets it up)."""
-    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
