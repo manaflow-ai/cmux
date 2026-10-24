@@ -862,15 +862,18 @@ impl Translator {
                 None,
             ));
         }
-        // A task_updated that ends the task counts too: Claude Code sends no
-        // notification after it pauses a workflow (which stops its agents;
-        // a resume is a new task with the same run id) and may send none after
-        // a stop.
+        // A workflow's task_updated that ends it counts too: Claude Code sends no
+        // notification after it pauses a workflow (which stops its agents; a
+        // resume is a new task with the same run id) and may send none after a
+        // stop.
         let status = match sub {
             "task_notification" => {
                 Some(line.get("status").and_then(Value::as_str).unwrap_or("completed"))
             }
-            "task_updated" => super::workflows::ended_status(line),
+            // Only a workflow: a plain agent always ends with its notification.
+            "task_updated" if self.workflows.lock().await.contains_key(&tool) => {
+                super::workflows::ended_status(line)
+            }
             _ => None,
         }?;
         if !self.background_subagents.lock().await.remove(&tool) {

@@ -314,6 +314,47 @@ async fn a_paused_workflow_ends_as_paused() {
     assert_eq!(end["_meta"]["acpmux"]["subagents"][0]["reason"], json!("paused"));
 }
 
+/// A plain background agent ends only with its notification, which carries its result: a
+/// task_updated saying it completed does not end it first.
+#[tokio::test]
+async fn a_plain_background_agent_ends_only_with_its_notification() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let call = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a", "name": "Agent",
+        "input": {"description": "Watch the build", "prompt": "Watch it", "run_in_background": true}}]}});
+    t.inbound(&call).await;
+    t.inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "a1", "tool_use_id": "toolu_a",
+        "is_backgrounded": true}))
+        .await;
+    for status in ["completed", "failed", "killed", "paused"] {
+        let updated = json!({"type": "system", "subtype": "task_updated", "task_id": "a1", "patch": {"status": status}});
+        let out = updates(&t.inbound(&updated).await);
+        assert!(of_kind(&out, "subagent_state_update").is_empty(), "{status}: {out:?}");
+    }
+    let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a1", "status": "completed"});
+    let out = updates(&t.inbound(&done).await);
+    assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
+}
+
+/// Args that may hold a secret never go to a pane: the scanner masks them, or a key is named like
+/// a credential. Such a run is resumed from the chat.
+#[tokio::test]
+async fn a_workflows_args_go_out_only_when_they_hold_no_secret() {
+    let launch = |args: Value| async move {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        t.inbound(&json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_w",
+            "name": "Workflow", "input": {"scriptPath": "/tmp/wf.js", "args": args}}]}}))
+            .await;
+        let out = updates(&t.inbound(&launched("toolu_w", "/nonexistent")).await);
+        of_kind(&out, "subagent_progress")[0].get("args").cloned()
+    };
+    assert_eq!(launch(json!({"pr": 7})).await, Some(json!({"pr": 7})));
+    assert_eq!(launch(json!({"github_token": "x"})).await, None);
+    // Built here, not written out, so the repository holds no token-shaped string.
+    let token = format!("gh{}_{}", "p", "Q7ZJ4XK2MD5P3WRT8N6C1VBH9YLFGSA0TEUI");
+    assert_eq!(launch(json!({"note": token})).await, None);
+    assert_eq!(launch(json!({"blob": "x".repeat(9000)})).await, None);
+}
+
 /// The hub's subagent model carries the run's id, phases and agent changes.
 #[test]
 fn workflow_agents_reach_clients_in_the_subagent_model() {

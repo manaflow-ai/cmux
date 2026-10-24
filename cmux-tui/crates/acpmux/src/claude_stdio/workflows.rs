@@ -84,8 +84,13 @@ struct Rows {
 
 impl WorkflowRun {
     /// A run for a Workflow call's `input`, keeping its `args`.
+    /// A run for a Workflow call's `input`, keeping its `args` when a pane may be sent them
+    /// (`sendable_args`).
     pub(super) fn new(input: &Value) -> Self {
-        Self { args: input.get("args").filter(|args| !args.is_null()).cloned(), ..Self::default() }
+        Self {
+            args: input.get("args").filter(|args| sendable_args(args)).cloned(),
+            ..Self::default()
+        }
     }
 }
 
@@ -139,7 +144,7 @@ impl Translator {
         if let Some(path) = text("scriptPath") {
             update.set("scriptPath", json!(path));
         }
-        if let Some(args) = args.filter(|args| args.to_string().len() <= ARGS_BYTES) {
+        if let Some(args) = args {
             update.set("args", args);
         }
         if let Some(name) = text("workflowName") {
@@ -443,13 +448,40 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
 /// A preview as sent: secrets masked, whitespace folded, at most
 /// `PREVIEW_CHARS` characters.
 fn preview(text: &str) -> String {
-    let text = crate::secret_scan::mask(text).split_whitespace().collect::<Vec<_>>().join(" ");
+    // Only a bounded head is masked and folded: past it nothing is shown anyway.
+    let head: String = text.chars().take(PREVIEW_CHARS * 8).collect();
+    let text = crate::secret_scan::mask(&head).split_whitespace().collect::<Vec<_>>().join(" ");
     if text.chars().count() <= PREVIEW_CHARS {
         return text;
     }
     let mut out: String = text.chars().take(PREVIEW_CHARS).collect();
     out.push('…');
     out
+}
+
+/// Whether a Workflow call's `args` may go to a pane, which a resume names again: not null, at
+/// most `ARGS_BYTES` serialized, nothing in them the secret scanner masks, and no key named like
+/// a credential. Session updates are not masked, so args that may hold a secret are never sent;
+/// a person resumes such a run from the chat.
+fn sendable_args(args: &Value) -> bool {
+    fn credential_key(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => map.iter().any(|(key, value)| {
+                let key = key.to_ascii_lowercase();
+                ["token", "secret", "password", "passwd", "apikey", "api_key", "credential", "auth"]
+                    .iter()
+                    .any(|word| key.contains(word))
+                    || credential_key(value)
+            }),
+            Value::Array(items) => items.iter().any(credential_key),
+            _ => false,
+        }
+    }
+    if args.is_null() {
+        return false;
+    }
+    let text = args.to_string();
+    text.len() <= ARGS_BYTES && crate::secret_scan::mask(&text) == text && !credential_key(args)
 }
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
@@ -462,12 +494,13 @@ pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {
     Message::err(id, RpcError::internal(why))
 }
 
-/// The status a `task_updated` line ends its task with (`patch.status`
-/// `completed`, `failed`, `killed` or `paused`), if it ends it.
+/// The status a `task_updated` line ends its task with when no notification will (`patch.status`
+/// `paused`, which Claude Code sends no notification after, or `killed`), if it does. A completed
+/// or failed task ends with its notification, which carries its final usage and result.
 pub(super) fn ended_status(line: &Value) -> Option<&str> {
     line.pointer("/patch/status")
         .and_then(Value::as_str)
-        .filter(|status| matches!(*status, "completed" | "failed" | "killed" | "paused"))
+        .filter(|status| matches!(*status, "killed" | "paused"))
 }
 
 impl JournalTail {
