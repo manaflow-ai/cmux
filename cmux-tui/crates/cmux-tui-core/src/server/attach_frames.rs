@@ -34,7 +34,9 @@ pub(crate) const TERMINAL_OUTPUT_RING_CAPABILITY: &str = "terminal-output-ring-v
 pub(crate) enum FrameKind {
     /// Raw PTY bytes; offset of the first byte.
     Output = 1,
-    /// In-band resize marker: JSON meta.
+    /// In-band resize marker: JSON meta. Reserved: the daemon sends a grid
+    /// change as the existing resize event for now (design 3.2).
+    #[cfg_attr(not(test), expect(dead_code, reason = "reserved wire kind, decoded in tests"))]
     Grid = 2,
     /// One JSON event object.
     Event = 3,
@@ -52,6 +54,7 @@ pub(crate) enum FrameKind {
 }
 
 impl FrameKind {
+    #[cfg(test)]
     pub(crate) fn from_byte(byte: u8) -> Option<Self> {
         Some(match byte {
             1 => Self::Output,
@@ -130,7 +133,9 @@ pub(crate) struct FrameHeader {
     pub(crate) offset: u64,
 }
 
-/// Why a header did not decode.
+/// Why a header did not decode (the daemon never reads frames: tests and
+/// the app's decoder only).
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FrameHeaderError {
     Magic,
@@ -150,6 +155,7 @@ impl FrameHeader {
         header
     }
 
+    #[cfg(test)]
     pub(crate) fn decode(bytes: &[u8; FRAME_HEADER_LEN]) -> Result<Self, FrameHeaderError> {
         if bytes[0] != FRAME_MAGIC {
             return Err(FrameHeaderError::Magic);

@@ -2333,8 +2333,7 @@ impl Command {
     }
 
     /// What the request orders by across the connection's lanes.
-    fn request_order(&self) -> connection_scheduler::RequestOrder {
-        use connection_scheduler::RequestOrder;
+    fn request_order(&self) -> RequestOrder {
         // Only set-client-info changes what a later stream request is
         // allowed to do (its capabilities and sizing identity).
         match self.ordering_surface() {
@@ -2663,10 +2662,10 @@ mod stream_lanes;
 mod connection_scheduler;
 use connection_scheduler::{
     ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, RequestAcceptance,
-    run_pending_request,
+    RequestOrder, run_pending_request,
 };
 #[cfg(test)]
-use connection_scheduler::{ConnectionSurfaceState, OrderLane, RequestOrder};
+use connection_scheduler::{ConnectionSurfaceState, OrderLane};
 
 mod bounded_outbound;
 #[cfg(test)]
