@@ -233,11 +233,10 @@ impl HolderService {
 
     /// Hand the holder a VT replay of `chan`'s screen at `base` (its
     /// prologue for a restarted daemon). Without an open link nothing is
-    /// sent: a new holder gets a fresh replay with the master.
-    pub(super) fn snapshot(&self, chan: u32, base: u64, replay: &[u8]) {
-        if let Some(link) = self.open_link() {
-            let _ = link.snapshot(chan, base, replay);
-        }
+    /// sent (a new holder gets a fresh replay with the master) and this
+    /// returns false.
+    pub(super) fn snapshot(&self, chan: u32, base: u64, replay: &[u8]) -> bool {
+        self.open_link().is_some_and(|link| link.snapshot(chan, base, replay).is_ok())
     }
 
     /// Hang up `chan`'s terminal; SIGKILL its groups after `grace_ms`.
