@@ -113,11 +113,16 @@ final class HomeClientViewCache {
     }
 
     /// Writes the coalesced batch now and waits until the cache actor has it on disk (the quit's
-    /// save step, tests); returns at once when nothing changed and no write is in flight.
+    /// save step, tests), trying once more when that write failed; returns at once when nothing
+    /// changed and no write is in flight.
     ///
     /// Waiting for the newest write is enough: every state holds all the earlier ones, and the
     /// actor drops an older state of this writer that reaches it later.
     func flush() async {
+        writeNow()
+        await lastWrite?.value
+        // A failed write set `dirty` again and nothing else retries it: the quit tries once more.
+        guard dirty else { return }
         writeNow()
         await lastWrite?.value
     }
