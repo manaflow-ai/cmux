@@ -56,7 +56,16 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
+  /// The harness accounts shown in its Account submenu.
+  accounts?: QuickAccount[];
+  /// The account the tab runs or starts on.
+  account?: string;
+  /// A started chat's other harness: offer Fork to it in place of models.
+  fork?: boolean;
 };
+
+/// One account of a harness, by profile id.
+export type QuickAccount = { id: string; name: string; disabled?: boolean };
 
 export type QuickFamilies = {
   list: QuickFamily[];
@@ -65,6 +74,9 @@ export type QuickFamilies = {
   onPick(model: QuickModel): void;
   /// Add harness…, the last row of More models.
   onAddHarness?(): void;
+  onAccount?(id: string): void;
+  onFork?(id: string): void;
+  forkReady?: boolean;
 };
 
 /// How many rows a filtered list shows (keys 1 to 9 pick them).
@@ -228,6 +240,9 @@ export function QuickModelMenu({
   }, [query, open, families]);
   const shown = families?.list.find((family) => family.id === tab);
   const onChatTab = !families || tab === families.current;
+  const forkTab = !query && shown?.fork ? shown : undefined;
+  const profiles = families?.onAccount && (shown?.accounts?.length ?? 0) > 1 ? shown?.accounts : undefined;
+  const profile = shown?.account ?? shown?.id;
   // What the list draws: the typed filter's matches, else the tab's top models.
   const rows: (QuickModel & { hint?: string })[] = !families
     ? models.map((model) => ({ ...model, family: "" }))
@@ -336,6 +351,13 @@ export function QuickModelMenu({
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const list = (
     <>
+      {forkTab ? (
+        <MenuGroup label={forkTab.name}>
+          <MenuItem className="acpmux-quick-item acpmux-quick-fork" disabled={!families?.forkReady} onSelect={() => families?.onFork?.(forkTab.id)}>
+            <span className="acpmux-menu-label">Fork to {forkTab.name}</span>
+          </MenuItem>
+        </MenuGroup>
+      ) : (
       <MenuGroup label={query ? `“${query}”` : t("picker.modelThisSession")}>
         <MenuRadioGroup
           value={currentValue}
@@ -372,6 +394,7 @@ export function QuickModelMenu({
           </MenuItem>
         )}
       </MenuGroup>
+      )}
       {!query && onChatTab && effort && levels.length > 1 && (
         <>
           <MenuSeparator />
@@ -390,7 +413,7 @@ export function QuickModelMenu({
           </Submenu>
         </>
       )}
-      {!query && <MenuSeparator />}
+      {!query && !(forkTab && !profiles) && <MenuSeparator />}
       {!query && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
@@ -434,21 +457,37 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && onChatTab && account && (
+      {!query && ((onChatTab && account) || profiles) && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu"
-          label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
+          label={<QuickRowLabel label={t("picker.account")} value={onChatTab ? accountValue : profiles?.find((choice) => choice.id === profile)?.name} />}
         >
-          <AccountRows
-            list={accounts.list}
-            failed={accounts.failed}
-            switchFailed={accounts.switchFailed}
-            onPick={(routeId) => {
+          {profiles && (
+            <MenuRadioGroup value={profile ?? ""} onValueChange={(id) => {
+              if (id === profile) return;
               onOpenChange(false);
-              accounts.pick(routeId);
-            }}
-          />
+              families?.onAccount?.(id);
+            }}>
+              {profiles.map((choice) => (
+                <MenuRadioItem key={choice.id} value={choice.id} closeOnClick disabled={choice.disabled} className="acpmux-quick-item acpmux-quick-profile">
+                  <span className="acpmux-menu-label">{choice.name}</span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          )}
+          {profiles && onChatTab && account && <MenuSeparator />}
+          {onChatTab && account && (
+            <AccountRows
+              list={accounts.list}
+              failed={accounts.failed}
+              switchFailed={accounts.switchFailed}
+              onPick={(routeId) => {
+                onOpenChange(false);
+                accounts.pick(routeId);
+              }}
+            />
+          )}
         </Submenu>
       )}
       {!query && onChatTab && fast && (
