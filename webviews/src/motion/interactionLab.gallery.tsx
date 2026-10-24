@@ -14,10 +14,13 @@ function useCleanupRegistry() {
     cleanups.current.add(cleanup);
     return () => cleanups.current.delete(cleanup);
   };
-  useEffect(() => () => {
-    for (const cleanup of cleanups.current) cleanup();
-    cleanups.current.clear();
-  }, []);
+  useEffect(
+    () => () => {
+      for (const cleanup of cleanups.current) cleanup();
+      cleanups.current.clear();
+    },
+    [],
+  );
   return { add };
 }
 
@@ -49,6 +52,14 @@ function cancelAnimations(element: Element | null): void {
   for (const animation of element?.getAnimations() ?? []) animation.cancel();
 }
 
+function motionSurface(element: Element | null): HTMLElement | null {
+  return element?.closest<HTMLElement>("[data-motion-demo]") ?? null;
+}
+
+function motionIsOff(): boolean {
+  return document.documentElement.dataset.cmuxMotion === "off";
+}
+
 function trackAnimations(animations: Animation[], add: (cleanup: Cleanup) => () => boolean) {
   if (!animations.length) return;
   const stop = () => animations.forEach((animation) => animation.cancel());
@@ -68,21 +79,35 @@ function HierarchyDemo() {
   const toggle = () => {
     const node = panel.current;
     if (!node) return;
+    const surface = motionSurface(node);
+    surface?.setAttribute("data-motion-active", "true");
     cancelAnimations(node);
     cancelAnimations(title.current);
     const next = !open;
     setOpen(next);
+    if (motionIsOff()) {
+      surface?.setAttribute("data-motion-active", "false");
+      return;
+    }
     const frame = requestAnimationFrame(() => {
       if (!node) return;
       const duration = stageTiming(reduced, 360);
       const animation = node.animate(
-        next ? [{ opacity: 0, transform: "translateY(-12px) scale(.98)" }, { opacity: 1, transform: "none" }] :
-          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-12px) scale(.98)" }],
+        next
+          ? [
+              { opacity: 0, transform: "translateY(-12px) scale(.98)" },
+              { opacity: 1, transform: "none" },
+            ]
+          : [
+              { opacity: 1, transform: "none" },
+              { opacity: 0, transform: "translateY(-12px) scale(.98)" },
+            ],
         { duration, easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" },
       );
       const titleAnimation = title.current?.animate(
-        next ? [{ transform: "translateX(-10px)" }, { transform: "none" }] :
-          [{ transform: "none" }, { transform: "translateX(-10px)" }],
+        next
+          ? [{ transform: "translateX(-10px)" }, { transform: "none" }]
+          : [{ transform: "none" }, { transform: "translateX(-10px)" }],
         { duration, easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" },
       );
       const stop = () => {
@@ -90,16 +115,45 @@ function HierarchyDemo() {
         titleAnimation?.cancel();
         node.style.removeProperty("opacity");
         node.style.removeProperty("transform");
+        surface?.setAttribute("data-motion-active", "false");
       };
       const remove = cleanup.add(stop);
-      void animation.finished.then(() => { remove(); stop(); }).catch(() => { remove(); });
+      void animation.finished
+        .then(() => {
+          remove();
+          stop();
+        })
+        .catch(() => {
+          remove();
+        });
     });
-    cleanup.add(() => cancelAnimationFrame(frame));
+    cleanup.add(() => {
+      cancelAnimationFrame(frame);
+      surface?.setAttribute("data-motion-active", "false");
+    });
   };
   return (
-    <section className="il-card il-hierarchy" data-motion-demo="hierarchy" data-motion-reduced={reduced}>
-      <div className="il-copy"><span className="il-kicker">Parent → child</span><h2 ref={title}>Workspace details</h2><p>Shared title focus keeps the child panel spatially attached to its parent.</p><button type="button" onClick={toggle} aria-expanded={open}>{open ? "Close details" : "Open details"}</button></div>
-      <div ref={panel} className="il-child" aria-hidden={!open} data-motion-child="panel"><strong>Build preview</strong><span>Last checked just now</span><span className="il-meter"><i /></span></div>
+    <section
+      className="il-card il-hierarchy"
+      data-motion-demo="hierarchy"
+      data-motion-active="false"
+      data-motion-reduced={reduced}
+    >
+      <div className="il-copy">
+        <span className="il-kicker">Parent → child</span>
+        <h2 ref={title}>Workspace details</h2>
+        <p>Shared title focus keeps the child panel spatially attached to its parent.</p>
+        <button type="button" onClick={toggle} aria-expanded={open}>
+          {open ? "Close details" : "Open details"}
+        </button>
+      </div>
+      <div ref={panel} className="il-child" aria-hidden={!open} data-motion-child="panel">
+        <strong>Build preview</strong>
+        <span>Last checked just now</span>
+        <span className="il-meter">
+          <i />
+        </span>
+      </div>
     </section>
   );
 }
@@ -110,7 +164,7 @@ function ListDemo() {
   const list = useRef<HTMLUListElement>(null);
   const cleanup = useCleanupRegistry();
   const animateLayout = (before: Map<string, DOMRect>) => {
-    if (reduced) return;
+    if (reduced || motionIsOff()) return;
     const nodes = Array.from(list.current?.children ?? []) as HTMLElement[];
     const animations: Animation[] = [];
     nodes.forEach((node, index) => {
@@ -118,48 +172,127 @@ function ListDemo() {
       const first = before.get(id);
       const last = node.getBoundingClientRect();
       if (!first) {
-        animations.push(node.animate(reduced ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, transform: "translateY(-14px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: stageTiming(reduced, 300), delay: reduced ? 0 : index * 55, easing: "cubic-bezier(.2,.8,.2,1)" }));
+        animations.push(
+          node.animate(
+            reduced
+              ? [{ opacity: 0 }, { opacity: 1 }]
+              : [
+                  { opacity: 0, transform: "translateY(-14px) scale(.96)" },
+                  { opacity: 1, transform: "none" },
+                ],
+            {
+              duration: stageTiming(reduced, 300),
+              delay: reduced ? 0 : index * 55,
+              easing: "cubic-bezier(.2,.8,.2,1)",
+            },
+          ),
+        );
         return;
       }
       const dx = first.left - last.left;
       const dy = first.top - last.top;
       if (Math.abs(dx) + Math.abs(dy) > 0.5)
-        animations.push(node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: stageTiming(reduced, 320), easing: "cubic-bezier(.2,.8,.2,1)" }));
+        animations.push(
+          node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+            duration: stageTiming(reduced, 320),
+            easing: "cubic-bezier(.2,.8,.2,1)",
+          }),
+        );
     });
-    trackAnimations(animations, cleanup.add);
+    if (animations.length) motionSurface(list.current)?.setAttribute("data-motion-active", "true");
+    else motionSurface(list.current)?.setAttribute("data-motion-active", "false");
+    trackAnimations(animations, (stop) => {
+      const remove = cleanup.add(() => {
+        stop();
+        motionSurface(list.current)?.setAttribute("data-motion-active", "false");
+      });
+      return remove;
+    });
   };
   const insert = () => {
-    const before = new Map(Array.from(list.current?.children ?? []).map((node) => [node.getAttribute("data-id") ?? "", (node as HTMLElement).getBoundingClientRect()]));
+    const before = new Map(
+      Array.from(list.current?.children ?? []).map((node) => [
+        node.getAttribute("data-id") ?? "",
+        (node as HTMLElement).getBoundingClientRect(),
+      ]),
+    );
     // Two rows make the stagger visible while keeping the fixture small enough for a frame trace.
     setItems((current) => [`delta-${current.length + 1}`, `echo-${current.length + 1}`, ...current]);
+    if (reduced || motionIsOff()) return;
     const frame = requestAnimationFrame(() => animateLayout(before));
     cleanup.add(() => cancelAnimationFrame(frame));
   };
   const remove = () => {
     if (items.length < 2) return;
-    const before = new Map(Array.from(list.current?.children ?? []).map((node) => [node.getAttribute("data-id") ?? "", (node as HTMLElement).getBoundingClientRect()]));
+    const before = new Map(
+      Array.from(list.current?.children ?? []).map((node) => [
+        node.getAttribute("data-id") ?? "",
+        (node as HTMLElement).getBoundingClientRect(),
+      ]),
+    );
     const target = list.current?.lastElementChild as HTMLElement | null;
-    if (!target || reduced) {
+    if (!target || reduced || motionIsOff()) {
       setItems((current) => current.slice(0, -1));
       return;
     }
-    const animation = target.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateX(24px) scale(.96)" }], { duration: 220, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" });
+    const animation = target.animate(
+      [
+        { opacity: 1, transform: "none" },
+        { opacity: 0, transform: "translateX(24px) scale(.96)" },
+      ],
+      { duration: 220, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" },
+    );
+    motionSurface(list.current)?.setAttribute("data-motion-active", "true");
     const removeCleanup = cleanup.add(() => animation.cancel());
-    void animation.finished.then(() => {
-      removeCleanup();
-      setItems((current) => current.slice(0, -1));
-      const frame = requestAnimationFrame(() => animateLayout(before));
-      cleanup.add(() => cancelAnimationFrame(frame));
-    }).catch(() => removeCleanup());
+    void animation.finished
+      .then(() => {
+        removeCleanup();
+        setItems((current) => current.slice(0, -1));
+        const frame = requestAnimationFrame(() => animateLayout(before));
+        cleanup.add(() => cancelAnimationFrame(frame));
+      })
+      .catch(() => removeCleanup());
   };
-  return <section className="il-card" data-motion-demo="list" data-motion-reduced={reduced}><div className="il-copy"><span className="il-kicker">FLIP + stagger</span><h2>Recent workspaces</h2><p>Reads happen before writes; inserts reveal at 55ms intervals.</p><div className="il-actions"><button type="button" onClick={insert}>Insert</button><button type="button" onClick={remove} disabled={items.length < 2}>Remove</button></div></div><ul ref={list} className="il-list" aria-label="Recent workspaces">{items.map((item) => <li key={item} data-id={item}><span className="il-dot" />{item}</li>)}</ul></section>;
+  return (
+    <section className="il-card" data-motion-demo="list" data-motion-active="false" data-motion-reduced={reduced}>
+      <div className="il-copy">
+        <span className="il-kicker">FLIP + stagger</span>
+        <h2>Recent workspaces</h2>
+        <p>Reads happen before writes; inserts reveal at 55ms intervals.</p>
+        <div className="il-actions">
+          <button type="button" onClick={insert}>
+            Insert
+          </button>
+          <button type="button" onClick={remove} disabled={items.length < 2}>
+            Remove
+          </button>
+        </div>
+      </div>
+      <ul ref={list} className="il-list" aria-label="Recent workspaces">
+        {items.map((item) => (
+          <li key={item} data-id={item}>
+            <span className="il-dot" />
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function GestureDemo() {
   const reduced = useReducedMotion();
   const cleanup = useCleanupRegistry();
   const tile = useRef<HTMLButtonElement>(null);
-  const drag = useRef<{ pointer: number; x: number; lastX: number; lastT: number; velocity: number; frame?: number; release?: number } | null>(null);
+  const drag = useRef<{
+    pointer: number;
+    x: number;
+    lastX: number;
+    lastT: number;
+    velocity: number;
+    frame?: number;
+    release?: number;
+  } | null>(null);
   const springFrame = useRef<number | undefined>(undefined);
   const [x, setX] = useState(0);
   const onDown = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -189,10 +322,13 @@ function GestureDemo() {
     if (!node || !state || state.pointer !== event.pointerId) return;
     if (node.hasPointerCapture(event.pointerId)) node.releasePointerCapture(event.pointerId);
     drag.current = null;
-    if (reduced) {
+    const surface = node.closest<HTMLElement>("[data-motion-demo]");
+    if (reduced || motionIsOff()) {
       setX(0);
+      surface?.setAttribute("data-motion-active", "false");
       return;
     }
+    surface?.setAttribute("data-motion-active", "true");
     const start = state.x;
     const velocity = reduced ? 0 : state.velocity * 1000;
     const started = performance.now();
@@ -206,15 +342,45 @@ function GestureDemo() {
       else {
         springFrame.current = undefined;
         setX(0);
+        surface?.setAttribute("data-motion-active", "false");
         removeCleanup();
       }
     };
     let removeCleanup = () => false;
-    const stop = () => { if (springFrame.current !== undefined) cancelAnimationFrame(springFrame.current); springFrame.current = undefined; setX(0); removeCleanup(); };
+    const stop = () => {
+      if (springFrame.current !== undefined) cancelAnimationFrame(springFrame.current);
+      springFrame.current = undefined;
+      setX(0);
+      surface?.setAttribute("data-motion-active", "false");
+      removeCleanup();
+    };
     removeCleanup = cleanup.add(stop);
     springFrame.current = requestAnimationFrame(tick);
   };
-  return <section className="il-card" data-motion-demo="gesture" data-motion-reduced={reduced}><div className="il-copy"><span className="il-kicker">Gesture → spring</span><h2>Follow-through tile</h2><p>Pointer capture hands release velocity to a bounded spring. Escape by releasing or cancelling.</p></div><div className="il-gesture-track"><button ref={tile} type="button" className="il-tile" style={{ transform: `translateX(${x}px)` }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} aria-label="Drag preview">Drag me</button></div></section>;
+  return (
+    <section className="il-card" data-motion-demo="gesture" data-motion-active="false" data-motion-reduced={reduced}>
+      <div className="il-copy">
+        <span className="il-kicker">Gesture → spring</span>
+        <h2>Follow-through tile</h2>
+        <p>Pointer capture hands release velocity to a bounded spring. Escape by releasing or cancelling.</p>
+      </div>
+      <div className="il-gesture-track">
+        <button
+          ref={tile}
+          type="button"
+          className="il-tile"
+          style={{ transform: `translateX(${x}px)` }}
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerCancel={onUp}
+          aria-label="Drag preview"
+        >
+          Drag me
+        </button>
+      </div>
+    </section>
+  );
 }
 
 function InterruptDemo() {
@@ -225,38 +391,110 @@ function InterruptDemo() {
   const toggle = () => {
     const node = panel.current;
     if (!node) return;
+    const surface = motionSurface(node);
+    surface?.setAttribute("data-motion-active", "true");
     const running = node.getAnimations()[0];
+    const next = !open;
+    if (motionIsOff()) {
+      setOpen(next);
+      surface?.setAttribute("data-motion-active", "false");
+      return;
+    }
     if (running) running.reverse();
     else {
-      const animation = node.animate(open ? [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-18px)" }] : [{ opacity: 0, transform: "translateY(-18px)" }, { opacity: 1, transform: "none" }], { duration: stageTiming(reduced, 500), easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" });
-      const stop = () => { animation.cancel(); node.style.removeProperty("opacity"); node.style.removeProperty("transform"); };
+      const animation = node.animate(
+        open
+          ? [
+              { opacity: 1, transform: "none" },
+              { opacity: 0, transform: "translateY(-18px)" },
+            ]
+          : [
+              { opacity: 0, transform: "translateY(-18px)" },
+              { opacity: 1, transform: "none" },
+            ],
+        { duration: stageTiming(reduced, 500), easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" },
+      );
+      const stop = () => {
+        animation.cancel();
+        node.style.removeProperty("opacity");
+        node.style.removeProperty("transform");
+        surface?.setAttribute("data-motion-active", "false");
+      };
       const remove = cleanup.add(stop);
-      void animation.finished.then(() => { remove(); stop(); }).catch(() => remove());
+      void animation.finished
+        .then(() => {
+          remove();
+          stop();
+        })
+        .catch(() => remove());
     }
-    setOpen((value) => !value);
+    setOpen(next);
   };
-  return <section className="il-card" data-motion-demo="interrupt" data-motion-reduced={reduced}><div className="il-copy"><span className="il-kicker">Interruptible WAAPI</span><h2>Open, then change your mind</h2><p>Repeated intent reverses the current playback instead of jumping to an endpoint.</p><button type="button" onClick={toggle} aria-expanded={open}>{open ? "Close" : "Open"}</button></div><div ref={panel} className="il-interrupt-panel" aria-hidden={!open}><span>Animation can be interrupted at any point.</span></div></section>;
+  return (
+    <section className="il-card" data-motion-demo="interrupt" data-motion-active="false" data-motion-reduced={reduced}>
+      <div className="il-copy">
+        <span className="il-kicker">Interruptible WAAPI</span>
+        <h2>Open, then change your mind</h2>
+        <p>Repeated intent reverses the current playback instead of jumping to an endpoint.</p>
+        <button type="button" onClick={toggle} aria-expanded={open}>
+          {open ? "Close" : "Open"}
+        </button>
+      </div>
+      <div ref={panel} className="il-interrupt-panel" aria-hidden={!open}>
+        <span>Animation can be interrupted at any point.</span>
+      </div>
+    </section>
+  );
 }
 
 function ReducedDemo() {
   const reduced = useReducedMotion();
   const cleanup = useCleanupRegistry();
-  const node = useRef<HTMLDivElement>(null);
+  const node = useRef<HTMLOutputElement>(null);
   const play = () => {
     const current = node.current;
     if (!current) return;
+    const surface = motionSurface(current);
+    surface?.setAttribute("data-motion-active", "true");
     cancelAnimations(current);
     if (reduced) {
       current.style.opacity = "1";
       current.style.removeProperty("transform");
+      surface?.setAttribute("data-motion-active", "false");
       return;
     }
-    const animation = current.animate([{ opacity: 0, transform: "translateX(-24px)" }, { opacity: 1, transform: "none" }], { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" });
-    const stop = () => animation.cancel();
+    const animation = current.animate(
+      [
+        { opacity: 0, transform: "translateX(-24px)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" },
+    );
+    const stop = () => {
+      animation.cancel();
+      surface?.setAttribute("data-motion-active", "false");
+    };
     const remove = cleanup.add(stop);
     void animation.finished.then(remove, remove);
   };
-  return <section className="il-card" data-motion-demo="reduced" data-motion-reduced={reduced}><div className="il-copy"><span className="il-kicker">Reduce motion</span><h2>Same hierarchy, less travel</h2><p>Live OS preference and <code>data-cmux-motion=reduce</code> keep focus and opacity while removing spatial motion.</p><button type="button" onClick={play}>Replay</button></div><div ref={node} className="il-reduced-status" role="status">{reduced ? "Reduced path" : "Full motion path"}</div></section>;
+  return (
+    <section className="il-card" data-motion-demo="reduced" data-motion-active="false" data-motion-reduced={reduced}>
+      <div className="il-copy">
+        <span className="il-kicker">Reduce motion</span>
+        <h2>Same hierarchy, less travel</h2>
+        <p>
+          Live OS preference and <code>data-cmux-motion=reduce</code> keep focus and opacity while removing spatial
+          motion.
+        </p>
+        <button type="button" onClick={play}>
+          Replay
+        </button>
+      </div>
+      <output ref={node} className="il-reduced-status">
+        {reduced ? "Reduced path" : "Full motion path"}
+      </output>
+    </section>
+  );
 }
 
 export function InteractionLabStage({ kind }: StageProps) {
@@ -268,11 +506,18 @@ export function InteractionLabStage({ kind }: StageProps) {
 }
 
 const replay: Play = async (ctx) => {
-  const button = ctx.document.querySelector<HTMLButtonElement>('[data-motion-demo] button');
-  if (button) {
-    await ctx.click({ selector: '[data-motion-demo] button' });
-    await ctx.waitFor(() => !ctx.document.querySelector('[data-motion-demo] [style*="transform"]'), { capMs: 2_000 }).catch(() => undefined);
+  const demo = ctx.document.querySelector<HTMLElement>("[data-motion-demo]");
+  if (!demo) return;
+  if (demo.dataset.motionDemo === "gesture") {
+    const target = { selector: '[data-motion-demo="gesture"] button' } as const;
+    await ctx.pointer.down(target);
+    await ctx.pointer.move(target);
+    await ctx.pointer.up(target);
+    await ctx.waitFor(() => demo.dataset.motionActive === "false", { capMs: 2_000 });
+    return;
   }
+  await ctx.click({ selector: "[data-motion-demo] button" });
+  await ctx.waitFor(() => (demo.getAnimations?.() ?? []).length === 0, { capMs: 2_000 });
 };
 
 export default componentEntry<StageProps>({
