@@ -178,7 +178,7 @@ public final class BrowserHostProvider {
 
     /// Re-reads the tab list (for state that is not observable: visibility,
     /// a page created or released).
-    public func refreshTabs() { observeTabs() }
+    public func refreshTabs(changed: Set<String>? = nil) { observeTabs() }
 
     /// A person pressed a key or clicked in tab `targetID`: when the tab is
     /// leased, the host pauses the lease. Call only from the app's own event
