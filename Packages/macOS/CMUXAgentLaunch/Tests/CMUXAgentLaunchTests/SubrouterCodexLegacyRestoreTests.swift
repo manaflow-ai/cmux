@@ -13,13 +13,15 @@ import Testing
     private func decision(
         _ command: String,
         sessionID: String? = nil,
-        capturedLaunch: AgentLaunchCommand? = nil
+        capturedLaunch: AgentLaunchCommand? = nil,
+        savedEnvironment: [String: String] = [:]
     ) -> SubrouterCodexResumeRouting.LegacyRestoreDecision {
         router.legacyRestoreDecision(
             legacyCommand: command,
             sessionID: sessionID ?? self.sessionID,
             workingDirectory: "/tmp/work",
-            capturedLaunch: capturedLaunch
+            capturedLaunch: capturedLaunch,
+            savedEnvironment: savedEnvironment
         )
     }
 
@@ -124,5 +126,28 @@ import Testing
         }
         #expect(launch.environment?["CODEX_HOME"] == "/Users/me/.codex-captured")
         #expect(launch.verificationHome == "/Users/me")
+    }
+
+    @Test func inlineAccountHomeBeatsTheSavedAndCapturedEnvironment() throws {
+        // The command named its account with an inline CODEX_HOME; the record's
+        // saved environment and the captured launch carry other homes. The
+        // routed resume must use the account the command named, the same
+        // order the literal-resume path applies.
+        let captured = AgentLaunchCommand(
+            launcher: "codex",
+            arguments: ["codex"],
+            environment: ["CODEX_HOME": "/Users/me/.codex-captured", "CAPTURED": "c"]
+        )
+        guard case .route(let launch) = decision(
+            "CODEX_HOME=/Users/me/.codex-work codex -c model_provider=subrouter resume \(sessionID)",
+            capturedLaunch: captured,
+            savedEnvironment: ["CODEX_HOME": "/Users/me/.codex-saved", "SAVED": "s", "CAPTURED": "saved"]
+        ) else {
+            Issue.record("expected .route")
+            return
+        }
+        #expect(launch.environment?["CODEX_HOME"] == "/Users/me/.codex-work")
+        #expect(launch.environment?["SAVED"] == "s")
+        #expect(launch.environment?["CAPTURED"] == "saved")
     }
 }
