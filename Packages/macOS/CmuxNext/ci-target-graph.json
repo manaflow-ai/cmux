@@ -843,6 +843,7 @@
       "targets": [
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
