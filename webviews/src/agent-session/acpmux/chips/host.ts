@@ -13,6 +13,25 @@ export function callChipHost(method: string, params: Record<string, unknown>): P
     .catch(() => undefined);
 }
 
+/// The host's answer to `method`, or its refusal: `code` is the host's error code (`link.*` for a
+/// path it refused, `unsupported` for a method it doesn't know), undefined when the call never
+/// reached it.
+export type ChipHostAnswer = { ok: true; value: unknown } | { ok: false; code?: string };
+
+/// Sends `method` and keeps a refusal apart from an answer, for a caller that must tell "no
+/// preview" from "this host can't say".
+export function askChipHost(method: string, params: Record<string, unknown>): Promise<ChipHostAnswer> {
+  return Promise.resolve()
+    .then(() => call(method, params))
+    .then(
+      (value): ChipHostAnswer => ({ ok: true, value }),
+      (error: unknown): ChipHostAnswer => {
+        const code = (error as { code?: unknown } | null)?.code;
+        return { ok: false, code: typeof code === "string" ? code : undefined };
+      },
+    );
+}
+
 /// Tests replace the host.
 export function setChipHost(next: Call | undefined): void {
   call = next ?? postNative;

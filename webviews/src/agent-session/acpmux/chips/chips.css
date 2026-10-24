@@ -452,3 +452,29 @@ button.cv-thumb:focus-visible {
 .cv-li__images {
   display: block;
 }
+/* A path chip's hover card (PathHoverCard.tsx): an image's thumbnail, or a text file's first lines
+   in the code face, cut at the card's edge (the host sends at most 40 lines). */
+.cv-path-preview__image {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.cv-path-preview__text {
+  max-height: 220px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--agent-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre;
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}
+.cv-path-preview__note {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}

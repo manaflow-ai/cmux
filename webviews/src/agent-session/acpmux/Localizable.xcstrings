@@ -108340,6 +108340,138 @@
         }
       }
     },
+    "pathPreview.remote" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل هذه المحادثة على جهاز آخر، لذا لا يمكن معاينة هذا الملف هنا"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj chat radi na drugom računaru pa se ova datoteka ovdje ne može pregledati"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chat kører på en anden maskine, så denne fil kan ikke forhåndsvises her"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Chat läuft auf einem anderen Rechner, daher kann diese Datei hier nicht in der Vorschau angezeigt werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat runs on another machine, so this file can't be previewed here"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat se ejecuta en otra máquina, por lo que este archivo no se puede previsualizar aquí"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette discussion s’exécute sur une autre machine, ce fichier ne peut donc pas être prévisualisé ici"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa chat è in esecuzione su un altro computer, quindi l’anteprima di questo file non è disponibile qui"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このチャットは別のマシンで実行されているため、ここではこのファイルをプレビューできません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកនេះរត់លើម៉ាស៊ីនផ្សេង ដូច្នេះមិនអាចមើលឯកសារនេះជាមុននៅទីនេះបានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 채팅은 다른 컴퓨터에서 실행 중이므로 여기서 이 파일을 미리 볼 수 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chatten kjører på en annen maskin, så denne filen kan ikke forhåndsvises her"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten czat działa na innym komputerze, więc podglądu tego pliku nie można tu wyświetlić"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat é executado em outra máquina, então este arquivo não pode ser visualizado aqui"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот чат работает на другом компьютере, поэтому предпросмотр этого файла здесь недоступен"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชทนี้ทำงานบนเครื่องอื่น จึงดูตัวอย่างไฟล์นี้ที่นี่ไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sohbet başka bir makinede çalışıyor, bu yüzden bu dosya burada önizlenemiyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей чат працює на іншому комп’ютері, тому попередній перегляд цього файлу тут неможливий"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuộc trò chuyện này chạy trên máy khác nên không thể xem trước tệp này tại đây"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此对话在另一台机器上运行，无法在此预览此文件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此對話在另一部機器上執行，無法在此預覽此檔案"
+          }
+        }
+      }
+    },
     "image.unavailable" : {
       "extractionState" : "manual",
       "localizations" : {

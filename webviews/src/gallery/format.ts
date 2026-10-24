@@ -89,6 +89,8 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** `link.preview` answers: a text file's first lines for a path chip's hover card. */
+  previews?: Record<string, { lines: string[]; truncated: boolean }>;
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
