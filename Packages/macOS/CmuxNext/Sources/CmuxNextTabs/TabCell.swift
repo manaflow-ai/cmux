@@ -46,18 +46,17 @@ final class TabCell {
     var isStripShown = true {
         didSet {
             guard isStripShown != oldValue else { return }
-            if isStripShown, hasStatusIndicator, indicatorSyncedMoment != StatusIndicatorAppearance.shared.resyncMoment {
-                owesIndicatorResync = true
-            }
-            if isStripShown, owesIndicatorResync { statusIndicatorResync() }
+            // A resync moment passed while the strip was hidden and the cell had an indicator.
+            if isStripShown, hasStatusIndicator, indicatorSyncedMoment != appearance.resyncMoment { statusIndicatorResync() }
             updateIndicatorResyncMembership()
         }
     }
-    /// A resync is owed: one was asked for while the strip was hidden, or a resync moment passed
-    /// while the cell was off screen and not reached (TabCell+StatusIndicator).
-    var owesIndicatorResync = false
-    /// The resync moment the cell last checked its indicator at (`StatusIndicatorAppearance.resyncMoment`).
-    var indicatorSyncedMoment: UInt64 = 0
+    /// The resync moment the cell's indicator is current at (`StatusIndicatorAppearance.resyncMoment`):
+    /// behind only when a moment passed while the strip was hidden and the cell had an indicator.
+    var indicatorSyncedMoment: UInt64
+    /// The shared config and its resync moments (`StatusIndicatorAppearance.shared` in the app; a
+    /// test passes its own).
+    let appearance: StatusIndicatorAppearance
     /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
     /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
     var fillsSelection: Bool { isSelected || isLifted }
@@ -167,9 +166,10 @@ final class TabCell {
     /// Set while a hover change lays out, so the x and the title fade.
     private var animatesCloseChange = false
 
-    init(item: TabItem) {
+    init(item: TabItem, appearance: StatusIndicatorAppearance = .shared) {
         self.item = item
-        indicatorSyncedMoment = StatusIndicatorAppearance.shared.resyncMoment
+        self.appearance = appearance
+        indicatorSyncedMoment = appearance.resyncMoment
         layer.actions = Self.noActions
         // Anchored at the leading edge: a strip move of the width never moves the tab's x, so a
         // dragged tab whose width still moves keeps its edge under the pointer.
@@ -327,7 +327,7 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
-            let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
+            let indicatorColors = StatusIndicatorLayer.Colors.current(loading: appearance.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)

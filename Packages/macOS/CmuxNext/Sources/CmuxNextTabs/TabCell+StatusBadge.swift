@@ -32,9 +32,9 @@ extension TabCell {
     /// A cell with a status follows the shared config, so a set switch
     /// restyles it live.
     func updateStatusGlyph() {
-        if item.status != .none { StatusIndicatorAppearance.shared.register(self) }
+        if item.status != .none { appearance.register(self) }
         updateIndicatorResyncMembership()
-        let config = StatusIndicatorAppearance.shared.config
+        let config = appearance.config
         if let plan = statusBadgePlan(config: config) {
             let glyph = statusGlyphLayer ?? {
                 let glyph = StatusIndicatorLayer()

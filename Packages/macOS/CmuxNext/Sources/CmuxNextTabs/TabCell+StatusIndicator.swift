@@ -3,7 +3,7 @@ import QuartzCore
 
 /// The tab's busy indicator: the shared `StatusIndicatorLayer` in the
 /// trailing cluster (TabCell+TrailingMarks; in the icon slot only on a tab
-/// that shows no title). A busy cell registers with `StatusIndicatorAppearance`, so a
+/// that shows no title). A busy cell registers with its `StatusIndicatorAppearance`, so a
 /// settings or Debug Settings change restyles it live; idle cells cost
 /// nothing.
 extension TabCell: StatusIndicatorConfigClient {
@@ -11,7 +11,7 @@ extension TabCell: StatusIndicatorConfigClient {
     /// style is `none`).
     var spinnerPlan: StatusIndicatorPlan {
         guard item.indicator.replacesTabIcon else { return .hidden }
-        let config = StatusIndicatorAppearance.shared.config
+        let config = appearance.config
         // A page waiting for its first response spins like every other spinner: same direction,
         // same phase (Lawrence 2026-10-20; Chromium's counter-clockwise waiting throbber put two
         // spinners on screen turning opposite ways).
@@ -25,14 +25,14 @@ extension TabCell: StatusIndicatorConfigClient {
     func updateSpinner() {
         // Registered while busy even when the style draws nothing (`none`),
         // so switching the style back shows the indicator.
-        if item.isBusy { StatusIndicatorAppearance.shared.register(self) }
+        if item.isBusy { appearance.register(self) }
         updateIndicatorResyncMembership()
         let plan = spinnerPlan
         if plan.glyph != .none {
             let spinner = makeSpinner()
             let wasHidden = spinner.layer.isHidden || spinner.plan.glyph == .none || isSpinnerExiting
             isSpinnerExiting = false
-            spinner.apply(plan, config: StatusIndicatorAppearance.shared.config)
+            spinner.apply(plan, config: appearance.config)
             if wasHidden {
                 showSpinner(spinner, animated: item.indicator.isLoading)
             } else {
@@ -142,25 +142,29 @@ extension TabCell: StatusIndicatorConfigClient {
     }
 
     /// Checks the indicator again (the app came back, a window became main, the Mac woke): now
-    /// when the strip shows, else when it shows again.
+    /// when the strip shows, else when it shows again (`isStripShown` compares the moments).
     func statusIndicatorResync() {
+        // A stale member of the resync set leaves it; the moment stays owed until the strip shows.
         guard isStripShown else {
-            owesIndicatorResync = true
+            updateIndicatorResyncMembership()
             return
         }
-        owesIndicatorResync = false
-        indicatorSyncedMoment = StatusIndicatorAppearance.shared.resyncMoment
-        StatusIndicatorAppearance.resyncs &+= 1
-        statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
+        indicatorSyncedMoment = appearance.resyncMoment
+        appearance.noteResyncCheck()
+        statusIndicatorConfigDidChange(appearance.config)
     }
 
     /// The cell draws a busy indicator or a status badge: what a resync checks.
     var hasStatusIndicator: Bool { item.isBusy || item.status != .none }
 
     /// The resync moments reach the cell only while its strip shows and it has an indicator: a
-    /// parked workspace's busy tabs are not walked on every activation.
+    /// parked workspace's busy tabs are not walked on every activation. Runs on every spinner,
+    /// badge and strip change. A shown cell is current (it has every moment while it has an
+    /// indicator, and its spinner and badge were just drawn), and a cell with no indicator has
+    /// nothing a moment could repair; only a hidden strip's cell with an indicator falls behind.
     func updateIndicatorResyncMembership() {
-        StatusIndicatorAppearance.shared.setFollowsResyncs(self, isStripShown && hasStatusIndicator)
+        if isStripShown || !hasStatusIndicator { indicatorSyncedMoment = appearance.resyncMoment }
+        appearance.setFollowsResyncs(self, follows: isStripShown && hasStatusIndicator)
     }
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {

@@ -56,6 +56,7 @@ import Testing
         let appearance = StatusIndicatorAppearance(appCenter: app, workspaceCenter: NotificationCenter())
         let client = ResyncCounter()
         appearance.register(client)
+        appearance.setFollowsResyncs(client, follows: true) // on screen: the moments reach it
         app.post(name: name, object: nil)
         #expect(client.resyncs == 1)
     }
@@ -66,6 +67,7 @@ import Testing
         let appearance = StatusIndicatorAppearance(appCenter: NotificationCenter(), workspaceCenter: workspace)
         let client = ResyncCounter()
         appearance.register(client)
+        appearance.setFollowsResyncs(client, follows: true) // on screen: the moments reach it
         workspace.post(name: name, object: nil)
         #expect(client.resyncs == 1)
     }

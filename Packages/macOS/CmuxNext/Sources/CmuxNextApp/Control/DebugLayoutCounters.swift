@@ -56,8 +56,8 @@ enum DebugLayoutCounters {
             "pane_chrome_updates": JSONValue(Int(truncatingIfNeeded: LayoutRootView.paneChromeUpdates)),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
-            "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),
-            "indicator_resync_visits": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncVisits)),
+            "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.shared.resyncs)),
+            "indicator_resync_visits": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.shared.resyncVisits)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
@@ -69,8 +69,7 @@ enum DebugLayoutCounters {
             LayoutRootView.layoutPasses = 0
             LayoutRootView.paneChromeUpdates = 0
             TerminalSurfaceView.windowStateUpdates = 0
-            StatusIndicatorAppearance.resyncs = 0
-            StatusIndicatorAppearance.resyncVisits = 0
+            StatusIndicatorAppearance.shared.resetResyncCounters()
             paneCountChanges.removeAll()
             sources.removeAll()
         }

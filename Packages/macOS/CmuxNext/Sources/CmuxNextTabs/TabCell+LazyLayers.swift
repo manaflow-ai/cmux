@@ -14,7 +14,7 @@ extension TabCell {
         let spinner = StatusIndicatorLayer()
         spinner.hostIsFlipped = true // the strip's tab layers live in a FlippedView
         spinner.contentsScale = scale
-        themeScope.perform { spinner.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color) }
+        themeScope.perform { spinner.colors = .current(loading: appearance.config.settings.color) }
         layer.insertSublayer(spinner.layer, above: iconLayer)
         spinnerLayer = spinner
         return spinner

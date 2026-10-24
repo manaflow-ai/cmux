@@ -58,6 +58,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         self.init(frame: frame, appearance: .shared)
     }
 
+    /// Creates an indicator that follows `appearance`'s config and resync moments.
+    ///
     /// - Parameters:
     ///   - frame: The view's frame.
     ///   - appearance: Where the config and the resync moments come from (`.shared` in the app).
@@ -107,13 +109,18 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     }
 
     /// Checks the indicator again (the app came back, a window became main, the Mac woke). The
-    /// appearance calls only an indicator on screen (``followsResyncs``): an
-    /// activation costs what shows, not every row and tab of the session (user 2026-10-21,
-    /// Cmd-Tab lag with many workspaces). One off screen at the moment checks itself when it shows.
+    /// appearance calls only an indicator on screen (`followsResyncs`): an activation costs what
+    /// shows, not every row and tab of the session (user 2026-10-21, Cmd-Tab lag with many
+    /// workspaces). One off screen at the moment checks itself when it shows.
     public func statusIndicatorResync() {
+        // Off screen (a stale member of the resync set): leave the moment owed so `viewDidUnhide`
+        // catches up when the view shows, and leave the set.
+        guard let window, !isHiddenOrHasHiddenAncestor else {
+            updateResyncMembership()
+            return
+        }
         syncedMoment = appearance.resyncMoment
-        guard let window, !isHiddenOrHasHiddenAncestor else { return }
-        StatusIndicatorAppearance.resyncs &+= 1
+        appearance.noteResyncCheck()
         isWindowVisible = window.occlusionState.contains(.visible)
         refresh()
     }
@@ -133,14 +140,6 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         updateResyncMembership()
     }
 
-    /// A move inside the same window (a row going from a hidden container to a shown one) posts
-    /// no hide or unhide notice: the view checks whether it shows now, and catches up if so.
-    public override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        if followsResyncs, syncedMoment != appearance.resyncMoment { statusIndicatorResync() }
-        updateResyncMembership()
-    }
-
     /// The config this view draws with.
     private var drawnConfig: StatusIndicatorConfig {
         var config = appearance.config
@@ -152,8 +151,12 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// own or an ancestor's; an idle indicator hides itself).
     private var followsResyncs: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
 
+    /// Keeps the resync set current. AppKit sends `viewDidHide`/`viewDidUnhide` whenever
+    /// `isHiddenOrHasHiddenAncestor` flips, also when the view or an ancestor is inserted under a
+    /// hidden or shown parent (NSView docs), so the hide notices, `viewDidMoveToWindow` and
+    /// `refresh` cover every way the view goes on or off screen.
     private func updateResyncMembership() {
-        appearance.setFollowsResyncs(self, followsResyncs)
+        appearance.setFollowsResyncs(self, follows: followsResyncs)
     }
 
     /// Applies the plan for the state, config and window visibility. Lays out and redraws only
@@ -172,6 +175,10 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         let showed = showsGlyph
         nameState()
         indicator.apply(plan, config: config)
+        // An indicator hidden by its own idle state draws nothing a moment could repair, and one it
+        // shows now draws the plan just made: both are current. Without this, an idle row that went
+        // busy after any activation ran a second, reentrant refresh from `viewDidUnhide`.
+        if isHidden || plan.glyph == .none { syncedMoment = appearance.resyncMoment }
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.
         if showed != showsGlyph { superview?.needsLayout = true }

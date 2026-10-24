@@ -97,7 +97,7 @@ public protocol StatusIndicatorConfigClient: AnyObject {
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig)
     /// Checks the indicator against what it should show now (its window's visibility, a loop it
     /// lacks) when the app comes back: to the front, unhidden, a window made main, or after sleep.
-    /// Called only for clients that joined the resync set (``StatusIndicatorAppearance/setFollowsResyncs(_:_:)``).
+    /// Called only for clients that joined the resync set (``StatusIndicatorAppearance/setFollowsResyncs(_:follows:)``).
     func statusIndicatorResync()
 }
 
@@ -113,12 +113,13 @@ public final class StatusIndicatorAppearance {
     public static let shared = StatusIndicatorAppearance()
 
     public private(set) var config: StatusIndicatorConfig
-    /// Indicators a resync reached and checked again (`debug.layout_counters` `indicator_resyncs`):
-    /// an app activation should touch the indicators on screen only, never every row and tab.
-    public static var resyncs: UInt64 = 0
+    /// Indicators of this appearance that a resync reached and checked again (`debug.layout_counters`
+    /// `indicator_resyncs`): an app activation should touch the indicators on screen only, never
+    /// every row and tab. Clients add to it when they do the check (``noteResyncCheck()``).
+    public private(set) var resyncs: UInt64 = 0
     /// Clients a resync moment called at all (`statusIndicatorResync`), on screen or not: the
     /// moment's own cost, which must follow what shows, not every indicator the app made.
-    public static var resyncVisits: UInt64 = 0
+    public private(set) var resyncVisits: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     /// The clients a resync moment reaches: the ones on screen. Each client keeps its own
     /// membership as it shows, hides or changes state, so a moment costs what shows, not every
@@ -132,10 +133,13 @@ public final class StatusIndicatorAppearance {
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     private var resyncObservers: [MainActorObservation] = []
 
+    /// Creates an appearance that follows the live config and starts a resync moment on each app,
+    /// window and wake notice. The app uses ``shared``; a test makes its own with its own centers.
+    ///
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).
     ///   - workspaceCenter: Where the wake notices arrive.
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    public init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
         config = StatusIndicatorConfig.current
         startObserving()
         // Reduce Motion is not observable through Observation.
@@ -172,16 +176,33 @@ public final class StatusIndicatorAppearance {
     /// Starts a resync moment: tells every client of the resync set to check its indicator again
     /// (`statusIndicatorResync`). A client off screen catches up when it shows (``resyncMoment``).
     public func resync() { // perf-hot: 0.5ms cmd-tab (didBecomeActive and didBecomeMain: the indicators on screen only)
+        // The budget is the cmd-tab path's shared one (as PointerHover.refresh), not a measured
+        // value for this function: activation-perf.py has not run on this code yet.
         resyncMoment &+= 1
         for case let client as any StatusIndicatorConfigClient in resyncClients.allObjects {
-            Self.resyncVisits &+= 1
+            resyncVisits &+= 1
             client.statusIndicatorResync()
         }
     }
 
-    /// Adds `client` to the resync set (`follows`) or takes it out: a client follows resyncs while
-    /// it is on screen (a tab cell: while its strip shows and it has an indicator). Weakly held; idempotent.
-    public func setFollowsResyncs(_ client: any StatusIndicatorConfigClient, _ follows: Bool) {
+    /// Counts one indicator that a resync moment (or its catch-up) checked again (``resyncs``).
+    public func noteResyncCheck() {
+        resyncs &+= 1
+    }
+
+    /// Sets ``resyncs`` and ``resyncVisits`` back to zero (`debug.layout_counters` `reset`).
+    public func resetResyncCounters() {
+        resyncs = 0
+        resyncVisits = 0
+    }
+
+    /// Adds `client` to the resync set or takes it out: a client follows resyncs while it is on
+    /// screen (a tab cell: while its strip shows and it has an indicator).
+    ///
+    /// - Parameters:
+    ///   - client: The indicator host. Weakly held; adding or removing twice is a no-op.
+    ///   - follows: Whether the resync moments reach `client` from now on.
+    public func setFollowsResyncs(_ client: any StatusIndicatorConfigClient, follows: Bool) {
         if follows { resyncClients.add(client) } else { resyncClients.remove(client) }
     }
 
