@@ -1,6 +1,6 @@
 public import Foundation
 
-// Hands a write completion's error across the @Sendable URLSession completion
+// Hands a write completion's error across the @Sendable network callback
 // boundary to the thread blocked on `semaphore`; the signal->wait pair is the
 // happens-before edge (legacy used a captured local var, which Swift 6
 // rejects in a @Sendable closure).
@@ -406,10 +406,10 @@ extension RemoteDaemonRPCClient {
     }
 
     func writePayload(_ payload: Data) throws {
-        let webSocketTask: URLSessionWebSocketTask? = stateQueue.sync {
-            self.webSocketTask
+        let webSocketConnection: RemoteDaemonWebSocketConnection? = stateQueue.sync {
+            self.webSocketConnection
         }
-        if let webSocketTask {
+        if let webSocketConnection {
             guard let text = String(data: payload, encoding: .utf8) else {
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 27, userInfo: [
                     NSLocalizedDescriptionKey: "failed encoding daemon websocket request as UTF-8",
@@ -417,7 +417,7 @@ extension RemoteDaemonRPCClient {
             }
             let semaphore = DispatchSemaphore(value: 0)
             let sendErrorBox = RemoteDaemonSendErrorBox()
-            webSocketTask.send(.string(text)) { error in
+            webSocketConnection.sendText(text) { error in
                 sendErrorBox.error = error
                 semaphore.signal()
             }

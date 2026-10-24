@@ -70,7 +70,11 @@ ensure_parent() {
   fi
   local remote
   remote="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
-  git fetch --no-tags --no-write-fetch-head --depth=2 "$remote" "$(git rev-parse HEAD)" || true
+  # Depth 2 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  local depth=()
+  [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=2)
+  git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$remote" "$(git rev-parse HEAD)" || true
 }
 
 # A same-repository pull request run (the workflow sets CMUX_PACKAGE_REUSE=1)
@@ -129,6 +133,11 @@ select_packages() {
     CmuxRemoteWorkspace
     CmuxRemoteSession
     CmuxAgentChat
+    CmuxAgentQuestion
+    CmuxChief
+    CmuxHomeCore
+    CmuxHomeRender
+    CmuxMessagesLab
     CmuxAgentSessionStore
     CmuxAuthRuntime
     CmuxWorkspacePresence

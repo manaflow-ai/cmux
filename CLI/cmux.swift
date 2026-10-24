@@ -6517,6 +6517,7 @@ struct CMUXCLI {
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "chief", !chiefCommandNeedsSocket(commandArgs) { try runChiefCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv, bundleIdentifier: cliBundleIdentifier); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
@@ -8532,6 +8533,15 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "chief":
+            try runChiefSocketCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId,
+                environment: processEnv
+            )
+
         case "comments":
             try runCommentsNamespace(
                 commandArgs: commandArgs,
@@ -8834,6 +8844,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
@@ -8858,6 +8869,15 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let profile {
+                guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
+                    throw CLIError(message: String(
+                        localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                        defaultValue: "Browser profiles can only be used when creating a browser pane"
+                    ))
+                }
+                params["profile"] = profile
+            }
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
@@ -12952,14 +12972,54 @@ struct CMUXCLI {
             throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
         }
         let rest = Array(commandArgs.dropFirst())
-        // Split flags ("--name value") from bare positionals so a flag's
-        // value is never mistaken for a positional argument.
+        if let rules = canvasArgumentRules(sub: sub, args: rest) {
+            let valueOptions = rules.valueOptions.union(["--workspace"])
+            try rejectUnexpectedArguments(
+                rest,
+                commandName: "canvas \(sub)",
+                valueOptions: valueOptions,
+                maxPositionals: rules.maxPositionals
+            )
+            // A blank handle resolves to nothing and would fall back to the
+            // selected workspace or focused surface, so it counts as missing.
+            // Check every occurrence: a repeated option is read by its first
+            // value, and a blank later one must not pass unnoticed.
+            var scanIndex = 0
+            while scanIndex < rest.count, rest[scanIndex] != "--" {
+                let arg = rest[scanIndex]
+                var option = arg
+                var value: String?
+                if let equals = arg.firstIndex(of: "="), valueOptions.contains(String(arg[..<equals])) {
+                    option = String(arg[..<equals])
+                    value = String(arg[arg.index(after: equals)...])
+                    scanIndex += 1
+                } else if valueOptions.contains(arg) {
+                    value = rest[scanIndex + 1]
+                    scanIndex += 2
+                } else {
+                    scanIndex += 1
+                }
+                if let value, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    throw missingOptionValueError(option, commandName: "canvas \(sub)")
+                }
+            }
+        }
+        // Split flags ("--name value" or "--name=value") from bare positionals
+        // so a flag's value is never mistaken for a positional argument.
+        // Every canvas flag takes a value; after `--` everything is positional.
         var positionals: [String] = []
         var index = 0
+        var pastTerminator = false
         while index < rest.count {
             let arg = rest[index]
-            if arg.hasPrefix("--") {
-                index += 2
+            if pastTerminator {
+                positionals.append(arg)
+                index += 1
+            } else if arg == "--" {
+                pastTerminator = true
+                index += 1
+            } else if arg.hasPrefix("--") {
+                index += arg.contains("=") ? 1 : 2
             } else {
                 positionals.append(arg)
                 index += 1
@@ -13049,8 +13109,8 @@ struct CMUXCLI {
             method = "canvas.set_viewport"
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser", "simulator"].contains(type) else {
-                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
+                guard ["terminal", "browser", "simulator", "chief"].contains(type) else {
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator|chief]"))
                 }
                 params["type"] = type
             }
@@ -13066,6 +13126,36 @@ struct CMUXCLI {
             idFormat: idFormat,
             fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "surface"])
         )
+    }
+
+    /// The options a `canvas` subcommand reads a value for besides
+    /// `--workspace`, and how many positionals it takes once `--surface` or
+    /// `--target` fill their part. `nil` for an unknown subcommand.
+    private func canvasArgumentRules(
+        sub: String,
+        args: [String]
+    ) -> (valueOptions: Set<String>, maxPositionals: Int)? {
+        func given(_ name: String) -> Bool { optionValue(args, name: name) != nil }
+        let surfaceSlot = given("--surface") ? 0 : 1
+        switch sub {
+        case "info", "overview":
+            return ([], 0)
+        case "mode", "align", "zoom":
+            return ([], 1)
+        case "set-frame":
+            return (["--surface", "--x", "--y", "--width", "--height"], surfaceSlot)
+        case "reveal", "break", "select-tab":
+            return (["--surface"], surfaceSlot)
+        case "join":
+            // `join <surface> <target>`, `join <surface> --target <t>`, or both as options.
+            return (["--surface", "--target"], given("--surface") ? 0 : (given("--target") ? 1 : 2))
+        case "set-viewport":
+            return (["--x", "--y", "--zoom"], 0)
+        case "new-pane":
+            return (["--type"], 0)
+        default:
+            return nil
+        }
     }
 
     /// `cmux window displays` — list connected displays (name + index).
@@ -21030,6 +21120,8 @@ struct CMUXCLI {
             return Self.remotesUsage
         case "todo":
             return Self.todoUsage
+        case "chief":
+            return Self.chiefUsage
         case "comments":
             return Self.commentsUsage
         case "review":
@@ -21084,7 +21176,7 @@ struct CMUXCLI {
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a canvas point
                                             (optionally set magnification)
-              new-pane [--type terminal|browser|simulator]
+              new-pane [--type terminal|browser|simulator|chief]
                                             Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
@@ -22454,7 +22546,8 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser|simulator> Pane type (default: terminal)
+              --type <terminal|browser|simulator|chief>
+                                                  Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
@@ -22469,6 +22562,7 @@ struct CMUXCLI {
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
               cmux new-pane --type simulator --direction right
+              cmux new-pane --type chief --direction right
               cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
@@ -22478,7 +22572,8 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|simulator|agent-session|chief>
+                                          Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -22486,6 +22581,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
+              \(String(localized: "cli.newSurface.help.profileDescription", defaultValue: "--profile <name|uuid>       Browser profile name or UUID"))
               --provider <codex|claude|opencode>
                                            Provider for agent-session surfaces (default: codex)
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
@@ -22496,6 +22592,7 @@ struct CMUXCLI {
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type browser --pane pane:1 --url https://example.com --profile work
               cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
@@ -23456,6 +23553,10 @@ struct CMUXCLI {
         }
         if command == "agent", let text = Self.agentSubcommandHelp(commandArgs.first) {
             print(text)
+            return true
+        }
+        if command == "chief", commandArgs.first?.lowercased() == "dispatch" {
+            print(Self.chiefDispatchUsage)
             return true
         }
         guard let text = subcommandUsage(command) else { return false }
