@@ -367,7 +367,7 @@ impl Hub {
         }
         let inline_parts = super::prompt_images::inline_parts(
             p.blocks,
-            queued.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            queued.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             p.display_parts,
         );
         if !inline_parts.is_empty() {
