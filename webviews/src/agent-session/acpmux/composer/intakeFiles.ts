@@ -25,31 +25,35 @@ export type IntakeOptions = {
 export async function intakeFiles(
   files: File[],
   options: IntakeOptions,
+  ids?: readonly string[],
 ): Promise<{ attachments: ComposerAttachment[]; error?: AttachmentError | { text: string } }> {
   // Ask while the host's record of this gesture still exists, before any expensive image work.
   const known = await options.localPaths?.(files).catch(() => undefined);
   const paths = known?.length === files.length ? known : undefined;
-  const attachments: ComposerAttachment[] = [];
-  const links: ComposerAttachment[] = [];
-  const waiting: { file: File; image?: ComposerAttachment }[] = [];
+  const ordered: (ComposerAttachment | undefined)[] = Array.from({ length: files.length });
+  const waiting: { file: File; index: number; image?: ComposerAttachment }[] = [];
   let error: AttachmentError | { text: string } | undefined;
   for (const [index, file] of files.entries()) {
     const path = paths?.[index];
     const result = isImageFile(file)
-      ? await readAttachment(file, options.allowImages).catch(() => undefined)
+      ? await readAttachment(file, options.allowImages, ids?.[index]).catch(() => undefined)
       : undefined;
     const image = result && !("reason" in result) ? result : undefined;
-    if (image) attachments.push(image);
+    if (image) {
+      ordered[index] = image;
+    }
     if (path) {
       if (image) {
         image.originalPath = path.path;
         image.originalName = file.name;
       } else {
-        links.push({
+        const link = {
           ...linkAttachment(path.path, path.folder),
+          ...(ids?.[index] ? { id: ids[index]! } : {}),
           mimeType: file.type || "application/octet-stream",
           size: file.size,
-        });
+        };
+        ordered[index] = link;
       }
     } else if (options.upload) {
       // WebKit exposes folders as unreadable zero-byte Files. Do not let one prevent real files
@@ -64,7 +68,7 @@ export async function intakeFiles(
         error ??= { name: file.name, reason: "unsupported" };
         continue;
       }
-      waiting.push({ file, ...(image ? { image } : {}) });
+      waiting.push({ file, index, ...(image ? { image } : {}) });
     } else if (!image) {
       error ??= {
         name: file.name,
@@ -76,23 +80,26 @@ export async function intakeFiles(
     const sent = await options.upload?.(waiting.map(({ file }) => file));
     if (sent && "error" in sent) error ??= { text: sent.error };
     else if (sent && sent.paths.length === waiting.length) {
-      for (const [index, { file, image }] of waiting.entries()) {
-        const path = sent.paths[index]!;
+      for (const [sentIndex, { file, index, image }] of waiting.entries()) {
+        const path = sent.paths[sentIndex]!;
         if (image) {
           image.originalPath = path;
           image.originalName = file.name;
-        } else
-          links.push({
+        } else {
+          const link = {
             ...savedAttachment(path, file.name),
+            ...(ids?.[index] ? { id: ids[index]! } : {}),
             mimeType: file.type || "application/octet-stream",
             size: file.size,
-          });
+          };
+          ordered[index] = link;
+        }
       }
     } else if (waiting.some(({ image }) => !image)) {
       error ??= { name: waiting.find(({ image }) => !image)!.file.name, reason: "unsupported" };
     }
   }
-  return { attachments: [...attachments, ...links], ...(error ? { error } : {}) };
+  return { attachments: ordered.flatMap((attachment) => (attachment ? [attachment] : [])), ...(error ? { error } : {}) };
 }
 
 /// The host's record of where the files of the person's last `kind` (a drop on the page or a paste)

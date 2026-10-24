@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useMemo, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
@@ -42,6 +42,9 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
+  onRestoreAttachment?(id: string): void;
+  onPasteAttachments?(attachments: ComposerAttachment[], index: number): void;
+  onPasteFiles?(files: File[]): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -70,6 +73,8 @@ export type ComposerBoxProps = {
   /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
   /// quiet row's empty middle, or under the box in Codex's look.
   bottom?: React.ReactNode;
+  /// Keeps the legacy tray available to callers while inline marks are the default composer path.
+  showAttachmentTray?: boolean;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -102,6 +107,10 @@ export function ComposerBox({
   trailing,
   chromeItems,
   bottom,
+  showAttachmentTray = false,
+  onRestoreAttachment,
+  onPasteAttachments,
+  onPasteFiles,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
@@ -123,6 +132,25 @@ export function ComposerBox({
   if (!attachmentsRef) ownAttachments.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
+  const inlineAttachments = useMemo(() => {
+    const result = [...attachments];
+    const offsets = new Map<number, number>();
+    for (const chip of pending ?? []) {
+      const placeholder = {
+        id: chip.id,
+        kind: chip.image ? ("image" as const) : ("link" as const),
+        name: chip.name,
+        mimeType: chip.image ? "image/*" : "application/octet-stream",
+        size: 0,
+      };
+      const base = Math.min(Math.max(chip.insertionIndex ?? result.length, 0), result.length);
+      const offset = offsets.get(base) ?? 0;
+      const at = Math.min(base + offset, result.length);
+      result.splice(at, 0, placeholder);
+      offsets.set(base, offset + 1);
+    }
+    return result;
+  }, [attachments, pending]);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
@@ -154,20 +182,28 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" onMouseDown={focusFromCard}>
         {top}
-        <AttachmentStrip
-          attachments={attachments}
-          {...(pending ? { pending } : {})}
-          {...(attachError ? { error: attachError } : {})}
-          codex={codex}
-          onRemove={onRemoveAttachment}
-          onExpand={pastedChips.expand}
-        />
+        {showAttachmentTray && (
+          <AttachmentStrip
+            attachments={attachments}
+            {...(pending ? { pending } : {})}
+            {...(attachError ? { error: attachError } : {})}
+            codex={codex}
+            onRemove={onRemoveAttachment}
+            onExpand={pastedChips.expand}
+          />
+        )}
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
           <MarkdownField
             ref={setPrompt}
             {...field}
+            inlineAttachments={inlineAttachments}
+            onInlineAttachmentRemove={onRemoveAttachment}
+            onInlineAttachmentRestore={onRestoreAttachment}
+            onInlineAttachmentPaste={onPasteAttachments}
+            onInlinePasteFiles={onPasteFiles}
+            onInlineAttachmentExpand={pastedChips.expand}
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).
@@ -181,9 +217,10 @@ export function ComposerBox({
               const composing = event.isComposing || event.keyCode === 229;
               if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
               // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-              const backspaced = composing
-                ? undefined
-                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+              const backspaced =
+                showAttachmentTray && !composing
+                  ? backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments)
+                  : undefined;
               if (backspaced) {
                 event.preventDefault();
                 setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
@@ -194,6 +231,9 @@ export function ComposerBox({
           />
           {fieldOverlay}
         </ContextMenu>
+        {!showAttachmentTray && attachError && (
+          <output className="acpmux-attachment-note acpmux-inline-attachment-note">{attachError}</output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the

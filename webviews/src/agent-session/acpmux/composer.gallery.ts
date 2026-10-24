@@ -642,8 +642,8 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
-        await ctx.hover({ selector: ".acpmux-attachment-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment img[src^='data:image/png']"));
+        await ctx.hover({ selector: ".acpmux-md-inline-attachment" });
       },
     },
     // Leo (2026-10-20): every pasted image read "image.png" on hover, and one that could not be
@@ -665,8 +665,8 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
-        await ctx.hover({ selector: ".acpmux-attachment-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment img[src^='data:image/png']"));
+        await ctx.hover({ selector: ".acpmux-md-inline-attachment" });
       },
     },
     "image-failed": {
@@ -680,7 +680,7 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment:not([aria-busy])"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },
@@ -701,8 +701,8 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: data });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
-        await ctx.hover({ selector: ".acpmux-attachment-pasted" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment.is-file"));
+        await ctx.hover({ selector: ".acpmux-md-inline-attachment.is-file" });
       },
     },
     "quick-image-attached": {
@@ -723,9 +723,8 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
-        await ctx.click({ selector: ".acpmux-attachment-open" });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment img[src^='data:image/png']"));
+        await ctx.hover({ selector: ".acpmux-md-inline-attachment" });
       },
     },
     "pdf-attached": {
@@ -736,9 +735,7 @@ export default agentPaneEntry({
         const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
         const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
-        await ctx.click({ selector: ".acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment.is-file"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
         const dialog = ctx.document.querySelector<HTMLElement>(".acpmux-pdf-viewer");
         if (!dialog || ctx.document.defaultView!.getComputedStyle(dialog).position !== "fixed")
@@ -773,7 +770,7 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md-inline-attachment[data-saved]").length === 2);
         if (ctx.find({ selector: ".acpmux-md" }).textContent?.includes("Chat Uploads"))
           throw new Error("a saved file's path must go as its chip's link, not as prompt text");
       },
@@ -820,7 +817,7 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment[data-saved]"));
       },
     },
     "folder-dropped-as-link": {
@@ -855,7 +852,7 @@ export default agentPaneEntry({
         Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
         await ctx.waitFor(
-          () => ctx.document.querySelectorAll(".acpmux-attachment-link:not([data-saved])").length === 2,
+          () => ctx.document.querySelectorAll(".acpmux-md-inline-attachment:not([data-saved])").length === 2,
         );
         if (ctx.document.querySelector("output.acpmux-attachment-note"))
           throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
@@ -1300,7 +1297,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline-attachment img[src^='data:image/png']"));
         // Back in the prompt, to type about the capture (the + menu does not take focus back).
         await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
@@ -1327,7 +1324,7 @@ export default agentPaneEntry({
           ),
         );
         await new Promise((resolve) => setTimeout(resolve, 200));
-        if (ctx.document.querySelector(".acpmux-attachment-image, .acpmux-attachment-note"))
+        if (ctx.document.querySelector(".acpmux-md-inline-attachment, .acpmux-attachment-note"))
           throw new Error("a cancelled capture attached something or showed a note");
         if (!ctx.document.activeElement?.closest(".acpmux-composer-prompt"))
           throw new Error("a cancelled capture left focus off the prompt");
@@ -1354,7 +1351,7 @@ export default agentPaneEntry({
             .querySelector(".acpmux-attachment-note")
             ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
         );
-        if (ctx.document.querySelector(".acpmux-attachment-image"))
+        if (ctx.document.querySelector(".acpmux-md-inline-attachment"))
           throw new Error("a refused capture attached an image");
       },
     },
