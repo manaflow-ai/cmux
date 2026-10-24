@@ -80,21 +80,22 @@ struct CmuxPageFreezeTests {
     @Test func theAppsPageHostFreezesAnUnseenPageOnTheHibernationsSetting() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         _ = NSApplication.shared
+        // The person's file says 5 s, not the 30 s default: the policy must follow the hibernation.
         let url = root.appending(path: "cmux.json")
-        try Data("{}".utf8).write(to: url)
+        try Data(#"{"browser": {"freezeHiddenTabs": 5}}"#.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
+        #expect(settings.snapshot.browserHibernation.freezeSeconds == 5)
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.startHibernation(settings: settings)
         let hibernation = try #require(services.cache.hibernation)
         defer { hibernation.stop() }
+        // What `follow` applies from the snapshot, now rather than on its stream's first turn.
+        hibernation.apply(settings.snapshot.browserHibernation)
         let host = services.makeChromiumPageHost()
-        // The hibernation's setting, not the policy's own default: 5 s unseen.
-        var setting = BrowserHibernationSetting.fallback
-        setting.freezeSeconds = 5
-        hibernation.apply(setting)
         let freezing = try #require(host.freezePolicy as? PageFreezing)
+        #expect(freezing === services.cmuxPageFreezing)
         let time = time
         freezing.now = { time.now }
 
