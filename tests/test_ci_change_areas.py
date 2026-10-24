@@ -59,6 +59,7 @@ MACOS_JOBS = (
     "macos-compile-admission",
     "app-host-unit-tests",
     "cli-product-tests",
+    "cli-regressions",
     "swift-package-tests",
     "tests-build-and-lag",
     "release-admission",
@@ -685,12 +686,15 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
     # Janitors, census/reporting and registry validation run only in Linux
     # workflows and are never read by the Xcode product.
     for path in (
+        "scripts/ci/actions_artifact_prune.py",
         "scripts/ci/cleanup-stale-runs.py",
         "scripts/ci/queue_janitor.py",
         "scripts/ci/triage-radar.py",
         "scripts/ci/notify-indexnow.py",
         "scripts/ci/r2_cache_census.py",
         "scripts/ci/r2_cache_prune.py",
+        "scripts/ci/cmux_binaries_prune.py",
+        "scripts/ci/r2_storage_census.py",
         "scripts/ci/verify-r2-canary.py",
         "scripts/ci/build_graph_health.py",
         "scripts/ci/validate_test_execution_registry.py",
@@ -698,6 +702,15 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/swift_incremental_diagnostics.py",
         "scripts/ci/cmux_workload_profile.py",
         "scripts/ci/r2-canary-cloudflare.py",
+    ):
+        assert_areas([path], macos=False, web=False)
+
+
+def test_merge_gate_policy_changes_skip_native_compile() -> None:
+    for path in (
+        "scripts/gh-merge-green",
+        "scripts/ci/vercel_merge_gate.py",
+        "scripts/tests/test_vercel_merge_gate.py",
     ):
         assert_areas([path], macos=False, web=False)
 
@@ -958,7 +971,8 @@ def test_website_only_does_not_run_agent_session_resource_check() -> None:
 
 
 def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() -> None:
-    paths = [".coderabbit.yaml", ".greptile/rules.md",
+    paths = [".coderabbit.yaml", ".greptile/rules.md", ".greptile/files.json",
+             ".cursor/BUGBOT.md", "REVIEW.md",
              ".github/review-bot-rules/user-facing-errors.md"]
     for changed in [[path] for path in paths] + [paths]:
         assert module.classify_files(changed) == module.ChangeAreas(
@@ -2812,6 +2826,30 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     assert route("scripts/ci/reuse_release_product.py") == areas(macos=True, release_build=True)
     # run_python_test_lane.py imports it, and ci.yml's routing job runs that.
     assert route("scripts/ci/test_execution_registry.py") is None
+
+
+def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:
+    # The same walk as the scripts/ci helpers: these run only in dispatched
+    # or scheduled workflows, which a pull request's CI never runs.
+    for path in (
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
+        "scripts/strip-release-bundle.sh",
+    ):
+        assert module.classify_files([path]) == areas(), path
+
+
+def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route() -> None:
+    for path in (
+        # CLI/ names it.
+        "scripts/install-cmux-tui-client.sh",
+        # A native shell test runs it.
+        "scripts/sign-cmux-bundle.sh",
+        # ci.yml's Mac jobs run it.
+        "scripts/reload.sh",
+    ):
+        actual = module.classify_files([path])
+        assert actual.macos and actual.release_build, path
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
@@ -4745,17 +4783,20 @@ def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
 PRODUCT_RUNNER_KEYS = {
     "app-host-unit-tests": "format(' shard-{0} ', matrix.shard)",
     "cli-product-tests": "' cli-product '",
+    "cli-regressions": "format(' cli-regressions-{0} ', matrix.shard)",
 }
 
 
 def product_runner_output(key: str) -> str:
     # The app-host shards may also take pr_shard_runner: another Blacksmith
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
-    # Both consumers hold the mini's gui token (pr_runner_pool.gui_token_job()),
-    # so they take pr_gui_runner before the root label:
-    # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
-    shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
-    gui = "inputs.pr_gui_runner || "
+    # The shards and cli-product-tests hold the mini's gui token
+    # (pr_runner_pool.gui_token_job()), so they take pr_gui_runner before the
+    # root label: pr_runner_pool.gui_label() of the same owned pick, so the
+    # same Xcode. The cli-regressions shards hold none and take pr_root_runner,
+    # the root label of that pick (same Xcode).
+    shard = "inputs.pr_shard_runner || " if "shard-" in key and "cli-regressions" not in key else ""
+    gui = "inputs.pr_root_runner || " if "cli-regressions" in key else "inputs.pr_gui_runner || "
     return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + gui + "needs.macos-compile-admission.outputs.runner }}")
 
@@ -4773,9 +4814,18 @@ WARM_ADMISSION_FIRST = WARM_ADMISSION.replace("fromJSON(needs.admission-placemen
                                               "fromJSON(needs.admission-placement.outputs.runner)[0]") + "[0]"
 
 
+# An overflow run's compile alone may take a free 12vcpu slot the picker names
+# (simple_pool_picker._borrow_large_for_admission); its consumers stay on
+# pr_retry_runner, the same image and Xcode.
+OVERFLOW_ADMISSION = ("(github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && "
+                      "inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) || inputs.pr_retry_runner)")
+OVERFLOW_ADMISSION_FIRST = OVERFLOW_ADMISSION.replace("fromJSON(inputs.pr_admission_runner)",
+                                                      "fromJSON(inputs.pr_admission_runner)[0]")
+
+
 def admission_route(runs_on: str) -> str:
     """Compile admission's runs-on without its warm labels: the route its consumers restate."""
-    return runs_on.replace(WARM_ADMISSION + " || ", "")
+    return runs_on.replace(WARM_ADMISSION + " || ", "").replace(OVERFLOW_ADMISSION, "inputs.pr_retry_runner")
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 # A consumer may take the label late-placement chose in this attempt once admission
 # finished (scripts/ci/late_placement.py). That label is derived from the
@@ -4784,6 +4834,7 @@ PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 LATE_KEYS = {
     "app-host-unit-tests": "format('shard-{0}', matrix.shard)",
     "cli-product-tests": "'cli-product'",
+    "cli-regressions": "format('cli-regressions-{0}', matrix.shard)",
     "tests-build-and-lag": "'lag'",
 }
 
@@ -4811,7 +4862,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     producer = workflow["jobs"]["macos-compile-admission"]
     violations = []
     if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
-            != producer["runs-on"]:
+            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer["runs-on"]:
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
     if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
@@ -4880,7 +4931,8 @@ def test_product_consumer_guard_follows_a_new_admission_route() -> None:
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
         assert pull_request in producer["env"][key], key
         producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
-    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION)
+    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
+        .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION)
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["tests-build-and-lag"], violations
 
@@ -5835,7 +5887,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "node_product_cache.py seed" in admission
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
-    assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+    assert "rsync -aL --no-times \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
 
     app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "      - macos-compile-admission" in app_host
@@ -6317,7 +6369,8 @@ def test_package_lane_routing_leaves_the_full_suite_jobs_alone() -> None:
     # admission-placement restates compile admission's condition, so it runs
     # only when admission does.
     assert gated_jobs == full_suite_only | {
-        "swift-package-tests", "macos-compile-admission", "admission-placement", "cli-product-tests"
+        "swift-package-tests", "macos-compile-admission", "admission-placement", "cli-product-tests",
+        "cli-regressions",
     }, gated_jobs
     # Package routing must not independently request the targeted CLI lane.
     cli_condition = next(

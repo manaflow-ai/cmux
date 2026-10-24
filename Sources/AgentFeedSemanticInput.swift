@@ -34,6 +34,8 @@ struct AgentFeedSemanticInput: Sendable {
         let kind: AgentJournalEventKind
         if resolved {
             kind = .attentionResolved
+        } else if event.hookEventName == .stop, event.isError == true {
+            kind = .errorReported
         } else if isToolActivity {
             kind = .stateChanged
         } else {

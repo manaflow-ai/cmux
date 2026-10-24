@@ -3,6 +3,7 @@
 changed source look old: Cargo would then skip rebuilding it."""
 
 import hashlib
+import json
 import os
 import pathlib
 import subprocess
@@ -31,6 +32,8 @@ class SourceMtimesTests(unittest.TestCase):
         self.write(self.box1.name, "cmux-tui/src/changed.rs", "fn old() {}\n")
         self.write(self.box1.name, "ghostty/src/vt.zig", "const a = 1;\n")
         self.write(self.box1.name, "web/page.ts", "x\n")
+        os.makedirs(os.path.join(self.box1.name, "web", "node_modules"))
+        self.write(self.box1.name, "web/node_modules/dep.js", "d\n")
         os.makedirs(os.path.join(self.box1.name, "ghostty", "include"))
         os.makedirs(os.path.join(self.box2.name, "ghostty", "include"))
         self.write(self.box1.name, "ghostty/include/a.h", "a\n")
@@ -47,6 +50,8 @@ class SourceMtimesTests(unittest.TestCase):
         self.write(self.box2.name, "cmux-tui/src/added.rs", "fn added() {}\n")
         self.write(self.box2.name, "ghostty/src/vt.zig", "const a = 1;\n")
         self.write(self.box2.name, "web/page.ts", "x\n")
+        os.makedirs(os.path.join(self.box2.name, "web", "node_modules"))
+        self.write(self.box2.name, "web/node_modules/dep.js", "d\n")
 
     def tearDown(self) -> None:
         self.box1.cleanup()
@@ -65,8 +70,10 @@ class SourceMtimesTests(unittest.TestCase):
         self.assertEqual(self.mtime("ghostty/src/vt.zig"), OLD)
         self.assertGreater(self.mtime("cmux-tui/src/changed.rs"), OLD)
         self.assertGreater(self.mtime("cmux-tui/src/added.rs"), OLD)
-        # Only the Cargo-relevant source dirs are recorded.
-        self.assertGreater(self.mtime("web/page.ts"), OLD)
+        # Files outside cmux-tui/ are Cargo inputs too (include_str! of
+        # schemas/); dependency stores are never recorded.
+        self.assertEqual(self.mtime("web/page.ts"), OLD)
+        self.assertGreater(self.mtime("web/node_modules/dep.js"), OLD)
         # Cargo's rerun-if-changed on a directory also compares directory
         # mtimes: a directory with the same entries gets its mtime back, a
         # directory that gained or lost an entry stays fresh.
@@ -162,6 +169,41 @@ class NativeCpuOutputTests(unittest.TestCase):
         os.makedirs(self.native[0])
         self.run_with_cpu("restore", "sse2 avx2 avx512f")
         self.assertFalse(os.path.exists(self.native[0]))
+
+    def write_run(self, fingerprint_dir: str, cpu) -> None:
+        os.makedirs(fingerprint_dir, exist_ok=True)
+        local = [{"RerunIfEnvChanged": {"var": "CMUX_GHOSTTY_SRC", "val": None}},
+                 {"RerunIfEnvChanged": {"var": "CMUX_GHOSTTY_VT_ZIG_CPU", "val": cpu}}]
+        pathlib.Path(fingerprint_dir, "run-build-script-build-script-build.json").write_text(
+            json.dumps({"rustc": 1, "local": local}), encoding="utf-8")
+
+    def unit(self, kind: str, hash_: str, cpu=None) -> tuple:
+        fingerprint = os.path.join(self.target, "debug", ".fingerprint", f"ghostty-vt-sys-{hash_}")
+        build = os.path.join(self.target, "debug", "build", f"ghostty-vt-sys-{hash_}")
+        os.makedirs(fingerprint)
+        os.makedirs(build)
+        if kind == "run":
+            local = [{"RerunIfEnvChanged": {"var": "CMUX_GHOSTTY_SRC", "val": None}},
+                     {"RerunIfEnvChanged": {"var": "CMUX_GHOSTTY_VT_ZIG_CPU", "val": cpu}}]
+            name = "run-build-script-build-script-build.json"
+        else:
+            local, name = [], "build-script-build-script-build.json"
+        pathlib.Path(fingerprint, name).write_text(json.dumps({"rustc": 1, "local": local}), encoding="utf-8")
+        return fingerprint, build
+
+    def test_baseline_runs_and_compile_units_survive_a_cpu_change(self) -> None:
+        # 2026-10-12: 5 of 9 warmups landed on another CPU model and rebuilt
+        # ghostty-vt-sys and its dependents. Output for the baseline CPU and
+        # rustc's compile units run on every host; only native runs go.
+        baseline = self.unit("run", "b0b0", "baseline")
+        compile_unit = self.unit("compile", "c0c0")
+        native = self.unit("run", "d0d0", None)
+        self.run_with_cpu("record", "sse2 avx2 avx512f")
+        self.run_with_cpu("restore", "sse2 avx2")
+        for path in baseline + compile_unit + (self.portable,):
+            self.assertTrue(os.path.isdir(path), path)
+        for path in native + tuple(self.native):
+            self.assertFalse(os.path.exists(path), path)
 
     def test_a_snapshot_without_a_cpu_record_drops_native_outputs(self) -> None:
         self.run_with_cpu("restore", "sse2 avx2")

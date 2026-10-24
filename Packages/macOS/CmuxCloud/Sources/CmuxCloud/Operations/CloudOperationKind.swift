@@ -1,7 +1,7 @@
 import Foundation
 
 public enum CloudOperationKind: String, Codable, Sendable {
-    case create, open, list, status, stats, rename, delete, pause, resume
+    case create, open, list, status, stats, rename, delete, pause, resume, restart
     case snapshot, fork, restore, resize, exec, port, publication, domain
     case base, session, workspace, terminal, file, environment, tunnel
     case connect, refresh, notification, agent, network, unknown
@@ -16,6 +16,7 @@ public enum CloudOperationKind: String, Codable, Sendable {
         case .delete: return String(localized: "cloud.operation.kind.delete", defaultValue: "Delete machine")
         case .pause: return String(localized: "cloud.operation.kind.pause", defaultValue: "Pause machine")
         case .resume: return String(localized: "cloud.operation.kind.resume", defaultValue: "Resume machine")
+        case .restart: return String(localized: "cloud.operation.kind.restart", defaultValue: "Restart machine")
         case .snapshot: return String(localized: "cloud.operation.kind.snapshot", defaultValue: "Save snapshot")
         case .fork: return String(localized: "cloud.operation.kind.fork", defaultValue: "Copy machine")
         case .restore: return String(localized: "cloud.operation.kind.restore", defaultValue: "Restore machine")

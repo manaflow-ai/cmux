@@ -55,10 +55,16 @@ jobs:
           CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           # Present while the cloud overflow switch has Blacksmith overflow off.
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          # Must not equal CI_SIDE_LANE_RUNNER: the daemon tests gate nightly-next promotion.
+          CI_NEXT_DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL }}
+          # cmux-tui-pin-* pushes' daemon tests (else CI_LIGHT_LANE_RUNNER): must equal
+          # neither CI_NEXT_DAEMON_POOL nor CI_SIDE_LANE_RUNNER.
+          CI_PIN_DAEMON_POOL: ${{ vars.CI_PIN_DAEMON_POOL }}
           CMUX_CI_RUNNER_VARIABLES: |
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
-            CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
@@ -76,5 +82,6 @@ jobs:
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: python3 scripts/ci/check_repo_variables.py

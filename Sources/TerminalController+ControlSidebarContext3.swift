@@ -211,7 +211,8 @@ extension TerminalController {
             orientation: orientation,
             insertFirst: insertFirst,
             focus: focus,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) {
         case .created(let panel):
             return .created(panel.id)
@@ -268,7 +269,8 @@ extension TerminalController {
             inPane: targetPaneId,
             focus: focus,
             inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) {
         case .created(let panel):
             return .created(panel.id)
@@ -296,6 +298,9 @@ extension TerminalController {
 
         guard let targetSurfaceId = surfaceId else {
             return .surfaceNotFound
+        }
+        if let message = browserReplTabRefusalMessage(targetSurfaceId) {
+            return .denied(message)
         }
 
         // Don't close if it's the only surface

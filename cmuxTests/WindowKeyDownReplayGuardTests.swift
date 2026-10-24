@@ -485,25 +485,36 @@ struct WindowKeyDownReplayGuardTests {
     // MARK: - Copy key equivalent resolution
 
     @Test
-    func menuCopyFallsBackOnlyForAnUncopiedAlternateScreen() {
+    func menuCopyFallsBackOnlyWhenATerminalApplicationOwnsTheSelection() {
         #expect(
-            GhosttyNSView.shouldForwardMenuCopyToAlternateScreen(
+            GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
                 copiedNativeSelection: false,
-                isAlternateScreenActive: true
+                isAlternateScreenActive: true,
+                isMouseCaptured: false
             ),
             Comment(rawValue: "A fullscreen TUI owns the selection, so the Copy action must re-inject Cmd+C through Ghostty")
         )
         #expect(
-            !GhosttyNSView.shouldForwardMenuCopyToAlternateScreen(
+            GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
+                copiedNativeSelection: false,
+                isAlternateScreenActive: false,
+                isMouseCaptured: true
+            ),
+            Comment(rawValue: "An inline TUI with mouse reporting draws its own selection on the primary screen and must receive Cmd+C (#18812)")
+        )
+        #expect(
+            !GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
                 copiedNativeSelection: true,
-                isAlternateScreenActive: true
+                isAlternateScreenActive: true,
+                isMouseCaptured: true
             ),
             Comment(rawValue: "A native terminal selection was already copied and must not receive a second Cmd+C")
         )
         #expect(
-            !GhosttyNSView.shouldForwardMenuCopyToAlternateScreen(
+            !GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
                 copiedNativeSelection: false,
-                isAlternateScreenActive: false
+                isAlternateScreenActive: false,
+                isMouseCaptured: false
             ),
             Comment(rawValue: "Cmd+C without a selection at a normal shell prompt remains a no-op")
         )

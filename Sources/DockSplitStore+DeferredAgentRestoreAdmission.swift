@@ -28,7 +28,7 @@ extension DockSplitStore {
                 forPanelId: restore.stablePanelID,
                 kind: expectedKind
             ) else {
-                terminal.restoreRecovery.state = .checking
+                terminal.restoreRecovery.markCheckingPreservingFailure()
                 continue
             }
             guard deferredAgentResumeRestoreMatchesCurrentSession(
@@ -146,7 +146,15 @@ extension DockSplitStore {
                 claim = nil
             }
             guard let startupInput, !startupInput.isEmpty else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    retireBinding: false
+                )
+                terminal.restoreRecovery.state = .failed(
+                    reason: "resume-command-unavailable",
+                    recoveryInput: nil
+                )
                 continue
             }
             let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
@@ -193,6 +201,10 @@ extension DockSplitStore {
                 } else {
                     restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
                 }
+                terminal.restoreRecovery.state = .failed(
+                    reason: "startup-admission-rejected",
+                    recoveryInput: startupInput
+                )
             } else {
                 terminalStartupRestoreCoordinator.recordDeferredResumeIntent(
                     panelID: panelId,

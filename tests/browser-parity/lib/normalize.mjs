@@ -36,7 +36,12 @@ function normalizeString(s, origins) {
   for (const t of TMP) out = out.split(t + "/").join("<TMP>/");
   // Per-run directory names under the temporary directory.
   out = out.replace(/<TMP>\/(cmux-repl-|parity-oracle-|parity-)[A-Za-z0-9]+/g, "<TMP>/$1XXXX");
-  out = out.replace(/<TMP>\/cmux-browser-repl\/[^/\s\]]+/g, "<TMP>/cmux-browser-repl/<SESSION>");
+  // A session's own directory, `<root>/cmux-browser-repl/<id>-<random>[-tmp]`,
+  // whatever the root: the app takes it from its own temporary directory,
+  // which need not be this process's TMPDIR, and a root may itself sit in
+  // another session's directory. The last such segment of a path names the
+  // session; a URL is never a path here.
+  out = out.replace(/(?<=^|[\s"'(\[=])(?:<TMP>|\/)[^\s\]"')]*\/cmux-browser-repl\/[^/\s\]"')]+/gm, "<TMP>/cmux-browser-repl/<SESSION>");
   return out;
 }
 

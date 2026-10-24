@@ -126,7 +126,7 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
-const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+const bareHttpsOrigin = (name: string) => z.string().url().superRefine((value, context) => {
   let parsed: URL | null = null;
   try {
     parsed = new URL(value);
@@ -146,10 +146,15 @@ const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message:
-        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+        `${name} must be a bare https:// origin with no path, query, or credentials`,
     });
   }
 });
+const publicationAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_AUTH_ORIGIN");
+const publicationForwardAuthOrigin = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  bareHttpsOrigin("CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN").optional(),
+);
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -335,6 +340,10 @@ export const env = createEnv({
     // pushed to Freestyle as the account-wide forward-auth target. It is never
     // derived from a request; protected publications fail closed without it.
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Optional origin Freestyle calls for forward-auth when it differs from
+    // the sign-in origin, e.g. a tunnel to a development stack the edge can't
+    // reach. Unset in production: the auth origin serves both.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: publicationForwardAuthOrigin.optional(),
     // Zone generated Cloud VM publication hostnames are minted under
     // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
     // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
@@ -433,6 +442,10 @@ export const env = createEnv({
     // Server-to-worker authentication for revision publication. Native clients
     // hold only their Stack access token and can never mint invalidations.
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
+    // Server-to-worker authentication for Cloud machine list (`vms` sync)
+    // publication. Must equal the presence Worker's VMS_PUBLISHER_SECRET.
+    // Optional: unset skips publication and the Mac list keeps polling.
+    CMUX_PRESENCE_VMS_PUBLISHER_SECRET: z.string().min(32).max(512).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -556,6 +569,10 @@ export const env = createEnv({
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
     ),
+    // Blank (as in .env.example) means unset, not an invalid origin.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN,
+    ) || undefined,
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),
@@ -594,6 +611,9 @@ export const env = createEnv({
     CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
+    ),
+    CMUX_PRESENCE_VMS_PUBLISHER_SECRET: trimEnv(
+      process.env.CMUX_PRESENCE_VMS_PUBLISHER_SECRET,
     ),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,

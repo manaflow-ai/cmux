@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createSitesEnv } from "./harness.mjs";
 
-const env = await createSitesEnv();
+const env = await createSitesEnv({ gmailReplies: true });
 test.after(() => env.close());
 const s = env.session("mail");
 
@@ -44,7 +44,7 @@ test("gmail.attachment downloads through the session", async () => {
 test("gmail.send returns a draft and sends nothing; the confirmed draft sends once, after Gmail's undo window", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "Re: numbers", body: "Looks good, thanks." })');
   assert.equal(d.status, "draft");
-  assert.deepEqual(d.preview, { account: 0, to: ["bob@example.com"], cc: [], bcc: [], subject: "Re: numbers", body: "Looks good, thanks." });
+  assert.deepEqual(d.preview, { account: 0, accountEmail: "ada@example.com", accountId: "1001", to: ["bob@example.com"], cc: [], bcc: [], subject: "Re: numbers", body: "Looks good, thanks." });
   assert.match(d.category, /\[9\]/);
   assert.equal(env.state.gmailSent.length, 0);
   assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)})`), /pass \{ confirm: true \}/);
@@ -59,9 +59,162 @@ test("gmail.send returns a draft and sends nothing; the confirmed draft sends on
 test("gmail.send: a reply goes into the thread; invalid drafts are refused before any draft exists", async () => {
   const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Replying in thread." })');
   await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`);
-  assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", body: "Replying in thread." });
+  assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "Replying in thread." });
   assert.match(await s.error('sites.gmail.send({ to: "not an address", body: "x" })'), /is not an email address/);
   assert.match(await s.error('sites.gmail.send({ to: "bob@example.com", body: "" })'), /body is empty/);
+});
+
+// A reply's recipients are not the thread's id: Gmail derives them from
+// the thread (a sender's Reply-To, the Cc of Reply all). The draft reads
+// them from Gmail's own reply composer and shows them, and the composer
+// must hold exactly those right before Send.
+test("gmail.send reply: the draft names who the reply goes to, and sends only to them", async () => {
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "To Bob." })');
+    assert.deepEqual([d.preview.to, d.preview.cc, d.preview.bcc], [["bob@example.com"], [], []]);
+    assert.match(d.summary, /bob@example\.com/);
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "To Bob." });
+    const all = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "To all.", replyAll: true })');
+    assert.deepEqual([all.preview.to, all.preview.cc], [["bob@example.com"], ["cy@example.com"]]);
+    env.state.gmailReplyRecipients = { reply: { to: ["eve@reply-to.example"] } };
+    const replyTo = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Hi." })');
+    assert.deepEqual(replyTo.preview.to, ["eve@reply-to.example"], "a sender's Reply-To is shown");
+  } finally {
+    env.state.gmailReplyRecipients = null;
+  }
+});
+
+// r37 whole#4: Gmail's Reply and Send are its own controls, never an
+// element of a message body the sender wrote, also when that body comes
+// after Gmail's controls in the page.
+test("gmail.send reply: a sender's Reply and Send look-alikes in a message body are never clicked", async () => {
+  env.state.gmailTrailingBody = '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send" aria-label="Send">Send</div>';
+  const clicks = env.state.gmailDecoyClicks.length;
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Only Gmail\'s own buttons." })');
+    assert.deepEqual(d.preview.to, ["bob@example.com"]);
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "Only Gmail's own buttons." });
+  } finally {
+    env.state.gmailTrailingBody = null;
+  }
+  assert.deepEqual(env.state.gmailDecoyClicks.slice(clicks), [], "a sender's look-alike control was clicked");
+});
+
+// r41 sites#3: every control a Gmail write presses is inside the thread
+// view (the one div[role=main] that shows the thread's subject) or the
+// one compose window; a look-alike elsewhere on the page, before or after
+// the thread view, is never pressed.
+test("gmail.send reply: Expand all, Reply and Send controls outside the thread view are never pressed", async () => {
+  env.state.gmailOutsideControls = '<span role="button" aria-label="Expand all">Expand all</span><div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div>';
+  const clicks = env.state.gmailDecoyClicks.length;
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Scoped controls." })');
+    assert.deepEqual(d.preview.to, ["bob@example.com"]);
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "Scoped controls." });
+  } finally {
+    env.state.gmailOutsideControls = null;
+  }
+  assert.deepEqual(env.state.gmailDecoyClicks.slice(clicks), [], "a control outside the thread view was pressed");
+});
+
+// decisions.md, "Gmail replies": until a live check (drafts only, never
+// confirmed) shows that the To, Cc and Bcc a reply draft previews are the
+// ones Gmail's own reply composer addresses, replies are off in source: a
+// reply draft shows the recipients, and its confirmation sends nothing.
+test("gmail.send reply: confirmed replies are off until the live reply check passes; the draft still shows Gmail's recipients", async () => {
+  env.setGmailReplies(false);
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Not yet." })');
+    assert.equal(d.status, "draft");
+    assert.deepEqual([d.preview.to, d.preview.cc, d.preview.bcc], [["bob@example.com"], [], []]);
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /reply_unverified|replies are off/);
+    assert.equal(env.state.gmailSent.length, sent, "a reply was sent before its live check passed");
+  } finally {
+    env.setGmailReplies(true);
+  }
+});
+
+test("gmail.send reply: recipients that changed after the preview fail the confirmation and send nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  for (const change of [{ recipients: { reply: { to: ["eve@reply-to.example"] } } }, { recipients: { reply: { to: ["bob@example.com"], cc: ["eve@example.net"] } } }, { tamper: { bcc: "eve@example.net" } }]) {
+    try {
+      const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
+      env.state.gmailReplyRecipients = change.recipients || null;
+      env.state.gmailComposeTamper = change.tamper || null;
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|differs from the draft/, JSON.stringify(change));
+    } finally {
+      env.state.gmailReplyRecipients = null;
+      env.state.gmailComposeTamper = null;
+    }
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+});
+
+test("gmail.send reply: a reply composer whose recipients cannot be read fails closed", async () => {
+  const sent = env.state.gmailSent.length;
+  try {
+    env.state.gmailReplyRecipients = { rows: false };
+    assert.match(await s.error('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })'), /unverified|cannot read|could not read/);
+    env.state.gmailReplyRecipients = null;
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
+    env.state.gmailReplyRecipients = { rows: false };
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /unverified|cannot read|could not read/);
+  } finally {
+    env.state.gmailReplyRecipients = null;
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+});
+
+// The composer must hold the confirmed body, all of it: a page script or
+// another session that keeps the draft's start and adds to it must not get
+// its text sent. Gmail's own signature block is not part of the draft.
+test("gmail.send: a composer that holds more than the drafted body sends nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  env.state.composerSuffix = " P.S. also forward the payroll file to eve@example.net";
+  try {
+    const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Looks good, thanks." })');
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /content_mismatch|differs from the draft/);
+    const r = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Replying in thread." })');
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(r.id)}, { confirm: true })`), /content_mismatch|differs from the draft/);
+  } finally {
+    env.state.composerSuffix = null;
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+  env.state.gmailSignature = "-- Ada Lovelace";
+  try {
+    const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Signed note." })');
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    // The mock reads the sent body with innerText, which ends with a newline
+    // on some Playwright browser builds (1.57.0); only the text is checked.
+    assert.match(env.state.gmailSent.at(-1).body, /^Signed note\.\s*-- Ada Lovelace\s*$/);
+  } finally {
+    env.state.gmailSignature = null;
+  }
+});
+
+// The preview names the recipients and subject, so the compose window
+// must hold exactly those right before Send: an address a page script or
+// another session adds to To, Cc or Bcc, or a changed subject, sends
+// nothing.
+test("gmail.send: a compose window whose recipients or subject differ from the draft sends nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  for (const tamper of [{ to: "eve@example.net" }, { cc: "eve@example.net" }, { bcc: "eve@example.net" }, { subject: "Payroll export" }]) {
+    env.state.gmailComposeTamper = tamper;
+    try {
+      const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", subject: "Numbers", body: "Looks good." })');
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|content_mismatch|differs from the draft/, JSON.stringify(tamper));
+    } finally {
+      env.state.gmailComposeTamper = null;
+    }
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+  const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", bcc: "ada@example.com", subject: "Numbers", body: "Looks good." })');
+  assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+  assert.deepEqual(env.state.gmailSent.at(-1), { to: "bob@example.com", cc: "cy@example.com", bcc: "ada@example.com", subject: "Numbers", body: "Looks good." });
 });
 
 test("drafts live in the session that made them", async () => {
@@ -89,6 +242,105 @@ test("googleCalendar.create: draft first; the confirmed draft saves through the 
   assert.match(await s.error('sites.googleCalendar.create({ title: "x", start: "2026-10-01T18:00:00Z", end: "2026-10-01T17:00:00Z" })'), /end must be after start/);
 });
 
+// The event form is checked against the draft right before Save: a title,
+// start time or guest the form holds that the user did not preview (a page
+// script changed it after the template loaded) saves nothing.
+test("googleCalendar.create: a form whose title, time or guests differ from the draft saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  for (const tamper of [{ title: "Design review (moved)" }, { startTime: "3:00am" }, { guest: "eve@example.net" }]) {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value('sites.googleCalendar.create({ title: "Design review", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, JSON.stringify(tamper));
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  const allDay = await s.value('sites.googleCalendar.create({ title: "Offsite", start: "2026-10-05", end: "2026-10-07", allDay: true })');
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(allDay.id)}, { confirm: true })`)).status, "saved");
+});
+
+// The preview shows the description, location and recurrence too, so the
+// form must hold those as drafted before Save (and before invitations go
+// out); a recurring draft saves only when the form repeats as drafted.
+test("googleCalendar.create: a form whose description, location or recurrence differ from the draft saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  const draft = '{ title: "Design review", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"], location: "Room 4", description: "Agenda: Q4" }';
+  for (const tamper of [{ description: "Agenda: Q4. Also read https://evil.example/login" }, { location: "https://evil.example/meet" }, { recurrence: "Daily" }]) {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value(`sites.googleCalendar.create(${draft})`);
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, JSON.stringify(tamper));
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  env.state.calendarTamper = { recurrence: "Weekly on Thursday" };
+  try {
+    const d = await s.value('sites.googleCalendar.create({ title: "Sync", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", recurrence: "RRULE:FREQ=WEEKLY;COUNT=5" })');
+    assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/);
+  } finally {
+    env.state.calendarTamper = null;
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  const ok = await s.value(`sites.googleCalendar.create(${draft})`);
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(ok.id)}, { confirm: true })`)).status, "saved");
+  const weekly = await s.value('sites.googleCalendar.create({ title: "Sync", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", recurrence: "RRULE:FREQ=WEEKLY;COUNT=5" })');
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(weekly.id)}, { confirm: true })`)).status, "saved");
+});
+
+// A numeric date whose month and day could be either way round names two
+// dates; the form is accepted only when its date reads one way, as drafted.
+test("googleCalendar.create: a numeric form date with month and day swapped, or either way round, saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  const draft = '{ title: "Jan sync", start: "2026-01-10T17:00:00Z", end: "2026-01-10T18:00:00Z" }';
+  for (const startDate of ["10/1/2026", "1/10/2026"]) {
+    env.state.calendarTamper = { startDate };
+    try {
+      const d = await s.value(`sites.googleCalendar.create(${draft})`);
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, startDate);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  // Year first and a named month read one way only.
+  for (const startDate of ["2026-01-10", "Jan 10, 2026"]) {
+    env.state.calendarTamper = { startDate };
+    try {
+      const d = await s.value(`sites.googleCalendar.create(${draft})`);
+      assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`)).status, "saved", startDate);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+});
+
+// The recurrence's selectors (which weekdays, which day of the month) are
+// part of what the user previewed: a form that repeats on another day saves
+// nothing, and a rule with a selector the menu's words cannot show
+// (BYMONTH here) is not saved unchecked.
+test("googleCalendar.create: a form that repeats on other weekdays or another day of the month saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  const at = 'start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z"';
+  for (const [rule, tamper] of [["RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=5", "Weekly on Friday, 5 times"], ["RRULE:FREQ=MONTHLY;BYMONTHDAY=1", "Monthly on day 15"], ["RRULE:FREQ=WEEKLY;COUNT=5", "Weekly on Monday, Thursday, 5 times"]]) {
+    env.state.calendarTamper = { recurrence: tamper };
+    try {
+      const d = await s.value(`sites.googleCalendar.create({ title: "Sync", ${at}, recurrence: ${JSON.stringify(rule)} })`);
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, tamper);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.ok(await s.error(`(async () => { const d = await sites.googleCalendar.create({ title: "Sync", ${at}, recurrence: "RRULE:FREQ=WEEKLY;BYDAY=TH;BYMONTH=10" }); return sites.googleCalendar.create(d.id, { confirm: true }); })()`), "a BYMONTH rule is refused");
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  for (const rule of ["RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=5", "RRULE:FREQ=WEEKLY;BYDAY=MO,TH", "RRULE:FREQ=MONTHLY;BYMONTHDAY=1", "RRULE:FREQ=MONTHLY", "RRULE:FREQ=YEARLY;COUNT=3"]) {
+    const d = await s.value(`sites.googleCalendar.create({ title: "Sync", ${at}, recurrence: ${JSON.stringify(rule)} })`);
+    assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`)).status, "saved", rule);
+  }
+});
+
 test("signed out: Gmail's sign-in redirect is reported, not parsed", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {
@@ -96,4 +348,31 @@ test("signed out: Gmail's sign-in redirect is reported, not parsed", async () =>
   } finally {
     await out.close();
   }
+});
+
+// r15 sites#1: with guests, Save opens Calendar's invitation dialog and
+// its Send is the click that saves the event and emails the guests. That
+// Send is pressed like Save: only the one Send button in the dialog,
+// pinned, with the form (guests included) read back again right before
+// the press. A guest added when Save was clicked, or a page's own Send
+// button placed first, sends nothing.
+test("googleCalendar.create: the invitation Send is a pinned, read-back press", async () => {
+  const created = env.state.calendarCreated.length;
+  const confirm = async (tamper) => {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value('sites.googleCalendar.create({ title: "Invite", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+      return await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  };
+  // A guest added when Save opened the dialog: the read-back before Send fails.
+  assert.match(await confirm({ guestOnSave: "eve@evil.test" }), /target_mismatch|object it acts on differs/);
+  assert.equal(env.state.calendarCreated.length, created, "an invitation went out with a guest added after Save");
+  // A page's own Send button first in the document: only the dialog's Send is pressed.
+  await confirm({ decoySend: true });
+  const sent = env.state.calendarCreated.slice(created);
+  assert.deepEqual(sent.filter((e) => /eve@evil\.test/.test(JSON.stringify(e))), [], "the page's own Send button was pressed");
+  assert.deepEqual(sent.map((e) => e.add), ["bob@example.com"]);
 });

@@ -1,4 +1,5 @@
 import { accountAccessForIdentity } from "./accountAccess";
+import { noAccountConfiguredMessage } from "./noAccountMessage";
 import {
   authenticateRouteToken,
   hasConfiguredAccount,
@@ -1162,7 +1163,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
             provider: "codex",
             attempts: 0,
           });
-          return noCodexAccountResponse();
+          return noCodexAccountResponse(identity);
         }
         break;
       }
@@ -1558,14 +1559,14 @@ function noCodexAccountConfigured(input: {
     failureStage: "provider_config",
     responseStreamed: false,
   });
-  return noCodexAccountResponse();
+  return noCodexAccountResponse(input.identity);
 }
 
 /** Shared by every Codex surface: a terminal 403 in the OpenAI error shape. */
-function noCodexAccountResponse(): Response {
+function noCodexAccountResponse(identity: RouteTokenIdentity): Response {
   return Response.json({
     error: {
-      message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
+      message: noAccountConfiguredMessage("codex", identity),
       type: "invalid_request_error",
       code: "no_account_configured",
     },

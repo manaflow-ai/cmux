@@ -652,7 +652,8 @@ enum TitlebarControlsLayoutMetrics {
         guard let range = TitlebarControlsHitRegions.buttonXRange(for: actionSlot, config: config) else {
             return config.groupPadding.leading + (config.buttonSize / 2.0)
         }
-        return (range.lowerBound + range.upperBound) / 2.0
+        // Hit regions are accessory-relative; hints are inside the padded controls group.
+        return (range.lowerBound + range.upperBound) / 2.0 - outerLeadingPadding
     }
 
     static func hintInterval(
@@ -832,6 +833,7 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
+        .windowHintTarget(accessibilityLabel, isEnabled: isEnabled)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
@@ -1990,9 +1992,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let newTab = {
             guard let appDelegate = AppDelegate.shared,
                   let context = prepareOriginatingAction() else { return }
-            _ = appDelegate.performNewLocalWorkspaceAction(
+            _ = appDelegate.performNewWorkspaceAction(
                 tabManager: context.tabManager,
-                debugSource: "titlebar.accessoryNewWorkspace"
+                debugSource: "titlebar.accessoryNewWorkspace",
+                localOnly: true
             )
         }
         let focusHistoryBack = {

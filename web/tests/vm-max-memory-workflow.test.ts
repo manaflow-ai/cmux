@@ -111,6 +111,7 @@ test("a native fork retry returns a grandfathered oversized row to Pro", async (
     imageId: "snapshot",
     imageVersion: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     displayName: null,
     slug: null,
     providerMetadata: {
@@ -265,6 +266,7 @@ test("reopening an existing oversized Base remains usable during migration", asy
       imageId: "snapshot",
       imageVersion: null,
       createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
       providerMetadata: {
         cmuxResourceReservation: {
           vcpus,
@@ -312,6 +314,7 @@ test("reopening a markerless Base persists the measured reservation before retur
     imageId: "snapshot",
     imageVersion: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     displayName: null,
     slug: null,
     providerMetadata: {},
@@ -369,6 +372,7 @@ test("an idempotent create retry returns a grandfathered oversized row to Pro", 
     imageId: "snapshot",
     imageVersion: null,
     createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
     displayName: null,
     slug: null,
     providerMetadata: {

@@ -96,6 +96,86 @@ public enum ProgramStatusEvent: String, Equatable, Sendable {
     case promptStart = "prompt_start"
 }
 
+/// The change kinds emitted when a terminal's program-status projection changes.
+public enum ProgramStatusChange: String, Equatable, Sendable {
+    case report
+    case clear
+    case promptStart = "prompt_start"
+    case transientDrop = "transient_drop"
+    case dismissed
+    /// The terminal closed or left this workspace; its records are gone here.
+    case removed
+    /// A terminal moved into this workspace with the records it already had.
+    case adopted
+}
+
+/// The safe, protocol-level fields exported for one program-status record.
+///
+/// Free-form OSC text and provider names stay in the sidebar projection and
+/// are intentionally excluded from the event stream and its persistent log.
+public struct ProgramStatusRecordSnapshot: Equatable, Sendable {
+    /// The record id, or an empty string for the root record.
+    public let id: String
+    /// The current protocol state.
+    public let state: ProgramStatusState
+    /// The blocked kind, when present.
+    public let kind: ProgramStatusKind
+    /// The current progress percentage for working or blocked records.
+    public let progress: Int?
+    /// The monotonic record update sequence.
+    public let updatedSequence: UInt64
+
+    /// Creates a safe event snapshot from a stored record.
+    public init(record: ProgramStatusRecord) {
+        id = record.id
+        state = record.state
+        kind = record.kind
+        progress = record.progress
+        updatedSequence = record.updateOrder
+    }
+}
+
+/// The complete event-stream projection for one program-status change.
+public struct ProgramStatusChangedPayload: Equatable, Sendable {
+    /// The reason the status projection changed.
+    public let event: ProgramStatusChange
+    /// The addressed record id, or `nil` when the change has no address.
+    public let id: String?
+    /// The updated addressed record for a report, when it exists.
+    public let record: ProgramStatusRecordSnapshot?
+    /// All current records in stable id order.
+    public let records: [ProgramStatusRecordSnapshot]
+
+    /// Builds a payload from a lifecycle change and the resulting store.
+    public init(
+        event: ProgramStatusChange,
+        id: String? = nil,
+        store: ProgramStatusRecordStore
+    ) {
+        self.event = event
+        self.id = id
+        if event == .report {
+            record = store.record(id: id ?? "").map(ProgramStatusRecordSnapshot.init(record:))
+        } else {
+            record = nil
+        }
+        records = store.records.map(ProgramStatusRecordSnapshot.init(record:))
+    }
+
+    /// Builds a payload from an OSC 7501 report and the resulting store.
+    public init(report: ProgramStatusReport, store: ProgramStatusRecordStore) {
+        let event: ProgramStatusChange
+        if report.state == .clear {
+            event = .clear
+        } else if report.event == .promptStart {
+            event = .promptStart
+        } else {
+            event = .report
+        }
+        self.init(event: event, id: report.id, store: store)
+    }
+}
+
 /// A bounded, value-type store implementing OSC 7501 record semantics.
 public struct ProgramStatusRecordStore: Equatable, Sendable {
     public static let recordLimit = 256

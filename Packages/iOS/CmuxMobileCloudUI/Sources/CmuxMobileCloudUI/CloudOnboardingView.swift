@@ -18,7 +18,9 @@ public struct CloudOnboardingView: View {
     @Environment(\.cloudSystemVPNController) private var systemVPN
     @State private var page = 0
 
-    private static let pageCount = 3
+    private var pageCount: Int {
+        systemVPN == nil ? 2 : 3
+    }
 
     /// - Parameters:
     ///   - controller: The Cloud session used by the optional VPN step.
@@ -64,7 +66,7 @@ public struct CloudOnboardingView: View {
             CloudOnboardingBackdrop()
 
             VStack(spacing: 0) {
-                CloudOnboardingProgressIndicator(page: page, pageCount: Self.pageCount)
+                CloudOnboardingProgressIndicator(page: page, pageCount: pageCount)
                     .padding(.top, 12)
                     .padding(.bottom, 4)
 
@@ -85,27 +87,27 @@ public struct CloudOnboardingView: View {
                         )
                     }
                     .tag(0)
-                    CloudOnboardingPage(
-                        title: L10n.string("mobile.cloud.vpn.title", defaultValue: "System VPN"),
-                        message: L10n.string(
-                            "mobile.cloud.onboarding.vpn.message",
-                            defaultValue: "Turn it on when Safari or another app needs to reach a private service on a Cloud machine."
-                        )
-                    ) {
-                        VStack(spacing: 18) {
-                            CloudOnboardingGraphic(
-                                topic: .vpn,
-                                accessibilityLabel: L10n.string(
-                                    "mobile.cloud.onboarding.vpn.visual",
-                                    defaultValue: "Safari reaches a private Cloud service through the System VPN"
-                                )
+                    if let systemVPN {
+                        CloudOnboardingPage(
+                            title: L10n.string("mobile.cloud.vpn.title", defaultValue: "System VPN"),
+                            message: L10n.string(
+                                "mobile.cloud.onboarding.vpn.message",
+                                defaultValue: "Turn it on when Safari or another app needs to reach a private service on a Cloud machine."
                             )
-                            if let systemVPN {
+                        ) {
+                            VStack(spacing: 18) {
+                                CloudOnboardingGraphic(
+                                    topic: .vpn,
+                                    accessibilityLabel: L10n.string(
+                                        "mobile.cloud.onboarding.vpn.visual",
+                                        defaultValue: "Safari reaches a private Cloud service through the System VPN"
+                                    )
+                                )
                                 CloudOnboardingVPNControl(controller: systemVPN)
                             }
                         }
+                        .tag(1)
                     }
-                    .tag(1)
                     CloudOnboardingPage(
                         title: L10n.string("mobile.cloud.onboarding.key.title", defaultValue: "A private key keeps it private"),
                         message: L10n.string(
@@ -121,19 +123,19 @@ public struct CloudOnboardingView: View {
                             )
                         )
                     }
-                    .tag(2)
+                    .tag(systemVPN == nil ? 1 : 2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
 
                 CloudOnboardingFooter(
-                    primaryTitle: page < Self.pageCount - 1
+                    primaryTitle: page < pageCount - 1
                         ? L10n.string("mobile.cloud.onboarding.continue", defaultValue: "Continue")
                         : L10n.string("mobile.cloud.onboarding.done", defaultValue: "Get started"),
                     secondaryTitle: page > 0
                         ? L10n.string("mobile.cloud.onboarding.back", defaultValue: "Back")
                         : nil,
                     onPrimary: {
-                        if page < Self.pageCount - 1 {
+                        if page < pageCount - 1 {
                             withAnimation { page += 1 }
                         } else {
                             complete()

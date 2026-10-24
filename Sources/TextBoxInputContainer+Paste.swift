@@ -166,7 +166,7 @@ extension TextBoxInputContainer {
                 preparedAttachments: preparedAttachments,
                 preparationService: preparationService
             )
-        case .reject, .pasteCloudImages:
+        case .reject:
             _ = textView.removePendingAttachmentUploadPlaceholder(
                 id: placeholderID
             )
@@ -175,7 +175,27 @@ extension TextBoxInputContainer {
                 using: preparationService
             )
             publishComposerContent(from: textView)
-            if case .pasteCloudImages = plan { refuseCloudComposerImage() }
+        case .pasteCloudImages:
+            guard insertPreparedCloudComposerImages(
+                preparedAttachments,
+                into: textView,
+                replacingPlaceholderID: placeholderID
+            ) else {
+                // Read the reason before cleanup deletes the files it checks.
+                let refusal = Self.cloudComposerImageRefusal(
+                    for: preparedAttachments.map(\.fileURL)
+                )
+                _ = textView.removePendingAttachmentUploadPlaceholder(
+                    id: placeholderID
+                )
+                preparedContentCleanup(
+                    preparedAttachments,
+                    using: preparationService
+                )
+                publishComposerContent(from: textView)
+                refuseCloudComposerImage(refusal ?? .useTerminal)
+                return
+            }
         }
     }
 

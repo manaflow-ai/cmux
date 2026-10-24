@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { vmHealthRepositoryMethods, type VmHealthRepositoryMethods } from "./health/repository";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
@@ -23,6 +24,7 @@ import {
   cloudVms,
   cloudVmUsageEvents,
   observedDestroyCleanupValidityPredicate,
+  stackSessionRevocations,
 } from "../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
@@ -110,6 +112,8 @@ export type VmResizeReservation = {
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 export const OBSERVED_DESTROY_CLEANUP_METADATA_KEY = "cmuxObservedDestroyCleanup";
+/** When a status cron last claimed this paused row to re-pause an unexpected wake (ms). */
+export const UNEXPECTED_WAKE_CLAIM_METADATA_KEY = "unexpectedWakeClaimAtMs";
 /**
  * Keep every partial-index predicate value literal. PostgreSQL generic prepared
  * plans cannot prove that a bound status parameter implies the partial index.
@@ -203,7 +207,7 @@ export type BillingGrantClaim =
   | { readonly kind: "inserted"; readonly grantId: string }
   | { readonly kind: "already_claimed" };
 
-export type VmRepositoryShape = {
+export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
@@ -282,7 +286,15 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly leaseId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
-  readonly revokeAccessGrant?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Revoke the grant. With `revokeStackSessions`, the grant's Stack sessions
+   * are queued in `stack_session_revocations` in the same transaction, so a
+   * crash cannot revoke the grant and lose the session revocations.
+   */
+  readonly revokeAccessGrant?: (input: {
+    readonly id: string;
+    readonly revokeStackSessions: { readonly userId: string; readonly firstRetryAt: Date } | null;
+  }) => Effect.Effect<{ readonly revoked: boolean; readonly stackSessionIds: readonly string[] }, VmDatabaseError>;
   /** The live (unrevoked) tunnel row for one of the owner's devices. */
   readonly findTunnel?: (input: {
     readonly userId: string;
@@ -675,6 +687,17 @@ export type VmRepositoryShape = {
     /** Durable external cleanup work inserted atomically with a terminal status. */
     readonly cleanup?: VmObservedDestroyCleanup;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Claim a paused row for a re-pause after an unexpected wake. True only for
+   * the one caller that finds the row still paused and unclaimed within
+   * `ttlMs`, so overlapping status crons pause and record a wake once. The
+   * claim time is the database's clock, so callers' clocks cannot disagree.
+   */
+  readonly claimUnexpectedWakeRepause?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly ttlMs: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
     readonly displayName: string | null;
@@ -796,7 +819,8 @@ export type VmUsageEventInput = {
   readonly metadata?: Record<string, unknown>;
   /**
    * The machine's `createdAt`, supplied by destroy sites so analytics can
-   * report the machine's lifetime. Not persisted: the ledger row already
+   * report the machine's lifetime, and by create-success sites for
+   * `cloud_vm_ready.time_to_ready_ms`. Not persisted: the ledger row already
    * joins to `cloud_vms` by `vmId`.
    */
   readonly vmCreatedAt?: Date | null;
@@ -1099,6 +1123,45 @@ function assertCreateReservationFitsPlan(input: {
     planId: input.planId,
     memoryMb: Math.max(reservation.memoryMb, reservation.vcpus * 2 * 1024),
     maxMemoryMb: input.planMaxMemoryMb,
+  });
+}
+
+/** At most this many counted machines ride on an active-limit refusal. */
+const ACTIVE_LIMIT_NAMED_MACHINES = 20;
+
+/**
+ * The refusal for a full active-VM allowance, naming the machines the count
+ * saw. Clients list every non-destroyed machine, including paused ones that
+ * do not count, so the names are what lets a person see which slots are used.
+ */
+async function activeLimitExceededInTx(
+  tx: CloudDbTransaction,
+  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number },
+): Promise<VmLimitExceededError> {
+  const rows = await tx
+    .select({
+      id: cloudVms.id,
+      providerVmId: cloudVms.providerVmId,
+      displayName: cloudVms.displayName,
+      slug: cloudVms.slug,
+      status: cloudVms.status,
+    })
+    .from(cloudVms)
+    .where(and(inArray(cloudVms.status, ["provisioning", "running"]), input.scope))
+    .orderBy(asc(cloudVms.createdAt))
+    .limit(ACTIVE_LIMIT_NAMED_MACHINES);
+  return new VmLimitExceededError({
+    kind: "active_vms",
+    billingTeamId: input.billingTeamId,
+    limit: input.limit,
+    activeMachines: rows.map((row) => {
+      const id = row.providerVmId ?? row.id;
+      return {
+        id,
+        name: row.displayName?.trim() || row.slug?.trim() || id,
+        status: row.status === "running" ? "running" as const : "provisioning" as const,
+      };
+    }),
   });
 }
 
@@ -1707,15 +1770,34 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ));
     }),
 
-  revokeAccessGrant: (id) =>
+  revokeAccessGrant: (input) =>
     dbEffect("revokeAccessGrant", async () => {
       const db = cloudDb();
-      const rows = await db
-        .update(cloudVmAccessGrants)
-        .set({ revokedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(cloudVmAccessGrants.id, id), isNull(cloudVmAccessGrants.revokedAt)))
-        .returning({ id: cloudVmAccessGrants.id });
-      return rows.length > 0;
+      return await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(cloudVmAccessGrants)
+          .set({ revokedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(cloudVmAccessGrants.id, input.id), isNull(cloudVmAccessGrants.revokedAt)))
+          .returning({ id: cloudVmAccessGrants.id });
+        const sessions = await tx
+          .select({ stackSessionId: cloudVmAccessGrantSessions.stackSessionId })
+          .from(cloudVmAccessGrantSessions)
+          .where(eq(cloudVmAccessGrantSessions.accessGrantId, input.id));
+        const stackSessionIds = sessions.map((row) => row.stackSessionId);
+        const revoked = rows.length > 0;
+        if (revoked && input.revokeStackSessions && stackSessionIds.length > 0) {
+          await tx
+            .insert(stackSessionRevocations)
+            .values(stackSessionIds.map((stackSessionId) => ({
+              stackSessionId,
+              userId: input.revokeStackSessions!.userId,
+              accessGrantId: input.id,
+              nextAttemptAt: input.revokeStackSessions!.firstRetryAt,
+            })))
+            .onConflictDoNothing({ target: stackSessionRevocations.stackSessionId });
+        }
+        return { revoked, stackSessionIds };
+      });
     }),
 
   findTunnel: (input) =>
@@ -2035,8 +2117,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             const activeCount = Number(active?.total ?? 0);
             const limit = input.maxActiveVms;
             if (limit !== null && activeCount >= limit) {
-              throw new VmLimitExceededError({
-                kind: "active_vms",
+              throw await activeLimitExceededInTx(tx, {
+                scope: eq(cloudVms.billingTeamId, input.billingTeamId),
                 billingTeamId: input.billingTeamId,
                 limit,
               });
@@ -2174,8 +2256,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             const activeCount = Number(active?.total ?? 0);
             const limit = input.maxActiveVms;
             if (limit !== null && activeCount >= limit) {
-              throw new VmLimitExceededError({
-                kind: "active_vms",
+              throw await activeLimitExceededInTx(tx, {
+                scope: eq(cloudVms.billingTeamId, input.billingTeamId),
                 billingTeamId: input.billingTeamId,
                 limit,
               });
@@ -2398,8 +2480,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
           if (limit !== null && activeCount >= limit) {
-            throw new VmLimitExceededError({
-              kind: "active_vms",
+            throw await activeLimitExceededInTx(tx, {
+              scope: eq(cloudVms.billingTeamId, input.billingTeamId),
               billingTeamId: input.billingTeamId,
               limit,
             });
@@ -2844,8 +2926,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
           if (!input.skipActiveLimit && limit !== null && activeCount >= limit) {
-            throw new VmLimitExceededError({
-              kind: "active_vms",
+            throw await activeLimitExceededInTx(tx, {
+              scope: teamScope,
               billingTeamId: input.billingTeamId ?? input.userId,
               limit,
             });
@@ -3757,6 +3839,30 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       });
     }),
 
+  claimUnexpectedWakeRepause: (input) =>
+    dbEffect("claimUnexpectedWakeRepause", async () => {
+      const nowMs = sql`(extract(epoch from now()) * 1000)::bigint`;
+      const claimed = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${nowMs})`,
+          // Reconciliation reads oldest `updatedAt` first; moving a claimed row
+          // to the back lets a capped run reach the wakes it left behind.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', now())`,
+        })
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            eq(cloudVms.status, "paused"),
+            sql`coalesce((${cloudVms.providerMetadata}->>${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text)::bigint, 0) < ${nowMs} - ${input.ttlMs}::bigint`,
+          ),
+        )
+        .returning({ id: cloudVms.id });
+      return claimed.length > 0;
+    }),
+
   setDisplayName: (input) =>
     dbEffect("setDisplayName", async () => {
       const db = cloudDb();
@@ -4311,6 +4417,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 // functions keep their reviewed complexity fingerprints. The lease methods
 // remain one independently testable cross-instance capability.
 Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
+// The staff health sweep's reads and its own snapshot table.
+Object.assign(vmRepositoryLiveShape, vmHealthRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);
 

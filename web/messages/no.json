@@ -30,6 +30,31 @@
       "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
       "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
     },
+    "guestUnresponsive": {
+      "title": "Maskinen svarer ikke",
+      "message": "Denne maskinen svarte ikke i tide, så forespørselen kunne ikke fullføres.",
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
+    },
+    "inProgress": {
+      "title": "Fortsatt i gang",
+      "message": "Skyleverandøren har ikke fullført denne endringen ennå. Den kan fortsatt bli fullført.",
+      "action": "Sjekk maskinens status med cmux vm ls eller i maskinlisten før du prøver igjen."
+    },
+    "providerTimeout": {
+      "title": "Skyleverandøren er treg",
+      "message": "Skyleverandøren svarte ikke i tide.",
+      "action": "Prøv igjen om et øyeblikk."
+    },
+    "providerCapacity": {
+      "title": "Ingen Cloud-kapasitet akkurat nå",
+      "message": "Cloud-tjenesten har ikke plass til denne maskinen akkurat nå. Ingenting ble endret.",
+      "action": "Prøv igjen om et minutt."
+    },
+    "stateConflict": {
+      "title": "Maskinen er opptatt",
+      "message": "Denne maskinen starter, settes på pause eller kjører ikke, så den kan ikke gjøre dette nå.",
+      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux vm ls, og gjenoppta den først hvis den er satt på pause."
+    },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
       "message": "Nettverkspolicyen din er lagret, men ble ikke brukt: cmux Cloud har nådd kapasiteten for nettverksregler.",
@@ -89,12 +114,27 @@
       "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan}-regnekvoten er brukt opp",
+      "computeMessage": "{plan}-planen din har brukt sine {included} regnetimer i denne faktureringsperioden. En regnetime er 1 vCPU med 2 GB minne i én time. Maskinene dine kan starte igjen {resetDate}.",
+      "computeAction": "Pausede maskiner beholder filene sine. Kontakt support hvis du trenger mer regnekraft før {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-diskkvoten er brukt opp",
+      "storageMessage": "{plan}-planen din inkluderer {included} GB disk totalt for alle lagrede maskiner. Lagrede maskiner bruker {used} GB, og denne forespørselen trenger {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressurser",
       "memoryMessage": "VM-ene dine bruker allerede {used} av {pool} GB RAM. Denne VM-en trenger {requested} GB.",
       "vcpuMessage": "VM-ene dine bruker allerede {used} av {pool} vCPU-er. Denne VM-en trenger {requested} vCPU-er.",
       "upgradeAction": "Sett en VM på pause eller slett den, eller oppgrader til Max.",
       "action": "Sett en VM på pause eller slett den."
+    },
+    "activeLimit": {
+      "counted": "Telles nå: {machines}. Maskiner på pause telles ikke.",
+      "provisioning": "{name} (klargjøres)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -188,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Språk",
     "assets": "Ressurser",
+    "art": "Kunst",
     "openSource": "Åpen kildekode",
     "guides": "Veiledninger",
     "compare": "Sammenlign"
@@ -483,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Gjenoppta planen for å endre den.",
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
+          "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
@@ -525,6 +569,7 @@
       "change": {
         "title": "Bytte til {plan}?",
         "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "upgradeBodyYearly": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per år.",
         "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
         "confirm": "Bytt til {plan}",
         "keep": "Behold nåværende plan",
@@ -537,6 +582,8 @@
         "title": "Avslutte {plan}?",
         "body": "Du beholder {plan} til {date}. Etter det mister du:",
         "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
         "otherPlaceholder": "Fortell oss mer (valgfritt)",
         "confirm": "Avslutt plan",
@@ -1122,7 +1169,7 @@
       "transferUnavailableError": "Overføringer er midlertidig utilgjengelige, eller kontoen oppdateres. Prøv igjen om et øyeblikk.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gjør privat",
-      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "privateImportHint": "I en organisasjon deles nye kontoer med teamet og teamets Cloud-VM-er. I det personlige teamet ditt forblir de private. Bruk Gjør privat eller Del med teamet for å endre en konto.",
       "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
       "cancelAction": "Avbryt",
       "apiKeysTitle": "API-nøkler",
@@ -2134,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Når dette er aktivert, gjør et dobbeltklikk på en skillelinje panelene i raden eller kolonnen like store. Andre rader og kolonner beholder størrelsene sine.",
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",
@@ -2210,6 +2258,21 @@
           "indentGuides": "Marker hvert innrykksnivå med en tynn loddrett linje i den innebygde filredigereren.",
           "currentLineHighlight": "Farg raden der markøren står når ingenting er markert.",
           "tabWidth": "Hvor mange kolonner ett tabulatorstopp dekker. Innrykkslinjene bruker samme avstand."
+        },
+        "actions": "Gjenbrukbare handlinger for kommandopaletten, snarveier, knapper på fanelinjen og menyen til plussknappen. Støtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger limer inn i terminalen med fokus og bevarer linjeskift; submit: true trykker Enter. Innstillingshandlinger krever global konfigurasjon.",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Når et eksternt tmux-arbeidsområde er valgt, starter «Nytt arbeidsområde» en tmux-økt på arbeidsområdets vert."
+            }
+          }
+        },
+        "chief": {
+          "description": "Chief, Hjem-agenten: om den vises, og hvilken harness, modell og innsats den bruker.",
+          "enabled": "Vis Hjem-raden og Chief-innganger. Når false, skjules Hjem-raden, snarveien Åpne Chief, menyelementet og kommandopalettens oppføringer.",
+          "harness": "Agent-harness som Chief kjører på: claude (Claude Code) eller codex (Codex).",
+          "model": "Modell som sendes til harnessen. La stå tom for å bruke harnessens standard.",
+          "effort": "Resonneringsinnsats som sendes til harnessen, for eksempel low, medium eller high. La stå tom for å bruke harnessens standard."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3193,8 +3256,8 @@
       "cloudLink": "Slik konfigureres agenter på Cloud-maskiner",
       "teamsTitle": "Team og deling",
       "teamsScope": "Kontoer tilhører teamet du er logget inn på. cr org list viser teamene dine, og cr org switch bytter teamet som cr bruker. cmux coderouter-kommandoer tar --team '<id>'.",
-      "teamsPrivate": "En ny konto er privat for personen som la den til. I dashbordet gjør \"Del med teamet\" den tilgjengelig for alle medlemmer og for teamets Cloud-maskiner, og \"Gjør privat\" reverserer det.",
-      "teamsPersonal": "I det personlige teamet ditt betjener de private kontoene dine også dine egne Cloud-maskiner. En organisasjons Cloud-maskiner bruker bare delte kontoer, så del en konto før du forventer at en maskin bruker den.",
+      "teamsPrivate": "En konto som legges til i en organisasjon, deles med teamet, slik at alle medlemmer og teamets Cloud-maskiner kan bruke den. I dashbordet begrenser Gjør privat den til personen som la den til, og Del med teamet opphever det.",
+      "teamsPersonal": "I det personlige teamet ditt er nye kontoer private, og de private kontoene dine betjener også dine egne Cloud-maskiner. En organisasjons Cloud-maskiner bruker bare delte kontoer, så en privat konto må deles før en maskin kan bruke den.",
       "teamsManage": "Alle teammedlemmer kan legge til, gi nytt navn til, deaktivere, overføre og fjerne teamets delte kontoer. cr transfer flytter en konto til et annet team etter at du bekrefter.",
       "usageTitle": "Forbruk og grenser",
       "usageLimits": "Hver leverandør måler forbruket på kontoen som betjente en forespørsel, etter den kontoens egen plan og grenser. CodeRouter fordeler arbeidet på kontoer, men hever ikke grensen for noen enkelt konto.",
@@ -3234,12 +3297,13 @@
       "apiKeyScope": "En organisasjons API-nøkkel bruker bare teamets delte kontoer. En nøkkel i ditt personlige team kan også bruke de private kontoene dine. CodeRouter betjener OpenAI Responses API, ikke Chat Completions.",
       "apiKeyLogin": "På en maskin som ikke kan åpne en nettleser, logger cr login --api-key inn cr med en nøkkel, og CODEROUTER_API_KEY gir en nøkkel for én enkelt kommando. Tilbakekall en nøkkel i dashbordet, eller kjør cr logout på maskinen som bruker den.",
       "cloudTitle": "På cmux Cloud-maskiner",
-      "cloudDesc": "Cloud-maskiner trenger ikke oppsett. Maskinens miljø peker OPENAI_BASE_URL og ANTHROPIC_BASE_URL mot en privat CodeRouter-adresse, og cmux skriver hver agents konfigurasjon første gang et skall eller agenten starter:",
-      "cloudClaude": "Claude Code leser ANTHROPIC_BASE_URL og en plassholder-ANTHROPIC_API_KEY fra miljøet. Spørsmålene ved første kjøring er allerede besvart.",
+      "cloudDesc": "Cloud-maskiner trenger ikke oppsett. Hver agent bruker teamets CodeRouter-kontoer via en privat CodeRouter-adresse, og cmux skriver konfigurasjonen dens første gang et skall eller agenten starter:",
+      "cloudClaude": "Claude Code får ANTHROPIC_BASE_URL og en plassholder-ANTHROPIC_API_KEY hver gang den starter, ikke fra hvert skall, så de aldri går foran din egen innlogging. Spørsmålene ved første kjøring er allerede besvart.",
       "cloudCodex": "Codex får en cmux-modelleverandør i ~/.codex/config.toml.",
       "cloudPi": "Pi får en leverandøroverstyring i ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode laster ned leverandørlisten sin fra CodeRouter første gang den starter, og lagrer den i ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode laster ned leverandørlisten sin fra CodeRouter første gang den starter, lagrer den i ~/.config/cmux/opencode-team.json og legger den til i din egen konfigurasjon ved hver kjøring.",
       "cloudYours": "cmux skriver hver fil bare når den mangler, så endringene dine beholdes. En Codex-konfigurasjon som allerede angir en annen modelleverandør, blir ikke rørt.",
+      "cloudOwnLogin": "For å bruke din egen konto i stedet kjører du cr use own på maskinen og logger deretter inn slik agenten vanligvis gjør: /login i Claude Code, codex login eller opencode auth login. cr use team bytter tilbake, cr use own codex endrer én agent, og cr use viser hvordan hver agent logger inn. Uten et valg bruker en agent du har logget inn i på maskinen, din egen konto, og en agent teamet ditt ikke har en konto for, viser sin vanlige innlogging. En endring gjelder neste gang agenten starter.",
       "cloudRun": "Kjør agenter som vanlig. cmux coderouter agent gjør en ren prompt om til agentens engangsform; inne i en maskin kjører den i gjeldende terminal, og på Mac-en din starter den agenten på maskinen du angir, som cmux vm agent.",
       "cloudAccounts": "Cloud-maskiner bruker kontoene til teamet som eier dem. Hvis en agent melder at ingen konto er tilgjengelig, legger du til en eller deler en eksisterende med det teamet.",
       "modelsTitle": "Modeller",
@@ -3314,6 +3378,23 @@
     "title": "Kjærlighetsveggen",
     "description": "Hva folk sier om cmux."
   },
+  "art": {
+    "metaTitle": "Kunst til cmux-bakgrunner",
+    "metaDescription": "Bla gjennom de offentlig eide maleriene cmux tilbyr som vindusbakgrunner: Van Gogh, Friedrich, Goya, Doré og flere, med kilder og lisenser.",
+    "title": "Kunst",
+    "description": "Berømte malerier og trykk i det fri som du kan legge bak terminalene dine. Alle kunstnerne døde for over 70 år siden, og hvert verk ble utgitt før 1931.",
+    "howToUse": "Kommer snart til cmux: bruk et av disse verkene som bakgrunn bak terminalene dine.",
+    "loading": "Laster inn samlingen…",
+    "unavailable": "Samlingen kunne ikke lastes inn. Prøv igjen om noen minutter.",
+    "collectionsLabel": "Samlinger",
+    "source": "Fritt tilgjengelig · Kilde",
+    "collections": {
+      "darkArt": "Mørk kunst",
+      "museumIcons": "Museumsikoner",
+      "calm": "Rolig",
+      "dore": "Doré"
+    }
+  },
   "testimonials": {
     "mitchellh": "Nok en dag, nok et libghostty-basert prosjekt, denne gangen en macOS-terminal med vertikale faner, bedre organisering/varsler, innebygd/skriptbar nettleser spesifikt rettet mot folk som bruker mange terminalbaserte agent-arbeidsflyter.",
     "steipete": "Jeg er sent ute, men cmux er flott. Nåværende oppdeling: Codex Mac-appen for kunnskapsarbeid, læring og lesing; cmux + Codex CLI for koding.",
@@ -3369,6 +3450,7 @@
     "unsupportedParams": "Denne koblingen inneholder parametere som ikke støttes cmux vil avvise: {params}",
     "conflictingParams": "Denne koblingen inneholder parametere som ikke kan brukes sammen: {params}",
     "invalidParams": "Denne koblingen inneholder ugyldige parameterverdier: {params}",
+    "ignoredParams": "cmux ignorerer parametere den ikke bruker: {params}. Økten åpnes likevel.",
     "fixParams": "Fiks URL-parametrene, og last deretter inn denne siden på nytt.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel lenke",
@@ -3392,6 +3474,16 @@
       "title": "Åpne regler i cmux",
       "intro": "Denne siden åpner regler i det gjeldende cmux-arbeidsområdet.",
       "fallback": "cmux viser reglene først og spør før de limes inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
+    },
+    "agent": {
+      "metaTitle": "Åpne agentøkt i cmux",
+      "metaDescription": "Åpne en cmux-dyplenke til en agentøkt fra nettet, med installasjonsalternativ når cmux ikke er tilgjengelig.",
+      "title": "Åpne agentøkt",
+      "intro": "Denne lenken åpner agentens økt i cmux hvis denne Macen allerede kan nå den. Lenken i seg selv gir ingen tilgang.",
+      "fallback": "Hvis cmux ikke åpnes, installer cmux og klikk på Åpne i cmux igjen. cmux åpner bare økten hvis denne Macen allerede kan nå den.",
+      "nameLabel": "Navn: {value}",
+      "hostLabel": "Vert: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
@@ -3425,7 +3517,10 @@
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
     "button": "Gå tilbake til cmux",
-    "switchAccountButton": "Bruk en annen konto"
+    "switchAccountButton": "Bruk en annen konto",
+    "rateLimitedTitle": "Innloggingen er opptatt",
+    "rateLimitedBody": "Innloggingstjenesten vår behandler for mange forespørsler. Vent noen sekunder, og fortsett deretter. Du trenger ikke å logge inn på nytt.",
+    "retryButton": "Fortsett innloggingen"
   },
   "landing": {
     "bestTerminal": {
@@ -5427,6 +5522,8 @@
     "errorInvalidCode": "Koden er ikke gyldig. Sjekk e-posten og prøv igjen.",
     "errorInvalidTotp": "Tofaktorkoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Nye kontoer kan ikke opprettes akkurat nå.",
+    "errorEmailUnverified": "Denne e-postadressen har allerede en konto, men adressen er ikke bekreftet ennå. Logg inn slik du registrerte deg, og bekreft deretter e-postadressen din for å bruke innloggingskoder.",
+    "useEmailPasswordInstead": "Logg inn med e-post og passord",
     "errorPasskey": "Innlogging med passnøkkel ble ikke fullført. Prøv igjen eller bruk en annen metode.",
     "errorGeneric": "Noe gikk galt. Prøv igjen."
   },
@@ -5460,6 +5557,9 @@
     "switchFailed": "Kunne ikke logge ut. Prøv igjen.",
     "invalidTitle": "Denne invitasjonen er ikke lenger gyldig",
     "invalidBody": "Den er utløpt, tilbakekalt eller allerede brukt. Be en teamadministrator om en ny.",
-    "goToTeams": "Gå til teamene dine"
+    "goToTeams": "Gå til teamene dine",
+    "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
+    "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
+    "retry": "Prøv igjen"
   }
 }

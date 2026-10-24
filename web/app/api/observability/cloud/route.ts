@@ -16,7 +16,8 @@ export const POST = makeCloudTelemetryHandler({
       throw new Error("diagnostics_rate_limit_unconfigured");
     }
     const result = await checkRateLimit(rule, { request });
-    if (result.rateLimited || result.error === "blocked") return false;
+    // Names the firewall rule that refused, so a shared or misconfigured rule is visible in Axiom.
+    if (result.rateLimited || result.error === "blocked") return { rateLimitRule: rule };
     if (result.error) throw new Error("diagnostics_rate_limit_unavailable");
     return true;
   },

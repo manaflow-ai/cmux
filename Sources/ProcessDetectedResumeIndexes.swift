@@ -114,12 +114,14 @@ struct ProcessDetectedResumeIndexes: Sendable {
     /// exceeded its deadline, and for the synchronous update-relaunch save.
     /// No surface scan ran, so the binding index is unavailable rather than an
     /// empty clean scan: a clean scan would retire every agent-hook binding the
-    /// cached agent index has not seen yet.
+    /// cached agent index has not seen yet. For the same reason the agent
+    /// index is marked incomplete, so a session the cache has not seen is not
+    /// saved as stopped (#20186).
     static func cached(
         restorableAgentIndex: RestorableAgentSessionIndex
     ) -> ProcessDetectedResumeIndexes {
         ProcessDetectedResumeIndexes(
-            restorableAgentIndex: restorableAgentIndex,
+            restorableAgentIndex: restorableAgentIndex.markingIncomplete(),
             surfaceResumeBindingIndex: .unavailable
         )
     }

@@ -22,7 +22,10 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-testbox-warmup.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "testbox-broker-guard.yml"
 JOB = "cmux-tui-rust"
 BEGIN_TESTBOX = "useblacksmith/begin-testbox"
-WARM_TARGET_KEY = "cmux-tui-target-v1"
+WARM_TARGET_DISKS = {
+    "cmux-tui-target-v2-main": "/home/runner/cmux-tui-target/main",
+    "cmux-tui-target-v2-next": "/home/runner/cmux-tui-target/next",
+}
 
 
 def load_job() -> dict:
@@ -127,11 +130,13 @@ class TestboxBrokerGuardTests(unittest.TestCase):
             for index, step in enumerate(self.steps)
             if "useblacksmith/stickydisk" in str(step.get("uses", ""))
         ]
-        self.assertEqual(len(mounts), 1)
-        index, step = mounts[0]
-        self.assertGreater(index, self.begin_index)
-        self.assertEqual(step["with"]["key"], WARM_TARGET_KEY)
-        self.assertEqual(step["with"]["path"], "cmux-tui/target")
+        self.assertEqual(len(mounts), len(WARM_TARGET_DISKS))
+        for index, step in mounts:
+            self.assertGreater(index, self.begin_index)
+            self.assertEqual(step["with"]["path"], WARM_TARGET_DISKS[step["with"]["key"]])
+            # A family disk a box never used must not overwrite a newer snapshot.
+            self.assertEqual(step["with"]["commit"], "on-change")
+        self.assertEqual({step["with"]["key"] for _, step in mounts}, set(WARM_TARGET_DISKS))
         for path in sorted((ROOT / ".github").rglob("*.y*ml")):
             if path == WORKFLOW:
                 continue

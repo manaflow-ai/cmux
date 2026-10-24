@@ -26,13 +26,13 @@ public enum CloudTuiDaemonAnswer: Equatable, Sendable {
             return
         }
         switch linkError {
-        case .timedOut:
+        case .timedOut, .requestTimedOut:
             self = .transportFailure("link deadline")
         case .clientMissing, .spawnFailed, .failureMessage:
             self = .transportFailure(CloudMachineLink.errorText(linkError))
         case .inputTooLarge:
             self = .unrecognized(CloudMachineLink.errorText(linkError))
-        case let .exited(_, output):
+        case let .exited(_, output), let .exitedBeforeSocket(_, output):
             self = Self.classify(output: output)
         }
     }
@@ -91,11 +91,11 @@ public enum CloudTuiDaemonAnswer: Equatable, Sendable {
             else { continue }
             let code = (object["code"] as? String) ?? (object["error_code"] as? String)
             if code == "operation.unsupported" { return .rejected("operation.unsupported") }
-            if code == "transport.timeout" || code == "transport.closed" {
+            if let code, CloudMachineLink.LinkError.transportErrorCodes.contains(code) {
                 return .transportFailure((object["message"] as? String) ?? code ?? "transport failure")
             }
             if let detail = (object["details"] as? [String: Any])?["error"] as? String, !detail.isEmpty {
-                if detail == "transport.timeout" || detail == "transport.closed" {
+                if CloudMachineLink.LinkError.transportErrorCodes.contains(detail) {
                     return .transportFailure(detail)
                 }
                 return .rejected(detail)

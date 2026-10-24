@@ -49,7 +49,7 @@ def main() -> int:
                 continue
 
             replay_file = base / f"replay-{shell}.txt"
-            replay_file.write_text("scrollback-line-1\nscrollback-line-2\n", encoding="utf-8")
+            replay_file.write_text("scrollback-line-1\nscrollback-line-2\n~/project > ", encoding="utf-8")
 
             env = dict(os.environ)
             env["PATH"] = str(base / "empty-bin")
@@ -73,6 +73,10 @@ def main() -> int:
             output = (result.stdout or "") + (result.stderr or "")
             if "scrollback-line-1" not in output or "scrollback-line-2" not in output:
                 print(f"FAIL: {shell} did not print replay text during integration startup")
+                return 1
+
+            if shell == "zsh" and "~/project > \r\x1b[2K" not in (result.stdout or ""):
+                print("FAIL: zsh did not clear the replayed active prompt line")
                 return 1
 
             hostname = subprocess.check_output(["/bin/hostname"], text=True).strip()

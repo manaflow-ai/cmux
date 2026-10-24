@@ -105,6 +105,15 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   Live contention returns `409 vm_tunnel_enrollment_busy`; a deployment missing
   the migration fails closed with `503 vm_tunnel_enrollment_unavailable`. Apply
   the migration before deploying code that calls `/api/vm/tunnel`.
+- Each Mac's access grant has its own mutation lease (three-minute expiry), shared
+  by every build and tunnel role on that Mac, the reaper and grant revocation.
+  Enrollment holds it only for the tunnel's own peer mutation; team network
+  attachments are reconciled after it is released. Contention returns
+  `409 vm_access_grant_busy` with `retryAfterSeconds`, and the Mac waits as asked.
+- App sign-out deletes only that build's tunnels (`DELETE /api/vm/tunnel` with
+  `deviceFingerprint` and `tunnelPurpose`). Revoking by `deviceId` or access
+  grant id ends every login on the Mac and refuses re-enrollment to sessions
+  issued before the revoke (`403 vm_access_revoked`); that is "remove this Mac".
 
 Every create row gets a `slug`, a generated `adjective-color-animal` name (`sleepy-teal-otter`, `services/vms/vmNaming.ts`) picked inside the create transaction and never changed afterwards. It is unique among the team's live rows (`provisioning`, `running`, `paused`) via a partial unique index, so a destroyed or failed machine releases its name. Clients show it when no `display_name` is set; the provider VM id stays the machine's address. The same name is sent to the provider as its console label.
 
@@ -197,7 +206,7 @@ The Freestyle devbox image is defined in
 (chatmux devbox
 parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
 agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
-baked at `/root/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
+baked at `/home/cmux/.cmux/bin/cmux-tui` from the files.cmux.com artifacts manifest pin
 current at bake time (recorded as `cmuxTuiCommit` in the manifest entry). Its identity
 is bound to the machine's instance id by `cmux-devbox-boot`, so create runs no guest
 bootstrap. See the devbox README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
@@ -262,6 +271,11 @@ Set these Vercel environment variables per production/staging environment:
 - Preserve `sslmode=verify-full` on the PlanetScale URL.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
+- `CMUX_VM_RESTRICTED_IMAGE_USER_IDS`, comma- or space-separated Stack user ids that may create a
+  machine on a manifest entry marked `restricted: true` by naming its image id or version. Such an
+  entry is never a default; everyone else, and everyone while this is empty, gets the unknown-image
+  refusal. A restricted image is not confidential (a teammate can fork a machine built on it), only
+  not selectable.
 - `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
   (or set to `0`) in every shared environment; set to `1` only for a deliberate demo/rollback. When
   enabled, `CMUX_VM_FREE_MAX_ACTIVE_VMS` and the plan-specific free limit are honored again.
@@ -529,21 +543,27 @@ Freestyle machines boot the shared devbox snapshot (definition in
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,
 uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
 run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
-and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
+and the bake installs the pinned static-musl build at `/home/cmux/.cmux/bin/cmux-tui` with
 `sha256sum -c` verification. A create is one `vms.create` (firewall, VPC, and the coderouter
 TLS rule inline); a size-less image also gets the grow-only resize. Nothing is written into
 the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
 daemon with a fresh identity
-within a second of resume (the snapshot is a memory image, so the identity is keyed on
-the platform instance id). Attach heals a daemon that is not listening, reinstalling only
-when the binary is missing or behind the manifest pin. The daemon runs as root with
-`HOME=/root`; the build and its digest come from the artifacts manifest published by
-`.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new pin
-reaches new machines through a rebake. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` +
-`FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
-at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
+keyed on the platform instance id. Neither create nor attach installs, heals or upgrades cmux-tui:
+a new machine runs the build its image baked (the manifest entry's `cmuxTuiCommit`), and a
+running machine changes build only through `web/scripts/upgrade-fleet-cmux-tui.ts`
+(docs/cloud-guest-upgrades.md). The build and its digest come from the artifacts manifest
+published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new
+build reaches new machines through a rebake and promotion. Public `vm exec` commands leave
+the provider account unset, so Freestyle selects its uid-1000 work account (usually `cmux`,
+with a legacy root fallback when that account is absent) and resolves its passwd home before
+running. That often matches the terminal work user, but the daemon can fall back to root when
+the work user's home is unusable; exec still uses the provider-selected account. Commands that
+need root should use `sudo`, and snapshots with the former `/home/ubuntu` uid-1000 home do not
+leak a stale `HOME`. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`);
+optionally `FREESTYLE_API_URL` to point at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL`
+is read only by the bake, verify, reachability-check and BusyBox-probe scripts, to pin one
 commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
-`latest`.
+`latest`; a deployment ignores it.
 
 Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
 persistent boxes rather than provider-idle workers. A user-open operation probes the live
@@ -582,10 +602,13 @@ no create-time env; the guest's model-plane env is the same for every machine an
 per-home file exist. It carries alias base URLs and a placeholder key only; the credential is
 edge-injected (see "Model plane" below).
 
-Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
-"the account holding uid 1000, or root in an image with no such account", and the devbox image
-ships a uid-1000 user — leaving it unset would silently move the daemon and its install off
-the root layout they are baked around.
+Driver maintenance commands run with `linuxUser: "root"`. Public `vm exec` leaves the
+provider account unset so Freestyle selects uid 1000 (the `cmux` work user on current
+images, with a legacy root fallback when that account is absent), then derives `HOME` from
+that account's passwd entry. This often aligns exec credentials and paths with Cloud
+terminals, but the daemon can fall back to root when its work-user layout is unavailable;
+exec still uses the provider-selected account. Explicit root remains a separate boundary
+for maintenance.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns

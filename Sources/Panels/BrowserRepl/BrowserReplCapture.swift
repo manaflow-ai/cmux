@@ -18,7 +18,8 @@ enum BrowserReplCapture {
     /// As ``snapshot(webView:clip:fullPage:)``, with the region the image
     /// shows in CSS pixels of the viewport (its top-left at the image's).
     static func snapshotWithRegion(webView: WKWebView, clip: [String: Any]?, fullPage: Bool) async throws -> (image: CGImage, region: CGRect) {
-        let metrics = try? await webView.callAsyncJavaScript(
+        // Read in the driver's own world: no session's code changes it.
+        let metrics = try? await webView.browserReplCallAsyncJavaScript(
             """
             const d = document.documentElement;
             const b = document.body;
@@ -28,7 +29,8 @@ enum BrowserReplCapture {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplDriverWorld.world,
+            userGesture: false
         ) as? [NSNumber]
         let values = (metrics ?? []).map { CGFloat($0.doubleValue) }
         let zoom = webView.pageZoom * webView.magnification
@@ -52,6 +54,7 @@ enum BrowserReplCapture {
         }
         region.size.width = min(max(1, region.width), maximumEdge)
         region.size.height = min(max(1, region.height), maximumEdge)
+        try BrowserReplCaptureLimits().checkScreenshot(region: region, zoom: zoom)
 
         let configuration = WKSnapshotConfiguration()
         let viewRect = CGRect(
@@ -151,24 +154,34 @@ enum BrowserReplCapture {
         return Double(text).map { CGFloat($0) * 72 / 96 }
     }
 
-    /// Prints the page to a paginated PDF with Playwright's `format`, `width`,
-    /// `height`, `landscape`, `margin` and `printBackground` options, in a
-    /// print session of its own offscreen window, never the web view's.
-    static func printPDF(webView: WKWebView, options: [String: Any]) async throws -> Data {
+    /// The paper and margins, in points, of a PDF with Playwright's
+    /// `format`, `width`, `height`, `landscape` and `margin` options; throws
+    /// `invalid` past ``BrowserReplCaptureLimits``.
+    static func pdfLayout(options: [String: Any]) throws -> (paper: CGSize, margins: NSEdgeInsets) {
         var paper = (options["format"] as? String).flatMap(paperSize(format:)) ?? CGSize(width: 8.5 * 72, height: 11 * 72)
         if let width = points(options["width"]) { paper.width = width }
         if let height = points(options["height"]) { paper.height = height }
         if options["landscape"] as? Bool == true { paper = CGSize(width: paper.height, height: paper.width) }
         let margin = options["margin"] as? [String: Any] ?? [:]
+        let margins = NSEdgeInsets(
+            top: points(margin["top"]) ?? 0,
+            left: points(margin["left"]) ?? 0,
+            bottom: points(margin["bottom"]) ?? 0,
+            right: points(margin["right"]) ?? 0
+        )
+        try BrowserReplCaptureLimits().checkPDF(paper: paper, margins: margins)
+        return (paper, margins)
+    }
+
+    /// Prints the page to a paginated PDF with Playwright's `format`, `width`,
+    /// `height`, `landscape`, `margin` and `printBackground` options, in a
+    /// print session of its own offscreen window, never the web view's.
+    static func printPDF(webView: WKWebView, options: [String: Any]) async throws -> Data {
+        let layout = try pdfLayout(options: options)
         do {
             return try await BrowserReplPDFPrinter(
-                paper: paper,
-                margins: NSEdgeInsets(
-                    top: points(margin["top"]) ?? 0,
-                    left: points(margin["left"]) ?? 0,
-                    bottom: points(margin["bottom"]) ?? 0,
-                    right: points(margin["right"]) ?? 0
-                ),
+                paper: layout.paper,
+                margins: layout.margins,
                 printBackground: options["printBackground"] as? Bool ?? false
             ).pdf(of: webView)
         } catch is BrowserReplPDFPrinter.Failure {

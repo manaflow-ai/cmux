@@ -339,7 +339,7 @@ struct CloudFeatureFlagTests {
             cancelCreatedMachine: { deletes.append($0) }
         )
         let request = MachineCreateRequest(mode: .newMachine, kind: .desktop, name: "fixture", arguments: ["vm", "new"])
-        #expect(coordinator.start(request, cancellableLaunch: { _, _, completion in
+        #expect(coordinator.start(request, cancellableLaunch: { _, _, _, completion in
             finish = completion
             return CloudVMActionLauncher.CancellationHandle { cancellations += 1 }
         }))

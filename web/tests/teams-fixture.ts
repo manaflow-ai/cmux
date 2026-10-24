@@ -204,11 +204,19 @@ export class FakeStack {
   app(): TeamStackApp {
     return {
       getTeam: async (teamId) => {
+        this.calls.push(`getTeam:${teamId}`);
         if (this.hangGetTeam) return new Promise(() => {});
         return this.team(teamId);
       },
       getUser: async (userId) => {
+        this.calls.push(`getUser:${userId}`);
         return this.user(userId);
+      },
+      listUserContactChannels: async (userId) => {
+        this.calls.push(`listUserContactChannels:${userId}`);
+        const data = this.users.get(userId);
+        if (!data) return null;
+        return (data.verifiedEmails ?? []).map((value) => ({ type: "email", value, isVerified: true }));
       },
       createTeam: async ({ displayName, creatorUserId }) => {
         const id = "33333333-3333-4333-8333-333333333333";

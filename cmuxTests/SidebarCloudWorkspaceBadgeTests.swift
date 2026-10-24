@@ -63,12 +63,11 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(snapshot.cloudWorkspaceLabel == nil)
     }
 
-    @Test func deviceProjectionUsesComputerBadgeInBothSidebarSnapshots() throws {
+    @Test func deviceProjectionUsesComputerBadge() throws {
         let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
         let panelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
         let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()), showsAgentActivity: false)
-        let before = factory.makeSnapshot()
         workspace.cloudBindingState.updateCatalogMetadata(
             resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
             machineNames: [machine.rawValue: "Studio Mac"]
@@ -77,8 +76,6 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
         #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("Studio Mac") == true)
         #expect(snapshot.cloudWorkspaceLabel == nil)
-        let shown = SidebarWorkspaceSnapshotRefreshPolicy().decision(current: before, next: snapshot, force: false, contextMenuVisible: true)
-        #expect(shown.workspaceSnapshotStorage?.remoteWorkspaceBadgeSymbol == "desktopcomputer")
     }
 
     @Test("A saved device projection keeps the computer badge before resources load")
@@ -144,21 +141,6 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(local != cloud)
         workspace.cloudVMBinding = nil
         #expect(factory.makeSnapshot() == local)
-    }
-
-    /// Ensures context-menu refreshes preserve the Cloud identity.
-    @Test func cloudIdentityUpdatesWhileContextMenuIsOpen() {
-        let workspace = Workspace(initialSurface: .cloudVMLoading)
-        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
-        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
-        let local = factory.makeSnapshot()
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        let cloud = factory.makeSnapshot()
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: local, next: cloud, force: false, contextMenuVisible: true
-        )
-        #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel == cloud.cloudWorkspaceLabel)
-        #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
     }
 
     @Test(arguments: [false, true], [false, true])

@@ -66,6 +66,71 @@
     return out;
   }
 
+  // An author URN as one form for both sides of the check: a member's
+  // profile URN (fsd_profile, fs_miniProfile and fs_profile share its id)
+  // or a company page's (fsd_company, company, organization,
+  // fs_normalized_company and fs_miniCompany share its numeric id).
+  // Anything else is null. composerSettings, which runs in the page,
+  // keeps its own copy of the same mapping.
+  function authorOf(urn) {
+    const m = /^urn:li:(fsd_profile|fs_miniProfile|fs_profile|fsd_company|company|organization|fs_normalized_company|fs_miniCompany):([A-Za-z0-9_-]{1,100})$/.exec(String(urn || ""));
+    if (!m) return null;
+    const person = /profile$/i.test(m[1]);
+    return { authorUrn: `urn:li:${person ? "fsd_profile" : "fsd_company"}:${m[2]}`, authorType: person ? "person" : "organization" };
+  }
+
+  // The share composer's header, read in the agent's world right before
+  // Post: who the post goes out as (the member, or a company page they
+  // admin) and its audience, from the control that shows "<name> Post to
+  // <audience>", and the author's URN from the attributes inside that
+  // control (its actor avatar). Its text is read node by node, at most
+  // 400 characters; a header that is missing, ambiguous or longer gives
+  // nothing, and a header without exactly one author URN gives no author,
+  // so the commit fails closed (target_unverified).
+  function composerSettings() {
+    const AUTHOR = /urn:li:(?:fsd_profile|fs_miniProfile|fs_profile|fsd_company|company|organization|fs_normalized_company|fs_miniCompany):[A-Za-z0-9_-]{1,100}/g;
+    const authorOf = (urn) => {
+      const m = /^urn:li:(\w+):(.+)$/.exec(urn);
+      const person = /profile$/i.test(m[1]);
+      return { authorUrn: `urn:li:${person ? "fsd_profile" : "fsd_company"}:${m[2]}`, authorType: person ? "person" : "organization" };
+    };
+    const dialog = document.querySelector('div[role="dialog"]');
+    if (!dialog) return {};
+    const textOf = (el) => {
+      let out = "";
+      const walker = document.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        out += n.data;
+        if (out.length > 400) return null;
+      }
+      return out.replace(/\s+/g, " ").trim();
+    };
+    let found = null;
+    let seen = 0;
+    const walker = document.createTreeWalker(dialog, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let el = walker.nextNode(); el && ++seen <= 5000; el = walker.nextNode()) {
+      if (el.localName !== "button" || !el.classList.contains("share-unified-settings-entry-button")) continue;
+      if (found) return {};
+      found = el;
+    }
+    if (!found || seen > 5000) return {};
+    const m = /^(.+?)\s*Post to\s+(.+)$/.exec(textOf(found) || "");
+    const urns = new Set();
+    let n = 0;
+    for (const el of [found, ...found.querySelectorAll("*")]) {
+      if (++n > 500) return m ? { postAs: m[1], audience: m[2] } : {};
+      for (const a of el.attributes) {
+        if (a.value.length > 2000) continue;
+        for (const u of a.value.match(AUTHOR) || []) urns.add(authorOf(u).authorUrn);
+      }
+    }
+    const author = urns.size === 1 ? authorOf([...urns][0]) : {};
+    return m ? { postAs: m[1], audience: m[2], ...author } : author;
+  }
+
+  // The audiences a post can name, as the composer's header shows them.
+  const AUDIENCES = { anyone: "Anyone", connections: "Connections only" };
+  const settingText = (v) => String(v).replace(/\s+/g, " ").trim().toLowerCase();
   const byType = (json, suffix) => ((json && json.included) || []).filter((x) => typeof x.$type === "string" && x.$type.endsWith(suffix));
 
   S.register(
@@ -96,13 +161,16 @@
           return got;
         });
       }
+      const viewer = (json) => {
+        const mini = byType(json, "MiniProfile")[0] || {};
+        return { id: (json && json.data && json.data.plainId) || null, publicIdentifier: mini.publicIdentifier || null, firstName: mini.firstName || null, lastName: mini.lastName || null, headline: mini.occupation || null, url: mini.publicIdentifier ? `${ORIGIN}/in/${mini.publicIdentifier}/` : null };
+      };
+      // { id, publicIdentifier, firstName, lastName, headline, url }
+      async function me() {
+        return viewer(await api("/voyager/api/me"));
+      }
       return {
-        // { id, publicIdentifier, firstName, lastName, headline, url }
-        async me() {
-          const json = await api("/voyager/api/me");
-          const mini = byType(json, "MiniProfile")[0] || {};
-          return { id: (json.data && json.data.plainId) || null, publicIdentifier: mini.publicIdentifier || null, firstName: mini.firstName || null, lastName: mini.lastName || null, headline: mini.occupation || null, url: mini.publicIdentifier ? `${ORIGIN}/in/${mini.publicIdentifier}/` : null };
-        },
+        me,
         // { publicIdentifier, firstName, lastName, headline, location, url }
         async profile(who) {
           const id = identifier(who);
@@ -122,30 +190,76 @@
         feed(options = {}) {
           return cards(`${ORIGIN}/feed/`, "feed", options.limit || 10);
         },
-        // Draft a post (visible to the user's network): post(text). post(draftId, { confirm: true }) publishes it.
+        // Draft a post as the signed-in member: post({ text, audience }),
+        // audience "anyone" or "connections", always named (a public post
+        // is an explicit choice). post(draftId, { confirm: true }) publishes it.
         post(input, options) {
-          return t.write("linkedin", "post", input, options, (text) => {
+          return t.write("linkedin", "post", input, options, async (p) => {
+            const spec = typeof p === "string" ? { text: p } : p || {};
+            const text = spec.text;
             if (typeof text !== "string" || !text.trim()) throw new S.SiteError("invalid", "linkedin.post: expected the post text");
+            const audience = typeof spec.audience === "string" && Object.prototype.hasOwnProperty.call(AUDIENCES, spec.audience) ? AUDIENCES[spec.audience] : null;
+            if (!audience) throw new S.SiteError("invalid", spec.audience === undefined ? 'linkedin.post: name the audience: post({ text, audience: "anyone" }) for a public post, or audience: "connections" for connections only' : `linkedin.post: audience: expected "anyone" or "connections", got ${JSON.stringify(spec.audience)}`);
+            // The draft pins the signed-in member (its immutable member id
+            // and public identifier); another session can sign in as
+            // someone else before the confirmation.
+            const meJSON = await api("/voyager/api/me");
+            const who = viewer(meJSON);
+            const account = who.publicIdentifier;
+            const memberId = who.id;
+            if (!account || !memberId) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
+            // The author by URN and type (a person, never an organization):
+            // a company page they admin can carry the member's very name.
+            const mini = byType(meJSON, "MiniProfile")[0] || {};
+            const author = authorOf(mini.entityUrn || (meJSON && meJSON.data && meJSON.data["*miniProfile"]));
+            if (!author || author.authorType !== "person") throw new S.SiteError("not_signed_in", "linkedin.post: could not tell the signed-in member's profile URN, which the share composer's header names as its author");
+            // The target: the post goes out as the member (not a company
+            // page they admin), by the author URN and type and the name the
+            // composer's header shows, to `audience`. The composer keeps LinkedIn's last choice of
+            // both, which another session can change.
+            const postAs = [who.firstName, who.lastName].filter(Boolean).join(" ");
+            if (!postAs) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell the signed-in member's name, which the share composer shows as who it posts as");
             return {
               category: "[9] representational communication (public post)",
-              summary: `Publish a LinkedIn post (${text.length} characters)`,
-              preview: { text },
-              run: () =>
+              summary: `Publish a LinkedIn post as ${account} to ${audience} (${text.length} characters)`,
+              account: { account, memberId },
+              target: { postAs, authorUrn: author.authorUrn, authorType: author.authorType, audience },
+              content: { text },
+              canon: { text: t.normText, postAs: settingText, audience: settingText },
+              commit: (c) =>
                 t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
-                  const shown = (await box.innerText()).replace(/\s+/g, " ");
-                  if (!shown.includes(text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "linkedin.post: the composer did not receive the drafted text; nothing was posted");
-                  await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
-                  await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
-                  return { status: "posted" };
+                  // The member this composer page posts as, read in that
+                  // page (its own session cookie), its header's identity
+                  // and audience, and the whole text it holds, right
+                  // before Post: the profile can switch
+                  // accounts while the composer loads. The member is read
+                  // once more as the last read before the click; a switch
+                  // between that read and the click is the remaining window
+                  // (LinkedIn has no post bound to a member).
+                  const memberNow = async () => {
+                    const r = await t.readBack(page, voyager, { path: "/voyager/api/me" });
+                    const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : null;
+                    return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}) };
+                  };
+                  return c.write(
+                    async () => ({ ...(await memberNow()), ...(await t.readBack(page, composerSettings)), text: await t.composerText(box) }),
+                    async (press) => {
+                      await press();
+                      await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
+                      return { status: "posted" };
+                    },
+                    // The Post button itself, never the header's "Post to …" control.
+                    { submit: page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:text-is("Post")').first(), account: memberNow },
+                  );
                 }),
             };
           });
         },
       };
     },
-    { summary: "LinkedIn viewer, profiles, people/company search, feed; confirmed-draft posts" },
+    { summary: "LinkedIn viewer, profiles, people/company search, feed; confirmed-draft posts", writes: ["post"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -98,6 +98,32 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       {
+        id: "openChief",
+        combos: [["⌘", "⇧", "C"]],
+        description: {
+          en: "Open Chief",
+          ja: "Chiefを開く",
+          "zh-CN": "打开 Chief",
+          "zh-TW": "打開 Chief",
+          ko: "Chief 열기",
+          de: "Chief öffnen",
+          es: "Abrir Chief",
+          fr: "Ouvrir Chief",
+          it: "Apri Chief",
+          da: "Åbn Chief",
+          pl: "Otwórz Chief",
+          ru: "Открыть Chief",
+          bs: "Otvori Chief",
+          ar: "فتح Chief",
+          no: "Åpne Chief",
+          "pt-BR": "Abrir Chief",
+          th: "เปิด Chief",
+          tr: "Chief'i aç",
+          km: "បើក Chief",
+          uk: "Відкрити Chief",
+        },
+      },
+      {
         id: "commandPaletteNext",
         combos: [["⌃", "N"]],
         description: { en: "Command palette next result", ja: "コマンドパレットの次の結果" },
@@ -158,6 +184,12 @@ export const shortcutCategories: ShortcutCategory[] = [
           km: "កន្លែងធ្វើការក្នុងម៉ាស៊ីនថ្មី",
           uk: "Новий локальний робочий простір",
         },
+      },
+      {
+        id: "newLocalWorkspace",
+        combos: [["⌃", "⌥", "⌘", "N"]],
+        description: { en: "New local workspace", ja: "新規ローカルワークスペース", "zh-CN": "新建本地工作区", "zh-TW": "新增本機工作區", ko: "새 로컬 작업 공간", de: "Neuer lokaler Arbeitsbereich", es: "Nuevo espacio de trabajo local", fr: "Nouvel espace de travail local", it: "Nuova area di lavoro locale", da: "Nyt lokalt arbejdsområde", pl: "Nowa lokalna przestrzeń robocza", ru: "Новое локальное рабочее пространство", bs: "Novi lokalni radni prostor", ar: "مساحة عمل محلية جديدة", no: "Nytt lokalt arbeidsområde", "pt-BR": "Nova Área de Trabalho Local", th: "เวิร์กสเปซในเครื่องใหม่", tr: "Yeni Yerel Çalışma Alanı", km: "កន្លែងធ្វើការមូលដ្ឋានថ្មី", uk: "Нова локальна робоча область" },
+        note: { en: "opens a local workspace while a remote tmux mirror workspace is active, where New Workspace would start a session on that workspace's host instead", ja: "リモート tmux ミラーワークスペースがアクティブなときでも、ローカルワークスペースを開きます（通常の新規ワークスペースはそのワークスペースのホスト上でセッションを開始します）", "zh-CN": "在远程 tmux 镜像工作区处于活动状态时打开本地工作区；此时“新建工作区”会改为在该工作区的主机上启动会话", "zh-TW": "在遠端 tmux 鏡像工作區處於使用中時開啟本機工作區；此時「新增工作區」會改為在該工作區的主機上啟動工作階段", ko: "원격 tmux 미러 작업 공간이 활성 상태일 때 로컬 작업 공간을 엽니다. 이때 새 작업 공간은 해당 작업 공간의 호스트에서 세션을 시작합니다", de: "öffnet einen lokalen Arbeitsbereich, während ein gespiegelter Remote-tmux-Arbeitsbereich aktiv ist; „Neuer Arbeitsbereich“ würde dort stattdessen eine Sitzung auf dessen Host starten", es: "abre un espacio de trabajo local mientras está activo un espacio de trabajo espejo de tmux remoto, donde Nuevo espacio de trabajo iniciaría una sesión en el host de ese espacio", fr: "ouvre un espace de travail local lorsqu’un espace de travail miroir tmux distant est actif, là où Nouvel espace de travail démarrerait une session sur l’hôte de cet espace", it: "apre un’area di lavoro locale mentre è attiva un’area di lavoro mirror di tmux remoto, dove Nuova area di lavoro avvierebbe invece una sessione sull’host di quell’area", da: "åbner et lokalt arbejdsområde, mens et spejlet fjern-tmux-arbejdsområde er aktivt, hvor Nyt arbejdsområde ellers ville starte en session på det arbejdsområdes vært", pl: "otwiera lokalną przestrzeń roboczą, gdy aktywna jest lustrzana przestrzeń robocza zdalnego tmux, w której Nowa przestrzeń robocza uruchomiłaby sesję na hoście tej przestrzeni", ru: "открывает локальное рабочее пространство, когда активно зеркальное рабочее пространство удалённого tmux, где «Новое рабочее пространство» запустило бы сеанс на хосте этого пространства", bs: "otvara lokalni radni prostor dok je aktivan zrcalni radni prostor udaljenog tmuxa, gdje bi Novi radni prostor umjesto toga pokrenuo sesiju na hostu tog prostora", ar: "يفتح مساحة عمل محلية أثناء نشاط مساحة عمل معكوسة لـ tmux بعيد، حيث كان «مساحة عمل جديدة» سيبدأ جلسة على مضيف تلك المساحة", no: "åpner et lokalt arbeidsområde mens et speilet eksternt tmux-arbeidsområde er aktivt, der Nytt arbeidsområde ellers ville startet en økt på verten til det arbeidsområdet", "pt-BR": "abre uma área de trabalho local enquanto uma área de trabalho espelhada de tmux remoto está ativa, onde Nova Área de Trabalho iniciaria uma sessão no host dessa área", th: "เปิดเวิร์กสเปซในเครื่องขณะที่เวิร์กสเปซมิเรอร์ของ tmux ระยะไกลทำงานอยู่ ซึ่งในกรณีนั้น เวิร์กสเปซใหม่ จะเริ่มเซสชันบนโฮสต์ของเวิร์กสเปซนั้นแทน", tr: "uzak tmux yansıtma çalışma alanı etkinken yerel bir çalışma alanı açar; bu durumda Yeni Çalışma Alanı o çalışma alanının ana bilgisayarında bir oturum başlatırdı", km: "បើកកន្លែងធ្វើការមូលដ្ឋាន ខណៈពេលដែលកន្លែងធ្វើការ mirror របស់ tmux ពីចម្ងាយកំពុងសកម្ម ដែលនៅទីនោះ កន្លែងធ្វើការថ្មី នឹងចាប់ផ្តើម session នៅលើម៉ាស៊ីនរបស់កន្លែងធ្វើការនោះជំនួសវិញ", uk: "відкриває локальну робочу область, коли активна дзеркальна робоча область віддаленого tmux, де «Нова робоча область» натомість запустила б сеанс на хості цієї області" },
       },
       {
         id: "newBrowserWorkspace",
@@ -273,6 +305,21 @@ export const shortcutCategories: ShortcutCategory[] = [
         id: "toggleFocusedWorkspaceGroupCollapsed",
         combos: [["⌃", "⌘", "."]],
         description: { en: "Collapse or expand focused workspace group", ja: "フォーカス中のワークスペースグループを折りたたみ/展開" },
+      },
+      {
+        id: "focusSidebar",
+        combos: [],
+        description: { en: "Focus the workspace sidebar", ja: "ワークスペースサイドバーにフォーカス" },
+        note: {
+          en: "unbound by default; ↑/↓ select workspaces; Return or Esc returns to the terminal",
+          ja: "デフォルトでは未割り当て。↑/↓でワークスペースを選択、ReturnまたはEscでターミナルに戻る",
+        },
+      },
+      {
+        id: "showWindowHints",
+        combos: [["⌘", "J"]],
+        description: { en: "Click by hint: label the window's controls", ja: "ヒントでクリック：ウィンドウのコントロールにラベルを表示" },
+        note: { en: "Type a label to click it, Shift+label to right-click; Esc cancels. Preview feature, off by default: turn on Click by Hint in Settings > Beta Features or from the command palette", ja: "ラベルを入力でクリック、Shift+ラベルで右クリック、Escでキャンセル。プレビュー機能（既定でオフ）：設定 > ベータ機能、またはコマンドパレットで「Click by Hint」をオンにします" },
       },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
@@ -480,6 +527,7 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "デフォルトでは未割り当て。Ghostty の goto_split:next のキーバインドでも循環できます（Focus Forward が同じキーを使っていない場合）",
         },
       },
+      { id: "focusPaneByNumber", combos: [], description: { en: "Focus pane 1…9", ja: "ペイン1…9にフォーカス" }, note: { en: "unbound by default", ja: "デフォルトでは未割り当て" } },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       {
@@ -787,6 +835,32 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "showNotifications", combos: [["⌘", "I"]], description: { en: "Show notifications", ja: "通知を表示" } },
       { id: "jumpToUnread", combos: [["⌘", "⇧", "U"]], description: { en: "Jump to latest unread", ja: "最新の未読へ移動" } },
+      {
+        id: "jumpToLastPrompt",
+        combos: [["⌘", "⇧", "B"]],
+        description: {
+          en: "Jump to the surface where you last sent an agent prompt",
+          ja: "最後にエージェントへプロンプトを送ったサーフェスへ移動",
+          "zh-CN": "跳转到你上次向代理发送提示的界面",
+          "zh-TW": "跳至你上次向代理傳送提示的介面",
+          ko: "마지막으로 에이전트에 프롬프트를 보낸 서피스로 이동",
+          de: "Zur Oberfläche springen, in der du zuletzt einen Agent-Prompt gesendet hast",
+          es: "Ir a la superficie donde enviaste el último prompt a un agente",
+          fr: "Aller à la surface où vous avez envoyé votre dernier prompt à un agent",
+          it: "Vai alla superficie in cui hai inviato l’ultimo prompt a un agente",
+          da: "Gå til fladen, hvor du sidst sendte en prompt til en agent",
+          pl: "Przejdź do powierzchni, w której ostatnio wysłano prompt do agenta",
+          ru: "Перейти к поверхности, где вы последний раз отправили промпт агенту",
+          bs: "Skoči na površinu gdje ste posljednji put poslali prompt agentu",
+          ar: "الانتقال إلى السطح الذي أرسلت فيه آخر موجّه إلى وكيل",
+          no: "Gå til flaten der du sist sendte en prompt til en agent",
+          "pt-BR": "Ir para a superfície onde você enviou o último prompt a um agente",
+          th: "ไปยังพื้นผิวที่คุณส่งพรอมต์ถึงเอเจนต์ล่าสุด",
+          tr: "Bir ajana en son istem gönderdiğiniz yüzeye git",
+          km: "ទៅកាន់ផ្ទៃដែលអ្នកបានផ្ញើប្រអប់បញ្ចូលទៅភ្នាក់ងារចុងក្រោយ",
+          uk: "Перейти до поверхні, де ви востаннє надіслали промпт агенту",
+        },
+      },
       { id: "toggleUnread", combos: [["⌥", "⌘", "U"]], description: { en: "Toggle current item unread state", ja: "現在の項目の未読状態を切り替え" } },
       { id: "markOldestUnreadAndJumpNext", combos: [["⌃", "⌘", "U"]], description: { en: "Mark current item as oldest unread and jump to the next latest unread", ja: "現在の項目を最古の未読にして次の最新未読へ移動" } },
       {
@@ -889,3 +963,11 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
 ];
+
+export function shortcutComboText(id: string, comboIndex = 0): string {
+  for (const category of shortcutCategories) {
+    const combo = category.shortcuts.find((shortcut) => shortcut.id === id)?.combos[comboIndex];
+    if (combo) return combo.join("");
+  }
+  throw new Error(`Unknown default shortcut: ${id}`);
+}

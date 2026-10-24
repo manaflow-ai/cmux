@@ -76,3 +76,43 @@ public enum VMClientError: Error, CustomStringConvertible {
         }
     }
 }
+
+extension VMClientError {
+    /// The wait the control plane asked for before the same request is sent
+    /// again, from a retryable answer's `retryAfterSeconds`; nil when the
+    /// answer named none. Bounded so a malformed answer cannot park a retry.
+    ///
+    /// A `409 vm_access_grant_busy` names one second while another request
+    /// holds this Mac's access lease; asking sooner only meets the same lease.
+    public var serverRetryAfter: Duration? {
+        guard case let .httpStatus(status, body) = self,
+              status == 409 || status == 429 || status == 503,
+              let data = body.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let seconds: Int?
+        if let value = object["retryAfterSeconds"] as? Int {
+            seconds = value
+        } else if let value = object["retryAfterSeconds"] as? Double {
+            // Bound before converting: an out-of-range Double traps in Int().
+            guard value.isFinite, value > 0 else { return nil }
+            seconds = Int(min(value, Double(Self.maximumServerRetryAfterSeconds)).rounded(.up))
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds > 0 else { return nil }
+        return .seconds(min(seconds, Self.maximumServerRetryAfterSeconds))
+    }
+
+    static let maximumServerRetryAfterSeconds = 60
+
+    /// The JSON `error` code of an HTTP answer; nil for other errors or a
+    /// body without one.
+    public var serverErrorCode: String? {
+        guard case let .httpStatus(_, body) = self,
+              let data = body.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let code = (object["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !code.isEmpty else { return nil }
+        return code
+    }
+}

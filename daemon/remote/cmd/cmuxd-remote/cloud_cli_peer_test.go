@@ -158,3 +158,116 @@ func TestCloudCLIBridgeFallbackUsesOnlyThisUsersSocket(t *testing.T) {
 		})
 	}
 }
+
+func TestRunWebSocketPTYServerDoesNotReplaceBridgeWhenTCPListenFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	bridge := newCloudCLIBridge()
+	server := &rpcServer{cliBridge: bridge}
+	server.frameWriter = testCLIBridgeFrameWriter{onEvent: func(event rpcEvent) error {
+		response := base64.StdEncoding.EncodeToString([]byte("pong\n"))
+		resp := server.handleCLIResponse(rpcRequest{
+			ID:     "response",
+			Method: "cli.response",
+			Params: map[string]any{
+				"request_id":  event.RequestID,
+				"ok":          true,
+				"data_base64": response,
+			},
+		})
+		if !resp.OK {
+			return errors.New("bridge response failed")
+		}
+		return nil
+	}}
+	t.Cleanup(bridge.register(server))
+	path := makeShortUnixSocketPath(t)
+	if err := bridge.start(ctx, path, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tcpListener.Close() })
+
+	runErr := runWebSocketPTYServer(ctx, wsPTYServerConfig{
+		ListenAddr:          tcpListener.Addr().String(),
+		PTYAuthLeaseFile:    "test-pty-lease",
+		RPCAuthLeaseFile:    "test-rpc-lease",
+		CLIBridgeSocketPath: path,
+		CLIBridge:           newCloudCLIBridge(),
+	}, io.Discard)
+	if runErr == nil {
+		t.Fatal("runWebSocketPTYServer unexpectedly succeeded on an occupied TCP address")
+	}
+
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		t.Fatalf("running bridge socket was replaced or removed: %v", err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "ping\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	response, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(response) != "pong\n" {
+		t.Fatalf("bridge response = %q, want pong newline", response)
+	}
+}
+
+func TestCloudCLIBridgeStartRefusesLiveSocket(t *testing.T) {
+	path := makeShortUnixSocketPath(t)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	bridge := newCloudCLIBridge()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := bridge.start(ctx, path, io.Discard); err == nil {
+		t.Fatal("bridge start replaced a live socket")
+	}
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		t.Fatalf("live socket was removed: %v", err)
+	}
+	_ = conn.Close()
+}
+
+func TestCloudCLIBridgeCleanupDoesNotRemoveReplacementSocket(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	bridge := newCloudCLIBridge()
+	path := makeShortUnixSocketPath(t)
+	if err := bridge.start(ctx, path, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	ownerInfo := bridge.socketInfo
+	if ownerInfo == nil {
+		t.Fatal("bridge did not record socket ownership")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+
+	removeCloudCLIBridgeSocketIfOwned(path, ownerInfo)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("replacement bridge socket was removed: %v", err)
+	}
+}

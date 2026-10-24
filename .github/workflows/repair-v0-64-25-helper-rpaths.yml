@@ -16,13 +16,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # No environment and no secrets: the one check that runs bundle code (the
+  # diff sidecar handshake) runs on the shipped app here. Re-signing changes
+  # only the sidecar's signature; sign-cmux-bundle.sh repeats the static
+  # checks on the re-signed copy in the repair job.
+  verify-shipped:
+    permissions:
+      contents: read
+    outputs:
+      dmg_sha256: ${{ steps.verify.outputs.dmg_sha256 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    env:
+      TARGET_TAG: v0.64.25
+    steps:
+      - name: Checkout repair tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Verify shipped diff sidecar runtime contract
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/shipped"
+          mkdir -p "$root/mount"
+          gh release download "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" --pattern cmux-macos.dmg --dir "$root" --clobber
+          hdiutil attach "$root/cmux-macos.dmg" -nobrowse -readonly -mountpoint "$root/mount" >/dev/null
+          trap 'hdiutil detach "$root/mount" >/dev/null 2>&1 || hdiutil detach -force "$root/mount" >/dev/null 2>&1 || true' EXIT
+          app="$(find "$root/mount" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$app/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$app/Contents/MacOS/cmux")" \
+            --require-signed
+          echo "dmg_sha256=$(shasum -a 256 "$root/cmux-macos.dmg" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
   repair:
+    needs: verify-shipped
     permissions:
       contents: write
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       TARGET_TAG: v0.64.25
@@ -65,6 +108,7 @@ jobs:
       - name: Download v0.64.25 DMG
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFIED_DMG_SHA256: ${{ needs.verify-shipped.outputs.dmg_sha256 }}
         run: |
           set -euo pipefail
           mkdir -p "$REPAIR_ROOT/input"
@@ -74,6 +118,9 @@ jobs:
             --dir "$REPAIR_ROOT/input" \
             --clobber
           test -s "$REPAIR_ROOT/input/cmux-macos.dmg"
+          # Repair exactly the bytes verify-shipped checked.
+          actual="$(shasum -a 256 "$REPAIR_ROOT/input/cmux-macos.dmg" | awk '{print $1}')"
+          [ "$actual" = "$VERIFIED_DMG_SHA256" ] || { echo "the downloaded DMG differs from the one verify-shipped checked" >&2; exit 1; }
 
       - name: Extract and validate shipped app
         run: |
@@ -97,24 +144,13 @@ jobs:
             echo "$helper: $(lipo -archs "$helper")"
           done
 
+      # No step runs code from the bundle while this keychain exists. The DMG
+      # step deletes it after the last signature.
       - name: Import release signing certificate
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          test -n "$APPLE_CERTIFICATE_BASE64"
-          test -n "$APPLE_CERTIFICATE_PASSWORD"
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
+        run: ./scripts/ci/signing-keychain.sh create
 
       - name: Strip helper toolchain rpaths
         run: |
@@ -210,9 +246,13 @@ jobs:
           created_dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$created_dmg"
           mv "$created_dmg" "$DMG_PATH"
+          # The Apple waits above can pass the keychain's short idle lock.
+          ./scripts/ci/signing-keychain.sh unlock
           codesign --force --timestamp --keychain build.keychain \
             --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
           codesign --verify --verbose=2 "$DMG_PATH"
+          # That was the last signature.
+          ./scripts/ci/signing-keychain.sh delete
           submit_json="$(xcrun notarytool submit "$DMG_PATH" \
             "${NOTARY_AUTH_ARGS[@]}" \
             --wait --output-format json)"
@@ -223,6 +263,10 @@ jobs:
           fi
           xcrun stapler staple "$DMG_PATH"
           xcrun stapler validate "$DMG_PATH"
+
+      - name: Delete signing keychain after the last signature
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
 
       - name: Gate repaired app with syspolicy_check
         run: syspolicy_check distribution "$APP_PATH"
@@ -284,5 +328,6 @@ jobs:
       - name: Cleanup signing keychain
         if: always()
         run: |
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12

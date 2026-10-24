@@ -1,5 +1,6 @@
 import type { CloudOperationProgress } from "../observability/cloudOperationProgress";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { setCloudDbQueryObserver, type CloudDbQueryTiming } from "../../db/queryTiming";
 
 import type { VmErrorResponseInput } from "./routeHelpers";
 
@@ -27,6 +28,15 @@ export type VmClientIdentity = {
  * finalizer so a single error carries user, operation, client, trace ids and
  * the full scrubbed error input without threading them through every call.
  */
+/** Aggregated database timing of one VM request. */
+export type VmRequestDbStats = {
+  queries: number;
+  failed: number;
+  acquireWaitMsTotal: number;
+  acquireWaitMsMax: number;
+  queryMsTotal: number;
+};
+
 export type VmRequestContext = {
   readonly route: string;
   readonly method: string;
@@ -41,11 +51,22 @@ export type VmRequestContext = {
   userId?: string;
   operationId?: string;
   progress?: CloudOperationProgress;
+  /** Database pool timing of this request's queries (db/queryTiming.ts). */
+  dbStats?: VmRequestDbStats;
   /**
    * The machine a `/api/vm/[id]/...` route addresses (the provider vm id the
    * client uses), read from the URL so every per-machine event joins to it.
    */
   vmId?: string;
+  /**
+   * The ledger id (`cloud_vms.id`) of the machine this request created or
+   * touched, recorded when the request writes its first usage-ledger row.
+   * Collection routes (create, base open) have no `vmId` in the URL, so this
+   * is how their PostHog rows still name the machine.
+   */
+  ledgerVmId?: string;
+  /** The caller is a probe account (services/analytics/syntheticAccounts.ts). */
+  synthetic?: boolean;
   /**
    * Billing scope of the caller. Set from the authenticated user, then
    * refined by entitlement resolution when a route resolves one.
@@ -74,6 +95,17 @@ export function annotateVmRequestBilling(billing: {
   context.billingCustomerType = billing.billingCustomerType ?? undefined;
   const planId = billing.planId?.trim().toLowerCase();
   context.planId = planId || undefined;
+}
+
+/**
+ * Note the ledger id of the machine a request wrote a usage row for, once.
+ * The first row wins: a create writes `vm.create.requested` for the new row
+ * before anything else.
+ */
+export function noteVmRequestLedgerVmId(vmId: string | null | undefined): void {
+  const context = storage.getStore();
+  if (!context || context.ledgerVmId || !vmId) return;
+  context.ledgerVmId = vmId;
 }
 
 /**
@@ -110,6 +142,23 @@ export function runWithVmRequestContext<T>(context: VmRequestContext, fn: () => 
 export function currentVmRequestContext(): VmRequestContext | undefined {
   return storage.getStore();
 }
+
+/** Adds one query's pool timing to a request's database stats. */
+export function recordVmRequestDbTiming(context: VmRequestContext, timing: CloudDbQueryTiming): void {
+  const stats = context.dbStats ??= { queries: 0, failed: 0, acquireWaitMsTotal: 0, acquireWaitMsMax: 0, queryMsTotal: 0 };
+  stats.queries += 1;
+  if (timing.failed) stats.failed += 1;
+  stats.acquireWaitMsTotal += timing.acquireWaitMs;
+  stats.acquireWaitMsMax = Math.max(stats.acquireWaitMsMax, timing.acquireWaitMs);
+  stats.queryMsTotal += timing.durationMs;
+}
+
+// Every database query made while serving a VM route is attributed to that
+// route, so a stall shows whether it waited for a pooled connection.
+setCloudDbQueryObserver(() => {
+  const context = storage.getStore();
+  return context ? (timing) => recordVmRequestDbTiming(context, timing) : undefined;
+});
 
 const CLIENT_HEADER_MAX = 120;
 

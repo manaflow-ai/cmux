@@ -139,15 +139,18 @@ enum TerminalForegroundCommandCapture {
         if name.hasPrefix("grok-") {
             return "grok"
         }
+        if MuseExecutableName(name).isVersionedBinary {
+            return "muse"
+        }
         return nil
     }
 
     /// `allCases` intentionally omits the registry-owned kinds (grok, pi,
-    /// antigravity, kimi, ollama) so Vault registrations can override them; the
+    /// antigravity, kimi, muse, ollama) so Vault registrations can override them; the
     /// sanitizer still understands those kinds, so add their exact
     /// executables back.
     private static let knownAgentExecutables = Set(RestorableAgentKind.allCases.map(\.rawValue))
-        .union(["grok", "pi", "antigravity", "kimi", "ollama"])
+        .union(["grok", "pi", "antigravity", "kimi", "muse", "ollama"])
 
     private static let agentExecutableAliases: [String: String] = [
         "agy": "antigravity",

@@ -215,6 +215,12 @@ public struct CloudHubConnector: Sendable {
                 return winner
             }
             try Task.checkCancellation()
+            // An attempt's timeout names that attempt's cap; when the last
+            // failure is a timeout, the caller waited the whole deadline.
+            if let relayError = lastError as? CloudPortForwardRelay.RelayError,
+               case .handshakeTimedOut = relayError {
+                throw CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
+            }
             throw lastError
         }
     }

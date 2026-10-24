@@ -270,6 +270,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(inputs["linux_guard_history"], frozenset({
             "scripts/check-package-resolved-policy.py",
             "tests/test_check_package_resolved_policy.py",
+            "tests/test_cli_package_graph.py",
             "tests/test_package_resolved_policy_remote_inputs.py",
         }))
         self.assertIn("tests/test_start_cmux_profiling.sh", inputs["linux_guard_cli"])

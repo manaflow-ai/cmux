@@ -352,6 +352,10 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// its restored-session history fallback instead of raw WKWebView history.
     public var onMouseBackButton: (() -> Void)?
     public var onMouseForwardButton: (() -> Void)?
+
+    /// Physical page input hands dialog presentation back to the user. Native
+    /// automation delivers directly to WebKit and bypasses these overrides.
+    public var onPhysicalUserInteraction: (() -> Void)?
     public var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     public var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?
@@ -807,7 +811,8 @@ public final class CmuxWebView: CmuxUndoableWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if let decision = host?.handleBrowserFocusModeKeyEvent(
+        if !cmuxResponderBelongsToOtherWebContent(window?.firstResponder),
+           let decision = host?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
             source: "web.performKeyEquivalent"
@@ -915,6 +920,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        if !event.isBrowserAutomationKeyEvent, !browserNativeInputDeliveryOwner.isDispatchActive {
+            onPhysicalUserInteraction?()
+        }
 #if DEBUG
         let typingTimingStart = host?.typingTimingStart()
         var route = "super"
@@ -1016,6 +1024,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     public override func mouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         if diffViewerDocumentState.documentConfirmed {
             diffViewerDocumentState.invalidateFocusConfirmation()
         }
@@ -1034,6 +1043,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
         if event.modifierFlags.contains(.control) {
             contextMenuCapturedLink = nil
         }
+        // A person's click that opens a context menu always gets it, even if
+        // an automated click earlier left a suppression pending.
+        automationContextMenuSuppression.noteUserMouseDown(event)
         performBrowserClickFocusHandoff {
             super.mouseDown(with: event)
         }
@@ -1044,10 +1056,11 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // this and before willOpenMenu, so clearing here guarantees the menu can
     // only ever pair with a link captured by this exact click.
     public override func rightMouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         contextMenuCapturedLink = nil
         // A physical right click always gets its menu, even if an automated
-        // right click earlier left a suppression pending (page prevented it).
-        automationContextMenuSuppressionCount = 0
+        // click earlier left a suppression pending (page prevented it).
+        automationContextMenuSuppression.noteUserMouseDown(event)
         super.rightMouseDown(with: event)
     }
 
@@ -1088,6 +1101,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
 
     public override func otherMouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         if event.buttonNumber == 2 {
             Self.recordMiddleClickIntent(for: self)
         }

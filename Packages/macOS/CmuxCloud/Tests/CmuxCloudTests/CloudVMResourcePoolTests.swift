@@ -225,6 +225,22 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func decodesCreateReceiptSessionAndSeparateResourceFields() throws {
+        let endpoint = try #require(VMClient.decodeCreateAttach([
+            "transport": "cmux-remote",
+            "route": "ws://10.16.0.9:1337/v1/link",
+            "token": "receipt-token",
+            "expires_at_unix": 1_800_000_000,
+            "session": "cloud",
+            "trusted_carrier": true,
+        ]))
+        #expect(endpoint.session == "cloud")
+        #expect(endpoint.token == "receipt-token")
+        #expect(endpoint.expiresAtUnix == 1_800_000_000)
+        #expect(VMClient.decodeResourceReservation(["vcpus": 4, "memoryMb": 8192]) == CloudVMResourceReservation(vcpus: 4, memoryMb: 8192, diskMb: nil))
+    }
+
+    @Test
     func resizeAdmissionSharesPlanAndPoolRules() {
         let pool = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40 * 1024, usedVcpus: 8, usedMemoryMb: 16 * 1024)
         let limits = CloudVMResizeLimits(maxVcpus: 16, maxMemoryMb: 32 * 1024, maxDiskMb: 128 * 1024, resourcePool: pool)

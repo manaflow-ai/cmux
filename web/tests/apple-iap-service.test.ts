@@ -225,7 +225,7 @@ describe("App Store Server Notifications", () => {
       event: "subscription_started",
       distinctId: "user-a",
       properties: {
-        source: "apple", plan_id: "pro", product_id: `${BUNDLE}.pro.monthly`, storefront: "USA", currency: "USD",
+        source: "apple", plan_id: "pro", product_id: `${BUNDLE}.pro.monthly`, billing_period: "monthly", storefront: "USA", currency: "USD",
         price: 74.99, price_usd_estimate: 74.99, net_usd_estimate: 52.49, environment: "Production",
         original_transaction_id: ORIGINAL,
       },
@@ -654,9 +654,13 @@ describe("Apple entitlement policy", () => {
     expiresAt: new Date(NOW.getTime() + DAY), gracePeriodExpiresAt: null,
   };
 
-  test("production grants Sandbox purchases only for the App Store bundle (App Review)", () => {
-    const production = { VERCEL_ENV: "production" };
-    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, production)).toBe(true);
+  test("production grants Sandbox purchases only for the App Store bundle and allowlisted accounts", () => {
+    const production = { VERCEL_ENV: "production", APPLE_IAP_SANDBOX_ACCOUNT_EMAILS: "review@example.com, Lawrence@Example.com" };
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "review@example.com" }, production)).toBe(true);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "lawrence@example.com" }, production)).toBe(true);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "tester@example.com" }, production)).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, production)).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta", accountEmail: "review@example.com" }, production)).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, production)).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, { ...production, APPLE_IAP_SANDBOX_ENTITLEMENTS: "none" })).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, {})).toBe(true);
@@ -686,5 +690,10 @@ describe("Apple revenue estimates", () => {
       planId: "max", currency: "EUR", priceMilliunits: 299990, purchaseDate: NOW, originalPurchaseDate: new Date(NOW.getTime() - 400 * DAY),
     });
     expect(euro).toMatchObject({ price: 299.99, priceUsd: 299.99, netUsd: 254.99, commission: 0.15 });
+    const yearly = appleRevenueEstimate({
+      planId: "max", productId: `${BUNDLE}.max.yearly`, bundleId: BUNDLE, currency: "EUR", priceMilliunits: 2_500_000,
+      purchaseDate: NOW, originalPurchaseDate: NOW,
+    });
+    expect(yearly).toMatchObject({ priceUsd: 2879.9, commission: 0.3 });
   });
 });

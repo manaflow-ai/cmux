@@ -18,6 +18,13 @@ enum SocketCommandTaskPolicy {
     /// ``TerminalController/withSocketCommandPolicyAsync(commandKey:isV2:params:_:)``
     /// scopes, innermost last.
     @TaskLocal static var focusAllowanceStack: [Bool] = []
+    /// The process id the socket transport reported for the connection's
+    /// peer (`LOCAL_PEERPID`), or nil for an in-process call or a peer the
+    /// transport could not identify. The caller cannot set it.
+    @TaskLocal static var peerProcessID: pid_t?
+    /// Whether the connection's peer runs as the same user as cmux, or nil
+    /// for an in-process call. The caller cannot set it.
+    @TaskLocal static var peerHasSameUID: Bool?
 }
 
 /// The two execution lanes a socket connection task may hop onto, each kept
@@ -152,6 +159,11 @@ extension TerminalController {
 
     /// Connection jobs that may run at once.
     nonisolated static let socketClientMaximumConcurrentJobs = 32
+    /// Blocking `feed.push` connections that may wait for a decision outside
+    /// the running slots (#16404). Each one parks a blocking-worker thread on
+    /// its decision semaphore, so this plus the running slots stays well below
+    /// GCD's 64-thread limit and leaves threads for the rest of the app.
+    nonisolated static let socketClientMaximumParkedJobs = 16
     /// Connection jobs that may wait for a slot.
     nonisolated static let socketClientMaximumPendingJobs = 64
     /// Unauthenticated peers that may be read concurrently.

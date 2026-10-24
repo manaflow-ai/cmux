@@ -1,0 +1,22 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/GlassKeyFix.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/GlassKeyFix.swift
+@@ -69,12 +69,13 @@
+         guard let z = Data(base64Encoded: b64), let raw = try? (z as NSData).decompressed(using: .zlib) as Data,
+               raw.count == w * h * 2 * 2 else { return nil }
+         let a: [UInt16] = raw.withUnsafeBytes { b in (0..<(w * h * 2)).map { UInt16(littleEndian: b.loadUnaligned(fromByteOffset: $0 * 2, as: UInt16.self)) } }
+-        var wp = [UInt16](repeating: 0, count: w * h * 4), bp = [UInt16](repeating: 0, count: w * h * 4)
+-        for i in 0..<(w * h) {
+-            let wa = a[i], ba = a[w * h + i]
+-            wp[i * 4] = wa; wp[i * 4 + 1] = wa; wp[i * 4 + 2] = wa; wp[i * 4 + 3] = wa
+-            bp[i * 4 + 3] = ba
+-        }
++        // cmux: built by appending, no index subscripts (crash ratchet): the white map's alphas are its RGBA,
++        // the black map's are its alpha over zero colour.
++        let n = w * h
++        var wp: [UInt16] = [], bp: [UInt16] = []
++        wp.reserveCapacity(n * 4); bp.reserveCapacity(n * 4)
++        for wa in a.prefix(n) { wp.append(wa); wp.append(wa); wp.append(wa); wp.append(wa) }
++        for ba in a.dropFirst(n).prefix(n) { bp.append(0); bp.append(0); bp.append(0); bp.append(ba) }
+         func make(_ p: [UInt16]) -> CGImage? {
+             let d = p.withUnsafeBufferPointer { Data(buffer: $0) }
+             guard let prov = CGDataProvider(data: d as CFData) else { return nil }

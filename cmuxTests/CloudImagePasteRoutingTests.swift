@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import CmuxCloudImagePaste
 import CmuxTerminal
 import CmuxCore
 import CmuxSurfaceCatalogModel
@@ -67,6 +68,77 @@ struct CloudImagePasteRoutingTests {
         func signal() {
             semaphore.signal()
         }
+    }
+
+    /// A `cmux ssh` workspace routes from its stored configuration, never from
+    /// the processes on a pane's TTY, even when that TTY runs `ssh`.
+    @Test("A cmux ssh workspace never scans processes to route a drop", arguments: [TerminalImageTransferMode.paste, .drop])
+    @MainActor
+    func cmuxSSHWorkspaceNeverScansProcesses(mode: TerminalImageTransferMode) async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        defer { workspace.teardownAllPanels() }
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test@host", port: nil, identityFile: nil,
+            sshOptions: ["__cmux_route_sensitive=" + String(repeating: "a1", count: 32)],
+            localProxyPort: nil, relayPort: 41_000, relayID: "relay", relayToken: "token",
+            localSocketPath: nil, terminalStartupCommand: nil
+        )
+        // The pane is not tracked yet, and its TTY would report an `ssh`.
+        workspace.surfaceTTYNames[panelID] = "/dev/ttys20279"
+        #expect(!workspace.isRemoteTerminalSurface(panelID))
+
+        #expect(panel.surface.imageTransferDetectionTTY(mode: mode, in: workspace) == nil)
+        let target = await panel.surface.resolvedImageTransferTargetAsync(
+            mode: mode, in: workspace,
+            detector: { _ in
+                Issue.record("A cmux ssh workspace must not route from a process scan")
+                return DetectedSSHSession(
+                    destination: "scanned-host", port: nil, identityFile: nil,
+                    configFile: nil, jumpHost: nil, controlPath: nil,
+                    useIPv4: false, useIPv6: false, forwardAgent: false,
+                    compressionEnabled: false, sshOptions: []
+                )
+            }
+        )
+        #expect(target == panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace))
+
+        // A restored pane's stored PTY binding makes it remote before the
+        // remote reports the session connected.
+        workspace.remotePTYSessionIDsByPanelId[panelID] = "restored-session"
+        #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .remote(.workspaceRemote))
+        workspace.remotePTYSessionIDsByPanelId.removeValue(forKey: panelID)
+
+        workspace.activeRemoteTerminalSurfaceIds.insert(panelID)
+        #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .remote(.workspaceRemote))
+    }
+
+    /// A local workspace has no stored remote configuration: the drop decides
+    /// local from memory and never reaches the remote upload machinery.
+    @Test("A local workspace drop never touches the remote path", arguments: [TerminalImageTransferMode.paste, .drop])
+    @MainActor
+    func localWorkspaceDropStaysLocal(mode: TerminalImageTransferMode) async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        defer { workspace.teardownAllPanels() }
+        #expect(workspace.remoteConfiguration == nil)
+
+        #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .local)
+        // No TTY report yet: no detection either.
+        #expect(panel.surface.imageTransferDetectionTTY(mode: mode, in: workspace) == nil)
+        let target = await panel.surface.resolvedImageTransferTargetAsync(
+            mode: mode, in: workspace,
+            detector: { _ in
+                Issue.record("A local pane without a TTY report must not be scanned")
+                return nil
+            }
+        )
+        #expect(target == .local)
+        let url = URL(fileURLWithPath: "/tmp/cmux-local-drop.png")
+        #expect(TerminalImageTransferPlanner.plan(fileURLs: [url], target: target, mode: mode)
+            == .insertText(TerminalImageTransferPlanner.escapeForShell(url.path)))
     }
 
     @Test @MainActor
@@ -171,6 +243,65 @@ struct CloudImagePasteRoutingTests {
             let urls = [URL(fileURLWithPath: path)]
             #expect(TerminalImageTransferPlanner.plan(fileURLs: urls, target: .cloud) == .pasteCloudImages(urls))
         }
+    }
+
+    /// A composer submit restores its draft when an upload fails, so the upload
+    /// must leave the draft's image in place for the retry. A direct terminal
+    /// paste has no draft and still removes its temporary file.
+    @Test @MainActor
+    func failedComposerUploadKeepsTheDraftImageForRetry() async throws {
+        let surface = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cloud-image-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = Data([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])
+        let draftImage = directory.appendingPathComponent("draft.png")
+        let pastedImage = directory.appendingPathComponent("pasted.png")
+        try png.write(to: draftImage)
+        try png.write(to: pastedImage)
+        let pasteboard = GhosttyApp.terminalPasteboard
+        pasteboard.debugRegisterOwnedTemporaryImageFile(draftImage)
+        pasteboard.debugRegisterOwnedTemporaryImageFile(pastedImage)
+        defer { pasteboard.cleanupTransferredTemporaryImageFiles([draftImage, pastedImage]) }
+
+        await #expect(throws: CloudImagePasteError.unavailable) {
+            try await surface.pasteCloudImages([draftImage], cleansUpTransferredFiles: false)
+        }
+        #expect(FileManager.default.fileExists(atPath: draftImage.path))
+        #expect(pasteboard.isOwnedTemporaryImageFile(draftImage))
+        #expect(throws: CloudImagePasteError.unavailable) {
+            try surface.validateCloudImagesForSubmit([draftImage])
+        }
+        #expect(FileManager.default.fileExists(atPath: draftImage.path))
+
+        await #expect(throws: CloudImagePasteError.unavailable) {
+            try await surface.pasteCloudImages([pastedImage])
+        }
+        #expect(!FileManager.default.fileExists(atPath: pastedImage.path))
+    }
+
+    /// The composer refuses an image Cloud cannot send when it is attached,
+    /// with the reason upload would have given at submit.
+    @Test @MainActor
+    func composerRefusesUnsendableCloudImagesWhenAttached() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cloud-image-attach-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = directory.appendingPathComponent("ok.png")
+        try Data([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]).write(to: png)
+        let mislabeled = directory.appendingPathComponent("vector.png")
+        try Data("<svg/>".utf8).write(to: mislabeled)
+
+        #expect(TextBoxInputContainer.cloudComposerImageRefusal(for: [png]) == nil)
+        #expect(TextBoxInputContainer.cloudComposerImageRefusal(for: [png, mislabeled]) == .unsupportedType)
+        #expect(TextBoxInputContainer.cloudComposerImageRefusal(
+            for: [directory.appendingPathComponent("gone.png")]
+        ) == .storage)
     }
 
     @Test

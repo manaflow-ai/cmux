@@ -1,0 +1,91 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
+@@ -126,7 +126,7 @@
+         let keepEnd = rows.count - dropTail
+         guard dropHead <= keepEnd else { return }
+         let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
+-        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // clamped slice
++        rows = newHead.map(make) + Array(rows.slice(dropHead, keepEnd)) + newTail.map(make) // clamped slice; cmux-classic: Array() so Xcode 26.6 type-checks it
+         rebuild()
+     }
+ 
+@@ -139,6 +139,16 @@
+         return false
+     }
+ 
++    /// cmux-classic: remove the ghosts whose spec matches at once, faded or not (the host's status line leaves
++    /// with no ghost: `MessagesWindowView.cmuxNoticeOffAtOnce`). Returns true if any were removed.
++    @discardableResult
++    func cmuxDropGhosts(where matches: (RowSpec) -> Bool) -> Bool {
++        let n = rows.count
++        rows.removeAll { $0.ghost && matches($0.spec) }
++        if rows.count != n { rebuild(); return true }
++        return false
++    }
++
+     var hasGhosts: Bool { liveCount < rows.count }
+ 
+     /// Rows that draw a thread connector, with their root's row (nil: the
+@@ -609,8 +619,7 @@
+         connector.strokeColor = Fixture.connector.cgColor
+         connector.lineWidth = 2.6
+         connector.lineCap = .round
+-        fillGradient.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
+-        fillGradient.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
++        applyFillPalette()  // cmux: themed accent
+         fillContainer.addSublayer(fillGradient)
+         fillContainer.mask = fillMask
+         connectorLine.backgroundColor = connector.strokeColor
+@@ -683,7 +692,7 @@
+             guard let spec else { return nil }
+             switch spec.kind {
+             case let .part(p): return p.text?.text ?? p.part.plainText
+-            case let .separator(b, r): return b + " " + r
++            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
+             case let .receipt(b, r): return b + " " + r
+             case let .label(text, _, _): return text
+             case let .notice(text): return text
+@@ -758,7 +767,7 @@
+             // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
+             connector.strokeColor = Fixture.connector.cgColor
+             connectorLine.backgroundColor = Fixture.connector.cgColor
+-            fillGradient.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
++            applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
+             CATransaction.commit()
+             self.spec = nil
+         }
+@@ -894,6 +903,9 @@
+                 self.unstretch(bitmapFrame.size)
+                 self.tintTypingDiscs()
+                 CATransaction.commit()
++                // cmux-classic: a hosted row's view shows with its bitmap (CustomRowsHost.place reads it): one placed while
++                // the bitmap was pending stayed transparent over a laid-out row until the next decorate.
++                CustomRows.host?.decorated(self)
+             }
+             }
+         }
+@@ -990,6 +1002,7 @@
+             cell.bitmap.contents = img
+             cell.shown(spec, img, scale: sc)
+             cell.unstretch(frame.size)
++            CustomRows.host?.decorated(cell)  // cmux-classic: the hosted view follows its new bitmap (see the request above)
+         }
+         CATransaction.commit()
+         reflowRows += q.count
+@@ -1409,6 +1422,16 @@
+     private func restartTypingClip() {
+         guard let c = typingClip.animation(forKey: "breath.clip.position.x") else { return }
+         clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
++    }
++
++    /// cmux: the outgoing gradient's colours and their locations from one
++    /// stop list. A palette change that set only the colours left a cell
++    /// made under the measured palette (8 stops) with 11 themed colours.
++    private func applyFillPalette() {
++        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
++            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
++        fillGradient.colors = stops.map(\.1)
++        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+     }
+ 
+     /// Window y of the cell's top: the outgoing fill shades with it.
