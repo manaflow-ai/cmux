@@ -31,23 +31,24 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         self.assertIn("${{ matrix.group }}", key)
         self.assertIn("${{ steps.key.outputs.manifests }}", key)
 
-    def test_key_hashes_tracked_manifests_before_generated_build_trees_exist(self):
+    def test_key_snapshots_checkout_manifests_without_reading_git_metadata(self):
         steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
         command = next(step["run"] for step in steps if step.get("id") == "key")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
             package = root / "Packages/Test package"
             package.mkdir(parents=True)
             manifest, resolved = package / "Package.swift", package / "Package.resolved"
             manifest.write_text("manifest v1")
             resolved.write_text("resolved v1")
-            subprocess.run(["git", "-C", str(root), "add", "Packages"], check=True)
             tools = root / "bin"
             tools.mkdir()
             swift = tools / "swift"
             swift.write_text("#!/bin/sh\nprintf 'Swift version 6.2\\n'\n")
             swift.chmod(0o755)
+            git = tools / "git"
+            git.write_text("#!/bin/sh\nprintf 'fatal: detected dubious ownership\\n' >&2\nexit 128\n")
+            git.chmod(0o755)
             output = root / "output"
             env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                    "GITHUB_OUTPUT": str(output)}

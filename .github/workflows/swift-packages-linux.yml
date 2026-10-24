@@ -77,7 +77,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          manifests="$(git ls-files -z -- ':(glob)Packages/**/Package.swift' ':(glob)Packages/**/Package.resolved' |
+          manifests="$(find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+            -type f \( -name Package.swift -o -name Package.resolved \) -print0 |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
           {
             echo "manifests=$manifests"
