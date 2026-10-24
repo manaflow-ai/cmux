@@ -23,8 +23,13 @@ import Foundation
     private(set) var tabsByTerminalResource: [ResourceID: TabModel] = [:]
     private(set) var panesByHandle: [PaneID: PaneModel] = [:]
     private(set) var panesByResource: [ResourceID: PaneModel] = [:]
-    /// By durable id (``PaneModel/id``): a watcher asks about its own panes.
-    private(set) var panesByID: [String: PaneModel] = [:]
+    /// Indexed pane records per durable id (``PaneModel/id``): a watcher asks about its own panes.
+    /// A count, not one record: while a pane moves between workspaces its added delta indexes a
+    /// second record of the same id before the source's closed delta drops the first.
+    private var paneRecordsByID: [String: Int] = [:]
+
+    /// Whether any indexed pane record has durable id `id`.
+    func listsPane(id: String) -> Bool { paneRecordsByID[id] != nil }
     private(set) var screensByHandle: [ScreenID: ScreenModel] = [:]
     private(set) var screensByResource: [ResourceID: ScreenModel] = [:]
     private(set) var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
@@ -198,7 +203,7 @@ import Foundation
             guard let pane = record as? PaneModel else { return }
             panesByHandle[handle] = pane
             if let resource { panesByResource[resource] = pane }
-            panesByID[pane.id] = pane
+            paneRecordsByID[pane.id, default: 0] += 1
             for group in groups { tabGroupsByID[group.id] = group }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             guard let tab = record as? TabModel else { return }
@@ -225,7 +230,9 @@ import Foundation
         case .pane(let handle, let resource, let groups):
             Self.drop(handle, from: &panesByHandle, if: record)
             if let resource { Self.drop(resource, from: &panesByResource, if: record) }
-            if let pane = record as? PaneModel { Self.drop(pane.id, from: &panesByID, if: record) }
+            if let pane = record as? PaneModel, let count = paneRecordsByID[pane.id] {
+                paneRecordsByID[pane.id] = count > 1 ? count - 1 : nil
+            }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             Self.drop(surface, from: &tabsBySurface, if: record)
