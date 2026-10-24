@@ -93,10 +93,10 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(executor.indices.isEmpty)
     }
 
-    @Test func atomicFalseRunsALargeBatchAsConsecutiveTransactions() async throws {
+    @Test func splitRunsALargeBatchAsConsecutiveTransactions() async throws {
         let executor = IndexRecordingExecutor()
         let router = router(executor, batchOpLimit: 2)
-        let reply = try await batch(router, ["ops": ops([1, 2, 3]), "atomic": false]).get()
+        let reply = try await batch(router, ["ops": ops([1, 2, 3]), "split": true]).get()
         #expect(executor.indices == [1, 2, 3])
         #expect(router.workQueue.stats.executed == 2, "two transactions of at most two ops")
         #expect(reply["ran"] == 3)
@@ -161,7 +161,7 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         return router
     }
 
-    /// A batch split into transactions (`atomic: false`) whose later transaction never runs (its
+    /// A batch split into transactions (`split: true`) whose later transaction never runs (its
     /// deadline passed while it was queued) still records its outcome under its key: a retry with
     /// the key gets that answer at once (how many ops applied), never waits for a run that will
     /// not come. The test drains the queue by hand: transaction 1 runs; transaction 2 is queued and
@@ -171,7 +171,7 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         let executor = IndexRecordingExecutor()
         let router = signalingRouter(executor, frames: frames) { $0.requestDeadline = .seconds(2) }
         var drains = frames.requests.makeAsyncIterator()
-        let params: [String: JSONValue] = ["ops": ops([1, 2]), "atomic": false, "idempotency_key": "b-cut"]
+        let params: [String: JSONValue] = ["ops": ops([1, 2]), "split": true, "idempotency_key": "b-cut"]
         async let answer = batch(router, params)
         _ = await drains.next() // transaction 1 queued
         await MainActor.run { frames.fire() }
@@ -196,7 +196,7 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(executor.indices == [1])
     }
 
-    /// A batch split into transactions (`atomic: false`) whose second transaction finds the queue
+    /// A batch split into transactions (`split: true`) whose second transaction finds the queue
     /// full (`busy`) after the first applied answers with `applied: 1` and `not_run: false`: a
     /// client trusts `not_run` as safe to send again, and sending it again runs op 1 twice. A retry
     /// with the key replays the same answer, still not `not_run`.
@@ -217,7 +217,7 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
             }
         }
         var drains = frames.requests.makeAsyncIterator()
-        let params: [String: JSONValue] = ["ops": ops([1, 2]), "atomic": false, "idempotency_key": "b-busy"]
+        let params: [String: JSONValue] = ["ops": ops([1, 2]), "split": true, "idempotency_key": "b-busy"]
         async let answer = batch(router, params)
         _ = await drains.next() // transaction 1 queued
         await MainActor.run { frames.fire() }
