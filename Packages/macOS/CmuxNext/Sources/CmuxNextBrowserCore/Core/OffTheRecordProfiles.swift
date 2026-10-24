@@ -7,10 +7,11 @@ public import Foundation
 /// settings an in-memory store. `end` tells every engine to drop it, which
 /// deletes its data (cookies, caches, storage, permissions).
 ///
-/// Process-wide like `SiteSettingsRegistry.shared`: both engines and the
-/// App read the same answer to "is this profile off the record".
+/// The App constructs one (`BrowserSharedStores`) and passes it by `init` to
+/// both engines and every store, so all read the same answer to "is this
+/// profile off the record". A second instance would answer no for an
+/// incognito profile, and its data would go to disk.
 public final class OffTheRecordProfiles {
-    public static let shared = OffTheRecordProfiles()
 
     /// Profiles begun and not ended yet.
     public private(set) var active: Set<BrowserProfileID> = []

@@ -11,7 +11,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(stores: .inMemory()).makeWebKitTab()
         page.webView.frame = window.contentLayoutRect
         window.contentView = page.webView
         window.orderFrontRegardless()
