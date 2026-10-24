@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// Open and close of a popup window that a control opened (cx-f6i7): the
 /// Chief pill's settings card, the group editors under a tab group chip or a
@@ -90,7 +91,7 @@ public extension NSWindow {
             return completion()
         }
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        CATransaction.setMainCompletion(completion)
         Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(0)), duration: duration)
         if Motion.overlays.animatesMovement {
             Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: Motion.scale(Motion.popupCloseScale, about: pivot, in: layer)),

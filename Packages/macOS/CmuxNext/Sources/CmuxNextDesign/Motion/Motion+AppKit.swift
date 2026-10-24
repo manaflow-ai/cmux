@@ -1,6 +1,7 @@
 public import AppKit
 public import QuartzCore
 import SwiftUI
+import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
@@ -118,7 +119,7 @@ extension Motion {
         guard MotionTrace.isEnabled else { return layer.add(animation, forKey: keyPath) }
         MotionTrace.begin(trace)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        CATransaction.setMainCompletion { MotionTrace.end(trace) }
         layer.add(animation, forKey: keyPath)
         CATransaction.commit()
     }
