@@ -42,9 +42,33 @@ struct AccountIdentityCard: View {
             if showSlowSignInFallback {
                 slowSignInFallback
             }
+            if flow?.currentIdentity == nil,
+               flow?.isWorkingOnAuth != true,
+               let failureTitle = flow?.signInFailureTitle,
+               let failureRecovery = flow?.signInFailureRecovery {
+                signInFailure(title: failureTitle, recovery: failureRecovery)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private func signInFailure(title: String, recovery: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .cmuxFont(size: 11, weight: .medium)
+                Text(recovery)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("AccountSignInFailure")
     }
 
     /// The system sign-in window can hang without redirecting back. When the

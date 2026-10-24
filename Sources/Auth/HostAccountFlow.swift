@@ -132,6 +132,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         browserSignIn.signInIsSlow
     }
 
+    // A rate-limited callback is still retrying; the failure is not final.
+    var signInFailureTitle: String? {
+        isRetryingAfterRateLimit ? nil : lastSignInFailure?.title
+    }
+
+    var signInFailureRecovery: String? {
+        isRetryingAfterRateLimit ? nil : lastSignInFailure?.recovery
+    }
+
     var isCompletingSignIn: Bool {
         _ = teamObservationRevision
         return coordinator.isLoading || coordinator.isRestoringSession
