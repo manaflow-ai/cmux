@@ -9,7 +9,7 @@ import Testing
 /// scrolls and for a moment after, shown and wide while the pointer is near the trailing edge or the
 /// knob is dragged, and it takes clicks only on the drawn knob.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct ThinScrollerFadeTests {
     /// A scroll view whose content is four times its height, with the shared thin scroller on
     /// `clock` counting its wakeups in `ledger`, scrolled to the top.
@@ -42,7 +42,6 @@ struct ThinScrollerFadeTests {
     @Test func scrollingShowsTheKnobAndItFadesAfterTheRestDelay() async throws {
         let clock = ThinScrollerManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
-        var rests = scroller.rests.makeAsyncIterator()
         scroller.doubleValue = 0.5 // the app or a layout moved it: no knob
         #expect(!scroller.isKnobShown)
         Self.userScroll(scrollView)
@@ -55,7 +54,7 @@ struct ThinScrollerFadeTests {
         Self.userScroll(scrollView)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await rests.next()
+        await scroller.restSettled()
         #expect(!scroller.isKnobShown)
     }
 
@@ -66,14 +65,13 @@ struct ThinScrollerFadeTests {
         let clock = ThinScrollerManualClock()
         let ledger = WakeupLedger()
         let (_, scroller) = Self.scrollView(clock: clock, ledger: ledger)
-        var rests = scroller.rests.makeAsyncIterator()
         scroller.flash()
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(400))
         scroller.flash() // replaces the pending deadline
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await rests.next()
+        await scroller.restSettled()
         #expect(!scroller.isKnobShown)
         let wakeups = ledger.snapshot().filter { $0.owner == ThinScroller.restWakeupOwner }
         #expect(wakeups.map(\.count) == [1])
@@ -116,7 +114,6 @@ struct ThinScrollerFadeTests {
     @Test func withoutRevealAtRestThePointerOnlyHoldsAShownKnob() async throws {
         let clock = ThinScrollerManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
-        var rests = scroller.rests.makeAsyncIterator()
         scroller.revealsNearPointerAtRest = false
         scroller.showsOnScroll = false
         let near = CGPoint(x: scrollView.bounds.maxX - 3, y: 100)
@@ -131,7 +128,7 @@ struct ThinScrollerFadeTests {
         #expect(scroller.isKnobExpanded)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await rests.next()
+        await scroller.restSettled()
         #expect(scroller.isKnobShown) // held while the pointer stays near
         scroller.pointerMoved(to: nil)
         #expect(!scroller.isKnobShown)

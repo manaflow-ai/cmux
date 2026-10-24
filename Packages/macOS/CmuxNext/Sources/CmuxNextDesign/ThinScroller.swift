@@ -66,11 +66,9 @@ public final class ThinScroller: NSScroller {
     let restingKnob = ThinScrollerKnobView()
     private(set) var presence = ThinScrollerPresence()
     /// The fade-out after the last scroll: one deadline of the shared wakeup primitive, which the
-    /// next scroll replaces (plans/cmux-next/idle-wakeups.md).
+    /// next scroll replaces, also when the delay ran out while main was busy (DemandTimer claims
+    /// the fire on the main actor; plans/cmux-next/idle-wakeups.md).
     private let restTimer: DemandTimer
-    /// Yields each time the rest delay ran out and the knob took its rest state (tests await it).
-    let rests: AsyncStream<Void>
-    private let restRan: AsyncStream<Void>.Continuation
     private var proximity: ThinScrollerProximity?
     private var drawnExpanded = false
 
@@ -86,9 +84,6 @@ public final class ThinScroller: NSScroller {
     ///   - ledger: Where each rest-delay wakeup is counted (`debug.wakeups`); tests pass their own.
     public init(frame frameRect: NSRect, clock: any Clock<Duration>, ledger: WakeupLedger = .shared) {
         restTimer = DemandTimer(owner: ThinScroller.restWakeupOwner, clock: clock, ledger: ledger)
-        let ran = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        rests = ran.stream
-        restRan = ran.continuation
         super.init(frame: frameRect)
         restingKnob.wantsLayer = true
         addSubview(restingKnob)
@@ -213,10 +208,15 @@ public final class ThinScroller: NSScroller {
             return
         }
         restTimer.schedule(after: Self.restDelay) { @MainActor [weak self] in
-            guard let self else { return }
-            update { $0.rested() }
-            restRan.yield()
+            self?.update { $0.rested() }
         }
+    }
+
+    /// Waits until the rest delay armed last has settled: the knob took its rest state, or the
+    /// deadline was dropped. Tests await it after they advance the clock; a dropped deadline ends
+    /// the wait too, so a regression fails on the test's expectation instead of hanging it.
+    func restSettled() async {
+        await restTimer.settled()
     }
 
     private func placeKnob(animated: Bool) {
