@@ -29,7 +29,8 @@ extension LiveCoordinator {
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,
             dialer: FFIMacLinkDialer(),
-            keys: PhoneKeys(userID: user.id)
+            keys: PhoneKeys(userID: user.id),
+            push: PushKeys.current()
         )
     }
 }
@@ -125,21 +126,34 @@ public final class PushReplies {
         public var payload: PushPayload?
         /// A "Couldn't reach" notification's reply.
         public var retry: PushReply?
+        /// False: the push may open the app but no button acts (an unsealed push
+        /// from a Mac that seals, or a stale one; PR B security review H1).
+        public var actionable: Bool
 
-        public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?) {
+        public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?, actionable: Bool = true) {
             self.actionIdentifier = actionIdentifier
             self.text = text
             self.payload = payload
             self.retry = retry
+            self.actionable = actionable
         }
 
         /// What a notification response says. A retry comes only from the
         /// app's own store and only for a notification the app posted itself:
         /// a remote push never carries a reply (review H1).
-        public init(actionIdentifier: String, text: String?, userInfo: [AnyHashable: Any], fromPush: Bool, retries: PushRetryStore?) {
-            self.init(actionIdentifier: actionIdentifier, text: text,
-                      payload: PushPayload(userInfo: userInfo),
-                      retry: retries?.resolve(userInfo: userInfo, fromPush: fromPush))
+        /// A push is read through `gate`: a sealed one is opened again from its
+        /// box, an unsealed one from a Mac that seals acts on nothing.
+        public init(actionIdentifier: String, text: String?, userInfo: [AnyHashable: Any], fromPush: Bool, retries: PushRetryStore?,
+                    shown: PushTrustGate.Shown? = nil, gate: PushTrustGate = .current(), now: Date = Date()) {
+            let payload: PushPayload?
+            let actionable: Bool
+            switch gate.verdict(userInfo: userInfo, shown: shown, now: now) {
+            case .trusted(let p): (payload, actionable) = (p, true)
+            case .openOnly(let p): (payload, actionable) = (p, false)
+            case .refused: (payload, actionable) = (nil, false)
+            }
+            self.init(actionIdentifier: actionIdentifier, text: text, payload: payload,
+                      retry: retries?.resolve(userInfo: userInfo, fromPush: fromPush), actionable: actionable)
         }
     }
 
@@ -159,6 +173,8 @@ public final class PushReplies {
         }
         guard let payload = response.payload, identifier != UNNotificationDismissActionIdentifier else { return .nothing }
         if identifier == UNNotificationDefaultActionIdentifier { return .open(payload) }
+        // Not trusted to act: a button only opens the app (where nothing is sent for it).
+        guard response.actionable else { return .open(payload) }
         guard let button = PushAction(identifier: identifier) else { return .nothing }
         if button == .answer { return .open(payload) }
         let opensApp = PushActions(requireFaceID: requireFaceID).opensApp(button)
@@ -191,10 +207,23 @@ public final class PushReplies {
         if let outbox = PushOutbox(group: .current()) {
             for reply in outbox.takeAll() {
                 NotificationRouter.shared.open(reply: reply)
+                // Text into a terminal never comes from the outbox: anything in
+                // it may have been written while the phone was locked (PR B
+                // security review H2). Only the unlock-gated Reply button sends it.
+                if Self.fromOutboxRefused(reply) {
+                    log.error("push reply: a terminal reply in the outbox was dropped")
+                    continue
+                }
                 waiting.append(reply)
             }
         }
         drain()
+    }
+
+    /// Outbox replies the app never sends: text into a terminal.
+    static func fromOutboxRefused(_ reply: PushReply) -> Bool {
+        if case .text = reply.action, reply.kind == .terminal { return true }
+        return false
     }
 
     func enqueueForeground(_ reply: PushReply) {
@@ -269,6 +298,8 @@ public final class PushReplies {
         } catch let failure as LiveCoordinator.PushReplyFailure {
             switch failure.reason {
             case .unreachable:
+                // The link missed its budget: the service's mailbox, sealed to the Mac (PR B).
+                if await sendViaMailbox(reply, on: live) { return }
                 await postCouldNotReach(reply, reason: nil)
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
@@ -277,6 +308,87 @@ public final class PushReplies {
             }
         } catch {
             await postCouldNotReach(reply, reason: nil)
+        }
+    }
+
+    /// When the phone asks whether the Mac applied a mailbox reply: soon, then
+    /// less often, about 15 s in all (PR B review 9).
+    static let mailboxCheckDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8)]
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+
+    /// Sends `reply` through the mailbox; true when the service took it.
+    /// A Mac that was online is asked once, a moment later, whether it
+    /// applied it; a refusal is posted with its reason.
+    private func sendViaMailbox(_ reply: PushReply, on live: LiveCoordinator) async -> Bool {
+        let outcome: LiveCoordinator.MailboxOutcome
+        do {
+            outcome = try await live.deliverViaMailbox(reply)
+        } catch let failure as LiveCoordinator.PushReplyFailure {
+            switch failure.reason {
+            case .unreachable: return false
+            case .cancelled: return true
+            case .refused(let message):
+                await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
+                return true
+            }
+        } catch {
+            return false
+        }
+        if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
+        let mac = reply.macName ?? String(localized: "your Mac")
+        var last: LiveAPI.MailboxState?
+        for delay in Self.mailboxCheckDelays {
+            try? await clock.sleep(for: delay)
+            guard let state = await live.mailboxState(of: reply) else { continue }
+            last = state
+            switch Self.mailboxVerdict(state, signed: live.signedMailboxOutcome(reply, state: state)) {
+            case .applied:
+                return true
+            case .refused(let message):
+                await postNotice(reply, title: String(localized: "Not sent to \(mac)"), body: message)
+                return true
+            case .expired:
+                await postCouldNotReach(reply, reason: String(localized: "\(mac) didn't pick up your reply in time."))
+                return true
+            case .pending:
+                continue
+            }
+        }
+        // The Mac has not said: the service holds it, but nobody confirmed it (review M3).
+        if outcome == .queued || last?.state == "queued" || last != nil {
+            await postNotice(reply, title: String(localized: "Not confirmed by \(mac)"),
+                             body: String(localized: "Your reply is waiting for \(mac) to come online. It expires in 10 minutes."))
+        }
+        return true
+    }
+
+    /// What a mailbox state means for the person.
+    enum MailboxVerdict: Equatable {
+        case applied
+        case refused(String)
+        case expired
+        /// Still queued, or an outcome without the Mac's valid signature (the
+        /// service's word alone is never taken as applied).
+        case pending
+    }
+
+    static func mailboxVerdict(_ state: LiveAPI.MailboxState, signed: (applied: Bool, reason: String?)?) -> MailboxVerdict {
+        if state.state == "expired" { return .expired }
+        guard let signed else { return .pending }
+        if signed.applied { return .applied }
+        return .refused(mailboxRefusal(signed.reason))
+    }
+
+    /// What the phone says for the Mac's mailbox refusal reason (PROTOCOL.md).
+    /// A repeat of a reply the Mac applied comes back as applied (its first
+    /// outcome, signed), never as `replayed`; `replayed` is another reply's
+    /// nonce, a refusal (PR B security review M4).
+    static func mailboxRefusal(_ reason: String?) -> String {
+        switch reason {
+        case "expired": String(localized: "Your reply arrived too late.")
+        case "not_pending": String(localized: "This was already answered.")
+        case "not_paired": String(localized: "This iPhone isn't paired with that Mac any more.")
+        default: String(localized: "Your Mac didn't accept the reply.")
         }
     }
 

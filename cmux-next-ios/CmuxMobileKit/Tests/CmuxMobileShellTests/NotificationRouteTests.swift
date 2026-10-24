@@ -1,5 +1,6 @@
 import CmuxMobileAgentChat
 import Foundation
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
 import Testing
@@ -65,6 +66,28 @@ import UserNotifications
     }
 }
 
+/// PR B security review M3, M4: only the Mac's signed outcome counts.
+@MainActor @Suite struct MailboxRefusalTests {
+    @Test func onlyASignedOutcomeIsSuccessOrRefusal() {
+        let applied = LiveAPI.MailboxState(state: "applied", sig: "ab")
+        // The service says applied, without the Mac's signature: still pending, never "sent".
+        #expect(PushReplies.mailboxVerdict(applied, signed: nil) == .pending)
+        #expect(PushReplies.mailboxVerdict(applied, signed: (true, nil)) == .applied)
+        let refused = LiveAPI.MailboxState(state: "rejected", reason: "not_pending", sig: "ab")
+        #expect(PushReplies.mailboxVerdict(refused, signed: (false, "not_pending")) == .refused("This was already answered."))
+        // Another reply's nonce is a refusal, not a success.
+        #expect(PushReplies.mailboxRefusal("replayed") == "Your Mac didn't accept the reply.")
+        #expect(PushReplies.mailboxVerdict(LiveAPI.MailboxState(state: "expired"), signed: nil) == .expired)
+        #expect(PushReplies.mailboxVerdict(LiveAPI.MailboxState(state: "queued"), signed: nil) == .pending)
+    }
+
+    /// Review H2: a terminal reply the outbox somehow holds is never sent.
+    @Test func anOutboxTerminalReplyIsDropped() {
+        #expect(PushReplies.fromOutboxRefused(PushReply(mac: "m", kind: .terminal, notificationId: "1", action: .text("y", attachments: []))))
+        #expect(!PushReplies.fromOutboxRefused(PushReply(mac: "m", kind: .completed, sessionId: "s", action: .text("y", attachments: []))))
+    }
+}
+
 @MainActor @Suite struct PushResponseTests {
     let question = PushPayload(mac: "m", macName: "Mac", kind: .question, eventId: "e", sessionId: "s", permissionId: "p",
                                questions: [PushQuestion(question: "Which?", options: [.init(label: "A"), .init(label: "B")])])
@@ -116,6 +139,14 @@ import UserNotifications
         #expect(PushReplies.outcome(pushed) == .open(finished))
         let local = PushReplies.Response(actionIdentifier: "cmux.retry", text: nil, userInfo: reply.retryUserInfo, fromPush: false, retries: store)
         #expect(local.retry == reply)
+    }
+
+    /// PR B security review H1: a push the gate won't trust only opens the app.
+    @Test func anUntrustedPushOnlyOpensTheApp() {
+        let untrusted = PushReplies.Response(actionIdentifier: "cmux.option.0", text: nil, payload: question, retry: nil, actionable: false)
+        #expect(PushReplies.outcome(untrusted) == .open(question))
+        let reply = PushReplies.Response(actionIdentifier: "cmux.reply", text: "go", payload: finished, retry: nil, actionable: false)
+        #expect(PushReplies.outcome(reply) == .open(finished))
     }
 
     /// Review L2: with Require Face ID on, a background reply opens the app instead.

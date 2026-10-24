@@ -72,9 +72,57 @@ import Testing
         let r = reply(.completed, .text("go on", attachments: ["a.png"]))
         #expect(try PushReplyPlan.make(r, pending: nil) == .prompt(sessionID: "s", text: "go on", attachments: ["a.png"], promptID: r.id.uuidString.lowercased()))
         #expect(try PushReplyPlan.make(reply(.chief, .text("hi", attachments: [])), pending: nil) == .chief(text: "hi", attachments: []))
+        // A terminal notification with no ledger id takes no reply.
         #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(reply(.terminal, .text("ls", attachments: [])), pending: nil) }
     }
+
+    /// PR B: a reply to a terminal notification is `notification-reply` for that
+    /// notification, text only, at most 4 KB.
+    @Test func terminalRepliesGoToTheNotifyingTerminal() throws {
+        let r = PushReply(mac: "m", kind: .terminal, tabId: "s7", notificationId: "42", action: .text("yes", attachments: []))
+        #expect(try PushReplyPlan.make(r, pending: nil) == .terminal(notification: "42", text: "yes"))
+        let image = PushReply(mac: "m", kind: .terminal, notificationId: "42", action: .text("yes", attachments: ["a.png"]))
+        #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(image, pending: nil) }
+        let long = PushReply(mac: "m", kind: .terminal, notificationId: "42", action: .text(String(repeating: "y", count: 4097), attachments: []))
+        #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(long, pending: nil) }
+    }
 }
+
+/// PR B: the link's `notification-reply` carries the reply's id, so the Mac
+/// applies a reply once whichever way (link or mailbox) it arrives first.
+@Suite struct TerminalReplyRequestTests {
+    @Test func theRequestCarriesTheReplyID() throws {
+        let id = UUID(uuidString: "0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807")!
+        let request = PushReplyPlan.terminalRequest(notification: "42", text: "yes", replyID: id)
+        #expect(request["notification"] as? Int == 42)
+        #expect(request["text"] as? String == "yes")
+        #expect(request["reply_id"] as? String == "0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807")
+        #expect(Set(request.keys) == ["notification", "text", "reply_id"])
+        // A ledger id that is not a number goes as text.
+        #expect(PushReplyPlan.terminalRequest(notification: "n-1", text: "y", replyID: id)["notification"] as? String == "n-1")
+    }
+
+    @Test func aDuplicateIsDelivered() {
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"ok":true,"data":{"duplicate":true}}"#.utf8)) == .delivered)
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"ok":true}"#.utf8)) == .delivered)
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"ok":false,"error":{"message":"no such notification"}}"#.utf8))
+            == .refused("no such notification"))
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"error":"gone"}"#.utf8)) == .refused("gone"))
+    }
+}
+
+#if os(iOS)
+/// PR B: what the mailbox carries for an Allow (the acpmux approval, as numbers acpmux reads).
+/// `LiveCoordinator` is iOS-only, so the macOS `swift test` run skips this suite.
+@Suite struct MailboxApprovalTests {
+    @Test func theApprovalMetaBecomesCanonicalJSON() {
+        let payload = ApprovalPayload(instance: "pi", macDevice: "m", approver: "p", session: "s", permission: "q", option: "o",
+                                      nonce: "dn", expiresAt: 1_800_000_120)
+        let meta = LiveCoordinator.pushJSON(payload.meta(signature: Data([0xab])))
+        #expect(meta.canonical == #"{"acpmux":{"approverDecision":{"approver":"p","expiresAt":1800000120,"signature":"ab"},"decisionNonce":"dn"}}"#)
+    }
+}
+#endif
 
 @MainActor @Suite struct PushSnapshotsTests {
     @Test func promptsThenRepliesNewestLast() {

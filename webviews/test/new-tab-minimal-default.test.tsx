@@ -137,7 +137,7 @@ test("Minimal is the default layout and the first dot; no other layout is gone",
   expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
 });
 
-test("by default Minimal is the composer alone, with its project strip and no greeting", async () => {
+test("by default Minimal is the composer alone", async () => {
   const root = await render("minimal", undefined);
   try {
     expect(parts()).toEqual({
@@ -149,7 +149,7 @@ test("by default Minimal is the composer alone, with its project strip and no gr
       chats: 0,
       strip: 1,
     });
-    // No greeting of any kind: no greeting element, no time-of-day text.
+    // No time-of-day greeting.
     expect(host.querySelector(".nt-greeting")).toBeNull();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
   } finally {
@@ -175,6 +175,25 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   try {
     expect(parts().headline).toBe("What should we work on?");
     expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("optional time, warm greeting, stopwatch and quote widgets are independently opt-in", async () => {
+  let root = await render("minimal", []);
+  try {
+    expect(host.querySelector(".nt-extras")).toBeNull();
+    expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  root = await render("minimal", ["clock", "timer", "warmGreeting", "quote"]);
+  try {
+    expect(host.querySelector(".nt-extra-clock")).not.toBeNull();
+    expect(host.querySelector(".nt-extra-timer")).not.toBeNull();
+    expect(host.querySelector(".nt-extra-warm")).not.toBeNull();
+    expect(host.querySelector(".nt-extra-quote")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
@@ -224,8 +243,8 @@ test("Minimal keeps the old greeting's room over the composer, except for a gree
   expect(newTabHost({ newTab: {} })?.headlineOff).toBeUndefined();
   const slots = () => host.querySelectorAll(".nt-headline-slot").length;
   for (const [widgets, headlineOff, expected] of [
-    [undefined, false, 1],
-    [[], false, 1],
+    [undefined, false, 0],
+    [[], false, 0],
     [[], true, 0],
     [["greeting"], false, 1],
     // Turned on again in place (edit mode) before the host's next context: the headline has its room.
@@ -293,6 +312,8 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect([...shownPageWidgets("minimal")]).toEqual([]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
   expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(
-    PAGE_WIDGETS.filter((widget) => widget !== "greeting" && widget !== "weather" && widget !== "machines"),
+    PAGE_WIDGETS.filter(
+      (widget) => !["greeting", "weather", "machines", "clock", "timer", "warmGreeting", "quote"].includes(widget),
+    ),
   );
 });

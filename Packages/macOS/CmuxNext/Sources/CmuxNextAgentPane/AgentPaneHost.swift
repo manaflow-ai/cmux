@@ -19,6 +19,7 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
     func putFile(sessionId: String, name: String, data: Data) async throws -> String
+    func putFile(sessionId: String, name: String, file: URL) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -35,6 +36,10 @@ extension AgentPaneHostProviding {
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         throw AgentPaneFilePutFailure.unsupported
+    }
+
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        try await putFile(sessionId: sessionId, name: name, data: Data(contentsOf: file))
     }
 }
 
@@ -175,6 +180,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneFilePutFailure.unsupported }
         return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
+    }
+
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneFilePutFailure.unsupported }
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, file: file)
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {

@@ -710,12 +710,15 @@ def linux_job(job):
     return bool(labels) and ("ubuntu" in labels or "linux" in labels) and "macos" not in labels and "glaeda" not in labels
 
 
-GITHUB_HOSTED_LABEL = re.compile(r"^(macos|windows|ubuntu)-[0-9a-z._-]+$", re.IGNORECASE)
+# A hosted runner image: GitHub's (macos-26, macos-15-xlarge, windows-latest) or Blacksmith's rented machines
+# (blacksmith-12vcpu-macos-26, blacksmith-4vcpu-ubuntu-2404). Neither is a fleet Mac: on 2026-10-24 a dev build
+# waiting 2 h for blacksmith-12vcpu-macos-26 held every Mac part back although the fleet was idle.
+GITHUB_HOSTED_LABEL = re.compile(r"^((macos|windows|ubuntu)-[0-9a-z._-]+|blacksmith-[0-9a-z._-]+)$", re.IGNORECASE)
 
 
 def github_hosted_job(job):
-    """Every label is a GitHub-hosted image (macos-26, macos-15-xlarge, windows-latest, ...): the job never waits
-    for a fleet Mac, the bench host or the gateway."""
+    """Every label is a hosted runner image (GitHub's or Blacksmith's): the job never waits for a fleet Mac, the
+    bench host or the gateway."""
     labels = job.get("labels") or []
     return bool(labels) and all(GITHUB_HOSTED_LABEL.match(str(label)) for label in labels)
 

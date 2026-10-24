@@ -1254,6 +1254,7 @@
           {
             "key" : "keyboard.1",
             "rows" : [
+              "tabs.commandDigits",
               "sidebar.numbering",
               "sidebar.cmd9",
               "sidebar.stepping",
@@ -22632,6 +22633,76 @@
       "title" : {
         "key" : "settings.sidebar.spacesVisibility",
         "text" : "Show Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "workspaces",
+        "tabs"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.tabs.commandDigits.workspaces",
+            "text" : "Workspaces"
+          },
+          "value" : "workspaces"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.commandDigits.tabs",
+            "text" : "Tabs"
+          },
+          "value" : "tabs"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "workspaces",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.tabs.commandDigits.help",
+        "text" : "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.commandDigits",
+      "keywords" : [
+        "command",
+        "number",
+        "digit",
+        "shortcut",
+        "tab",
+        "workspace",
+        "cmd-1",
+        "switch"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "commandDigits"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.tabs.commandDigits.summary",
+        "text" : "Workspaces or tabs on Command-1 to 9"
+      },
+      "title" : {
+        "key" : "settings.tabs.commandDigits",
+        "text" : "Command-1 to 9 Select"
       },
       "validation" : "portable"
     },

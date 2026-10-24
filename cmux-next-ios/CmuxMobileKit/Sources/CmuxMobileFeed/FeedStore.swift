@@ -180,7 +180,7 @@ public final class FeedStore {
             recordReadMarks()
             refreshDerived()
             #if DEBUG
-            if FeedStressRig.shared.config.isActive { FeedStore.logChange(from: oldValue, to: items) }
+            if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
             onItemsChange?(items)
         }

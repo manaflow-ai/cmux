@@ -710,6 +710,7 @@
     "setting.tabs.barOrder": "aboveToolbar",
     "setting.tabs.barPosition": "top",
     "setting.tabs.cmdWClosesPinnedTabs": true,
+    "setting.tabs.commandDigits": "workspaces",
     "setting.tabs.newTabNowPlaying": false,
     "setting.tabs.newTabPosition": "afterCurrent",
     "setting.tabs.newTabTemplate": "minimal",

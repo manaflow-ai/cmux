@@ -16,28 +16,31 @@ extension NotificationCenterService {
         }
     }
 
+    /// The workspace focus of `controller` that the person sees: nil while a top page (History,
+    /// Settings, the App Store) covers the workspace, whose focus model still names the pane
+    /// underneath. Every "viewed" and "typed into" rule reads this, never the raw focus model.
+    static func shownFocus(_ c: WindowController) -> FocusState.Resolved? { c.shownTopPage == nil ? c.focus.state.resolved : nil }
+
     /// The content tab of the window whose focus owns `window` (a Chromium
     /// page window resolves to its cmux window).
     func focusedTab(in window: NSWindow?) -> String? {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window) else { return nil }
         let controller = services.windows.controllers.first { $0.window === window }
-        return controller.flatMap { Self.contentTab($0.focus.state.resolved) }
+        return controller.flatMap(Self.shownFocus).flatMap(Self.contentTab)
     }
 
     /// `window`'s focus is a terminal (not a page, address bar, or find bar).
     func isTerminalFocused(in window: NSWindow?) -> Bool {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window),
-              let controller = services.windows.controllers.first(where: { $0.window === window }) else { return false }
-        if case .terminal = controller.focus.state.resolved { return true }
-        return false
+              let controller = services.windows.controllers.first(where: { $0.window === window }),
+              case .terminal? = Self.shownFocus(controller) else { return false }
+        return true
     }
 
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
-        return services.windows.controllers.contains { controller in
-            controller.focus.state.windowKey && Self.contentTab(controller.focus.state.resolved) == tabID
-        }
+        return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
 
     static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
