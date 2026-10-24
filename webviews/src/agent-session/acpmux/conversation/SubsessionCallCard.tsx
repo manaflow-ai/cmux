@@ -135,8 +135,7 @@ function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   );
 }
 
-/// About three lines of the card's text at its narrowest common width.
-const CUT_CHARS = 240;
+const CUT_CHARS = 240; // about three lines at the card's narrowest common width
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
 function Raw({ tool }: { tool: Tool }) {
