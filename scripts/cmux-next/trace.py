@@ -1976,7 +1976,10 @@ def flame_events(samples, offset_us, keep):
             while len(stack) > depth:
                 name, start = stack.pop()
                 if at > start:
-                    events.append({"ph": "X", "pid": pid, "tid": tid, "ts": round(start, 3), "dur": round(at - start, 3),
+                    # The end is rounded once, not the duration: a frame and its callers that close at one
+                    # time end at the same rounded time, so no callee ends past its caller.
+                    begin = round(start, 3)
+                    events.append({"ph": "X", "pid": pid, "tid": tid, "ts": begin, "dur": round(round(at, 3) - begin, 3),
                                    "name": name[:240], "cat": "cpu"})
 
         for at, weight, frames in rows:
@@ -1992,6 +1995,10 @@ def flame_events(samples, offset_us, keep):
             last_end = at + weight
         if last_end is not None:
             close(0, last_end)
+    # A callee closes (and is listed) before its caller, and both can start at one time: callers first, so an
+    # importer that keeps the file's order for equal times nests them (Perfetto's did not: every such pair was
+    # a slice_spill_overlapping_complete_event).
+    events.sort(key=lambda e: (e["pid"], e["tid"], e["ts"], -e["dur"]))
     return events
 
 
@@ -2042,6 +2049,41 @@ def chromium_events(out, threads_by_pid):
         merged.append(e)
     return merged, {"events": len(merged), "mapped_threads": len(mapping), "clock": clock,
                     "os_thread": {f"{p}:{t}": o for (p, t), o in mapping.items()}}
+
+
+def chromium_on_own_tracks(chrome, samples, tracks):
+    """Chromium's events, each thread on a track of its own: a Chromium thread id that is also a sampled OS
+    thread id (Chromium's trace names threads by their system id) moves to a synthetic track, so its slices
+    never share a track with that thread's sampled frames (the two do not nest: Perfetto's importer reported
+    each partial overlap as slice_spill_overlapping_complete_event). `chrome` itself keeps its ids
+    (summarize maps them to OS threads)."""
+    sampled = {(thread.get("pid"), thread.get("tid")) for _, _, thread, _ in samples}
+    moved = []
+    for e in chrome:
+        key = (e.get("pid"), e.get("tid"))
+        if key in sampled:
+            e = dict(e, tid=tracks.tid(key[0], ("chromium", key[1])))
+        moved.append(e)
+    # Chromium itself can end a nested complete event a microsecond after its parent (MainFrameAborted in
+    # ProxyMain::BeginMainFrame): the child ends with its parent, so the track nests.
+    by_track = collections.defaultdict(list)
+    for index, e in enumerate(moved):
+        if e.get("ph") == "X" and "ts" in e:
+            by_track[(e.get("pid"), e.get("tid"))].append(index)
+    for indexes in by_track.values():
+        indexes.sort(key=lambda i: (float(moved[i]["ts"]), -float(moved[i].get("dur") or 0)))
+        ends = []
+        for i in indexes:
+            e = moved[i]
+            start = float(e["ts"])
+            while ends and ends[-1] <= start:
+                ends.pop()
+            end = start + float(e.get("dur") or 0)
+            if ends and end > ends[-1]:
+                moved[i] = e = dict(e, dur=ends[-1] - start)
+                end = ends[-1]
+            ends.append(end)
+    return moved
 
 
 def daemon_span_events(out, daemon_pid, tracks):
@@ -2258,13 +2300,15 @@ def flow_events(flows, tracks, lane_names):
     for entry in flows:
         hops = entry["hops"]
         for index, hop in enumerate(hops):
-            end = hops[index + 1]["at_us"] if index + 1 < len(hops) else hop["at_us"] + 1.0
-            start = hop["at_us"]
+            # Rounded to the ns, as the importer reads them: unrounded, a hop's end can pass the next hop's
+            # start by a float ulp on the same lane (slice_spill_overlapping_complete_event).
+            end = round(hops[index + 1]["at_us"] if index + 1 < len(hops) else hop["at_us"] + 1.0, 3)
+            start = round(hop["at_us"], 3)
             pid = hop["pid"]
             lane = lanes[pid].place(start, max(end, start + 1.0))
             tid = tracks.tid(pid, ("key flow", lane))
             lane_names[(pid, tid)] = "key flow" + (f" {lane + 1}" if lane else "")
-            event = {"ph": "X", "pid": pid, "tid": tid, "ts": start, "dur": max(end - start, 1.0), "name": hop["hop"],
+            event = {"ph": "X", "pid": pid, "tid": tid, "ts": start, "dur": round(max(end - start, 1.0), 3), "name": hop["hop"],
                      "cat": "key.flow", "bind_id": f"0x{entry['flow']:x}",
                      "args": {"flow": f"0x{entry['flow']:x}", "thread": hop.get("tid"),
                               "to_next_ms": round((end - start) / 1000, 3), "complete": entry["complete"]}}
@@ -2418,7 +2462,7 @@ def build(out):
     span_events, span_info, span_rows = daemon_span_events(out, daemon_pid, tracks)
     lane_names.update(span_info.pop("track_names"))
     events += span_events
-    events += chrome
+    events += chromium_on_own_tracks(chrome, samples, tracks)
     driver = read_json(os.path.join(out, "driver.json"), []) or []
     driver_lanes = collections.defaultdict(Lanes)
     for item in driver:
@@ -2846,7 +2890,7 @@ def summary_text(s):
 # The tracks that must import as their own thread tracks, by name prefix (the synthetic tracks build() names).
 IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans", "key flow")
 IMPORT_QUERY_FLOWS = """
-select count(*) as flows from flow
+select count(*) as flows from flow f join slice s on s.id = f.slice_out where s.category = 'key.flow'
 """
 IMPORT_QUERY_TRACKS = """
 select p.pid as pid, t.tid as tid, t.name as name, count(s.id) as slices
@@ -3004,6 +3048,20 @@ def check_parsers_and_merge():
         # main and mid run 0-3 ms (two adjacent samples), then the thread is off CPU until 10 ms.
         assert by["main"] == [(1100.0, 2000.0), (10100.0, 1000.0)], by
         assert by["leafA"] == [(1100.0, 1000.0)] and by["leafB"][0] == (2100.0, 1000.0), by
+        # Of the slices that start together on a thread, the caller (the longest) comes first: an importer that
+        # keeps the file's order for equal times nests them.
+        first_dur = {}
+        for e in events:
+            first_dur.setdefault((e["pid"], e["tid"], e["ts"]), e["dur"])
+            assert e["dur"] <= first_dur[(e["pid"], e["tid"], e["ts"])], events
+        # A Chromium thread id that is also a sampled thread's id moves to a track of its own.
+        moved = chromium_on_own_tracks([{"ph": "X", "pid": 42, "tid": 26, "ts": 0, "dur": 1},
+                                        {"ph": "X", "pid": 42, "tid": 7, "ts": 0, "dur": 1}], samples, SyntheticTracks({26, 7}))
+        assert moved[0]["tid"] not in (26, 7) and moved[1]["tid"] == 7, moved
+        # A Chromium child that ends after its parent ends with it.
+        nested = chromium_on_own_tracks([{"ph": "X", "pid": 9, "tid": 1, "ts": 0, "dur": 10},
+                                         {"ph": "X", "pid": 9, "tid": 1, "ts": 5, "dur": 6}], [], SyntheticTracks(set()))
+        assert nested[1]["dur"] == 5, nested
         lanes = Lanes()
         assert [lanes.place(0, 10), lanes.place(1, 5), lanes.place(4, 12), lanes.place(11, 13)] == [0, 0, 1, 0]
         bundle = "/x/cmux DEV t.app"
