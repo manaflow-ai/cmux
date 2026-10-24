@@ -244,12 +244,9 @@ public final class WindowMaterialView: NSView {
         let fade = inactiveTintFade
         inactiveTintView.isHidden = false
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            // main-proof: CATransaction.h: the completion block is called on the main thread
-            MainActor.assumeIsolated {
-                guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
-                self.inactiveTintView.isHidden = true
-            }
+        CATransaction.setMainCompletion { [weak self] in
+            guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
+            self.inactiveTintView.isHidden = true
         }
         // From what shows now (a reversal mid-fade continues from there), or from 0 when hidden.
         Motion.overlays.set(layer, "opacity", to: Float(alpha), fade: .scrim, from: showing ? nil : Float(0))
