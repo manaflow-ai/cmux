@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextLaunchFiles
 import CmuxNextTerminal
 import Foundation
 
@@ -53,6 +54,13 @@ struct AppEnvironment: Sendable {
     /// (`LaunchFiles`): only the real app process sets it; without it `AppServices` makes its own
     /// from this environment (``AppServices/launchFiles``), so every owner takes from one path.
     var launchFiles: LaunchFiles?
+
+    /// Starts reading this environment's launch files (`LaunchFiles`): those in its state directory
+    /// (beside its sidebar snapshot; none, nothing is read) and its tag's Chief home's.
+    func startLaunchFiles() -> LaunchFiles {
+        LaunchFiles(state: sidebarSnapshotFile?.url.deletingLastPathComponent(), chiefHome: ChiefHome.resolve(tag: tag),
+                    mark: { DebugTimings.markLaunch($0) })
+    }
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?

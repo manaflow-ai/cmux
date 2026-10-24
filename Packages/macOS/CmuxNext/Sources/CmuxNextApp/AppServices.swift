@@ -16,6 +16,7 @@ import CmuxNextDaemon
 import CmuxNextFeed
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextLaunchFiles
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -394,7 +395,7 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
         self.firstFrame = firstFrame
-        launchFiles = environment.launchFiles ?? LaunchFiles(environment: environment)
+        launchFiles = environment.launchFiles ?? environment.startLaunchFiles()
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus

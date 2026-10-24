@@ -19,6 +19,8 @@ import PackageDescription
 //   CmuxNextLaunch -> Compat, Wakeups (the launch's primitives: reads off the main thread begun in
 //     `main`, LaunchRead and SavedFrameDirectory, and FirstFrameGate; Daemon, Terminal, AgentPane,
 //     HomeEngine and App import it; #17587)
+//   CmuxNextLaunchFiles -> Terminal, AgentPane, HomeEngine (the launch's domain reads composed into the
+//     one store the app makes in `main` and its services hand out: LaunchFiles; App imports it)
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
@@ -227,6 +229,7 @@ let package = Package(
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
                 "CmuxNextLaunch",
+                "CmuxNextLaunchFiles",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -1217,6 +1220,14 @@ let package = Package(
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The launch's saved files (#17587): each domain's launch reads (the terminals' last frames,
+        // the agent chats' files, the Home caches), started together at the top of `main` and held
+        // as one store by the app's services; the decoded frames' launch-snapshot priority and release.
+        .target(
+            name: "CmuxNextLaunchFiles",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextHomeEngine", "CmuxNextTerminal"],
+            swiftSettings: uiSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextLaunchTests",
             dependencies: ["CmuxNextCompat", "CmuxNextLaunch"],
@@ -1626,6 +1637,7 @@ let package = Package(
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
                 "CmuxNextLaunch",
+                "CmuxNextLaunchFiles",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextNowPlaying",
