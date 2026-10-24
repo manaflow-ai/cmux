@@ -440,6 +440,7 @@
 				"$(CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF)",
 				"$(ARCHS)",
 				"$(CONFIGURATION)",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_CACHE)",
 			);
 			name = "Bundle optchat-chief";
 			outputFileListPaths = (
@@ -479,6 +480,7 @@
 				"$(CMUX_NEXT_REQUIRE_MOBILE_HOST)",
 				"$(ARCHS)",
 				"$(CONFIGURATION)",
+				"$(CMUX_NEXT_MOBILE_HOST_CACHE)",
 			);
 			name = "Bundle cmux-mobile-host";
 			outputFileListPaths = (
@@ -530,6 +532,7 @@
 				"$(CONFIGURATION)",
 				"$(CMUX_TIMESTAMP)",
 				"$(CMUX_STRIP_TOOL)",
+				"$(CMUX_UBLOCK_CACHE)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
@@ -574,6 +577,7 @@
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
 				"$(CMUX_TIMESTAMP)",
+				"$(CMUX_NEXT_RB_HOST_CACHE_DIR)",
 			);
 			name = "Embed remote browser host";
 			outputFileListPaths = (
@@ -605,6 +609,7 @@
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
+				"$(CMUX_CUA_ASSET_CACHE_DIR)",
 			);
 			name = "Embed Computer Use helper (dev)";
 			outputFileListPaths = (
