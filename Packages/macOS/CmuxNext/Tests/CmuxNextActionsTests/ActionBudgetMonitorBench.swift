@@ -14,7 +14,7 @@ import Testing
 /// CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench
 /// ```
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_ACTION_BUDGET_BENCH"] == "1"))
+@Suite(.serialized)
 struct ActionBudgetMonitorBench {
     private static let runs = 2_000_000
 
