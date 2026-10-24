@@ -119,6 +119,9 @@ CASES = {
         (SERVICE, "func w() {\n    _ = group.wait(timeout: .now() + 1)\n}\n",
          "func w() {\n    _ = group.blockingWait(timeout: .now() + 1)\n}\n"),
     ],
+    "maybe-main-blocking ": [  # (PL-qos) a caller-isolated async function: a warning, never a refusal
+        (SERVICE, "func run() async throws {\n    try process.blockingRun()\n}\n", None),
+    ],
     "raw-blocking ": [
         (SERVICE, "func start() {\n    _ = posix_spawn(&pid, path, nil, nil, argv, envp)\n}\n", "raw-blocking"),
         (SERVICE, "func start() {\n    _ = blockingPosixSpawn(&pid, path, nil, nil, argv, envp)\n}\n", None),
@@ -215,6 +218,27 @@ class BlockingRuleTests(unittest.TestCase):
                     else:
                         self.assertIn(rule, self.push(directory, bad), f"{rule} case {number} not refused")
                     self.assertNotIn(rule, self.push(directory, good), f"{rule} case {number}: right pattern refused")
+
+    def test_a_caller_isolated_async_function_warns_and_never_refuses(self):
+        cases = {
+            "func run() async throws {\n    try process.blockingRun()\n}\n": True,
+            "@concurrent func run() async throws {\n    try process.blockingRun()\n}\n": False,
+            "nonisolated func run() async throws {\n    try process.blockingRun()\n}\n": False,
+            "actor Runner {\n    func run() async throws {\n        try process.blockingRun()\n    }\n}\n": False,
+            "func run() throws {\n    try process.blockingRun()\n}\n": False,
+        }
+        for text, warns in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{SERVICE}/Added.swift", text)
+                self.commit("adds")
+                saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+                try:
+                    refusals, warnings = guardrails.check(self.repo, self.base, "HEAD")
+                finally:
+                    os.environ.update(saved)
+                self.assertNotIn("maybe-main-blocking", [r.id for r, _ in refusals])
+                self.assertEqual(any(kind == "maybe-main-blocking" for kind, _ in warnings), warns)
 
     def test_a_blocking_call_on_main_is_reported_once_not_also_as_raw(self):
         ids = self.push(UI, "func load() -> Data? {\n    try? Data(contentsOf: url)\n}\n")
