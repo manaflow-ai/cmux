@@ -13,7 +13,7 @@ import os
 ///
 /// ```swift
 /// let reporter = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: ids),
-///                                     overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets, logsRuns: isDebug)
+///                                     overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets(environment: env), logsRuns: isDebug)
 /// let fields = await reporter.counts().json
 /// ```
 public final class ActionBudgetReporter: Sendable {
@@ -29,7 +29,7 @@ public final class ActionBudgetReporter: Sendable {
     ///   - naming: The report id of each action (no user text in a report).
     ///   - overBudget: The main-thread watchdog's over-budget records (``MainThreadWatchdog/overBudget``),
     ///     for the Debug line's stack; nil without a watchdog.
-    ///   - sampling: Whether the watchdog samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets``).
+    ///   - sampling: Whether the watchdog samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets(environment:)``).
     ///   - logsRuns: Write the Debug log line per over-budget run (Debug builds). It keeps the
     ///     real action id: the log stays on this Mac.
     @MainActor
