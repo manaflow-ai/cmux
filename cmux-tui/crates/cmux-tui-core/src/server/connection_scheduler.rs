@@ -99,7 +99,8 @@ impl RequestAcceptance {
 /// requests waiting on it. Never dropped under the scheduler's state lock.
 pub(super) struct OrderTicket {
     scheduler: Weak<ConnectionSurfaceScheduler>,
-    surface: SurfaceId,
+    /// The surface it orders by; None for a connection-wide control barrier.
+    surface: Option<SurfaceId>,
     arrival: u64,
     lane: OrderLane,
 }
@@ -114,13 +115,20 @@ impl Drop for OrderTicket {
     fn drop(&mut self) {
         let Some(scheduler) = self.scheduler.upgrade() else { return };
         let mut state = scheduler.state.lock().recover_poison();
-        if let Some(order) = state.surface_orders.get_mut(&self.surface) {
-            match self.lane {
-                OrderLane::Control => order.control.remove(&self.arrival),
-                OrderLane::Stream => order.streams.remove(&self.arrival),
-            };
-            if order.control.is_empty() && order.streams.is_empty() {
-                state.surface_orders.remove(&self.surface);
+        match self.surface {
+            None => {
+                state.connection_barriers.remove(&self.arrival);
+            }
+            Some(surface) => {
+                if let Some(order) = state.surface_orders.get_mut(&surface) {
+                    match self.lane {
+                        OrderLane::Control => order.control.remove(&self.arrival),
+                        OrderLane::Stream => order.streams.remove(&self.arrival),
+                    };
+                    if order.control.is_empty() && order.streams.is_empty() {
+                        state.surface_orders.remove(&surface);
+                    }
+                }
             }
         }
         drop(state);
@@ -142,11 +150,23 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) next_arrival: u64,
     /// The unfinished requests of each surface, by lane.
     pub(super) surface_orders: HashMap<SurfaceId, SurfaceOrder>,
+    /// Control requests that name no surface and are not accepted yet
+    /// (`set-client-info`, `identify`, a create): connection-wide barriers.
+    /// A stream request waits until every earlier one is accepted, as on one
+    /// serial connection (the capability a later attach needs is recorded by
+    /// the `set-client-info` sent before it).
+    pub(super) connection_barriers: BTreeSet<u64>,
 }
 
 impl ConnectionSurfaceState {
     /// Whether `surface` has an unfinished request on `lane` that arrived
     /// before `arrival`.
+    /// Whether a connection-wide control request that arrived before
+    /// `arrival` is not accepted yet.
+    pub(super) fn earlier_barrier(&self, arrival: u64) -> bool {
+        self.connection_barriers.first().is_some_and(|first| *first < arrival)
+    }
+
     pub(super) fn earlier_on(&self, surface: SurfaceId, lane: OrderLane, arrival: u64) -> bool {
         self.surface_orders.get(&surface).is_some_and(|order| {
             let set = match lane {
@@ -400,14 +420,24 @@ impl ConnectionSurfaceScheduler {
         surface: Option<SurfaceId>,
         lane: OrderLane,
     ) -> Option<OrderTicket> {
-        let surface = surface?;
         let arrival = state.next_arrival;
         state.next_arrival += 1;
-        let order = state.surface_orders.entry(surface).or_default();
-        match lane {
-            OrderLane::Control => order.control.insert(arrival),
-            OrderLane::Stream => order.streams.insert(arrival),
-        };
+        match (surface, lane) {
+            (Some(surface), _) => {
+                let order = state.surface_orders.entry(surface).or_default();
+                match lane {
+                    OrderLane::Control => order.control.insert(arrival),
+                    OrderLane::Stream => order.streams.insert(arrival),
+                };
+            }
+            // A control request with no surface is a connection-wide barrier.
+            (None, OrderLane::Control) => {
+                state.connection_barriers.insert(arrival);
+            }
+            // A stream request with no surface (cancel-stream) orders only
+            // within its own lane.
+            (None, OrderLane::Stream) => {}
+        }
         Some(OrderTicket { scheduler: Arc::downgrade(self), surface, arrival, lane })
     }
 
@@ -422,7 +452,10 @@ impl ConnectionSurfaceScheduler {
             if self.cancelled.is_cancelled() {
                 return false;
             }
-            if !state.earlier_on(ticket.surface, OrderLane::Control, ticket.arrival) {
+            let surface_waits = ticket.surface.is_some_and(|surface| {
+                state.earlier_on(surface, OrderLane::Control, ticket.arrival)
+            });
+            if !surface_waits && !state.earlier_barrier(ticket.arrival) {
                 return true;
             }
             state = self.changed.wait(state).recover_poison();
@@ -450,7 +483,9 @@ impl ConnectionSurfaceScheduler {
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
         let waits_for_streams = |pending: &PendingSurfaceRequest| {
             pending.order.as_ref().is_some_and(|ticket| {
-                state.earlier_on(ticket.surface, OrderLane::Stream, ticket.arrival)
+                ticket.surface.is_some_and(|surface| {
+                    state.earlier_on(surface, OrderLane::Stream, ticket.arrival)
+                })
             })
         };
         if state.active_clear_surfaces.is_empty()
