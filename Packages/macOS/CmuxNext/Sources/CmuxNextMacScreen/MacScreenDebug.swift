@@ -16,6 +16,8 @@ import CmuxScreenKit
 /// - `display_fps` {fps?, tab?}: the refresh rate each tab (or `tab`)
 ///   reports to its Mac instead of its display's; no `fps` reports the
 ///   display's own again. Returns the tabs as `state` does.
+/// - `quality` {quality, tab?}: the Quality menu's choice (auto, smooth,
+///   low, medium, high) for each tab (or `tab`), as the menu sets it.
 ///
 /// Each streaming row also has `target_fps` (the rate the Mac says it
 /// streams at), `display_fps` (the rate this pane reported), and WebRTC's
@@ -51,6 +53,12 @@ extension MacScreenPages {
             let fps = params["fps"]?.intValue
             if let fps, !(1 ... 1000).contains(fps) { return ["error": "fps must be 1...1000"] }
             for tab in tabs { tab.pane?.view.debugDisplayFrameRate = fps }
+            return ["tabs": .array(tabs.map(row))]
+        case "quality":
+            guard let quality = params["quality"]?.stringValue.flatMap(ScreenQuality.init(rawValue:)) else {
+                return ["error": "quality: auto, smooth, low, medium, high"]
+            }
+            for tab in tabs { tab.pane?.view.chrome.actions.setQuality(quality) }
             return ["tabs": .array(tabs.map(row))]
         case "state":
             systemShortcuts.refreshAccessibility()
