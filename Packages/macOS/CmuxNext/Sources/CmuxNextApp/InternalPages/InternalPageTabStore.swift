@@ -129,11 +129,22 @@ final class InternalPageTabStore {
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
+        let view = makePageView(key: key, page: page, provider: provider)
         view.navigate = navigate
         views[key] = view
         return view
+    }
+
+    /// Tab `key`'s view: placeholder first (built after the commit) for a provider that allows it
+    /// (``InternalPageProvider/buildsViewAfterCommit``), else built now.
+    private func makePageView(key: String, page: InternalPageID, provider: any InternalPageProvider) -> InternalPageView {
+        guard provider.buildsViewAfterCommit else {
+            let content = provider.makeView(for: key, in: windows[key])
+            return InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
+        }
+        return InternalPageView(key: key, page: page, topBar: provider.makeTopBar(for: key)) { [weak self] in
+            provider.makeView(for: key, in: self?.windows[key])
+        }
     }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
@@ -179,8 +190,7 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
+        let view = makePageView(key: key, page: page, provider: provider)
         view.navigate = navigate
         views[key] = view
         return view
@@ -209,7 +219,10 @@ final class InternalPageTabStore {
         let route = daemon.supports(DaemonCapability.pageTabRoute.rawValue) ? provider.route(for: key) : nil
         snapshot.conversation = ConversationTabRef(page: page.rawValue, route: route)
         track(provisional.id, key: key, in: store, window: window)
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window), topBar: provider.makeTopBar(for: key))
+        let view = provider.buildsViewAfterCommit
+            // Placeholder first: the tab shows in this turn's commit, its page is built just after it.
+            ? InternalPageView(key: key, page: page, topBar: provider.makeTopBar(for: key)) { [weak window] in provider.makeView(for: key, in: window) }
+            : InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window), topBar: provider.makeTopBar(for: key))
         views[key] = view
         store.onPageTabCreated = { [weak self] provisional, tab in
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)

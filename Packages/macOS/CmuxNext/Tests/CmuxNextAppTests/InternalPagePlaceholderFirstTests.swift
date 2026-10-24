@@ -35,7 +35,7 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    @Test func openingAPageBuildsItsViewAfterTheKeysCommitNotInIt() throws {
+    @Test func openingAPageBuildsItsViewAfterTheKeysCommitNotInIt() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -64,6 +64,28 @@ import Testing
         let view = try #require(services.pages.existingView(key))
         #expect(view.window === window && !view.isHidden, "the tab's page area did not show in the key's turn")
         #expect(provider.made == 0, "the key's turn built the page view")
+
+        var reached: NSView?
+        view.whenContent { reached = $0 }
+        #expect(reached == nil)
+
+        // Right after the key's commit: the page view exists, once, in the tab, and its waiter ran.
+        await Self.afterCommit()
+        #expect(provider.made == 1, "the page view was built \(provider.made) times after the commit")
+        let content = try #require(view.content)
+        #expect(reached === content)
+        #expect(content.superview === view)
     }
 
+    /// Returns after the Core Animation commit that ends this main run-loop turn.
+    static func afterCommit() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
+            let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, false, 2_000_002) { observer, _ in
+                CFRunLoopObserverInvalidate(observer)
+                continuation.resume()
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
+        }
+    }
 }

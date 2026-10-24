@@ -68,6 +68,9 @@ final class TasksPageService: InternalPageProvider {
     var title: String { TasksHostView.paneTitle }
     var symbol: String { "checklist" }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         TasksHostView(model: makeModel(), layout: { [weak services] in Self.layout(services?.settings) })
     }

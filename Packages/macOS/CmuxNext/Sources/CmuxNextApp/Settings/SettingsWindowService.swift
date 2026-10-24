@@ -82,7 +82,11 @@ final class SettingsWindowService: InternalPageProvider {
         waiting = nil
         pendingRoute = route
         let view = services.pages.show(.settings, in: window, focus: focus)
-        if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        if let route {
+            view?.whenContent { content in
+                if let page = content as? PageWebView, page.route != route { page.open(route: route) }
+            }
+        }
     }
 
     /// A window installed its workspace content or mounted a pane: a show that waited for a window
@@ -156,6 +160,9 @@ final class SettingsWindowService: InternalPageProvider {
     var title: String { SettingsDeepLink.pageTitle }
     var symbol: String { "gearshape" }
     var icon: IconName? { .settings }
+
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).
     func makeView(for key: String, in window: WindowController?) -> NSView {
