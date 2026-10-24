@@ -132,7 +132,7 @@ final class BrowserTabService {
         }
         settled = { daemon in
             guard let connection = daemon.connection else { return }
-            await daemon.store.applied(through: await connection.eventSequence())
+            await daemon.appliedThroughReply(on: connection)
         }
         update = { daemon, surface, update in
             await daemon.run("update-frontend-browser-tab") { connection in
