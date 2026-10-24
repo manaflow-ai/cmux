@@ -181,3 +181,45 @@ fn an_attach_or_adopt_the_holder_refuses_ends_its_sink() {
     let _ = holder.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Holder-core deep review: a SPAWN the holder refuses at once (here: an
+/// empty argv) fails that spawn, and nothing else. `HolderLink::spawn`
+/// sends an ATTACH right behind its SPAWN, which the holder then refuses
+/// too (it runs no terminal on that channel); that second refusal must not
+/// reach the spawn's sink as a refused stream (a spurious "refused a
+/// terminal's stream" and a lose of a sink nobody uses). Before, the link
+/// removed only the spawn's waiter on the first refusal, so the second
+/// found the sink unless the spawn's caller had already dropped it. A
+/// spawn on another channel answers after both refusals, so the link has
+/// routed them both when it returns.
+#[test]
+fn a_spawn_the_holder_refuses_at_once_never_reaches_its_sink() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let dir = PathBuf::from("/tmp").join(format!("cmhs-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("h.sock");
+    let mut holder = cmux_holder::client::launch(
+        std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
+        &socket,
+        &TOKEN,
+    )
+    .unwrap();
+    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
+
+    let refused = Arc::new(Collect::default());
+    let empty = SpawnRequest { argv: Vec::new(), ..request(5, "") };
+    let failed = link.spawn(5, &empty, refused.clone()).err().expect("an empty argv spawned");
+    assert!(failed.to_string().contains("empty argv"), "failed elsewhere: {failed}");
+    let next = Arc::new(Collect::default());
+    link.spawn(6, &request(6, "exec cat"), next).unwrap();
+    assert_eq!(
+        refused.refused.lock().unwrap().as_deref(),
+        None,
+        "the refused SPAWN's ATTACH reached its sink"
+    );
+
+    link.close(6, 200).unwrap();
+    let _ = holder.kill();
+    let _ = holder.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
