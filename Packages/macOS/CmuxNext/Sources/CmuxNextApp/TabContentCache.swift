@@ -18,6 +18,8 @@ import Observation
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
+    /// The app's blocking-work lanes (the omnibar's DNS lookups run there).
+    let work: BackgroundWork
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -139,14 +141,16 @@ final class TabContentCache {
     let resizes: ResizeCoordinator
 
     /// - Parameters:
+    ///   - work: the app's blocking-work lanes (`AppServices.work`); the omnibar's DNS lookups run there.
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
+    init(daemon: DaemonService, work: BackgroundWork, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
+        self.work = work
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
         self.afterFrame = afterFrame
