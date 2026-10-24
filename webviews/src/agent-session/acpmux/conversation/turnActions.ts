@@ -13,9 +13,7 @@ import type { RetryModel } from "./retryModelSections";
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
-  /// Resolves with the forked session when the host accepted it. A rejected or empty result is
-  /// surfaced by the shared ForkButton so a slow host never looks like a dead click.
-  fork?: (throughSeq: number) => Promise<unknown>;
+  fork?: (throughSeq: number) => void;
   /// The latest completed turn (`latestForkSeq`), the only one `fork` goes through unless `forkAny`.
   forkSeq?: number;
   /// Each answered prompt's own turn (`promptTurns`): the Fork under its bubble forks through it.

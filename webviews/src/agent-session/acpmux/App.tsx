@@ -4924,7 +4924,7 @@ function AcpmuxPane() {
         },
       }),
       ...(forkable && {
-        fork: (throughSeq: number) => callNative("chat.fork", { throughSeq }),
+        fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
         forkAny,
         promptTurns: stablePromptSeqs,
@@ -6594,8 +6594,7 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
             if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
-            await persistSession(await client.select(forked));
-            return forked;
+            return persistSession(await client.select(forked));
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
           // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
