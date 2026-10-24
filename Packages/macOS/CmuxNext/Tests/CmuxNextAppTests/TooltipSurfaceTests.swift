@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxTheme
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo, 2026-10-14: the tooltip is frosted glass (a strong blur under a tint dense enough that the
 /// text reads over anything, a one-device-pixel rim, a small tight shadow; the opaque popup
