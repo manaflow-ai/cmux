@@ -26,7 +26,22 @@ struct ObjCSelectorRuntimeTests {
     /// implement on some macOS, each read and found to make no `super` call (the override is the
     /// only implementation). An override that calls `super` there raises
     /// "unrecognized selector": remove the super call, then add the pair here.
-    static let reviewedOverridesWithoutSuper: Set<String> = []
+    static let reviewedOverridesWithoutSuper: Set<String> = [
+        // NSTextInputClient's optional placement: a constant answer, no super call.
+        "CmuxNextAgentPane.AgentPaneWKWebView.preferredTextAccessoryPlacement",
+        "CmuxNextPages.PageWKWebView.preferredTextAccessoryPlacement",
+        // NSTextViewDelegate's menu hook (the field editor's delegate): builds its own menu, no super call.
+        "CmuxNextBrowser.AddressField.textView:menu:forEvent:atIndex:",
+        // NSDraggingDestination's optional end (NSView has none): no super call.
+        "CmuxNextBrowser.CEFHostView.draggingEnded:",
+        "CmuxNextHome.HomeNativeTranscriptView.draggingEnded:",
+        // Forwards to its drop target, no super call.
+        "CmuxNextHome.HomeSidebarSplitView.draggingEnded:",
+        // Calls super only when WKWebView.instancesRespond(to: draggingEnded:) (WebKitDrag.ended).
+        "CmuxNextPages.PageWKWebView.draggingEnded:",
+        // NSStandardKeyBindingResponding's Escape: closes the modal, no super call.
+        "CmuxNextUpdater.ShareCmuxMessageTextView.cancelOperation:",
+    ]
 
     @Test func cmuxsApplicationAnswersWhatChromiumSendsToNSApp() throws {
         for name in Self.chromiumAppSelectors {
