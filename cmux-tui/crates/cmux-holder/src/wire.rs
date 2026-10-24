@@ -419,18 +419,23 @@ const RECV_FLAGS: libc::c_int = 0;
 
 /// One `recvmsg` of at most `len` bytes into `buf`, with `control` as the
 /// control buffer; descriptors that arrive are returned owned
-/// (close-on-exec).
+/// (close-on-exec). A descriptor that cannot be made close-on-exec fails
+/// the read: every descriptor of the frame is closed then, and the link is
+/// lost, rather than keeping a descriptor every later child inherits.
 ///
 /// On Linux the kernel installs them close-on-exec (`MSG_CMSG_CLOEXEC`).
 /// macOS has no such flag: there each descriptor gets `FD_CLOEXEC` right
 /// after `recvmsg` returns. The holder is single-threaded, so nothing forks
-/// in between there; in the multithreaded daemon a process another thread
-/// spawns in that window inherits the descriptor (a PTY master, or a ring
-/// segment: a writable copy of a terminal's output), because the daemon's
-/// spawns do not close inherited descriptors. The window is the few
-/// instructions between the two calls, once per SPAWNED, LISTED or ADOPTED
-/// frame: the same kind of window as `crate::ring`'s `EINVAL` fallback for
-/// `shm_open`.
+/// in between there. In the multithreaded daemon this is NOT atomic: a
+/// process another daemon thread spawns between the two calls inherits the
+/// descriptor (a PTY master, or a ring segment: a writable copy of a
+/// terminal's output) for its whole life, because the daemon's spawns (std
+/// `Command`, `posix_spawn` without `POSIX_SPAWN_CLOEXEC_DEFAULT`) pass
+/// every descriptor that is not close-on-exec. Nothing on the receiving
+/// side can close that window on macOS; only the spawning side can (every
+/// daemon child started with `POSIX_SPAWN_CLOEXEC_DEFAULT` and explicit
+/// `dup2` actions, as `cmux-mux2`'s `spawn_pty` does). Open (review 1 of
+/// pl-holder-11, major): that spawn helper is not in place yet.
 ///
 /// # Safety
 ///
@@ -470,14 +475,20 @@ unsafe fn recv_with_fds(
                 let header = libc::CMSG_LEN(0) as usize;
                 let count = ((*cmsg).cmsg_len as usize - header) / size_of::<RawFd>();
                 for index in 0..count {
-                    let raw = std::ptr::read_unaligned(data.add(index));
-                    if RECV_FLAGS == 0 {
-                        libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC);
-                    }
-                    fds.push(OwnedFd::from_raw_fd(raw));
+                    // Owned at once, so every one of them closes on any
+                    // early return below.
+                    fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(data.add(index))));
                 }
             }
             cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
+        }
+    }
+    if RECV_FLAGS == 0 {
+        for fd in &fds {
+            // SAFETY: F_SETFD on a descriptor this call owns.
+            if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
         }
     }
     Ok((n, fds))
