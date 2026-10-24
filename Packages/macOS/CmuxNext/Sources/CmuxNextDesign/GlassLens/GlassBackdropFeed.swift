@@ -66,9 +66,8 @@ public final class GlassBackdropFeed {
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Reads Sendable state only (`FrameClient` is a main-actor class): the pending frame leaves its
-    // scheduler on the main thread, inline when released there as before; a release on another thread
-    // (it skipped this before: the client stayed active on its scheduler until its next tick) hands
-    // it to the main thread.
+    // scheduler on the main thread, inline when the feed is released there, otherwise on the next
+    // turn of the main queue.
     nonisolated deinit {
         guard let nextFrame else { return }
         MainDelivery().run { nextFrame.deactivate() }
