@@ -10,8 +10,6 @@ import CmuxNextDesign
 @MainActor
 enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch")
-    /// `debug.input_commit` (``InputCommitTimer``): any key or click to its commit, with the workspaces it showed in its turn.
-    static let inputCommit = InputCommitTimer(owner: "debug.input_commit")
     /// The window whose switch is timed now (a switch is keyed by its window's state); nil: none.
     static func began(_ owner: AnyObject?) {
         guard timer.isRecording, let owner else { return }
@@ -28,7 +26,6 @@ enum DebugWorkspaceSwitch {
     }
 
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
-        inputCommit.noteShown()
         if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window) }
     }
 }
