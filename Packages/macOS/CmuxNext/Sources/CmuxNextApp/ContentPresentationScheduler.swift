@@ -26,6 +26,8 @@ final class ContentPresentationScheduler {
     private var isScheduled = false
     /// A surface was created since the last frame; the frame's budget is spent.
     private var createdThisFrame = false
+    /// Work waiting for a frame at which no pane waits to show its selection (``whenIdle(_:)``).
+    private var idleWaiters: [@MainActor () -> Void] = []
 
     init(frames: any ControlFrameSource = FrameBatcher(owner: "ContentPresentation")) {
         self.frames = frames
@@ -57,6 +59,14 @@ final class ContentPresentationScheduler {
         return true
     }
 
+    /// Runs `work` at the first display frame from now at which no pane waits to show its
+    /// selection: every pane queued until then (one new surface per frame) has shown it. The
+    /// launch drops the panes' last frames no pane took then (`LaunchFiles.release`).
+    func whenIdle(_ work: @escaping @MainActor () -> Void) {
+        idleWaiters.append(work)
+        schedule()
+    }
+
     /// Drops a pane that is going away.
     func cancel(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
@@ -65,7 +75,7 @@ final class ContentPresentationScheduler {
     }
 
     private func schedule() {
-        guard !isScheduled, !pending.isEmpty || createdThisFrame else { return }
+        guard !isScheduled, !pending.isEmpty || createdThisFrame || !idleWaiters.isEmpty else { return }
         isScheduled = true
         frames.scheduleFrame { [weak self] in
             guard let self else { return }
@@ -89,6 +99,11 @@ final class ContentPresentationScheduler {
         }
         order = remaining
         createdThisFrame = created
+        if remaining.isEmpty, !idleWaiters.isEmpty {
+            let waiting = idleWaiters
+            idleWaiters.removeAll()
+            for work in waiting { work() }
+        }
         schedule()
     }
 }
