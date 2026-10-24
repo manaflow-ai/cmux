@@ -13,7 +13,7 @@ import {
   mediaOpenRequest,
   MediaPlayer,
 } from "../src/agent-session/acpmux/chips/ReplyMedia";
-import { HOVER_INTENT } from "../src/ui/hoverIntent";
+import { MEDIA_PREVIEW_DWELL } from "../src/ui/hoverIntent";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 
 describe("which sources are video", () => {
@@ -202,9 +202,9 @@ describe("the inline player", () => {
   });
 
   function hover(container: HTMLElement, enter = true) {
-    container.querySelector("button.cv-media__poster")!.dispatchEvent(
-      new dom!.window.MouseEvent(enter ? "mouseover" : "mouseout", { bubbles: true }),
-    );
+    container
+      .querySelector("button.cv-media__poster")!
+      .dispatchEvent(new dom!.window.MouseEvent(enter ? "mouseover" : "mouseout", { bubbles: true }));
   }
 
   test("a pointer sweep never starts a preview; a deliberate rest does", async () => {
@@ -212,23 +212,27 @@ describe("the inline player", () => {
     jest.useFakeTimers();
     await act(async () => hover(container));
     expect(video.dataset.played).toBeUndefined();
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay - 1));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL - 1));
     expect(video.dataset.played).toBeUndefined();
     await act(async () => hover(container, false));
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBeUndefined();
     await act(async () => hover(container));
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBe("muted");
   });
 
-  for (const attribute of ["agentMotion", "cmuxMotion"] as const) {
-    test(`${attribute} off blocks hover but keeps click-to-play with sound`, async () => {
+  for (const [attribute, value] of [
+    ["agentMotion", "off"],
+    ["cmuxMotion", "off"],
+    ["cmuxMotion", "reduced"],
+  ] as const) {
+    test(`${attribute} ${value} blocks hover but keeps click-to-play with sound`, async () => {
       const { container, video } = await mount();
-      document.documentElement.dataset[attribute] = "off";
+      document.documentElement.dataset[attribute] = value;
       jest.useFakeTimers();
       await act(async () => hover(container));
-      await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+      await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
       expect(video.dataset.played).toBeUndefined();
       await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
       expect(video.dataset.played).toBe("sound");
@@ -238,51 +242,75 @@ describe("the inline player", () => {
 
   test("Reduce Motion blocks a preview and a live change stops one", async () => {
     const { container, video } = await mount();
-    let reduced = true;
-    const change = new dom!.window.EventTarget();
-    Object.assign(dom!.window, { matchMedia: () => ({
-      get matches() { return reduced; },
-      addEventListener: change.addEventListener.bind(change),
-      removeEventListener: change.removeEventListener.bind(change),
-    }) });
-    video.pause = () => { video.dataset.paused = "yes"; };
+    document.documentElement.dataset.cmuxMotion = "reduced";
+    await act(async () => await Promise.resolve());
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
     jest.useFakeTimers();
     await act(async () => hover(container));
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBeUndefined();
     await act(async () => hover(container, false));
-    reduced = false;
+    delete document.documentElement.dataset.cmuxMotion;
+    await act(async () => await Promise.resolve());
     await act(async () => hover(container));
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBe("muted");
     delete video.dataset.paused;
-    reduced = true;
-    await act(async () => change.dispatchEvent(new dom!.window.Event("change")));
-    expect(video.dataset.paused).toBe("yes");
+    document.documentElement.dataset.cmuxMotion = "reduced";
+    await act(async () => await Promise.resolve());
+    expect(video.getAttribute("data-paused")).toBe("yes");
   });
 
   test("scroll, page-away and live motion-off cancel pending and active previews", async () => {
     const { container, video } = await mount();
-    video.pause = () => { video.dataset.paused = "yes"; };
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
     jest.useFakeTimers();
     for (const interrupt of [
       () => container.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true })),
       () => document.dispatchEvent(new dom!.window.Event("visibilitychange")),
-      () => { document.documentElement.dataset.agentMotion = "off"; },
+      () => dom!.window.dispatchEvent(new dom!.window.Event("pagehide")),
+      () => {
+        document.documentElement.dataset.agentMotion = "off";
+      },
     ]) {
       await act(async () => hover(container));
-      await act(async () => { interrupt(); });
-      await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+      await act(async () => {
+        interrupt();
+      });
+      await act(async () => await Promise.resolve());
+      await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
       expect(video.dataset.played).toBeUndefined();
       await act(async () => hover(container, false));
       delete document.documentElement.dataset.agentMotion;
+      await act(async () => await Promise.resolve());
     }
     await act(async () => hover(container));
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBe("muted");
     delete video.dataset.paused;
-    await act(async () => { document.documentElement.dataset.cmuxMotion = "off"; });
-    expect(video.dataset.paused).toBe("yes");
+    await act(async () => {
+      document.documentElement.dataset.cmuxMotion = "off";
+    });
+    await act(async () => await Promise.resolve());
+    expect(video.getAttribute("data-paused")).toBe("yes");
+  });
+
+  test("unmount cancels a pending preview and pauses an active one", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    jest.useFakeTimers();
+    await act(async () => hover(container));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
+    expect(video.dataset.played).toBe("muted");
+    await act(async () => root!.unmount());
+    root = undefined;
+    expect(video.getAttribute("data-paused")).toBe("yes");
   });
 
   test("Open in tab asks the host to open the file, never the granted URL", async () => {
@@ -302,7 +330,7 @@ describe("the inline player", () => {
         .querySelector("button.cv-media__poster")!
         .dispatchEvent(new dom!.window.MouseEvent("mouseover", { bubbles: true }));
     });
-    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBe("muted");
     jest.useRealTimers();
     await act(async () =>

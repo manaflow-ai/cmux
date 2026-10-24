@@ -280,6 +280,23 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
 
   useEffect(() => {
     const element = video.current;
+    const cancel = () => {
+      dismiss();
+      if (element?.muted) element.pause();
+    };
+    document.addEventListener("scroll", cancel, true);
+    document.addEventListener("visibilitychange", cancel);
+    window.addEventListener("pagehide", cancel);
+    return () => {
+      cancel();
+      document.removeEventListener("scroll", cancel, true);
+      document.removeEventListener("visibilitychange", cancel);
+      window.removeEventListener("pagehide", cancel);
+    };
+  }, [dismiss]);
+
+  useEffect(() => {
+    const element = video.current;
     if (!element || started) return;
     if (previewing) void element.play()?.catch(() => {});
     else if (element.muted) element.pause();
