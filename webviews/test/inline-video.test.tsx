@@ -202,9 +202,9 @@ describe("the inline player", () => {
   });
 
   function hover(container: HTMLElement, enter = true) {
-    container.querySelector("button.cv-media__poster")!.dispatchEvent(
-      new dom!.window.MouseEvent(enter ? "mouseover" : "mouseout", { bubbles: true }),
-    );
+    container
+      .querySelector("button.cv-media__poster")!
+      .dispatchEvent(new dom!.window.MouseEvent(enter ? "mouseover" : "mouseout", { bubbles: true }));
   }
 
   test("a pointer sweep never starts a preview; a deliberate rest does", async () => {
@@ -240,12 +240,18 @@ describe("the inline player", () => {
     const { container, video } = await mount();
     let reduced = true;
     const change = new dom!.window.EventTarget();
-    Object.assign(dom!.window, { matchMedia: () => ({
-      get matches() { return reduced; },
-      addEventListener: change.addEventListener.bind(change),
-      removeEventListener: change.removeEventListener.bind(change),
-    }) });
-    video.pause = () => { video.dataset.paused = "yes"; };
+    Object.assign(dom!.window, {
+      matchMedia: () => ({
+        get matches() {
+          return reduced;
+        },
+        addEventListener: change.addEventListener.bind(change),
+        removeEventListener: change.removeEventListener.bind(change),
+      }),
+    });
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
     jest.useFakeTimers();
     await act(async () => hover(container));
     await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
@@ -258,20 +264,26 @@ describe("the inline player", () => {
     delete video.dataset.paused;
     reduced = true;
     await act(async () => change.dispatchEvent(new dom!.window.Event("change")));
-    expect(video.dataset.paused).toBe("yes");
+    expect(video.getAttribute("data-paused")).toBe("yes");
   });
 
   test("scroll, page-away and live motion-off cancel pending and active previews", async () => {
     const { container, video } = await mount();
-    video.pause = () => { video.dataset.paused = "yes"; };
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
     jest.useFakeTimers();
     for (const interrupt of [
       () => container.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true })),
       () => document.dispatchEvent(new dom!.window.Event("visibilitychange")),
-      () => { document.documentElement.dataset.agentMotion = "off"; },
+      () => {
+        document.documentElement.dataset.agentMotion = "off";
+      },
     ]) {
       await act(async () => hover(container));
-      await act(async () => { interrupt(); });
+      await act(async () => {
+        interrupt();
+      });
       await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
       expect(video.dataset.played).toBeUndefined();
       await act(async () => hover(container, false));
@@ -281,8 +293,24 @@ describe("the inline player", () => {
     await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
     expect(video.dataset.played).toBe("muted");
     delete video.dataset.paused;
-    await act(async () => { document.documentElement.dataset.cmuxMotion = "off"; });
-    expect(video.dataset.paused).toBe("yes");
+    await act(async () => {
+      document.documentElement.dataset.cmuxMotion = "off";
+    });
+    expect(video.getAttribute("data-paused")).toBe("yes");
+  });
+
+  test("unmount cancels a pending preview and pauses an active one", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    jest.useFakeTimers();
+    await act(async () => hover(container));
+    await act(async () => root!.unmount());
+    root = undefined;
+    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
+    expect(video.dataset.played).toBeUndefined();
+    expect(video.getAttribute("data-paused")).toBe("yes");
   });
 
   test("Open in tab asks the host to open the file, never the granted URL", async () => {

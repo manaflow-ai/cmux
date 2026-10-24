@@ -21,6 +21,7 @@ import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
+import { mediaHover } from "./mediaHover";
 
 const VIDEO = /\.(mp4|m4v|mov|webm)$/i;
 const AUDIO = /\.(mp3|m4a|aac|wav|flac)$/i;
@@ -247,8 +248,19 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const [duration, setDuration] = useState<string | undefined>();
+  const preview = useRef<ReturnType<typeof mediaHover> | null>(null);
+  useEffect(() => {
+    if (started || !video.current) return;
+    const hover = mediaHover(video.current);
+    preview.current = hover;
+    return () => {
+      hover.stop();
+      preview.current = null;
+    };
+  }, [src, started]);
   const play = () => {
     const element = video.current;
+    preview.current?.stop();
     setStarted(true);
     if (!element) return;
     element.muted = false;
@@ -281,14 +293,8 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
           className="cv-media__poster"
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
-          onMouseEnter={() => {
-            const element = video.current;
-            if (element?.paused) void element.play()?.catch(() => {});
-          }}
-          onMouseLeave={() => {
-            const element = video.current;
-            if (element?.muted) element.pause();
-          }}
+          onMouseEnter={() => preview.current?.enter()}
+          onMouseLeave={() => preview.current?.stop()}
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">
             <PlayTriangle size={18} style={{ color: "inherit" }} />
