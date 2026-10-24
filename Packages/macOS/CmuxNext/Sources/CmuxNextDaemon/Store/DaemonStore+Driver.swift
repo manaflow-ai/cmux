@@ -75,33 +75,6 @@ final class EventInbox: Sendable {
         }
     }
 
-    /// Puts events a batch did not reach (its frame's budget was spent) back in front of the
-    /// buffer, so they apply first on the next frame. A newer buffered event of the same
-    /// coalescing key still wins. Returns true when the caller must schedule a frame.
-    func putBack<Events: Sequence>(_ rest: Events) -> Bool where Events.Element == DaemonEventEnvelope {
-        state.withLock { state in
-            let merged = Array(rest) + state.events.compactMap { $0 }
-            state.events.removeAll(keepingCapacity: true)
-            state.latest.removeAll(keepingCapacity: true)
-            state.live = 0
-            for envelope in merged {
-                if !state.collapsed, let key = CoalesceKey(envelope.event) {
-                    if let old = state.latest[key] {
-                        state.events.modify(checked: old) { $0 = nil }
-                        state.live -= 1
-                        state.coalesced += 1
-                    }
-                    state.latest[key] = state.events.count
-                }
-                state.events.append(envelope)
-                state.live += 1
-            }
-            guard !state.framePending else { return false }
-            state.framePending = true
-            return true
-        }
-    }
-
     /// Events a newer one replaced so far (debug).
     var coalescedCount: Int { state.withLock { $0.coalesced } }
 
@@ -208,8 +181,8 @@ extension DaemonStore {
             }
         }
         let failure = await pump.value
-        // Everything left, unbudgeted: a frame asked for after this would find no driver.
-        drain(all: true)
+        // Everything left: a frame asked for after this would find no driver.
+        drain()
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()
@@ -223,44 +196,24 @@ extension DaemonStore {
         self.driver = nil
     }
 
-    /// Events applied per budget check: one slice amortizes a batch's fixed work (intents lifted
-    /// and reapplied, waiters settled) over its events, and stays far below the visible budget
-    /// (a workspace or tab delta applies in microseconds).
-    static let drainSlice = 32
-
-    /// Applies what is buffered, in slices, while the frame's visible budget lets it
-    /// (``MainFrameBudget``, plans/cmux-next/main-thread-budget.md): the rest goes back to the
-    /// front of the inbox and applies on the next frame. The first slice of a frame always applies.
-    /// With `all` (the connection's last drain, after which no frame drains) the whole batch applies.
-    func drain(all: Bool = false) {
+    /// Applies everything buffered as one batch, never split across frames: one daemon transaction
+    /// (close twelve panes and the layout change, close other workspaces) never shows half applied,
+    /// and the echo of a person's action with no intent (close other tabs, close a workspace from
+    /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
+    /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
+    /// and a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift).
+    func drain() {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
         guard !batch.isEmpty else { return }
-        let budget = all ? nil : driver.scheduler.mainFrameBudget
-        var rest = ArraySlice(batch)
-        while !rest.isEmpty {
-            let slice = Array(rest.prefix(Self.drainSlice))
-            rest = rest.dropFirst(Self.drainSlice)
-            let connected = slice.contains { if case .connected = $0.event { true } else { false } }
-            // A snapshot that failed past its retry budget is retried on the
-            // next daemon event (something changed), not on a timer.
-            let followup = apply(batch: slice)
-            if followup == .resync || needsResync {
-                // The snapshot supersedes what is left; the inbox holds it until the resync drains.
-                if !rest.isEmpty { _ = driver.inbox.putBack(rest) }
-                resync(seedAgents: connected)
-                return
-            } else if followup == .personal {
-                refetchPersonal()
-            }
-            if !rest.isEmpty, let budget, !budget.mayRun(.visible) {
-                if driver.inbox.putBack(rest) {
-                    // On the main actor, inside the frame: no run loop hop (it would land after the
-                    // tick and let the budgeted link go idle and be rebuilt every frame).
-                    driver.scheduler.scheduleFrameFromMain { [weak self] in self?.drain() }
-                }
-                return
-            }
+        let connected = batch.contains { if case .connected = $0.event { true } else { false } }
+        // A snapshot that failed past its retry budget is retried on the
+        // next daemon event (something changed), not on a timer.
+        let followup = apply(batch: batch)
+        if followup == .resync || needsResync {
+            resync(seedAgents: connected)
+        } else if followup == .personal {
+            refetchPersonal()
         }
     }
 
