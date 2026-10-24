@@ -64,7 +64,7 @@ enum DurableTabLink {
         let daemons = services.machines.daemons.filter { $0.connection != nil }
         services.registry.track(Task { @MainActor () -> ActionWorkFailure? in
             var failure: String?
-            // Whether the store shows the reopened tab's events (the reveal below reads it).
+            // Whether the store caught up with the reopen's reply (the reveal below reads the store).
             var shown = true
             let outcome = await reopen(on: daemons.indices.map { $0 }) { index in
                 let daemon = daemons[index]
@@ -84,12 +84,13 @@ enum DurableTabLink {
             }
             switch outcome {
             case .reopened:
-                // Reopened, but the store cannot show it (the connection ended or changed): no reveal to wait for.
+                // The reveal reads the store, so it still runs when the wait did not hold (the connection ended
+                // or changed): the tab may list after the reconnect's snapshot. A person is told why only when not.
+                if await reveal(id, intent: intent, services: services) { return nil }
                 guard shown else {
                     services.registry.refuse(RefusalStrings.resultNotShown)
                     return .resultNotShown
                 }
-                if await reveal(id, intent: intent, services: services) { return nil }
                 return ActionWorkFailure(RefusalStrings.linkTargetGone, mayHaveApplied: true)
             case .gone:
                 services.registry.refuse(RefusalStrings.linkTargetGone)

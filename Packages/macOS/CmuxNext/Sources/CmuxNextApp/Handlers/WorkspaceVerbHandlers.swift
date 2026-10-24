@@ -138,7 +138,9 @@ enum WorkspaceVerbHandlers {
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
         services.registry.track(result: Task {
             do {
-                // The connection the create runs on, read before it: a later one fails the wait below, never holds it.
+                // The connection the create runs on, read before it. The create waits its turn in the window's lane
+                // and sends on the connection current then: when that is a later one (a Cloud or server machine
+                // reconnects with a new connection), the wait takes one barrier on the current connection instead.
                 let connection = daemon.connection
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
                 // The store lists it (its `ws_` id and name) once it applied the create's events. Until then

@@ -170,10 +170,13 @@ enum DaemonClosedHistory {
                 // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); event-driven
                 undo?.reopenWatch?.cancel()
                 undo?.reopenWatch = Task { @MainActor [weak undo] in
-                    // Timings of a reopen the store shows: none when it cannot (or the next reopen cancelled this).
-                    guard await daemon.appliedThroughReply(on: connection, after: "reopen closed (undo watch)").isHeld else { return }
+                    let applied = await daemon.appliedThroughReply(on: connection, after: "reopen closed (undo watch)")
+                    // The next reopen cancelled this watch: its own watch times it.
+                    if applied == .cancelled { return }
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
-                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
+                    // The applied time only when the store caught up with the reply; when the tabs arrive is
+                    // read from the store, so it is recorded on a reconnect too (the case it was made to measure).
+                    if applied.isHeld { undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore()) }
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
                     for await present in ObservationStream({ inStore() }) where present {
                         undo?.noteReopenTabsArrived(start.duration(to: clock.now))
@@ -204,22 +207,28 @@ enum DaemonClosedHistory {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
-            // What follows reveals the reopened item from the store: a person is told when it cannot show it.
-            guard await daemon.appliedThroughReply(on: connection, after: "reopen closed (reveal)").isHeld else {
-                services.registry.refuse(RefusalStrings.resultNotShown)
-                return .resultNotShown
-            }
+            // What follows reveals the reopened item from the store. When the wait does not hold (the connection
+            // ended or changed, and a barrier on the current one did not hold either) the reveal still reads the
+            // store, which may list the item after the reconnect's snapshot: a person is told only when it does not.
+            let shown = await daemon.appliedThroughReply(on: connection, after: "reopen closed (reveal)").isHeld
             if item.kind == .workspace {
                 if let id = reopened.workspaceID,
                    let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {
                     services.windows.reveal(workspaceID: workspace)
                     return nil
+                } else if !shown {
+                    services.registry.refuse(RefusalStrings.resultNotShown)
+                    return .resultNotShown
                 } else {
                     let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
                     daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
                     services.registry.refuse(reason)
                     return ActionWorkFailure(reason, mayHaveApplied: true)
                 }
+            }
+            if !shown, reopened.workspaceID.flatMap({ daemon.store.workspace(resourceID: $0) }) == nil {
+                services.registry.refuse(RefusalStrings.resultNotShown)
+                return .resultNotShown
             }
             show(reopened, kind: item.kind, daemon: daemon, services: services)
             return nil

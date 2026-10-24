@@ -50,7 +50,8 @@ final class BrowserTabOpeners {
         return try await place(opener: opener, foreground: foreground,
                                order: { [weak pane] in pane?.tabs.map(\.surface) ?? [] },
                                pinned: { [weak pane] in Set(pane?.tabs.filter(\.pinned).map(\.surface) ?? []) }) { after in
-            // The connection the create runs on, read before it: a later one fails the wait, never holds it.
+            // The connection the create runs on, read before it: when a later one ran it, the wait takes one
+            // barrier on the current connection instead (`DaemonService.appliedThroughReply`).
             let connection = daemon.connection
             let surface = try await create(after)
             _ = await browserTabs.settled(daemon, connection)
