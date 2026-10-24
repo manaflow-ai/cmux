@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """every-action-sweep.py's own harness (deep review bench-small, 2026-10-23), against an in-memory app socket.
+Run by hand on a Freestyle VM, never in CI and never on a laptop (macOS-only CLOCK_UPTIME_RAW is aliased on Linux):
+~/fun/cmuxterm-hq/scripts/freestyle-run.sh --label sweep-test --snapshot node --sync . -- python3 -c "import time,runpy; time.CLOCK_UPTIME_RAW=getattr(time,'CLOCK_UPTIME_RAW',time.CLOCK_MONOTONIC); runpy.run_path('scripts/cmux-next/tests/test_every_action_sweep.py', run_name='__main__')"
 
 1. A row that closed panes gets exactly those panes back. The sweep reopens by id (`history.reopen`) the
    closed-history entries the measured input made, never the newest entry of the history (Cmd-Shift-T): the
