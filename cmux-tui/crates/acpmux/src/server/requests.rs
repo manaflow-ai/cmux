@@ -1396,6 +1396,11 @@ async fn dispatch_request(
             }
             Ok(detail)
         }
+        method::MUX_SESSION_FILES => {
+            super::session_files::require_local(conn.origin)?;
+            let s = hub.resolve(session_key(&params)?)?;
+            Ok(super::session_files::describe(hub, &s))
+        }
         method::MUX_WAIT => wait::wait(hub, &params).await,
         method::MUX_SCHEMA => {
             Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
