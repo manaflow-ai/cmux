@@ -54,6 +54,8 @@ import Testing
         panel.performClose(nil)
         #expect(!hud.isShown)
         #expect(!hud.isReading, "the close button left the HUD reading every run")
+        // The next run finds the ended stream and forgets it (before the fix the stream never ended).
+        Self.record(monitor, "after-close", ms: 1)
         #expect(monitor.readerCount == 0, "the monitor still has the closed HUD's reader")
         // Shown again, it reads again.
         hud.show(over: nil)
