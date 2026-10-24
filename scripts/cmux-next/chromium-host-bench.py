@@ -252,7 +252,7 @@ def run_helper(rpc, url, inproc_tab):
     # A pane of its own (the in-process page keeps the left one).
     rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
     time.sleep(1)  # test harness: the split settles
-    reply = rpc("debug.chromium_host", {"op": "open", "url": url}) or {}
+    reply = rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True}) or {}
     if reply.get("error"):
         RESULT["modes"]["helper"] = {"error": reply["error"]}
         return False

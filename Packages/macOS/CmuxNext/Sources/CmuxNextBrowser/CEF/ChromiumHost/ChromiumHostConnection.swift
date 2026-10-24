@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
 import Darwin
 import Foundation
@@ -87,3 +89,4 @@ nonisolated final class ChromiumHostConnection: Sendable {
     /// flood of frames, a full send buffer), not because the host closed it.
     var endedByProtocolError: Bool { state.endedByProtocolError }
 }
+#endif

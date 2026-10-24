@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import Darwin
 import Foundation
 
@@ -130,3 +132,4 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         _ = Darwin.kill(pid, SIGKILL)
     }
 }
+#endif
