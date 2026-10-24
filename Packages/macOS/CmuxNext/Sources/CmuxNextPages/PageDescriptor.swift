@@ -45,11 +45,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
     /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
     public let acceptsFirstMouse: Bool
+    /// Whether the page's events wait while nobody can see it (``PageRouter/isPageHidden``). True
+    /// for every page but one whose owner paces its own events and knows which ones a hidden page
+    /// waits on: the agent pane (`AgentPaneFramePacer`: a reply, `prompt_accepted` and a turn's end
+    /// still go to a hidden pane, since the page fails a prompt after a minute and forces a stop
+    /// after 5 s without them).
+    public let holdsEventsWhileHidden: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
+                holdsEventsWhileHidden: Bool = true) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -65,6 +72,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.holdsEventsWhileHidden = holdsEventsWhileHidden
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

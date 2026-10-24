@@ -19,7 +19,9 @@ public extension PageDescriptor {
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
-        acceptsFirstMouse: false)
+        acceptsFirstMouse: false,
+        // The pane's frame pacer holds a hidden pane's frames itself and still sends the ones the page waits on.
+        holdsEventsWhileHidden: false)
 }
 
 /// The `cmux.agent.*` ops: one per method of the old `agentSession` bridge, with the same params.
