@@ -1,53 +1,81 @@
 #!/usr/bin/env python3
-"""Remove agent-written pr-media files that show private machine or account names.
+"""Keep private machine and account names off the public pr-media branch.
 
 Many tools write screenshots, GIFs and videos to the public ``pr-media``
-branch (cmux-next-media.yml tours, nightly.yml reels, scripts/pr-media.py,
-scripts/showcase-publish.py, HQ tools), and most of them run no privacy check.
-Captures from the fleet minis show terminal prompts such as
+branch. Captures from the fleet minis show terminal prompts such as
 ``cmux@cmux7s-Mac-mini``, the Inspector's ``cmux7's Mac mini`` and the capture
-account's ``/Users/cmux``. This gate scans what changed on the branch, so it
-covers every writer at once.
+account's ``/Users/cmux``. This module is the one shared check, run twice.
 
-``.github/workflows/pr-media-privacy.yml`` runs it. Each run diffs the last
-scanned commit (``refs/pr-media-privacy/scanned``) against the branch tip and
-reads the added and modified files: text files directly, images, GIF frames
-and one video frame per second through Apple Vision (``pr_media_ocr.swift``).
+Before the push (``check_upload()``, or ``pr_media_privacy.py check``), by the
+writers in this repository:
+
+- ``scripts/pr-media.py``: ``main()`` checks the whole batch, generated gifs
+  included, before its first upload, and ``put_file()`` checks each file for
+  library callers (``scripts/ci/pr_media.py publish``, ``scripts/showcase-publish.py``,
+  and the HQ and feat-cmux-next tools that import or run pr-media.py);
+- ``dogfood/fuzz/cmuxfuzz/triage.py``: the UI fuzzer's frames under ``fuzz/``.
+
+Text files are read directly; images, GIF frames and one video frame per
+second go through Apple Vision (``pr_media_ocr.swift``, compiled once and
+cached by ``ocr_binary()``). Without Vision (Linux) media are skipped and left
+to the scan below. Any hit refuses the upload, whoever's pull request it is
+(Leo, 2026-10-22: "1 ok"), and nothing refused is uploaded. The message names
+the hit's category (``KIND_LABELS``, e.g. "fleet host name") and how to fix it,
+never the matched text.
+
+After the push (no subcommand), ``.github/workflows/pr-media-privacy.yml``
+diffs the last scanned commit (``refs/pr-media-privacy/scanned``) against the
+branch tip and reads the added and modified files, so writers that run no
+check (cmux-next-media.yml tours, nightly.yml reels, older checkouts) and the
+media a Linux writer skipped are still covered.
+
 Matching folds Cyrillic and Greek look-alikes, which Vision often returns
-(``сmux7's Mас mini``), back to Latin.
-
-Built-in patterns name no specific machine. Personal machine and account
-names come from ``PR_MEDIA_PRIVATE_TERMS`` (a secret holding a JSON list), and
+(``сmux7's Mас mini``), back to Latin; private terms also match the digits
+Vision reads for letters (``g1ow``). Built-in patterns name no specific
+machine. Personal machine and account names come from ``PR_MEDIA_PRIVATE_TERMS``
+(a secret holding a JSON list) or a terms file (``load_private_terms()``), and
 no output ever echoes what they matched.
 
-With ``--apply``, hits whose owner is an agent are removed in one ordinary
-commit on top of the tip (never a history rewrite): a numeric top folder
-``<N>/`` is pull request N, removable only when its author is listed in
-``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/`` is the nightly bot's own output.
-A teammate's file, any other folder, or an author that cannot be looked up is
-reported and kept. The run fails whenever anything was found, so the hit stays
-visible on the run page even after its removal.
+Who owns a file: a numeric top folder ``<N>/`` is pull request N, an agent's
+when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/`` and
+``fuzz/`` are bots' own output. With ``--apply`` the scan removes agent-owned
+hits in one ordinary commit on top of the tip (never a history rewrite). A
+teammate's file, any other folder, or an author that cannot be looked up is
+reported and kept (before the push every hit refuses, as above). Private terms shorter
+than ``MIN_TERM_LENGTH`` are ignored: with digit look-alikes a two-letter term
+would match ordinary text such as ``10``. The
+scan fails whenever anything was found, so the hit stays visible on the run
+page even after its removal.
 
-The first run, with no marker, scans nothing and only records the tip: the
-branch's existing files are not flagged wholesale.
+The scan's first run, with no marker, scans nothing and only records the tip:
+the branch's existing files are not flagged wholesale.
 
-Exit status: 0 clean, 1 something was found, 2 bad input.
+Exit status: 0 clean, 1 something was found (the scan) or refused (``check``),
+2 bad input.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import getpass
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+from typing import Callable, Iterable, Mapping, TextIO
 import unicodedata
 
 BRANCH = "pr-media"
-NIGHTLY_FOLDER = "nightly-next"
+REPOSITORY = "manaflow-ai/cmux"
+# Bots' own output; a hit there is always enforced.
+BOT_FOLDERS = frozenset({"nightly-next", "fuzz"})
 PR_FOLDER = re.compile(r"[1-9][0-9]{0,6}")
 MEDIA_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov"})
 TEXT_SUFFIXES = frozenset({".html", ".json", ".md", ".txt"})
@@ -66,6 +94,27 @@ LOOK_ALIKES = str.maketrans({
     "χ": "x", "γ": "y", "ζ": "z",
     "‘": "'", "’": "'", "ʼ": "'",
 })
+
+# Private terms match many-to-one: each letter of a term also matches what
+# Vision reads in its place, including digits (`g1ow`, `b0x`). A digit in a term
+# stays a literal digit, so a term `cmux1` never matches `cmux7`. Shared with
+# cmuxterm-hq build-fleet/pr_capture/driver.py.
+TERM_LOOK_ALIKES = {
+    "a": "аα", "b": "ьвβ", "c": "сϲς", "d": "ԁ", "e": "еёε", "g": "ɡ", "h": "һнη", "i": "іїι1l",
+    "j": "ј", "k": "кκ", "l": "i1ıӏ", "m": "мтμ", "n": "пην", "o": "оοσ0", "p": "рρ", "r": "г",
+    "s": "ѕ", "t": "тτ", "u": "иυ", "v": "ν", "w": "ԝ", "x": "хχ", "y": "уγυ", "z": "ζ",
+}
+TERM_WORD_CHARS = "a-z0-9" + "".join(TERM_LOOK_ALIKES.values())
+# Every non-ASCII look-alike to a Latin letter, for addresses Vision misread.
+TO_LATIN = str.maketrans({character: latin for latin, characters in TERM_LOOK_ALIKES.items()
+                          for character in characters if not character.isascii()})
+HQ_TERMS_FILE = "build-fleet/pr_capture/private-terms.json"
+AGENT_AUTHORS_FILE = "Projects/leo-workspace/machines/agent-authors.json"
+# Local account and host names too common to mean a machine (a capture mini's user is `cmux`).
+COMMON_NAMES = frozenset({"cmux", "root", "runner", "admin", "user", "shared", "localhost"})
+# Shorter terms match ordinary words and numbers once look-alikes are folded.
+MIN_TERM_LENGTH = 4
+OCR_CACHE = "Library/Caches/cmux-pr-media-privacy"
 
 # Generic shapes of the capture and fleet machines; none names one machine.
 # A lookbehind keeps each from firing inside a longer word.
@@ -86,8 +135,39 @@ EMAIL = re.compile(r"(?<![a-z0-9._%+-])[a-z0-9._%+-]+@([a-z0-9-]+(?:\.[a-z0-9-]+
 PUBLIC_EMAIL_DOMAINS = ("example.com", "example.org", "example.net", "test", "users.noreply.github.com")
 
 
+# The category a refusal names for each kind, so whoever captured the media knows what to change;
+# the matched text itself is never printed.
+KIND_LABELS = {
+    "mini-name": "fleet Mac mini name",
+    "mini-host": "fleet host name",
+    "fleet-host": "fleet host name",
+    "shell-prompt": "fleet shell prompt",
+    "capture-account": "capture account path",
+    "private-term": "personal machine or account name",
+    "email": "personal email address",
+    "unreadable": "unreadable file",
+}
+FIX = ("Show fixture names in the scene instead (the sample hosts, users and paths the scenes and tours use), "
+       "then recapture.")
+
+
+def kind_labels(kinds: Iterable[str]) -> str:
+    return ", ".join(dict.fromkeys(KIND_LABELS.get(kind, kind) for kind in kinds))
+
+
 class BadInput(Exception):
     pass
+
+
+class Refused(Exception):
+    """A pre-push check refused files; the message names paths and kinds, never the matched text."""
+
+    def __init__(self, report: dict) -> None:
+        refused = [item for item in report["files"] if item["action"] == "refuse"]
+        listed = "; ".join(f"{item['path']} ({kind_labels(item['kinds'])})" for item in refused)
+        super().__init__(f"refused {len(refused)} file(s) that show private names: {listed}. "
+                         f"Nothing was uploaded. {FIX}")
+        self.report = report
 
 
 def fold(text: str) -> str:
@@ -98,23 +178,36 @@ def normalize(text: str) -> str:
     return unicodedata.normalize("NFKC", text).lower()
 
 
-def private_patterns(raw: str | None) -> list[tuple[str, re.Pattern[str]]]:
-    """Whole-word, case-insensitive, look-alike folded patterns from the secret."""
-    if not raw or not raw.strip():
-        return []
+def parse_terms(raw: str, source: str) -> list[str]:
+    """A bare JSON list of strings (the secret) or {"terms": [...]} (HQ's file)."""
     try:
         terms = json.loads(raw)
     except json.JSONDecodeError as error:
-        raise BadInput(f"PR_MEDIA_PRIVATE_TERMS is not JSON ({error.msg})") from error
+        raise BadInput(f"{source} is not JSON ({error.msg})") from error
+    if isinstance(terms, dict):
+        terms = terms.get("terms")
     if not isinstance(terms, list) or not all(isinstance(term, str) for term in terms):
-        raise BadInput("PR_MEDIA_PRIVATE_TERMS must be a JSON list of strings")
-    patterns = []
-    for term in terms:
-        folded = fold(normalize(term.strip()))
-        if folded:
-            patterns.append(("private-term", re.compile(
-                rf"(?<![a-z0-9_]){re.escape(folded)}(?![a-z0-9_])")))
-    return patterns
+        raise BadInput(f"{source} must be a JSON list of strings or {{\"terms\": [...]}}")
+    return terms
+
+
+def term_pattern(term: str) -> re.Pattern[str]:
+    """Whole-word, case-insensitive; each letter also matches its look-alikes."""
+    body = "".join(f"[{character}{TERM_LOOK_ALIKES[character]}]" if character in TERM_LOOK_ALIKES
+                   else re.escape(character) for character in normalize(term))
+    return re.compile(f"(?<![{TERM_WORD_CHARS}]){body}(?![{TERM_WORD_CHARS}])")
+
+
+def term_patterns(terms: Iterable[str]) -> list[tuple[str, re.Pattern[str]]]:
+    return [("private-term", term_pattern(term.strip())) for term in terms
+            if len(normalize(term.strip())) >= MIN_TERM_LENGTH]
+
+
+def private_patterns(raw: str | None) -> list[tuple[str, re.Pattern[str]]]:
+    """Patterns from the PR_MEDIA_PRIVATE_TERMS secret (either terms format)."""
+    if not raw or not raw.strip():
+        return []
+    return term_patterns(parse_terms(raw, "PR_MEDIA_PRIVATE_TERMS"))
 
 
 def public_email(domain: str) -> bool:
@@ -122,22 +215,104 @@ def public_email(domain: str) -> bool:
 
 
 def findings(lines: list[str], patterns: list[tuple[str, re.Pattern[str]]]) -> list[dict]:
-    """Return [{kind, text, line}] for every private name in the OCR or text lines."""
+    """Return [{kind, text, line}] for every private name in the OCR or text lines.
+
+    Generic patterns see the line as read and with one-to-one look-alike folding
+    (no digits). Private terms carry their own look-alike classes. Every variant
+    keeps the line's length, so one name found in two variants counts once.
+    """
     found: list[dict] = []
     for number, raw in enumerate(lines, start=1):
         lowered = normalize(raw)
-        seen: set[tuple[str, str]] = set()
+        seen: dict[tuple[str, int], str] = {}
         for variant in dict.fromkeys((lowered, fold(lowered))):
             for kind, pattern in patterns:
                 for match in pattern.finditer(variant):
-                    seen.add((kind, match.group(0)))
+                    seen.setdefault((kind, match.start()), match.group(0))
+        for variant in dict.fromkeys((lowered, fold(lowered), lowered.translate(TO_LATIN))):
             for match in EMAIL.finditer(variant):
-                if not match.group(0).isascii():
-                    continue
-                if not public_email(match.group(1)):
-                    seen.add(("email", match.group(0)))
-        found.extend({"kind": kind, "text": text, "line": number} for kind, text in sorted(seen))
+                if match.group(0).isascii() and not public_email(match.group(1)):
+                    seen.setdefault(("email", match.start()), match.group(0))
+        unique = sorted({(kind, text) for (kind, _start), text in seen.items()})
+        found.extend({"kind": kind, "text": text, "line": number} for kind, text in unique)
     return found
+
+
+def local_names(home: Path) -> list[str]:
+    """This machine's account, host and full names and home directory."""
+    names = [str(home)]
+    with contextlib.suppress(Exception):
+        names.append(getpass.getuser())
+    with contextlib.suppress(Exception):
+        host = socket.gethostname()
+        names += [host.split(".", 1)[0], host]
+    if sys.platform == "darwin":
+        with contextlib.suppress(Exception):
+            done = subprocess.run(["id", "-F"], capture_output=True, text=True, timeout=10)
+            if done.returncode == 0:
+                names.append(done.stdout.strip())
+    return [name for name in dict.fromkeys(name.strip() for name in names)
+            if len(name) >= MIN_TERM_LENGTH and name.casefold() not in COMMON_NAMES]
+
+
+def load_private_terms(env: Mapping[str, str] = os.environ) -> tuple[list[str], str]:
+    """(terms, where they came from); the description names no term.
+
+    The first source found wins: $PR_MEDIA_PRIVATE_TERMS (JSON),
+    $PR_MEDIA_PRIVATE_TERMS_FILE, $CMUX_HQ's private-terms.json, then
+    ~/Projects/cmuxterm-hq's. Outside CI this machine's own names are added.
+    """
+    home = Path(env.get("HOME") or Path.home())
+    terms: list[str] = []
+    source = ""
+    raw = env.get("PR_MEDIA_PRIVATE_TERMS", "")
+    if raw.strip():
+        terms, source = parse_terms(raw, "PR_MEDIA_PRIVATE_TERMS"), "$PR_MEDIA_PRIVATE_TERMS"
+    else:
+        candidates: list[tuple[Path, str]] = []
+        named = env.get("PR_MEDIA_PRIVATE_TERMS_FILE", "").strip()
+        if named:
+            path = Path(named).expanduser()
+            if not path.is_file():
+                raise BadInput("PR_MEDIA_PRIVATE_TERMS_FILE names no file")
+            candidates.append((path, "$PR_MEDIA_PRIVATE_TERMS_FILE"))
+        if env.get("CMUX_HQ", "").strip():
+            candidates.append((Path(env["CMUX_HQ"]).expanduser() / HQ_TERMS_FILE, f"$CMUX_HQ/{HQ_TERMS_FILE}"))
+        candidates.append((home / "Projects/cmuxterm-hq" / HQ_TERMS_FILE, f"~/Projects/cmuxterm-hq/{HQ_TERMS_FILE}"))
+        for path, label in candidates:
+            if path.is_file():
+                terms, source = parse_terms(path.read_text(encoding="utf-8"), label), label
+                break
+    if not source:
+        source = "no private terms list (set PR_MEDIA_PRIVATE_TERMS or PR_MEDIA_PRIVATE_TERMS_FILE)"
+    if not env.get("GITHUB_ACTIONS"):
+        own = local_names(home)
+        if own:
+            terms = [*terms, *own]
+            source += " + this machine's names"
+    return terms, source
+
+
+def load_agent_authors(env: Mapping[str, str] = os.environ) -> frozenset[str]:
+    """$PR_MEDIA_AGENT_AUTHORS (comma list), else ~/Projects/leo-workspace's list, else none.
+
+    The workspace file is {"authors": [...]} (a bare list is read too).
+    """
+    raw = env.get("PR_MEDIA_AGENT_AUTHORS", "")
+    if raw.strip():
+        return agent_authors(raw)
+    path = Path(env.get("HOME") or Path.home()) / AGENT_AUTHORS_FILE
+    if not path.is_file():
+        return frozenset()
+    try:
+        logins = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise BadInput(f"~/{AGENT_AUTHORS_FILE} is not JSON ({error.msg})") from error
+    if isinstance(logins, dict):
+        logins = logins.get("authors")
+    if not isinstance(logins, list) or not all(isinstance(login, str) for login in logins):
+        raise BadInput(f"~/{AGENT_AUTHORS_FILE} must be {{\"authors\": [logins]}} or a JSON list of logins")
+    return agent_authors(",".join(logins))
 
 
 def git(*args: str, cwd: Path, input: str | None = None, env: dict[str, str] | None = None) -> str:
@@ -166,25 +341,69 @@ def ocr_lines(ocr: str, repo: Path, commit: str, path: str) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="cmux-pr-media-privacy-") as directory:
         local = Path(directory) / Path(path).name
         local.write_bytes(data)
-        done = subprocess.run([ocr, str(local)], capture_output=True, text=True, timeout=600)
+        return ocr_file(ocr, local)
+
+
+def ocr_file(ocr: str, local: Path) -> list[str]:
+    """The text Vision reads in one local image or video, frame markers dropped."""
+    done = subprocess.run([ocr, str(local)], capture_output=True, text=True, timeout=600)
     if done.returncode != 0:
         raise RuntimeError(f"OCR exited {done.returncode}")
     return [line for line in done.stdout.splitlines() if not FRAME_SEPARATOR.match(line)]
 
 
+def ocr_binary(env: Mapping[str, str] = os.environ, out: TextIO | None = None) -> str | None:
+    """The compiled pr_media_ocr.swift, or None where Apple Vision is unavailable.
+
+    $PR_MEDIA_PRIVACY_OCR overrides: a path to a compiled tool, or `none`. On
+    macOS the tool is compiled once per source revision into
+    ~/Library/Caches/cmux-pr-media-privacy/<sha256>/ocr and reused after.
+    """
+    override = env.get("PR_MEDIA_PRIVACY_OCR", "").strip()
+    if override:
+        return None if override.lower() == "none" else override
+    source = Path(__file__).resolve().with_name("pr_media_ocr.swift")
+    swiftc = shutil.which("swiftc")
+    if sys.platform != "darwin" or not swiftc or not source.is_file():
+        return None
+    # /usr/bin/swiftc on a Mac without developer tools is a stub that opens an install dialog.
+    tools = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True)
+    if tools.returncode != 0 or not Path(tools.stdout.strip()).is_dir():
+        return None
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    binary = Path(env.get("HOME") or Path.home()) / OCR_CACHE / digest / "ocr"
+    if os.access(binary, os.X_OK):
+        return str(binary)
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    partial = binary.with_name(f"ocr.{os.getpid()}.partial")
+    print("pr-media privacy: compiling the OCR tool once (pr_media_ocr.swift)", file=out or sys.stderr, flush=True)
+    try:
+        done = subprocess.run([swiftc, "-O", str(source), "-o", str(partial)],
+                              capture_output=True, text=True, timeout=900)
+    except (OSError, subprocess.SubprocessError):
+        done = None
+    if done is None or done.returncode != 0 or not partial.is_file():
+        partial.unlink(missing_ok=True)
+        print("pr-media privacy: could not compile the OCR tool; media are left to pr-media-privacy.yml",
+              file=out or sys.stderr, flush=True)
+        return None
+    os.replace(partial, binary)
+    return str(binary)
+
+
 def owner(path: str) -> tuple[str, int | None]:
-    """('pr', N), ('nightly', None) or ('other', None) from the top folder."""
+    """('pr', N), ('bot', None) or ('other', None) from the top folder."""
     top = path.split("/", 1)[0] if "/" in path else ""
     if PR_FOLDER.fullmatch(top):
         return "pr", int(top)
-    if top == NIGHTLY_FOLDER:
-        return "nightly", None
+    if top in BOT_FOLDERS:
+        return "bot", None
     return "other", None
 
 
-def github_authors(numbers: list[int]) -> dict[int, str] | None:
+def github_authors(numbers: list[int], repository: str | None = None) -> dict[int, str] | None:
     """PR author logins in one batched GraphQL call; None when the lookup fails."""
-    repository = os.environ.get("REPOSITORY", "")
+    repository = repository or os.environ.get("REPOSITORY", "")
     if "/" not in repository:
         return None
     owner_name, name = repository.split("/", 1)
@@ -214,31 +433,121 @@ def agent_authors(raw: str | None) -> frozenset[str]:
     return frozenset(part.strip().casefold() for part in (raw or "").split(",") if part.strip())
 
 
-def removable(hits: dict[str, list[dict]], agents: frozenset[str], lookup) -> dict[str, str]:
-    """Map each hit path to 'remove' or the reason it is only reported."""
-    numbers = sorted({number for path in hits for kind, number in [owner(path)] if kind == "pr"})
+def classify(paths: Iterable[str], agents: frozenset[str], lookup) -> dict[str, tuple[str, str]]:
+    """Map each hit path to (whose, why): whose is 'agent' (an agent's or a bot's
+    file), 'unknown' (its PR's author could not be looked up) or 'teammate'."""
+    paths = list(paths)
+    numbers = sorted({number for path in paths for kind, number in [owner(path)] if kind == "pr"})
     authors: dict[int, str] | None = {}
     if numbers and agents:
         try:
             authors = lookup(numbers)
-        except Exception:  # noqa: BLE001 - any lookup failure keeps the files
+        except Exception:  # noqa: BLE001 - any lookup failure means the author is unknown
             authors = None
-    decisions: dict[str, str] = {}
-    for path in hits:
+    decisions: dict[str, tuple[str, str]] = {}
+    for path in paths:
         kind, number = owner(path)
-        if kind == "nightly":
-            decisions[path] = "remove"
+        if kind == "bot":
+            decisions[path] = ("agent", "a bot's folder")
         elif kind == "other":
-            decisions[path] = "not an agent folder"
+            decisions[path] = ("teammate", "not an agent folder")
         elif not agents:
-            decisions[path] = "PR_MEDIA_AGENT_AUTHORS is empty"
+            # Without the list no PR folder can be told to be a teammate's: the
+            # scan only reports it, and a writer refuses it (fails closed).
+            decisions[path] = ("unknown", "PR_MEDIA_AGENT_AUTHORS is empty")
         elif authors is None or number not in authors:
-            decisions[path] = "PR author unknown"
+            decisions[path] = ("unknown", "PR author unknown")
         elif authors[number].casefold() in agents:
-            decisions[path] = "remove"
+            decisions[path] = ("agent", "an agent's pull request")
         else:
-            decisions[path] = "PR author is not an agent"
+            decisions[path] = ("teammate", "PR author is not an agent")
     return decisions
+
+
+def removable(hits: dict[str, list[dict]], agents: frozenset[str], lookup) -> dict[str, str]:
+    """Map each hit path to 'remove' or the reason it is only reported."""
+    return {path: "remove" if whose == "agent" else why
+            for path, (whose, why) in classify(hits, agents, lookup).items()}
+
+
+def check_files(items: Iterable[tuple[str, Path]], patterns: list[tuple[str, re.Pattern[str]]],
+                ocr: str | Callable[[Path], list[str]] | None) -> dict:
+    """Check local files before they are pushed to pr-media.
+
+    items are (path on the branch, local file) pairs. ocr is a compiled
+    pr_media_ocr.swift, a callable from a local file to its lines, or None, which
+    skips media (the scan after the push reads them). A file that shows a
+    private name, or could not be read, is refused, whoever's folder it is.
+    Returns {"files": [{path, kinds, action, reason}], "skipped": [...], "refused": bool}.
+    """
+    report: dict = {"files": [], "skipped": [], "refused": False}
+    hits: dict[str, list[str]] = {}
+    for remote, local in items:
+        local = Path(local)
+        suffix = Path(remote).suffix.lower() or local.suffix.lower()
+        try:
+            if suffix in TEXT_SUFFIXES:
+                lines = local.read_text(encoding="utf-8", errors="replace").splitlines()
+            elif suffix in MEDIA_SUFFIXES and ocr is not None:
+                lines = ocr(local) if callable(ocr) else ocr_file(ocr, local)
+            else:
+                report["skipped"].append(remote)
+                continue
+        except Exception:  # noqa: BLE001 - a file that cannot be read is held like a hit
+            hits[remote] = ["unreadable"]
+            continue
+        kinds = sorted({hit["kind"] for hit in findings(lines, patterns)})
+        if kinds:
+            hits[remote] = kinds
+    for remote in sorted(hits):
+        why = "could not be read, so it is held like a hit" if hits[remote] == ["unreadable"] else \
+            "private names are refused in every pull request's media"
+        report["files"].append({"path": remote, "kinds": hits[remote], "action": "refuse", "reason": why})
+    report["refused"] = bool(report["files"])
+    return report
+
+
+def report_lines(report: dict) -> list[str]:
+    """What a writer prints: paths and kinds only, never the matched text."""
+    lines = []
+    for item in report["files"]:
+        shows = "could not be read" if item["kinds"] == ["unreadable"] else f"shows a {kind_labels(item['kinds'])}"
+        lines.append(f"{item['path']} {shows}; refused ({item['reason']})")
+    if report["files"]:
+        lines.append(f"nothing was uploaded. {FIX}")
+    if report["skipped"]:
+        lines.append(f"{len(report['skipped'])} file(s) not read here (media need Apple Vision); "
+                     "pr-media-privacy.yml scans them after the push")
+    return lines
+
+
+_AUTO = object()
+
+
+def check_upload(items: Iterable[tuple[str, Path | str]], repository: str = REPOSITORY, *,
+                 env: Mapping[str, str] = os.environ, ocr=_AUTO, lookup=None,
+                 out: TextIO | None = None) -> dict:
+    """The pre-push check every pr-media writer runs: raises Refused, else returns the report.
+
+    Terms come from load_private_terms(). Any hit refuses, so no PR author is looked up;
+    repository and lookup are accepted for the writers that still pass them.
+    """
+    out = out or sys.stderr
+    items = [(remote, Path(local)) for remote, local in items]
+    terms, source = load_private_terms(env)
+    if ocr is _AUTO:
+        needs_ocr = any(local.suffix.lower() in MEDIA_SUFFIXES for _remote, local in items)
+        ocr = ocr_binary(env, out) if needs_ocr else None
+    report = check_files(items, [*GENERIC_PATTERNS, *term_patterns(terms)], ocr)
+    report["terms"] = source
+    lines = report_lines(report)
+    if not terms:
+        lines.append(f"generic patterns only: {source}")
+    for line in lines:
+        print(f"pr-media privacy: {line}", file=out, flush=True)
+    if report["refused"]:
+        raise Refused(report)
+    return report
 
 
 def remove_paths(repo: Path, tip: str, paths: dict[str, str], message: str) -> str:
@@ -373,7 +682,36 @@ def write_summary(report: dict) -> None:
         handle.write("\n".join(rows) + "\n")
 
 
+def check_main(argv: list[str], lookup=None) -> int:
+    """`check --path-prefix DIR FILE...`: the pre-push check for files bound for DIR/<name>."""
+    parser = argparse.ArgumentParser(prog="pr_media_privacy.py check",
+                                     description="Check files before they are pushed to pr-media.")
+    parser.add_argument("--path-prefix", required=True,
+                        help="folder on pr-media the files land in, e.g. 15277 or fuzz/<digest>")
+    parser.add_argument("--repository", default=os.environ.get("REPOSITORY") or REPOSITORY,
+                        help="the repository the files are for (no PR author is looked up)")
+    parser.add_argument("files", nargs="+", type=Path, metavar="FILE")
+    args = parser.parse_args(argv)
+    prefix = args.path_prefix.strip("/")
+    try:
+        missing = [str(path) for path in args.files if not path.is_file()]
+        if not prefix or missing:
+            raise BadInput("not a file: " + ", ".join(missing) if missing else "--path-prefix is empty")
+        check_upload([(f"{prefix}/{path.name}", path) for path in args.files], args.repository,
+                     lookup=lookup, out=sys.stdout)
+    except BadInput as error:
+        print(f"pr-media privacy: {error}", file=sys.stderr)
+        return 2
+    except Refused as refused:
+        print(f"pr-media privacy: {refused}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None, lookup=github_authors) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["check"]:
+        return check_main(argv[1:], lookup=None if lookup is github_authors else lookup)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path.cwd(),
                         help="git directory holding the pr-media tip and the last scanned commit")

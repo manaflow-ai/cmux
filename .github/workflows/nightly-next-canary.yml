@@ -166,7 +166,15 @@ jobs:
           spctl -a -vv --type execute "$app"
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
-          echo "app=$app" >> "$GITHUB_OUTPUT"
+          # Run what a person runs: the app copied out of the DMG. Launched from the read-only,
+          # compressed mount, a cold start pages the bundle through hdiutil: the control socket
+          # took over 45 s to appear on hosted runners, and every good build failed (#22648).
+          installed="$RUNNER_TEMP/canary-app/$(basename "$app")"
+          mkdir -p "$RUNNER_TEMP/canary-app"
+          ditto "$app" "$installed"
+          codesign --verify --deep --strict "$installed"
+          spctl -a -vv --type execute "$installed"
+          echo "app=$installed" >> "$GITHUB_OUTPUT"
           echo "commit=$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$app/Contents/Info.plist")" >> "$GITHUB_OUTPUT"
 
       # The harness runs from the build's own commit, so it speaks that
@@ -241,6 +249,38 @@ jobs:
         with:
           path: canary-verdict
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
+
+  # The durable verdict (nightly-next-verdict.yml writes verdicts/<build>.json
+  # next to the cmux NEXT appcast in R2). The train's base is the newest feed
+  # build whose verdict is `pass`; the Actions cache above only marks a build
+  # checked, and it expires.
+  verdict:
+    # The name carries the verdict: nightly-next-verdict.yml accepts a pass
+    # only from a run with a `verdict pass <build>` job (a skip also leaves the
+    # canary job green).
+    name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
+    needs: [pick, canary]
+    if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch nightly-next-verdict.yml
+    steps:
+      - name: Write the verdict to R2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.pick.outputs.build }}
+          VERDICT: ${{ needs.canary.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          # Until nightly-next carries nightly-next-verdict.yml (the next
+          # promotion after it lands), the dispatch fails: warn, keep the canary green.
+          if gh workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
+            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID"; then
+            echo "requested the $VERDICT verdict of build $BUILD"
+          else
+            echo "::warning title=nightly-next verdict::could not dispatch nightly-next-verdict.yml on nightly-next; build $BUILD has no durable verdict"
+          fi
 
   # A failed canary: report it, and in enforce mode pull the build. A pull
   # request's run only tests the harness and does neither.

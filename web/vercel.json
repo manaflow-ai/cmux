@@ -78,6 +78,10 @@
     {
       "path": "/api/cron/runs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/hang-reports-retention",
+      "schedule": "41 4 * * *"
     }
   ]
 }
