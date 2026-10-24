@@ -74,6 +74,7 @@ struct AgentChatUploads {
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, session: session, expires: Date().addingTimeInterval(10 * 60))
                 Task { @MainActor in
+                    // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
                         stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder)
@@ -84,6 +85,7 @@ struct AgentChatUploads {
                     let id = UUID().uuidString.lowercased()
                     batches[id] = Batch(session: session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
                     Task { @MainActor in
+                        // wakeup-allow: one-shot batch expiry; the next batch request refreshes it.
                         try? await Task.sleep(for: .seconds(10 * 60))
                         if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
                     }
@@ -95,6 +97,7 @@ struct AgentChatUploads {
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
                 Task { @MainActor in
+                    // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
                         stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder)
