@@ -45,6 +45,27 @@ def wait_text(sim, pattern, timeout):
     return None, text
 
 
+CLOCK = re.compile(r"mac\s+(\d{2})[.:,](\d{2})[.,:](\d{3})")
+
+
+def wait_fresh(sim, after, timeout):
+    """Seconds until the streamed page's clock (the rig Safari's "mac MM:SS.mmm",
+    this host's clock) shows a time at least 1 s after `after`: a new frame that
+    crossed the link after the fault, not a frozen one. None on timeout."""
+    t0 = time.time()
+    want = int((after + 1.0) * 1000) % 3_600_000
+    text = ""
+    while time.time() - t0 < timeout:
+        text = " ".join(o[4] for o in sim.ocr())
+        m = CLOCK.search(text)
+        if m:
+            shown = (int(m.group(1)) * 60 + int(m.group(2))) * 1000 + int(m.group(3))
+            if 0 <= (shown - want) % 3_600_000 < 600_000:
+                return round(time.time() - after, 2), text
+        time.sleep(0.5)
+    return None, text
+
+
 def hostd_pids(bundle):
     out = subprocess.run(["pgrep", "-f", f"{bundle}.*Contents/Resources/bin/cmux-mobile-host"],
                          capture_output=True, text=True).stdout
@@ -65,7 +86,8 @@ def main():
     ap.add_argument("--mac-bundle", required=True, help="the rig app's tag (for its cmux-mobile-host)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--transport", default="wireguard", help="the phone app's transport now")
-    ap.add_argument("checks", nargs="*", default=["type", "home", "settings", "kill", "switch"])
+    ap.add_argument("--page", default="http://127.0.0.1:8791/bench.html?scroll=6", help="the rig's clock page")
+    ap.add_argument("checks", nargs="*", default=["home", "settings", "type", "clock", "kill", "switch"])
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     phone = Sim(a.phone, os.path.join(a.out, "shots"))
@@ -82,16 +104,41 @@ def main():
         rig.shot(f"{name}-rig")
         json.dump(results, open(os.path.join(a.out, "checks.json"), "w"), indent=2)
 
+    def stream_map():
+        """(x, y, scale) of the rig's 402 x 874 pt screen, drawn aspect fit in the stream view."""
+        stream = phone.find(ident="simulator.screen") or [e for e in phone.tree()
+                                                          if e.kind == "TextArea" and e.frame[3] > 400]
+        fx, fy, fw, fh = stream[0].frame
+        scale = min(fw / 402, fh / 874)
+        return fx + (fw - 402 * scale) / 2, fy + (fh - 874 * scale) / 2, scale
+
+    def tap_rig_text(label, dy=0.0):
+        """Taps, in the stream on the phone, where `label` shows on the rig's own screen."""
+        hits = [o for o in rig.ocr() if o[4].strip() == label or o[4].strip().endswith(" " + label)]
+        if not hits:
+            return False
+        x, y, w, h, text = hits[-1]
+        if text.strip() != label:
+            # OCR joined the label to text before it on the same line: the label is its right end.
+            share = len(label) / max(1, len(text.strip()))
+            x, w = x + w * (1 - share), w * share
+        ox, oy, scale = stream_map()
+        phone.tap(ox + (x + w / 2) * scale, oy + (y + h / 2 + dy) * scale)
+        return True
+
     video = phone.record_start(os.path.join(a.out, "checks.mp4"))
     log(f"recording the phone from {video:.3f}")
     try:
         for check in a.checks:
             if check == "type":
-                # Safari's address bar sits at the bottom of the rig simulator's screen;
-                # the stream shows that screen aspect fit inside the phone's page.
-                phone.tap(201, 640)
+                # A page with one text field (bench-page/input.html): tap the field in the
+                # stream, open the phone keyboard from the accessory bar, and type.
+                subprocess.run(["xcrun", "simctl", "openurl", a.rig, a.page.rsplit("/", 1)[0] + "/input.html"], check=False)
+                if wait_text(rig, r"Type here", 15)[0] is None or not tap_rig_text("Type here"):
+                    record("type", False, why="no text field on the rig's screen")
+                    continue
                 time.sleep(1.5)
-                kb = phone.find(ident="simulator.keyboard")
+                kb = phone.find(ident="simulator.keyboard") or phone.find(label="Keyboard", kind="Button")
                 if kb:
                     phone.tap_el(kb[0])
                     time.sleep(1.0)
@@ -99,11 +146,8 @@ def main():
                 phone.softtype(word)
                 took, text = wait_text(rig, word, 15)
                 record("type", took is not None, seconds=took, rig_text=text[:160])
-                # Leave the field: Escape is on the phone's keys only as text; tap Cancel in the stream.
-                phone.softtype("\n")
-                time.sleep(2)
             elif check == "home":
-                home = phone.find(ident="simulator.home")
+                home = phone.find(ident="simulator.home") or phone.find(label="Home", kind="Button")
                 if home:
                     phone.tap_el(home[0])
                 took, text = wait_text(rig, r"Settings|Safari|Photos|Calendar", 15)
@@ -111,7 +155,9 @@ def main():
             elif check == "settings":
                 # Find the Settings icon on the rig's home screen, then tap the same spot in the stream.
                 hits = [o for o in rig.ocr() if o[4].strip() == "Settings"]
-                stream = phone.find(ident="simulator.screen")
+                # The stream view: the page's large area (its identifier is the container's in AX).
+                stream = phone.find(ident="simulator.screen") or [e for e in phone.tree()
+                                                                  if e.kind == "TextArea" and e.frame[3] > 400]
                 if not hits or not stream:
                     record("settings", False, why="no Settings icon or no stream view")
                     continue
@@ -129,6 +175,11 @@ def main():
                 after = " ".join(o[4] for o in rig.ocr())
                 record("settings", took is not None and after != before, open_seconds=took,
                        scrolled=after != before, before=before[:120], after=after[:120])
+            elif check == "clock":
+                # The bench page (the streamed clock) back on the rig, for kill and switch.
+                subprocess.run(["xcrun", "simctl", "openurl", a.rig, a.page], check=False)
+                took, text = wait_text(phone, r"mac\s+\d{2}[.:,]\d{2}", 30)
+                record("clock", took is not None, seconds=took)
             elif check == "kill":
                 pids = hostd_pids(a.mac_bundle)
                 if not pids:
@@ -137,15 +188,15 @@ def main():
                 t0 = time.time()
                 subprocess.run(["kill", "-9", str(pids[0])])
                 # The app's supervisor restarts hostd (1 s backoff); the phone redials.
-                took, text = wait_text(phone, r"\b[1-9]\d* fps", 90)
+                took, text = wait_fresh(phone, t0, 90)
                 new = hostd_pids(a.mac_bundle)
                 record("kill", took is not None and bool(new) and new[0] != pids[0], recovered_seconds=took,
                        old_hostd=pids[0], new_hostd=new[:1], overlay=text[-160:])
             elif check == "switch":
                 other = "webrtc" if a.transport == "wireguard" else "wireguard"
-                phone.launch(BUNDLE, args=["-cmuxMobile.settings.transport", other])
-                time.sleep(4)
-                took, text = wait_text(phone, r"\b[1-9]\d* fps", 60)
+                t0 = phone.launch(BUNDLE, args=["-cmuxMobile.settings.transport", other])
+                # The relaunched app opens on its last tab, the simulator tab.
+                took, text = wait_fresh(phone, t0, 60)
                 record("switch", took is not None, to=other, recovered_seconds=took, overlay=text[-160:])
     finally:
         phone.record_stop()
