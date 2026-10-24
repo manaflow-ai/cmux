@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextPages
+public import CmuxNextPages
 
 /// The agent pane on the shared page host (react-pages.md, agent pane move P2): the bundled page at
 /// `cmux-page://cmux.agent/` in a ``PageWebView``, its calls answered by ``AgentPageProvider`` and
