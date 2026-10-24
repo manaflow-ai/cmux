@@ -8,16 +8,13 @@ package final class TextBoxTextView: NSTextView {
     package var onEscape: @MainActor () -> Void = {}
     package var onCycle: @MainActor () -> Void = {}
 
-    /// Setting the text from code drops the undo history: the typing actions already recorded
-    /// still point at the old text's ranges, and Undo would replay them against the new text
-    /// (NSRangeException, issue 24912). A full reset of the manager is used because AppKit's
-    /// typing undo is not registered against a target this view can name.
-    package override var string: String! {
-        get { super.string }
-        set {
-            super.string = newValue
-            undoManager?.removeAllActions()
-        }
+    /// Replaces the whole text from code and drops the undo history: typing actions already
+    /// recorded point at the old text's ranges, and Undo would replay them against the new text
+    /// (NSRangeException, issue 24912). The manager is reset whole because AppKit's typing undo is
+    /// not registered against a target this view can name.
+    package func replaceText(_ text: String) {
+        string = text
+        undoManager?.removeAllActions()
     }
 
     package override func keyDown(with event: NSEvent) {
