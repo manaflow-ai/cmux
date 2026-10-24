@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -89,8 +90,8 @@ final class BrowserHibernation {
     var agentPages: AgentPageHibernation? {
         didSet { agentPages?.update(setting: setting, pressure: pressure) }
     }
-    /// Hidden cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (CmuxPageFreezing).
-    var cmuxPages: CmuxPageFreezing? {
+    /// Unseen cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (``PageFreezing``).
+    var cmuxPages: PageFreezing? {
         didSet { cmuxPages?.update(setting: setting) }
     }
     var restoredCount = 0

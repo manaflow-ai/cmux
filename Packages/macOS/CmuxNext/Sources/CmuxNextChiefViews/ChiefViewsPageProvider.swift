@@ -104,7 +104,8 @@ final class ChiefViewsPageProvider: PageProvider {
                 last = rows
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event is the whole list: the newest is the page's state.
+        return PageSubscription(freezing: .newest) { task.cancel() }
     }
 
     // MARK: Fleet

@@ -66,7 +66,8 @@ final class MobilePairingPageProvider: PageProvider {
                 last = fingerprint
             }
         }
-        return PageSubscription { task.cancel() }
+        // A notice (`{}`): the page reads `status` again.
+        return PageSubscription(freezing: .newest) { task.cancel() }
     }
 
     /// Everything `status` reads that can change while the page is open.

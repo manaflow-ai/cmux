@@ -71,6 +71,17 @@ public final class AgentPageProvider: PageProvider {
     /// `cmuxAcpmuxBridge` is installed.
     public static let hostEvents = "cmux.agent.host.events"
 
+    /// The host events that are one-off actions, not state: each must reach the page.
+    nonisolated static let actionKinds: Set<String> = ["transport", "command", "revealTurn", "focusLocation", "dictation", "designSelection"]
+
+    /// While the page is frozen (PageWebView+ChromiumCost.swift) the newest event of each state
+    /// kind (theme, shortcuts, header, tab row...) waits for the thaw, and an action thaws the page.
+    /// The transport sends none while frozen: its pacer holds the chat's frames (``AgentPaneFramePacer``).
+    nonisolated static let hostEventsFreezing = PageStreamFreezing.newest(by: { data in
+        guard let kind = data["kind"]?.stringValue, !AgentPageProvider.actionKinds.contains(kind) else { return nil }
+        return kind
+    })
+
     private let prepare: Prepare
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
@@ -242,7 +253,7 @@ public final class AgentPageProvider: PageProvider {
             guard let self else { return }
             self.flushPendingEvents(for: id)
         }
-        return PageSubscription { [weak self] in self?.cancel(id: id) }
+        return PageSubscription(freezing: Self.hostEventsFreezing) { [weak self] in self?.cancel(id: id) }
     }
 
     private func flushPendingEvents(for id: UInt64) {

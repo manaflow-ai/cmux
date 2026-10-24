@@ -125,6 +125,8 @@ enum DebugPages {
             "page": .string(page.pageID),
             "instance": .number(Double(PageRegistry.instance(of: page))),
             "parked": .bool(page.isParkedSpare),
+            // Read without a call into the page, so a probe does not thaw it (bench_idle.py).
+            "chromium": .string(page.chromiumLifecycle),
             "window_number": page.window.map { .number(Double($0.windowNumber)) } ?? .null,
         ]
         if let claim = page.lastClaim {

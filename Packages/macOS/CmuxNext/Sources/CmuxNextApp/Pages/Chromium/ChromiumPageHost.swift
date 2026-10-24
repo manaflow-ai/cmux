@@ -27,7 +27,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     private var pageProfile: BrowserProfileID?
     /// One page's CEF tab per display frame, never in the frame of the action that showed it.
     private let startFrames: ChromiumPageFrameBudget
-    /// Freezes hidden pages after the hibernation's grace (`CmuxPageFreezing`); set by the
+    /// Freezes unseen pages after the hibernation's grace (``PageFreezing``); set by the
     /// hibernation when it starts.
     weak var freezePolicy: (any PageFreezePolicy)?
 
@@ -38,7 +38,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - startFrames: Spreads the pages' CEF tabs over display frames, one per frame.
     init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         startFrames: ChromiumPageFrameBudget = ChromiumPageFrameBudget()) {
+         startFrames: ChromiumPageFrameBudget = ChromiumPageFrameBudget(scheduleFrame: FrameBatcher(owner: "ChromiumPageStart").scheduleFrame)) {
         self.cef = cef
         enginePreference = preference
         self.keyRouter = keyRouter

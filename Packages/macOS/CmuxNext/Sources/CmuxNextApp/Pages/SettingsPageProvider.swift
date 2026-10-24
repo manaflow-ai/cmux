@@ -217,7 +217,7 @@ final class SettingsPageProvider: PageProvider {
             // The daemon's harness events reach the list only while a page shows it.
             agents.beginWatching()
             let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
-            return PageSubscription {
+            return PageSubscription(freezing: watch.freezing) {
                 watch.cancel()
                 Task { @MainActor in agents.endWatching() }
             }
@@ -227,7 +227,7 @@ final class SettingsPageProvider: PageProvider {
             devicesWatching?(true)
             let watch = Self.watch(devicesState, onEvent: onEvent)
             let watching = devicesWatching
-            return PageSubscription {
+            return PageSubscription(freezing: watch.freezing) {
                 watch.cancel()
                 Task { @MainActor in watching?(false) }
             }
@@ -262,7 +262,8 @@ final class SettingsPageProvider: PageProvider {
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event names only the keys that changed: each one counts.
+        return PageSubscription(freezing: .every) { task.cancel() }
     }
 
     /// One event per change of `read`'s value (the stores it reads are observable); the event
@@ -276,7 +277,8 @@ final class SettingsPageProvider: PageProvider {
                 onEvent(value)
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event carries the new value whole: the newest is the page's state.
+        return PageSubscription(freezing: .newest) { task.cancel() }
     }
 
     // MARK: Reads

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 import os
@@ -56,6 +57,9 @@ final class AgentPageHibernation {
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
     private var turnObservation: Task<Void, Never>?
+    /// A chat's turn started or ended (or the watch came or went): the cmux pages' freeze policy
+    /// looks again (``freezeExemption(for:)``).
+    var turnsChanged: (@MainActor () -> Void)?
 
     init(tabs: @escaping () -> AgentTabStore?) {
         store = tabs
@@ -90,6 +94,7 @@ final class AgentPageHibernation {
         turnObservation = Task { [weak self] in
             for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
                 self?.replan()
+                self?.turnsChanged?()
             }
         }
     }
@@ -172,6 +177,16 @@ final class AgentPageHibernation {
         guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
+        if !turnsWatched() { return .agentTurnsUnknown }
+        if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
+        return nil
+    }
+
+    /// Why the chat that shows `page` stays awake while unseen, or nil (not a chat, or an idle one):
+    /// its turn runs or waits on the person, or no turn is known (the watch is down). Its page
+    /// keeps the work it does during a turn; an idle chat freezes like any cmux page.
+    func freezeExemption(for page: PageWebView) -> HibernationPlanner.Exemption? {
+        guard let tabs = store(), let key = tabs.views.first(where: { $0.value.shows(page) })?.key else { return nil }
         if !turnsWatched() { return .agentTurnsUnknown }
         if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
         return nil

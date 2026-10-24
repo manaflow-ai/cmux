@@ -75,7 +75,8 @@ final class CloudPageProvider: PageProvider {
         _ = try await run("cloud.machine.watch", args: .object([:]), key: nil, context: context)
         let id = UUID()
         watchers[id] = onEvent
-        return PageSubscription { [weak self] in self?.watchers[id] = nil }
+        // Machine changes the page merges one by one (by revision).
+        return PageSubscription(freezing: .every) { [weak self] in self?.watchers[id] = nil }
     }
 
     private func run(_ server: String, args: CmuxNextSettings.JSONValue, key: String?,

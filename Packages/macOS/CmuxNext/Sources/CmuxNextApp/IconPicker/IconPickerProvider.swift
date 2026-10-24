@@ -100,7 +100,8 @@ final class IconPickerProvider: PageProvider {
         first.catalog = catalog
         first.maxEmojiVersion = maxEmojiVersion
         onEvent(first.event)
-        return PageSubscription { [weak self] in self?.listener = nil }
+        // Each event is the open session as it stands.
+        return PageSubscription(freezing: .newest) { [weak self] in self?.listener = nil }
     }
 
     /// Ends the open session once; later finishes (a double click, a late reply) do nothing.

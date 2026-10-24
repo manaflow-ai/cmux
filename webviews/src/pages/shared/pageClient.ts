@@ -6,7 +6,7 @@
 // daemon, `createPageClient` builds a protocol `Session` over the handshake transport and resolves
 // the namespace instead. No page file changes.
 
-import { holdPaintForClaim } from "./paintGate";
+import { holdPaintForClaim, PAINT_AFTER_NAME } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 
 export interface PageError extends Error {
@@ -67,7 +67,8 @@ type Envelope =
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
   | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string }
   | { t: "unsub"; sub: number }
-  | { t: "cancel"; id: number };
+  | { t: "cancel"; id: number }
+  | { t: "booted" };
 
 /** A reply-capable message handler (`WKScriptMessageHandlerWithReply`). */
 export interface ReplyHandler {
@@ -90,6 +91,15 @@ export const PARKED_NAME = "__cmuxPageParked";
  * `cmux.page.not_parked`, and the host reloads it.
  */
 export const CLAIM_OP = "cmux.page.claim";
+
+/**
+ * Sent once when the document finished its start: it loaded, its first screen's data is in (the
+ * paint gate, paintGate.ts) and it is not a parked spare. From then on the host's hibernation may
+ * freeze the page while nobody sees it and no call of the page is still running
+ * (PageWebView+ChromiumCost.swift); before, a freeze would stop what the start still does (a chat
+ * sends its seeded prompt).
+ */
+export const BOOTED = { t: "booted" } as const satisfies Envelope;
 
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
@@ -124,6 +134,9 @@ export class BridgePageClient implements PageClient {
   private parked: boolean;
   private held: Held[] = [];
   private readonly location: ClaimLocation | undefined;
+  /** The document loaded and its first-screen gate settled (`BOOTED`). */
+  private started = false;
+  private bootSent = false;
 
   constructor(
     private readonly handler: ReplyHandler,
@@ -132,6 +145,35 @@ export class BridgePageClient implements PageClient {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     this.parked = target[PARKED_NAME] === true;
     this.location = target.location as ClaimLocation | undefined;
+    this.watchStart(target);
+  }
+
+  /** Marks the start done once the document loaded and the page's first-screen gate (set while its
+   * module runs, before `load`) settled. */
+  private watchStart(target: Record<string, unknown>): void {
+    const settle = () => {
+      const gate = target[PAINT_AFTER_NAME] as Promise<unknown> | undefined;
+      const done = () => {
+        this.started = true;
+        this.maybeBoot();
+      };
+      if (gate && typeof gate.then === "function") void gate.then(done, done);
+      else done();
+    };
+    const doc = target.document as { readyState?: string } | undefined;
+    const events = target as { addEventListener?: (name: string, listener: () => void, options?: unknown) => void };
+    if (!doc || doc.readyState === "complete" || typeof events.addEventListener !== "function") {
+      queueMicrotask(settle);
+      return;
+    }
+    events.addEventListener("load", settle, { once: true });
+  }
+
+  /** Sends `BOOTED` once the start is done and the document is not parked. */
+  private maybeBoot(): void {
+    if (this.bootSent || !this.started || this.parked) return;
+    this.bootSent = true;
+    void this.handler.postMessage(BOOTED).catch(() => undefined);
   }
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
@@ -230,6 +272,7 @@ export class BridgePageClient implements PageClient {
     for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
     // The host's next paint report (its pane's hold) waits for the claimed page's first screen.
     holdPaintForClaim();
+    this.maybeBoot();
     return { claimed: true };
   }
 
