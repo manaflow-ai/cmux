@@ -764,11 +764,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
             seen.add(name)
             stack.extend(targets[name]["targets"])
         self.assertIn("CmuxNextApp", seen)
-        # A library under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658) is test support, not production.
+        # Libraries under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658)
+        # and source-only test support targets are not production.
         outside = {
             n for n, v in targets.items()
             if v["kind"] in {"regular", "executable"} and n not in seen
             and not (v["path"] or "").startswith("Packages/macOS/CmuxNext/Tests/")
+            and not n.endswith("TestSupport")
         }
         step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]["steps"]
                     if s.get("id") == "check")
