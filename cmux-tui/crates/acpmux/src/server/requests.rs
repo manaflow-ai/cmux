@@ -33,6 +33,30 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
     }
 }
 
+/// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
+/// (`acpmux new --force-admit`), and whether the person asks here (proven, or
+/// this host's app pane; a peer's `via: app` is its client's word, not proof).
+pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+    let meta = mux_meta(params);
+    let force =
+        meta.and_then(|m| m.get(crate::hub::admission::FORCE_FIELD)).and_then(Value::as_bool)
+            == Some(true);
+    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    // A Web client, here or through a peer, learns no host name or path.
+    let web =
+        super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
+    crate::hub::admission::Ask { force, person, who, local: !web }
+}
+
+/// Who asks, for the admission log: the proven caller session, else the
+/// connection's origin and id.
+pub(super) fn who(conn: &Conn) -> String {
+    match conn.caller() {
+        Some(session) => format!("session {session}"),
+        None => format!("{:?} connection {}", conn.origin, conn.id),
+    }
+}
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
@@ -887,6 +911,14 @@ async fn dispatch_request(
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let asked_policy = policy.is_some();
+            // A new session needs room on this host (`hub/admission.rs`); an adopted
+            // conversation is a resume, unless it may fork into a new chat. Before
+            // the worktree, so a refusal makes none; counted until the create ends.
+            let who = who(conn);
+            let _admitted = match &adopt {
+                Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
+                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
+            };
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
@@ -1097,6 +1129,8 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
+            let who = who(conn);
+            let _admitted = hub.admit_new(ask(conn, &params, &who)).await?;
             let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
