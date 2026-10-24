@@ -101,6 +101,32 @@ struct PageRouterHiddenPageTests {
         #expect(secondRecorder.sends.isEmpty)
     }
 
+    /// A reset reports what the page never got, so a provider that hands its events to the next
+    /// page (the agent pane) loses none: a hidden page's waiting events too, oldest first.
+    @Test func closeReportsTheWaitingEventsAsDropped() async throws {
+        let (router, provider, recorder) = try await subscribed()
+        router.isPageHidden = true
+        provider.emit?(["n": 1])
+        provider.emit?(["n": 2])
+        router.close()
+        #expect(recorder.sends.isEmpty)
+        #expect(provider.dropped.compactMap { $0["n"]?.doubleValue } == [1, 2])
+    }
+
+    /// The waiting events go in one `sendWithDrop`; its one drop action reports each of them.
+    @Test func aBatchsDropReportsEveryEventInIt() async throws {
+        let (router, provider, _) = try await subscribed()
+        var drops: [@MainActor () -> Void] = []
+        router.sendWithDrop = { _, onDrop in drops.append(onDrop) }
+        router.isPageHidden = true
+        provider.emit?(["n": 1])
+        provider.emit?(["n": 2])
+        router.isPageHidden = false
+        #expect(drops.count == 1)
+        drops.forEach { $0() }
+        #expect(provider.dropped.compactMap { $0["n"]?.doubleValue } == [1, 2])
+    }
+
     /// A busy stream behind another tab costs one `send` per ``PageRouter/heldLimit`` events, not
     /// unbounded memory.
     @Test func aBusyHiddenStreamGoesInBatchesOfTheLimit() async throws {
@@ -167,6 +193,8 @@ private final class Recorder {
 @MainActor
 private final class StreamProvider: PageProvider {
     var emit: (@MainActor (JSONValue) -> Void)?
+    /// Event data the router reported as never delivered, in report order.
+    var dropped: [JSONValue] = []
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .object([:]) }
 
@@ -174,5 +202,9 @@ private final class StreamProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         emit = onEvent
         return PageSubscription { [weak self] in self?.emit = nil }
+    }
+
+    func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?) {
+        dropped.append(data)
     }
 }

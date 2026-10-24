@@ -10,6 +10,7 @@ import Testing
         var first: LowPowerModeObservation?
         var second: LowPowerModeObservation?
         var calls = 0
+        var heard: [Bool] = []
     }
 
     /// Each handler cancels the other, so whichever runs first, the other must not run.
@@ -30,11 +31,11 @@ import Testing
 
     @Test func everyRegisteredObserverHearsAChange() {
         let mode = LowPowerMode(enabled: false)
-        var heard: [Bool] = []
-        let first = mode.observe { heard.append($0) }
-        let second = mode.observe { heard.append($0) }
+        let observers = Observers()
+        let first = mode.observe { [observers] in observers.heard.append($0) }
+        let second = mode.observe { [observers] in observers.heard.append($0) }
         mode.override = true
-        #expect(heard == [true, true])
+        #expect(observers.heard == [true, true])
         withExtendedLifetime((first, second)) {}
     }
 }
