@@ -70,6 +70,8 @@ def phase_environment(args: argparse.Namespace, xctest: bool) -> dict[str, str]:
     checker = main_thread_checker(args.platform) if mode != "off" else None
     if checker:
         env["DYLD_INSERT_LIBRARIES"] = prepend(str(checker), env.get("DYLD_INSERT_LIBRARIES"))
+        # MainThreadCheckerLoadedTests checks the checker is in the test process when this is set.
+        env["CMUX_MAIN_THREAD_CHECKER_EXPECTED"] = "1"
         if mode == "crash":
             env["MTC_CRASH_ON_REPORT"] = "1"
     developer = Path(args.platform) / "Developer"
