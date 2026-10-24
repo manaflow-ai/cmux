@@ -6,21 +6,32 @@ import Foundation
 /// timed out at STRESS). Now only the workspaces that differ from the last applied snapshot, or that
 /// an event changed since, are touched; the rest keep their records as they are.
 extension DaemonStore {
-    /// The identities to apply from `tree` when the memo can vouch for the rest, else nil (apply in
-    /// full): no live snapshot of this connection yet, a launch snapshot shown, another daemon
-    /// generation or registry, or a confirmed write since that named no workspace.
-    func incrementalChanges(_ tree: DaemonTree, diff: SnapshotDiff?) -> Set<String>? {
-        let memo = snapshotMemo
-        guard !isProvisional, !memo.untracked, memo.epoch == connectionEpoch, !memo.applied.isEmpty,
-              memo.generation == tree.generation, memo.registryID == tree.registryID else { return nil }
-        let changed = diff.flatMap { $0.revision == memo.revision ? $0.changed : nil } ?? {
-            snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
-            return SnapshotDiff.compute(tree, against: memo.applied, revision: memo.revision).changed
-        }()
-        // An event applied while the diff ran is in `dirty` too: its workspace takes the snapshot's
-        // state, which is at least as new (events at or below the snapshot's barrier are superseded;
-        // newer ones wait in the held inbox and apply after it).
-        return changed.union(memo.dirty)
+    /// `tree` compared with the memo off the main thread; nil without a memo. Holds no reference
+    /// to the memo's dictionary once it returns, so the apply after it updates the memo in place.
+    func snapshotDiff(of tree: DaemonTree) async -> SnapshotDiff? {
+        guard !snapshotMemo.applied.isEmpty else { return nil }
+        return await SnapshotDiff.computed(tree, against: snapshotMemo.applied, revision: snapshotMemo.revision)
+    }
+
+    /// What differs between `tree` and the last applied live snapshot when the memo can vouch for
+    /// the rest, else nil (apply in full): no live snapshot of this connection yet, a launch
+    /// snapshot shown, another daemon generation or registry, or a confirmed write since that named
+    /// no workspace. `diff` is used when it was computed against the current memo; otherwise the
+    /// comparison runs here.
+    func incrementalDiff(_ tree: DaemonTree, diff: SnapshotDiff?) -> SnapshotDiff? {
+        guard !isProvisional, !snapshotMemo.untracked, snapshotMemo.epoch == connectionEpoch, !snapshotMemo.applied.isEmpty,
+              snapshotMemo.generation == tree.generation, snapshotMemo.registryID == tree.registryID else { return nil }
+        if let diff, diff.revision == snapshotMemo.revision { return diff }
+        snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
+        return SnapshotDiff.compute(tree, against: snapshotMemo.applied, revision: snapshotMemo.revision)
+    }
+
+    /// The workspaces an incremental apply touches: the ones `diff` names, and the ones an event
+    /// changed since the last snapshot. An event applied while the diff ran is in `dirty` too: its
+    /// workspace takes the snapshot's state, which is at least as new (events at or below the
+    /// snapshot's barrier are superseded; newer ones wait in the held inbox and apply after it).
+    func touchedWorkspaces(_ diff: SnapshotDiff) -> Set<String> {
+        snapshotMemo.dirty.union(diff.changed.keys)
     }
 
     /// `applyTree` for the workspaces in `touched` only, then their index entries, primes and state;
@@ -42,7 +53,15 @@ extension DaemonStore {
                                      update: { $0.update($1) }) {
             savedTabGroups = reordered
         }
+        let wasSaved = savedOpenGroups
         savedOpenGroups = Set(savedTabGroups.compactMap(\.openGroup))
+        // A group saved or unsaved in a workspace this snapshot does not touch: its live group learns
+        // it here (the full path primes every pane; this one only the touched workspaces).
+        for id in wasSaved.symmetricDifference(savedOpenGroups) {
+            guard let group = index.tabGroupsByID[id] else { continue }
+            let saved = savedOpenGroups.contains(id)
+            if group.isSaved != saved { group.isSaved = saved }
+        }
         // The confirmed records by identity, as the full reconcile matches them (the overlay is lifted).
         var existing: [String: WorkspaceModel] = [:]
         existing.reserveCapacity(workspaces.count)
@@ -81,22 +100,23 @@ extension DaemonStore {
         if !reindex.isEmpty { index.noteTabOrderChanged() }
     }
 
-    /// Records `tree` as the last applied live snapshot (the next one diffs against it).
+    /// Records `tree`, applied in full, as the last applied live snapshot (the next one diffs
+    /// against it). O(tree) on main, as the full apply itself is.
     func recordSnapshotMemo(_ tree: DaemonTree) {
         snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
-        var applied: [String: WorkspaceSnapshot] = snapshotMemo.applied
-        if snapshotMemo.epoch != connectionEpoch || snapshotMemo.untracked || applied.isEmpty {
-            applied = Dictionary(tree.workspaces.map { (WorkspaceModel.identity($0), $0) }, uniquingKeysWith: { _, new in new })
-        } else {
-            var present = Set<String>()
-            present.reserveCapacity(tree.workspaces.count)
-            for snapshot in tree.workspaces {
-                let id = WorkspaceModel.identity(snapshot)
-                present.insert(id)
-                if applied[id] != snapshot { applied[id] = snapshot }
-            }
-            if present.count != applied.count { applied = applied.filter { present.contains($0.key) } }
-        }
+        let applied = Dictionary(tree.workspaces.map { (WorkspaceModel.identity($0), $0) }, uniquingKeysWith: { _, new in new })
+        snapshotMemo = SnapshotMemo(applied: applied, epoch: connectionEpoch, generation: tree.generation, registryID: tree.registryID,
+                                    revision: snapshotMemo.revision &+ 1)
+    }
+
+    /// Records `tree`, applied incrementally, as the last applied live snapshot: the memo takes
+    /// only `diff`'s entries (O(changed)); an unchanged workspace's entry equals its snapshot
+    /// already. The memo's dictionary is moved out before it changes, so it is never copied.
+    func advanceSnapshotMemo(_ tree: DaemonTree, applying diff: SnapshotDiff) {
+        var applied: [String: WorkspaceSnapshot] = [:]
+        swap(&applied, &snapshotMemo.applied)
+        for (id, snapshot) in diff.changed { applied[id] = snapshot }
+        for id in diff.removed { applied[id] = nil }
         snapshotMemo = SnapshotMemo(applied: applied, epoch: connectionEpoch, generation: tree.generation, registryID: tree.registryID,
                                     revision: snapshotMemo.revision &+ 1)
     }
