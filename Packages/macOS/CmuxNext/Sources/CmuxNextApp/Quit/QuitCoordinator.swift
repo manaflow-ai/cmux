@@ -200,7 +200,8 @@ final class QuitCoordinator {
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
                 await services.cache.cef.shutdown()
-            }
+            },
+            harvestErrors: { await services.errorJournal.stop() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }
