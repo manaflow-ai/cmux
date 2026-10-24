@@ -201,6 +201,7 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidHide() {
         super.viewDidHide()
+        isShown = false
         observeWindow(false)
         updateOcclusion()
     }
@@ -214,6 +215,7 @@ public final class TerminalSurfaceView: NSView {
     /// state (each a no-op when unchanged). Parked counts as hidden (``ParkingContainer``).
     private func syncWindowState() {
         let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
+        isShown = shown
         observeWindow(shown)
         if shown {
             updateContentScale()
@@ -222,6 +224,11 @@ public final class TerminalSurfaceView: NSView {
         updateOcclusion()
         updateFocus()
     }
+
+    /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
+    /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
+    /// warm terminal's surface and resized its PTY); showing it applies the last size once.
+    private var isShown = false
 
     private func observeWindow(_ observe: Bool) {
         guard observe == windowObservers.isEmpty else { return }
@@ -269,7 +276,8 @@ public final class TerminalSurfaceView: NSView {
         updateSurfaceSize()
     }
 
-    /// Every frame of a drag resizes the surface at once: the drawable takes
+    /// Every frame of a drag resizes a shown surface at once (a hidden one waits to be shown,
+    /// ``syncWindowState()``): the drawable takes
     /// the new size and draws one frame with the text reflowed to it (the
     /// reflow preview, ``updateReflowPreview()``), and the grid report goes to
     /// the owner through `ResizeCoordinator` (next frame, one in flight). The
@@ -277,7 +285,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
-        if resized { updateSurfaceSize() }
+        if resized, isShown { updateSurfaceSize() }
         copyMode.syncCursor()
     }
 
