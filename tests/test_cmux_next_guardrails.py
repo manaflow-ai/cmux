@@ -9,6 +9,7 @@ prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cm
 """
 import contextlib
 import dataclasses
+import fcntl
 import importlib.util
 import io
 import os
@@ -1468,6 +1469,72 @@ class HookTests(Fixture):
         self.install()
         self.assertFalse(old.exists(), "once no push reads it, the next install removes the old copy")
         self.assertTrue((link / "guardrails.py").is_file())
+
+    def leftover(self, name, files, in_use, age_seconds=0):
+        """A checks copy (or a half-removed one) in the hook folder: FILES files, `.in-use` when IN_USE."""
+        path = self.repo / ".git" / "cmux-git-hooks" / name
+        path.mkdir()
+        for n in range(files):
+            (path / f"check{n}.py").write_text("x = 1\n")
+        if in_use:
+            (path / ".in-use").touch()
+        if age_seconds:
+            then = time.time() - age_seconds
+            os.utime(path, (then, then))
+        return path
+
+    def test_two_installs_at_once_both_finish_and_remove_the_leftovers_once(self):
+        # post-merge runs the installer in every worktree that pulls a hook change, so two can run together. A
+        # killed install's half-removed tree and a pre-lock copy are removed by one of them; both finish.
+        hooks = self.repo / ".git" / "cmux-git-hooks"
+        killed = self.leftover("cmux-next-checks.deleting.1.cmux-next-checks.v1.1", 3000, in_use=True)
+        legacy = self.leftover("cmux-next-checks.v2.2", 3000, in_use=False, age_seconds=3600)
+        (hooks / "python3-path").unlink()
+        installs = [subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
+        results = [(p.returncode, err) for p in installs for _, err in [p.communicate(timeout=300)]]
+        self.assertEqual([code for code, _ in results], [0, 0], results)
+        self.assertTrue((hooks / "python3-path").is_file())
+        self.assertFalse(killed.exists())
+        self.assertFalse(legacy.exists())
+        self.assertTrue((hooks / "cmux-next-checks" / "guardrails.py").is_file())
+
+    def test_an_install_that_overlaps_another_links_a_copy_with_its_lock_file(self):
+        # Install A is stopped where it first takes a lock (a python3 start, 30-80 ms, in a real run) while install B
+        # runs from start to end. B's cleanup must never remove a copy A is staging: A's linked copy keeps its
+        # `.in-use`, so a push on it holds it.
+        stub = self.root / "python-stub"
+        stub.mkdir()
+        reached, release = self.root / "reached.fifo", self.root / "release.fifo"
+        os.mkfifo(reached)
+        os.mkfifo(release)
+        real = os.path.realpath(shutil.which("python3", path=self.env.get("PATH")))
+        (stub / "python3").write_text(
+            "#!/bin/bash\n"
+            "# Stops install A where it first takes a lock until the test releases it.\n"
+            f'case "$*" in *"fcntl.flock("*) echo reached > "{reached}"; read -r _ < "{release}" ;; esac\n'
+            f'exec "{real}" "$@"\n')
+        (stub / "python3").chmod(0o755)
+        first = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True,
+                                 env={**self.env, "PATH": f"{stub}:{self.env['PATH']}"},
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        signal = {}
+        waiter = threading.Thread(target=lambda: signal.setdefault("text", reached.read_text()))
+        waiter.start()
+        waiter.join(120)
+        if waiter.is_alive():
+            first.kill()
+            with open(reached, "w"):
+                pass  # unblocks the waiter
+            self.fail(f"install A never took a lock: {first.communicate()}")
+        self.install()  # install B, from start to end, while A waits at its lock
+        with open(release, "w") as go:
+            go.write("go\n")
+        _, err = first.communicate(timeout=300)
+        self.assertEqual(first.returncode, 0, err)
+        current = (self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks").resolve()
+        self.assertTrue((current / "guardrails.py").is_file())
+        self.assertTrue((current / ".in-use").is_file(), "the linked copy lost its lock file to the other install's cleanup")
 
     def test_a_sleep_poll_and_an_assume_isolated_are_refused_once_by_the_check_that_owns_them(self):
         # check-concurrency.sh's wakeup rule owns sleeps (escape `// wakeup-allow:`), crash_ratchet.py owns
