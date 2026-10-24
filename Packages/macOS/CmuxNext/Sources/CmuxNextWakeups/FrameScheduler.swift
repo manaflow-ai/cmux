@@ -84,7 +84,12 @@ public final class FrameScheduler: NSObject {
     /// in this order, and a client that ran moves to the back, so one saturating client never
     /// keeps the others of its class from ticking (round-robin).
     private var budgetedOrder: [ObjectIdentifier] = []
-    private var link: (any FrameLink)?
+    private var link: (any FrameLink)? {
+        didSet { if (oldValue == nil) != (link == nil) { onLinkChange?(link != nil) } }
+    }
+    /// Told when the display link comes and goes (the ``MainWorkScheduler``: its link's ticks own
+    /// the budget's window, and render passes are timed only while it runs).
+    var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
     private let makeLinkOverride: LinkFactory?
     private let ledger: WakeupLedger
     private let stall: DemandTimer

@@ -79,8 +79,14 @@ final class CloudService {
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
 
-    init(machines: MachineRegistry, isDebugBuild: Bool) {
+    /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
+    /// batches run on it (one main thread, one budget).
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+
+    /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler) {
         self.machines = machines
+        self.mainWork = mainWork
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
@@ -390,11 +396,11 @@ final class CloudService {
             })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
-                                          localIdentity: { [weak local] in local?.identity }, mainWork: local.mainWork)
+                                          localIdentity: { [weak local] in local?.identity }, mainWork: mainWork)
         case .legacy:
             guard let hub, let binary else { return nil }
             let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-            session = CloudMachineSession(machine: machine, link: link, mainWork: machines.local.mainWork)
+            session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
         // An attach to a paused machine resumes it through Resume Machine's own path.
