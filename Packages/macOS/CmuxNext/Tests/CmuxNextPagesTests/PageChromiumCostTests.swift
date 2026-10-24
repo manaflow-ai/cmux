@@ -474,9 +474,13 @@ struct PageChromiumCostTests {
         #expect(await waitForEvaluation(page, containing: "window.__state = 'held-2'"))
         #expect(evaluations(page, containing: "window.__state = 'held-1'") == 0)
         #expect(evaluations(page, containing: "window.__other = 'held'") == 1)
-        let order = page.calls.compactMap { $0.params["expression"] as? String }
-            .filter { $0.contains("window.__other = 'held'") || $0.contains("window.__state = 'held-2'") }
-        #expect(order.count == 2 && order[0].contains("__other") && order[1].contains("held-2"))
+        // The thaw's scripts reach the page in one batched evaluation (ChromiumPageHostBridge.batch
+        // runs them in order, each in its own block): read the order they run in across every call.
+        let ran = page.calls.filter { $0.method == "Runtime.evaluate" }
+            .compactMap { $0.params["expression"] as? String }.joined(separator: "\n")
+        let other = try #require(ran.range(of: "window.__other = 'held'"))
+        let newest = try #require(ran.range(of: "window.__state = 'held-2'"))
+        #expect(other.lowerBound < newest.lowerBound, "the held state scripts ran out of the order of their newest")
         view.close()
     }
 
