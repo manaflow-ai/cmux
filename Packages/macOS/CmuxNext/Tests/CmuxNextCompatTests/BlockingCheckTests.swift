@@ -30,7 +30,7 @@ struct BlockingCheckTests {
     @Test func aSemaphoreWaitOnTheMainThreadTraps() async {
         await #expect(processExitsWith: .failure) {
             await BlockingViolationTable.$scoped.withValue(BlockingViolationTable(mode: .trap)) {
-                await MainActor.run { DispatchSemaphore(value: 1).blockingWait() }
+                await MainActor.run { signaledSemaphore().blockingWait() }
             }
         }
     }
@@ -112,7 +112,7 @@ struct BlockingCheckTests {
         await BlockingViolationTable.$scoped.withValue(table) {
             for _ in 0..<3 { _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts")) }  // one site
             _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
-            _ = DispatchSemaphore(value: 1).blockingWait(timeout: .now())
+            _ = signaledSemaphore().blockingWait(timeout: .now())
             let descriptor = open("/dev/null", O_RDONLY)
             var byte: UInt8 = 0
             _ = blockingRead(descriptor, &byte, 1)
@@ -356,6 +356,15 @@ struct BlockingCheckTests {
 }
 
 #if DEBUG || CMUX_BLOCKING_CHECKS
+/// A semaphore made with value 0 and signaled once: one wait returns at once and leaves it at its initial
+/// value. (A semaphore made with value 1 and waited on is below its initial value when it is released, and
+/// libdispatch traps on that: the SIGTRAP of the suite runs at 1b71848e3c4 and ee33c68f2a3.)
+private nonisolated func signaledSemaphore() -> DispatchSemaphore {
+    let semaphore = DispatchSemaphore(value: 0)
+    semaphore.signal()
+    return semaphore
+}
+
 /// Waits for `semaphore` (a fixture step: the other thread signals it at once); synchronous, because
 /// `DispatchSemaphore.wait()` is unavailable in async code.
 private nonisolated func waitUntilSignaled(_ semaphore: DispatchSemaphore) {
@@ -369,7 +378,7 @@ private func blockingCallsOffTheMainThread() async {
     #expect(pthread_main_np() == 0)
     _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
     _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
-    DispatchSemaphore(value: 1).blockingWait()
+    signaledSemaphore().blockingWait()
 }
 
 /// A mutex threads can share (a `Mutex` is not copyable, so a closure cannot capture it).
