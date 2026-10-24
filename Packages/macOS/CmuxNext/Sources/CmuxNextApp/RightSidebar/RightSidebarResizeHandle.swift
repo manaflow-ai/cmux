@@ -19,7 +19,7 @@ final class RightSidebarResizeHandle: NSView {
     /// The sidebar edge the strip sits on (`.minX` beside content on its left, `.maxX` on its right).
     var edge: NSRectEdge = .minX { didSet { if edge != oldValue { needsLayout = true } } }
     private var isDragging = false { didSet { updateLine() } }
-    private var isHovered = false { didSet { updateLine() } }
+    private(set) var isHovered = false { didSet { updateLine() } }
     private var hover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
