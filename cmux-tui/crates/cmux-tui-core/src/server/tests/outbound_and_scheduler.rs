@@ -1129,3 +1129,39 @@ fn clear_history_waits_for_its_surfaces_earlier_stream_input_and_nothing_else() 
     drop(state);
     scheduler.close();
 }
+
+/// A control request that names no surface (`set-client-info`) is a
+/// connection-wide barrier: a stream request sent after it (an attach that
+/// needs the capability it records) waits until it is accepted, as on one
+/// serial connection. A stream request of no surface is no barrier.
+#[test]
+fn a_stream_request_waits_for_an_earlier_connection_wide_control_request() {
+    let scheduler = Arc::new(ConnectionSurfaceScheduler::new(Arc::new(
+        ServerSurfaceOperationAdmission::default(),
+    )));
+    let mut state = scheduler.state.lock().unwrap();
+    let client_info = scheduler.take_order_ticket(&mut state, None, OrderLane::Control);
+    let attach = scheduler
+        .take_order_ticket(&mut state, Some(7), OrderLane::Stream)
+        .expect("a stream request orders by its surface");
+    let cancel = scheduler
+        .take_order_ticket(&mut state, None, OrderLane::Stream)
+        .expect("a stream request without a surface still gets its arrival");
+    assert!(
+        state.earlier_barrier(attach.arrival()),
+        "the attach ran before the set-client-info sent ahead of it"
+    );
+    assert!(state.earlier_barrier(cancel.arrival()), "a cancel also waits for the barrier");
+    let later_control = scheduler.take_order_ticket(&mut state, None, OrderLane::Control);
+    assert!(
+        !state.earlier_barrier(client_info.as_ref().unwrap().arrival()),
+        "a barrier never waits for itself"
+    );
+    drop(state);
+    drop(client_info);
+    let state = scheduler.state.lock().unwrap();
+    assert!(!state.earlier_barrier(attach.arrival()), "accepted: the attach runs");
+    drop(state);
+    drop(later_control);
+    scheduler.close();
+}
