@@ -47,7 +47,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen|repeat) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -822,6 +822,33 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   reap_leaked "at the end of the step"
   # Only after a build that cargo finished: a failed build lists no artifacts.
   step "prune target" prune_target
+fi
+# SCRATCH (pl-trace-repeat-script, never landed): repeat: the cmux-tui tests named in
+# scripts/ci/pl-trace-repeat-tests.txt, 3 runs (retries 0), and a count of the runs each one failed.
+repeat_tests() {
+  local expr="" name i
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    expr="${expr:+$expr | }test(=$name)"
+  done <"$root/scripts/ci/pl-trace-repeat-tests.txt"
+  for i in 1 2 3; do
+    echo "=== repeat run $i"
+    cargo nextest run -p cmux-tui --locked --profile ci --retries 0 --no-fail-fast -E "$expr" 2>&1 | tee "$root/.build/repeat-$i.log" | grep -E "^\s+(PASS|FAIL|TIMEOUT) \[" || true
+  done
+  echo "=== REPEAT-COUNTS (runs failed of 3)"
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    local failed=0
+    for i in 1 2 3; do
+      grep -E "^\s+(FAIL|TIMEOUT) \[.*\) .* ${name}\$" "$root/.build/repeat-$i.log" >/dev/null && failed=$((failed + 1))
+    done
+    echo "REPEAT $failed/3 $name"
+  done <"$root/scripts/ci/pl-trace-repeat-tests.txt"
+}
+if [[ "$mode" == repeat ]]; then
+  step "cargo-nextest" ensure_nextest
+  step "repeat tests" repeat_tests
+  reap_leaked "at the end of the step"
 fi
 if [[ "$mode" == terminal ]]; then
   step "base-red list" load_base_red
