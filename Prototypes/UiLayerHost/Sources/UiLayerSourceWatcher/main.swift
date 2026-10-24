@@ -1,0 +1,153 @@
+import Darwin
+import Dispatch
+import Foundation
+
+@main
+struct UiLayerSourceWatcherMain {
+    static func main() {
+        do {
+            let options = try WatchOptions(arguments: CommandLine.arguments)
+            SourceSupervisor(options: options).run()
+        } catch {
+            fputs("ui-layer watcher: \(error.localizedDescription)\n", stderr)
+            exit(2)
+        }
+    }
+}
+
+private struct WatchOptions {
+    let package: URL
+    let hostArguments: [String]
+
+    init(arguments: [String]) throws {
+        var packagePath: String?
+        var hostArguments: [String] = []
+        var index = 1
+        while index < arguments.count {
+            if arguments[index] == "--package", index + 1 < arguments.count {
+                packagePath = arguments[index + 1]
+                index += 2
+            } else {
+                hostArguments.append(arguments[index])
+                index += 1
+            }
+        }
+        guard let packagePath, !packagePath.isEmpty else { throw WatchError.missingPackage }
+        package = URL(fileURLWithPath: packagePath).standardizedFileURL
+        self.hostArguments = hostArguments
+    }
+}
+
+private enum WatchError: LocalizedError {
+    case missingPackage
+
+    var errorDescription: String? {
+        switch self {
+        case .missingPackage: "--package is required"
+        }
+    }
+}
+
+private final class SourceSupervisor {
+    private let options: WatchOptions
+    private var child: Process?
+    private var watchers: [any DispatchSourceFileSystemObject] = []
+    private var restartPending = false
+    private var signalSources: [any DispatchSourceSignal] = []
+
+    init(options: WatchOptions) {
+        self.options = options
+    }
+
+    func run() {
+        rebuildWatchers()
+        installSignalHandlers()
+        startChild()
+        dispatchMain()
+    }
+
+    private func startChild() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "swift", "run", "--package-path", options.package.path,
+            "--product", "cmux-ui-layer", "--",
+        ] + options.hostArguments
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        process.terminationHandler = { [weak self] process in
+            DispatchQueue.main.async { self?.childExited(process.terminationStatus) }
+        }
+        do {
+            try process.run()
+            child = process
+        } catch {
+            fputs("ui-layer watcher: could not start host: \(error.localizedDescription)\n", stderr)
+            exit(1)
+        }
+    }
+
+    private func childExited(_ status: Int32) {
+        child = nil
+        guard restartPending else { exit(status == 0 ? 0 : Int32(status)) }
+        restartPending = false
+        rebuildWatchers()
+        startChild()
+    }
+
+    private func sourceChanged(_ url: URL) {
+        guard !restartPending else { return }
+        restartPending = true
+        fputs("ui-layer.reload path=\(url.path) requested_at_ns=\(DispatchTime.now().uptimeNanoseconds)\n", stderr)
+        child?.terminate()
+    }
+
+    private func rebuildWatchers() {
+        watchers.forEach { $0.cancel() }
+        watchers.removeAll(keepingCapacity: true)
+        let sources = options.package.appendingPathComponent("Sources", isDirectory: true)
+        watch(options.package.appendingPathComponent("Package.swift"))
+        watch(sources)
+        guard let enumerator = FileManager.default.enumerator(
+            at: sources,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isDirectory == true || (values?.isRegularFile == true && url.pathExtension == "swift") {
+                watch(url)
+            }
+        }
+    }
+
+    private func watch(_ url: URL) {
+        let descriptor = open(url.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .rename, .delete],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in self?.sourceChanged(url) }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        watchers.append(source)
+    }
+
+    private func installSignalHandlers() {
+        for signalNumber in [SIGINT, SIGTERM] {
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler { [weak self] in self?.shutdown() }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
+
+    private func shutdown() {
+        watchers.forEach { $0.cancel() }
+        child?.terminate()
+        exit(0)
+    }
+}
