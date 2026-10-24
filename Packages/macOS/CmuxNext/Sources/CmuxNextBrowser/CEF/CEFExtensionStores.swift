@@ -25,11 +25,15 @@ final class CEFExtensionStores {
         return store
     }
 
-    /// The mirror of `profile` for a reader (the browser host, Settings, menus), refreshed from
-    /// Chromium on each read.
+    /// The mirror of `profile` for a reader (the browser host, Settings, menus): filled from
+    /// Chromium once, when it is made. A read never asks Chromium again: the fork's extension and
+    /// action events (``refresh(window:browser:)``) and each new window (`CEFPaneHost.windowCreated`)
+    /// keep it current. A refresh per read was a synchronous `cmux_ext_list` per Chromium tab on
+    /// every tab-list change (PL-burst, STRESS: 99.6 ms on new tab, Cmd-W and move).
     func readyStore(for profile: BrowserProfileID) -> BrowserExtensionStore {
+        let made = stores[profile] == nil
         let store = store(for: profile)
-        store.refresh()
+        if made { store.refresh() }
         return store
     }
 
@@ -76,7 +80,7 @@ final class CEFExtensionStores {
         var profiles: Set<BrowserProfileID> = []
         if let tab = runtime.tabsByBrowser[browser] { profiles.insert(tab.profileID) }
         for host in runtime.hosts.values where host.owns(window: window) { profiles.insert(host.key.profile) }
-        if profiles.isEmpty { profiles = Set(stores.keys) }
+        guard !profiles.isEmpty else { return refreshAll() }
         for profile in profiles { stores[profile]?.refresh() }
     }
 }
