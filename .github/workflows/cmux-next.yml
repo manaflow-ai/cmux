@@ -1120,6 +1120,10 @@ jobs:
     # (scripts/ci/run-checks-concurrently.sh) and the god-file scans faster.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
     # Pull requests into feat-cmux-next run the cheap static checks, and so does
     # every feat-cmux-next push: gh-merge-green excuses a PR's red lint only when
     # the base's latest push run prints every finding too, so a base red no longer
@@ -1798,6 +1802,11 @@ jobs:
             Dialog buttons show their keys (u2647)
             One omnibar (popups, New Tab and tabs share AddressBarView)
             Pushed commits add no violations
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
@@ -1861,6 +1870,30 @@ jobs:
             fi
             failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
+          # A push compares the checks-job reds with the immediately previous tip.
+          # A failure already present there is inherited base red: warn and keep the
+          # job green. A missing/failed comparison leaves every red blocking.
+          if [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then
+            current="$RUNNER_TEMP/cmux-next-red-checks.txt"
+            printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"
+            base_out="$RUNNER_TEMP/cmux-next-base-red.out"
+            if python3 scripts/ci/base_red_checks.py --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --current "$current" >"$base_out"; then
+              inherited=()
+              new_failed=()
+              while read -r kind name; do
+                [[ -n "$kind$name" ]] || continue
+                if [[ "$kind" == BASE_RED ]]; then
+                  inherited+=("$name (base red on $BEFORE; warning-only)")
+                else
+                  new_failed+=("$name (failure)")
+                fi
+              done <"$base_out"
+              warned+=("${inherited[@]+${inherited[@]}}")
+              failed=("${new_failed[@]+${new_failed[@]}}")
+            else
+              echo "::warning title=cmux-next base-red::could not read the previous tip; current reds remain blocking"
+            fi
+          fi
           for name in "${warned[@]+"${warned[@]}"}"; do
             echo "::warning title=cmux-next style guard (warn-only)::$name found issues; see that step's log"
           done

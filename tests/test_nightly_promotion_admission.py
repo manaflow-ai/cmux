@@ -909,7 +909,12 @@ def test_the_request_title_names_its_commit() -> None:
 
     data = yaml.safe_load(WORKFLOW)
     # guard.evictedPromotions() parses this title (REQUEST_TITLE).
-    assert data["run-name"] == "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}"
+    # A promotion request is named first; a scheduled run names its schedule (#24647).
+    assert " ".join(data["run-name"].split()) == (
+        "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)"
+        " || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)"
+        " || '' }}"
+    )
     assert data["jobs"]["promote-nightly-next"]["permissions"]["checks"] == "read"
 
 
@@ -924,14 +929,15 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "guard.decideNewest({" in WORKFLOW
 
 
-def test_only_the_wait_for_the_approval_is_cancellable() -> None:
+def test_no_promotion_job_cancels_a_started_one() -> None:
     import yaml
 
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     wait, move, decide_job = jobs["await-release-surface-ack"], jobs["promote-nightly-next-acked"], jobs["promote-nightly-next"]
-    # The waiter: one shared cancel-in-progress group (a per-run group when the
-    # scan failed), the approval environment only for needs-ack, no secrets.
-    assert wait["concurrency"]["cancel-in-progress"] is True
+    # The waiter: one shared group (a per-run group when the scan failed) that
+    # never cancels a started promotion (#24647), the approval environment only
+    # for needs-ack, no secrets.
+    assert wait["concurrency"]["cancel-in-progress"] is False
     assert wait["concurrency"]["group"].startswith("nightly-next-promote-ack${{")
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]

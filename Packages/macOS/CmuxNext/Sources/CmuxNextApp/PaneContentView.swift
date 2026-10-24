@@ -201,9 +201,18 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// toolbar does not: it is inside the content area).
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
 
+    /// A chat with its native tab strip hidden still owns the top strip in its
+    /// webview. Keep the pane ring below that strip so focus does not draw an
+    /// extra hairline above the chat header (Austin, 2026-10-23).
+    private var hiddenAgentHeaderHeight: CGFloat {
+        guard hidesStrip, content is AgentPaneView else { return 0 }
+        return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+    }
+
     var paneHeaderHeight: CGFloat {
+        if hiddenAgentHeaderHeight > 0 { return hiddenAgentHeaderHeight }
         // The band is inside the browser, under its toolbar.
-        (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+        return (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0. In a browser's band

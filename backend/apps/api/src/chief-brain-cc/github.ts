@@ -26,6 +26,8 @@ const WEB = "https://github.com"
 const API = "https://api.github.com"
 const DEVICE_PAGE = "https://github.com/login/device"
 const REVOKE_PAGE = "https://github.com/settings/applications"
+/** A device sign-in keeps a fresh code (GitHub's last ~15 minutes) this long before it gives up. */
+const DEVICE_WINDOW_MS = 3 * 60 * 60_000
 /** An App installation token is minted again when it has less than this left. */
 const APP_MARGIN_MS = 10 * 60_000
 
@@ -46,6 +48,9 @@ interface Pending {
   expires_at: number
   interval_ms: number
   device: SealedSecret
+  /** The first code's time: new codes are made until DEVICE_WINDOW_MS after it. */
+  started_at: number
+  renewals: number
 }
 export interface GithubStatus {
   signed_in: boolean
@@ -55,7 +60,7 @@ export interface GithubStatus {
   expires_at?: number | null
   set_at?: number
   checked_at?: number
-  pending?: { user_code: string; verification_uri: string; expires_at: number }
+  pending?: { user_code: string; verification_uri: string; expires_at: number; renewals: number; until: number }
   last_error?: string
   note?: string
 }
@@ -152,7 +157,8 @@ const statusOf = (sql: SqlStorage): GithubStatus => {
   const s: GithubStatus = login
     ? { signed_in: true, kind: login.kind, login: login.login, scopes: login.scopes, expires_at: login.expires_at, set_at: login.set_at, checked_at: login.checked_at }
     : { signed_in: false }
-  if (pending && pending.expires_at > Date.now()) s.pending = { user_code: pending.user_code, verification_uri: pending.verification_uri, expires_at: pending.expires_at }
+  if (pending && pending.expires_at > Date.now())
+    s.pending = { user_code: pending.user_code, verification_uri: pending.verification_uri, expires_at: pending.expires_at, renewals: pending.renewals ?? 0, until: (pending.started_at ?? pending.expires_at) + DEVICE_WINDOW_MS }
   if (lastError) s.last_error = lastError
   return s
 }
@@ -167,8 +173,8 @@ export const githubLine = (s: GithubStatus): string => {
     const exp = s.expires_at ? `, expires ${new Date(s.expires_at).toISOString().slice(0, 10)}` : ""
     return `GitHub: signed in as ${s.login} (${s.kind}; ${s.scopes?.length ? s.scopes.join(" ") : "fine-grained"}${exp}). \`chief-github status|logout\`; rotate with \`chief-github login\`.`
   }
-  if (s.pending) return `GitHub: sign-in waiting for the person (code ${s.pending.user_code} at ${s.pending.verification_uri}); \`chief-github wait\` returns once they approve.`
-  return "GitHub: this Chief is not signed in to GitHub yet. Offer it once: run `chief-github login` and post its card (the code and the page) as your reply; it keeps waiting after your turn. Other ways: `chief-github pat FILE` (a fine-grained token), `chief-github mac` (the Mac's gh login), `chief-github app APP_ID INSTALLATION_ID KEY.pem`."
+  if (s.pending) return `GitHub: sign-in waiting for the person (code ${s.pending.user_code} at ${s.pending.verification_uri}, ends ${new Date(s.pending.expires_at).toISOString().slice(11, 16)} UTC; a fresh code follows until approved, 3 h at most). Post the current code if the person has not seen it; \`chief-wake\` to come back when it ends; skill github-signin.`
+  return "GitHub: this Chief is not signed in to GitHub yet. Offer it once (skill github-signin, Native/OptChat/optchat-chief/skills/github-signin/SKILL.md in ~/work/cmux): run `chief-github login` and post its card (the code and the page) as your reply; it keeps waiting after your turn and wakes you (chief-wake) to post a fresh code when this one ends. Other ways: `chief-github pat FILE` (a fine-grained token), `chief-github mac` (the Mac's gh login), `chief-github app APP_ID INSTALLATION_ID KEY.pem`."
 }
 
 /** Keeps a login (a new generation: the old seals no longer open). */
@@ -198,28 +204,18 @@ export const githubCall = async (h: GithubHost, agent: string, raw: unknown, mac
   const action = str(req.action).replace(/^github_/, "")
   try {
     write(h.sql, "agent", agent)
-    if (action === "status") return { status: 200, json: statusOf(h.sql) }
     if (action === "login") {
       kekOf(h.env)
-      const r = await formPost(`${WEB}/login/device/code`, { client_id: GH_CLIENT_ID, scope: GH_SCOPES })
-      const body = (await r.json().catch(() => ({}))) as { device_code?: unknown; user_code?: unknown; verification_uri?: unknown; expires_in?: unknown; interval?: unknown }
-      if (!r.ok || typeof body.device_code !== "string" || typeof body.user_code !== "string") throw new GithubError(502, `GitHub did not start a device sign-in (HTTP ${r.status})`)
-      const gen = genOf(h.sql)
-      const pending: Pending = {
-        user_code: body.user_code,
-        verification_uri: typeof body.verification_uri === "string" ? body.verification_uri : DEVICE_PAGE,
-        expires_at: Date.now() + (Number(body.expires_in) || 900) * 1000,
-        interval_ms: Math.max(0, Number(body.interval ?? 5)) * 1000,
-        device: await sealAt(h.env, agent, gen, "device", body.device_code)
-      }
-      write(h.sql, "pending", pending)
-      drop(h.sql, "last_error")
-      await h.schedule(Date.now() + pending.interval_ms)
-      const s = statusOf(h.sql)
-      return { status: 200, json: { ...s, card: cardOf(pending) } }
+      const pending = await startDevice(h, agent, null)
+      return { status: 200, json: { ...statusOf(h.sql), card: cardOf(pending), wake_in: Math.max(30, Math.ceil((pending.expires_at - Date.now()) / 1000) + 5) } }
+    }
+    if (action === "status") {
+      await renewIfExpired(h, agent)
+      return { status: 200, json: statusOf(h.sql) }
     }
     if (action === "wait") {
       // One poll now (the job keeps going without it), then the status; the token only to the Chief's machine.
+      await renewIfExpired(h, agent)
       if (read<Pending>(h.sql, "pending")) await githubPoll(h, false)
       const s = statusOf(h.sql)
       if (machine && s.signed_in) return { status: 200, json: { ...s, token: (await githubTurn(h, agent)).token } }
@@ -261,15 +257,50 @@ export const githubCall = async (h: GithubHost, agent: string, raw: unknown, mac
   }
 }
 
+/** Asks GitHub for a device code and keeps it pending (a renewal keeps the first code's start), then polls from the job. */
+const startDevice = async (h: GithubHost, agent: string, prev: Pending | null): Promise<Pending> => {
+  const r = await formPost(`${WEB}/login/device/code`, { client_id: GH_CLIENT_ID, scope: GH_SCOPES })
+  const body = (await r.json().catch(() => ({}))) as { device_code?: unknown; user_code?: unknown; verification_uri?: unknown; expires_in?: unknown; interval?: unknown }
+  if (!r.ok || typeof body.device_code !== "string" || typeof body.user_code !== "string") throw new GithubError(502, `GitHub did not start a device sign-in (HTTP ${r.status})`)
+  const now = Date.now()
+  const pending: Pending = {
+    user_code: body.user_code,
+    verification_uri: typeof body.verification_uri === "string" ? body.verification_uri : DEVICE_PAGE,
+    expires_at: now + (Number(body.expires_in) || 900) * 1000,
+    interval_ms: Math.max(0, Number(body.interval ?? 5)) * 1000,
+    device: await sealAt(h.env, agent, genOf(h.sql), "device", body.device_code),
+    started_at: prev?.started_at ?? now,
+    renewals: prev ? (prev.renewals ?? 0) + 1 : 0
+  }
+  write(h.sql, "pending", pending)
+  drop(h.sql, "last_error")
+  await h.schedule(now + pending.interval_ms)
+  return pending
+}
+
+/** An expired code is replaced by a new one until DEVICE_WINDOW_MS after the first (so a woken Chief posts a live code), then dropped. */
+const renewIfExpired = async (h: GithubHost, agent: string): Promise<void> => {
+  const pending = read<Pending>(h.sql, "pending")
+  if (!pending || pending.expires_at > Date.now()) return
+  if (Date.now() < (pending.started_at ?? pending.expires_at) + DEVICE_WINDOW_MS) {
+    try {
+      await startDevice(h, agent, pending)
+      return
+    } catch {}
+  }
+  drop(h.sql, "pending")
+  write(h.sql, "last_error", "no one approved the GitHub sign-in in 3 hours; run `chief-github login` again")
+}
+
 /** The `gh-poll` job: one device-flow poll. Returns the next time to poll, or null when done. `reschedule`: from the job. */
 export const githubPoll = async (h: GithubHost, reschedule = true): Promise<number | null> => {
   const pending = read<Pending>(h.sql, "pending")
   const agent = read<string>(h.sql, "agent")
   if (!pending || !agent) return null
   if (pending.expires_at <= Date.now()) {
-    drop(h.sql, "pending")
-    write(h.sql, "last_error", "the sign-in code expired before it was approved; run `chief-github login` again")
-    return null
+    await renewIfExpired(h, agent)
+    const next = read<Pending>(h.sql, "pending")
+    return next ? Date.now() + next.interval_ms : null
   }
   const next = async (interval: number) => {
     if (interval !== pending.interval_ms) write(h.sql, "pending", { ...pending, interval_ms: interval })
@@ -369,7 +400,12 @@ case "$cmd" in
   status) send github_status ;;
   login)
     out=$(send github_login)
-    printf '%s\\n' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);console.log(o.card);console.log("\\n(post the two lines above as your reply; GitHub is polled after your turn. chief-github wait returns once approved.)")})' ;;
+    printf '%s\\n' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);console.log(o.card);console.log("\\n(post the two lines above as your reply; GitHub is polled after your turn. chief-github wait returns once approved.)")})'
+    # Wake this Chief when the code ends, to post the fresh one (the Worker makes it; the skill github-signin).
+    wake=$(printf '%s' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).wake_in??""))')
+    if [ -n "$wake" ] && [ "\${2:-}" != --no-wake ] && command -v chief-wake >/dev/null 2>&1; then
+      chief-wake "$wake" "GitHub sign-in code expired: run chief-github status; if still not signed in, post its new code card and set the next chief-wake for it (skill github-signin)" >/dev/null && echo "(chief-wake set for \${wake}s: you wake to post the next code if this one is not used)"
+    fi ;;
   wait)
     limit="\${2:-600}"; start=$(date +%s)
     while :; do

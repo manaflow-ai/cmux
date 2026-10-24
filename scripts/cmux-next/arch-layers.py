@@ -14,7 +14,8 @@ target's layer from plans/cmux-next/architecture-layers.json, then prints:
 
 This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates).
 The inventory of singletons, broadcasts and DEBUG-only code is PL-guardrails'
-plans/cmux-next/codebase-health.md; `--counts` prints the same grep counts the design doc used.
+plans/cmux-next/codebase-health.md; `--counts` prints the grep counts the design doc used, except observers: those
+are arch_counts.py's observer_sites (the ratchet's row; `MainActorObservation(` wrapper sites count).
 
 Targets are the regular, executable and binary ones (arch_counts.py's MAPPED_KINDS, the same set the ratchet
 and the gate read); test targets are left out.
@@ -79,17 +80,21 @@ def swift_lines(path: Path) -> int:
 COUNTS = {
     "static_shared": re.compile(r"static\s+(?:let|var)\s+shared\b"),
     "assume_isolated": re.compile(r"MainActor\.assumeIsolated"),
-    "nc_observers": re.compile(r"addObserver\s*\(|\.notifications\s*\(\s*named\s*:|\.publisher\s*\(\s*for\s*:"),
     "if_debug": re.compile(r"^\s*#if\s+DEBUG\b", re.M),
 }
 
 
 def grep_counts() -> dict[str, int]:
-    totals = dict.fromkeys(COUNTS, 0)
+    """The `--counts` numbers over the Swift under SOURCES. nc_observers is arch_counts.py's observer_sites
+    (`observer_calls`, the arch ratchet's row: the `MainActorObservation(` wrapper counts, comments do not),
+    never a regex of its own, so the ratchet, codebase-health.md and this report count one set."""
+    counts = load_counts()
+    totals = {**dict.fromkeys(COUNTS, 0), "nc_observers": 0}
     for path in SOURCES.rglob("*.swift"):
         text = path.read_text(errors="ignore")
         for name, pattern in COUNTS.items():
             totals[name] += len(pattern.findall(text))
+        totals["nc_observers"] += len(counts.observer_calls(counts.strip(text)))
     return totals
 
 

@@ -27,6 +27,8 @@ SPARSE = [
     "/cmux-tui/dist/",
     "/cmux-tui/build-support/notices/",
     "/cmux-tui/rust-toolchain.toml",
+    # test_check_bundle_notices.py reads the repository notices (83cb35f5b2bd).
+    "/THIRD_PARTY_LICENSES.md",
 ]
 OTHER_COMMIT = "673a6369c4ba43cddcc94ff67361872824ffa528"
 

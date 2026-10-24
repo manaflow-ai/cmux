@@ -145,8 +145,9 @@ final class CloudUploads {
                 guard manifest.first?.name == name, manifest.first?.size == size,
                       manifest.allSatisfy({ $0.size >= 0 && $0.size <= Self.maximumFileBytes }),
                       manifest.reduce(0) { $0 + $1.size } <= Self.maximumTotalBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
-                batchID = UUID().uuidString.lowercased()
-                batches[batchID!] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
+                let newBatchID = UUID().uuidString.lowercased()
+                batchID = newBatchID
+                batches[newBatchID] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
             } else { batchID = batchToken }
             let used = stages.values.filter { $0.target.chat.session == session }.reduce(0) { $0 + $1.size }
             guard used + size <= Self.maximumTotalBytes, let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }

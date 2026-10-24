@@ -608,6 +608,7 @@ class BenchApp:
         self.window, self.screen = window, screen
         self.log_path = os.path.join(self.out, log_name or f"app-{self.tag}.log")
         self.process = None
+        self.launched_env = None  # the environment the app was really started with (launch()), for a bench's record
         self.socket = socket_candidates(self.tag)[0]
         self.launched_at = None
         self.ready_seconds = None
@@ -702,6 +703,7 @@ class BenchApp:
             self.teardown.install()
         log = open(self.log_path, "a")
         env = self.environment()
+        self.launched_env = dict(env)
         try:
             with finder_limits() as changed:
                 self.launched_at = time.time()

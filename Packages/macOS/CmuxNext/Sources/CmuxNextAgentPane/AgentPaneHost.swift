@@ -39,7 +39,10 @@ extension AgentPaneHostProviding {
     }
 
     public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        try await putFile(sessionId: sessionId, name: name, data: Data(contentsOf: file))
+        let data = try await Task.detached(priority: .utility) {
+            try Data(contentsOf: file)
+        }.value
+        return try await putFile(sessionId: sessionId, name: name, data: data)
     }
 }
 

@@ -311,6 +311,8 @@ enum ParityLoad<Value> {
 /// Repository checkpoints around the session's turns (web acpmux/checkpoints):
 /// newest first, each restorable after a confirmation.
 struct CheckpointsScreen: View {
+    /// The rows' text column: the 24 pt state glyph, then 12 pt. The footer starts there too.
+    static let column = CmuxMobileListColumn(mark: 24, gap: 12)
     let store: AgentChatStore
     let surface: AgentChatSurface
     @State private var load: ParityLoad<[AgentCheckpoint]> = .loading
@@ -350,6 +352,7 @@ struct CheckpointsScreen: View {
                         }
                     } footer: {
                         Text("Restoring puts the files in \(store.summary.workspaceTitle) back the way they were. The current state is checkpointed first, so a restore can be undone.")
+                            .cmuxMobileTextColumn(.fixed(CheckpointsScreen.column))
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -385,11 +388,11 @@ struct CheckpointsScreen: View {
 
     private func row(_ checkpoint: AgentCheckpoint) -> some View {
         Button { confirming = checkpoint } label: {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: Self.column.gap) {
                 Image(systemName: checkpoint.isBeforeTurn ? "arrow.uturn.backward.circle" : "checkmark.circle")
                     .font(.system(size: 20))
                     .foregroundStyle(.secondary)
-                    .frame(width: 24)
+                    .frame(width: Self.column.mark)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(checkpoint.caption ?? "\(checkpoint.isBeforeTurn ? "Before" : "After") “\(checkpoint.title)”").font(.body).lineLimit(2)
                     // Branch and head on one line, count and age on the next (one line truncated the age).
@@ -449,6 +452,8 @@ struct CheckpointsScreen: View {
 /// Continue this session in another agent (web acpmux/handoff): pick a
 /// harness, review the carried context, attest a checkpoint, start.
 struct HandoffScreen: View {
+    /// The rows' text column: the 32 pt agent glyph, then 12 pt. The footer starts there too.
+    static let column = CmuxMobileListColumn(mark: 32, gap: 12)
     let store: AgentChatStore
     let surface: AgentChatSurface
     @State private var load: ParityLoad<[AgentHandoffTarget]> = .loading
@@ -478,7 +483,7 @@ struct HandoffScreen: View {
                     Section {
                         ForEach(targets) { target in
                             Button { selected = target } label: {
-                                HStack(spacing: 12) {
+                                HStack(spacing: HandoffScreen.column.gap) {
                                     AgentGlyph(harness: target.family ?? target.id)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(target.name).font(.body)
@@ -497,9 +502,10 @@ struct HandoffScreen: View {
                             .opacity(target.unavailableReason == nil ? 1 : 0.5)
                         }
                     } header: {
-                        Text("Continue in another agent")
+                        Text("Continue in another agent").cmuxMobileTextColumn(.fixed(HandoffScreen.column))
                     } footer: {
                         Text("\(store.summary.agentName) writes a summary of this chat for the new agent. You review it before anything is sent. The new chat starts on \(store.summary.macName) in the same folder.")
+                            .cmuxMobileTextColumn(.fixed(HandoffScreen.column))
                     }
                 }
                 .listStyle(.insetGrouped)
