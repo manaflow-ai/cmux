@@ -71,8 +71,10 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # verify-recovered-nightly-next smokes the DMG recover-nightly-next-notarization
 # continued, with this run's tools. promote-nightly-next and its -acked job run
 # only on main and check out the promote guard at github.sha; they move a branch
-# and build nothing (#21049).
-exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# and build nothing (#21049). attest-nightly-ssh-daemon checks out only
+# scripts/ci/wait_for_token_quota.py at github.sha and attests the daemon assets
+# build-nightly-app uploaded; it builds and ships no source.
+exempt = {"decide", RESOLVE, "attest-nightly-ssh-daemon", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
