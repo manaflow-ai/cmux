@@ -9,8 +9,12 @@ import Testing
 /// closes and the server reads end of file. The owners (AgentActivitySocketSource,
 /// AgentTurnStateFeed) used to cancel their subscription in a deinit that did nothing off the main
 /// thread; their deinit has no body now (`nonisolated deinit {}`), so the connection's own release
-/// closes it, on the releasing thread. Before it, the descriptor and its read source stayed open
-/// after the release.
+/// closes it, on the releasing thread.
+///
+/// `releasingALiveConnectionClosesItsSocket` is a behavior check, not a regression guard for a
+/// leak: the read source holds the connection weakly and libdispatch cancels a resumed source when
+/// its last reference goes (its cancel handler closes the descriptor), so it most likely passes
+/// without the connection's explicit deinit too (not shown red).
 @Suite(.timeLimit(.minutes(1)))
 nonisolated struct AgentActivityLineConnectionReleaseTests {
     @Test func releasingALiveConnectionClosesItsSocket() throws {
@@ -40,10 +44,12 @@ nonisolated struct AgentActivityLineConnectionReleaseTests {
     }
 
     /// An owner released off the main thread (the last reference dropped by a background task):
-    /// the feed's watch connection closes and acpmux reads end of file. The old deinit returned
-    /// there without cancelling its subscription, so the socket stayed open. The main thread is
-    /// blocked in the read while the release runs, so the close must happen on the releasing
-    /// thread: an isolated (implicit) deinit would wait for the main actor and the read times out.
+    /// the feed's watch connection closes and acpmux reads end of file. The main thread is blocked
+    /// in the read while the release runs, so the close must happen on the releasing thread: an
+    /// isolated (implicit) deinit would wait for the main actor and the read times out. This
+    /// guards the `nonisolated deinit {}` against an isolated one; it is not shown red against the
+    /// old deinit (which returned off main), whose release most likely closed the socket too,
+    /// through the connection's released read source.
     @MainActor @Test func releasingTheTurnStateFeedOffTheMainThreadClosesItsWatch() async throws {
         let server = try ListeningSocket()
         defer { server.close() }
