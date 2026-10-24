@@ -198,6 +198,36 @@ def session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None)
     return _live_role_label(label, runners, pool.session_label) or gui_route_label(label, runners)
 
 
+def _free_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, role) -> str:
+    """Return a compatible role label with at least one idle online runner.
+
+    GUI and logged-in-session jobs should take a free owned Mac when one is
+    visible. Returning an empty label when every compatible role runner is busy
+    lets the workflow's Blacksmith fallback run immediately instead of joining
+    an unbounded GUI queue; the five-minute rescue remains the last admission
+    guard if that fallback is itself stalled.
+    """
+    if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label) or runners is None:
+        return ""
+    owned = pool.pool_label(label)
+    if owned.startswith("glaeda-aws-"):
+        return ""
+    for candidate in (role(name) for name in compatible_labels(owned)):
+        if candidate and any(runner.get("status") == "online" and not runner.get("busy")
+                             and candidate in pool.runner_labels(runner) for runner in runners):
+            return candidate
+    return ""
+
+
+def free_gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    return _free_role_label(label, runners, pool.gui_label)
+
+
+def free_session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    return (_free_role_label(label, runners, pool.session_label)
+            or free_gui_route_label(label, runners))
+
+
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            ) -> tuple[tuple[str, ...], tuple[str, ...], str]:
     """(owned jobs, fallback jobs, why); ((), (), why) decides nothing and keeps today's route."""
@@ -275,8 +305,11 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
+            free_gui = free_gui_route_label(label, runners)
+            free_session = free_session_route_label(label, runners)
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
