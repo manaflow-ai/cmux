@@ -61,6 +61,8 @@ public struct LiveCallScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LiveCallBackdrop().ignoresSafeArea())
         .environment(\.colorScheme, .dark)
+        // White controls on the dark call screen (no app accent on the chevron or buttons).
+        .tint(.white)
         .onChange(of: statusLine) { _, line in
             AccessibilityNotification.Announcement(line).post()
         }
