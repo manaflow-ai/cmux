@@ -119,6 +119,7 @@ pub(super) struct OrderTicket {
     lane: OrderLane,
 }
 
+#[cfg(test)]
 impl OrderTicket {
     pub(super) fn arrival(&self) -> u64 {
         self.arrival

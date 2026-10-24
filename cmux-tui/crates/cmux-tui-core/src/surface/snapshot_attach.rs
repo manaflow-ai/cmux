@@ -214,7 +214,9 @@ impl SnapshotRequestGate {
 impl Surface {
     /// Register a snapshot viewer. Its first event is a READY snapshot.
     /// `local_history`: the viewer reflows its own history, so a resize
-    /// reaches it as a local-history READY at the resize cut.
+    /// reaches it as a local-history READY at the resize cut. Tests only: the
+    /// server attaches through [`Self::attach_snapshot_stream_reading`].
+    #[cfg(test)]
     pub(crate) fn attach_snapshot_stream(
         &self,
         lifecycle: AttachLifecycle,

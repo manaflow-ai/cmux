@@ -74,6 +74,7 @@ pub(super) struct OutboundStream {
 }
 
 impl OutboundStream {
+    #[cfg(test)]
     pub(super) fn new(id: u64, overflow_text: Arc<BudgetedText>) -> Self {
         Self::with_framing(id, overflow_text.into(), StreamFraming::LEGACY)
     }
