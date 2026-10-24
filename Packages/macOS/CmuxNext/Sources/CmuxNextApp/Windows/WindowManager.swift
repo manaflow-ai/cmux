@@ -265,12 +265,12 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
-        // The panes' last frames go once each restored window of this Mac installed its first content
+        // The panes' last frames go once each restored window of this Mac showed its first content
         // (a window shows its workspace from an observation that runs after `restore()` returns) and
         // every pane they show presented its selection: not at the launch settle, which comes on the
         // first pane while the scheduler still makes one new surface per frame.
         launchFrameRelease?.restoreEnded(controllers.map { controller in
-            LaunchFrameRelease.Window(id: controller.state.id, showsContent: controller.content != nil,
+            LaunchFrameRelease.Window(id: controller.state.id, showsContent: controller.hasShownContent,
                                       isLocal: controller.state.machineID == MachineRegistry.localID,
                                       hasWorkspaceToShow: registry.value.window(controller.state.id).map(hasMirroredWorkspace) ?? false)
         })
@@ -349,7 +349,6 @@ final class WindowManager {
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
         defer {
-            launchFrameRelease?.windowDone(controller.state.id)
             onContentDidAppear?(controller)
             let shown = controller.content?.workspace.id
             for waiter in contentWaiters.removeValue(forKey: controller.state.id) ?? [] where waiter.workspaceID == shown {
@@ -359,6 +358,12 @@ final class WindowManager {
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }
+    }
+
+    /// The window showed its first final content, a workspace, a top page or a Cloud creation
+    /// (``WindowController/didShowContent()``): the launch's frame release no longer waits for it.
+    func firstContentDidShow(_ controller: WindowController) {
+        launchFrameRelease?.windowDone(controller.state.id)
     }
 
     /// Orders a new window in without taking focus under no-activate.
