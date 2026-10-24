@@ -1,11 +1,11 @@
 // l10n-allow-file: deterministic visual fixtures for the inline media handoff gallery.
 // This is a gallery-only prototype. It deliberately keeps the handoff to one fixed overlay so
 // frame receipts can measure the motion before a production ReplyMedia owner takes it on.
-import { useState, type TransitionEvent } from "react";
+import { useRef, useState, type TransitionEvent } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 
-export type PeekMotionMode = "immediate" | "peek-open-180" | "anchored-peek-340" | "reduced-motion";
+export type PeekMotionMode = "immediate" | "peek-open" | "anchored-peek-340" | "reduced-motion";
 
 type Props = { mode: PeekMotionMode };
 
@@ -26,7 +26,23 @@ function MediaArtwork() {
 function PeekMotionGallery({ mode }: Props) {
   const [open, setOpen] = useState(false);
   const [settled, setSettled] = useState<"closed" | "opening" | "open" | "closing">("closed");
+  const [generation, setGeneration] = useState(0);
+  const [closeRect, setCloseRect] = useState("not closed");
+  const [lateCompletion, setLateCompletion] = useState(false);
+  const sourceRef = useRef<HTMLElement>(null);
+  const generationRef = useRef(0);
   const changeOpen = (next: boolean) => {
+    generationRef.current += 1;
+    setGeneration(generationRef.current);
+    if (!next) {
+      const rect = sourceRef.current?.getBoundingClientRect();
+      setCloseRect(
+        rect
+          ? `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`
+          : "fallback",
+      );
+    }
+    setLateCompletion(false);
     setOpen(next);
     setSettled(
       mode === "immediate" || mode === "reduced-motion"
@@ -39,8 +55,16 @@ function PeekMotionGallery({ mode }: Props) {
     );
   };
   const settleTransition = (event: TransitionEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget && event.propertyName === "transform")
-      setSettled(open ? "open" : "closed");
+    if (event.target !== event.currentTarget || event.propertyName !== "transform") return;
+    if (generationRef.current !== generation) {
+      setLateCompletion(true);
+      return;
+    }
+    if ((open && settled !== "opening") || (!open && settled !== "closing")) {
+      setLateCompletion(true);
+      return;
+    }
+    setSettled(open ? "open" : "closed");
   };
   return (
     <section
@@ -50,7 +74,7 @@ function PeekMotionGallery({ mode }: Props) {
       data-peek-settled={settled}
     >
       <div className="peek-motion-gallery__eyebrow">Agent reply · visual media</div>
-      <article className="peek-motion-source" data-peek-source>
+      <article ref={sourceRef} className="peek-motion-source" data-peek-source>
         <div className="peek-motion-source__copy">
           <div className="peek-motion-source__label">Build review</div>
           <h2>Checkout flow recording</h2>
@@ -76,6 +100,16 @@ function PeekMotionGallery({ mode }: Props) {
         <span>Ask a follow-up about this recording…</span>
         <span className="peek-motion-composer__key">⌘ ↵</span>
       </div>
+
+      <output
+        className="peek-motion-receipt"
+        data-testid="peek-receipt"
+        data-peek-receipt
+        aria-live="polite"
+      >
+        generation {generation} · close rect {closeRect} ·{" "}
+        {lateCompletion ? "late completion" : "no late completion"}
+      </output>
 
       <div className="peek-motion-layer" data-peek-overlay aria-hidden={!open}>
         <button
@@ -135,6 +169,13 @@ const playOpenClose: Play = async (ctx) => {
   }
   await ctx.click({ role: "button", name: CLOSE_BUTTON });
   await ctx.waitFor(() => ctx.document.querySelector('[data-peek-settled="closed"]'));
+  const receipt = ctx.find({ testId: "peek-receipt" }).textContent ?? "";
+  if (
+    !/generation \d+/.test(receipt) ||
+    !receipt.includes("no late completion") ||
+    !/close rect (fallback|\d)/.test(receipt)
+  )
+    throw new Error(`Peek receipt was incomplete: ${receipt}`);
 };
 
 export default componentEntry<Props>({
@@ -179,9 +220,9 @@ export default componentEntry<Props>({
         settleMaxMs: { value: 100, reason: "The immediate baseline has no transition budget." },
       },
     },
-    "peek-open-180": {
+    "peek-open": {
       note: "A compact 180 ms open and 180 ms close for routine inline media.",
-      props: { mode: "peek-open-180" },
+      props: { mode: "peek-open" },
       play: playOpenClose,
       checks: {
         settleMaxMs: {

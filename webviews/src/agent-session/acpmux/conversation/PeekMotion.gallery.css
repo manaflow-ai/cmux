@@ -4,10 +4,6 @@
   --peek-ink: #f4f6fb;
   --peek-muted: #a6afc2;
   --peek-accent: #9fd3ff;
-  --peek-open-duration: 340ms;
-  --peek-close-duration: 260ms;
-  --peek-open-ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --peek-close-ease: cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   min-height: 540px;
   overflow: hidden;
@@ -17,18 +13,6 @@
     radial-gradient(circle at 15% 0%, rgb(97 129 177 / 20%), transparent 42%),
     linear-gradient(180deg, #12151d, #0d0f15);
   font-family: ui-sans-serif, system-ui, sans-serif;
-}
-
-.peek-motion-gallery[data-peek-mode="immediate"],
-.peek-motion-gallery[data-peek-mode="reduced-motion"] {
-  --peek-open-duration: 0ms;
-  --peek-close-duration: 0ms;
-}
-
-.peek-motion-gallery[data-peek-mode="peek-open-180"] {
-  --peek-open-duration: 180ms;
-  --peek-close-duration: 180ms;
-  --peek-open-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .peek-motion-gallery__eyebrow {
@@ -197,6 +181,15 @@
   font-size: 11px;
 }
 
+.peek-motion-receipt {
+  display: block;
+  max-width: 640px;
+  margin: 12px auto 0;
+  color: #778298;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .peek-motion-layer {
   position: absolute;
   z-index: 2;
@@ -207,8 +200,8 @@
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity var(--peek-close-duration) var(--peek-close-ease),
-    visibility 0s linear var(--peek-close-duration);
+    opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    visibility 0s linear var(--cmux-motion-standard, 180ms);
 }
 
 .peek-motion-layer[aria-hidden="false"] {
@@ -216,7 +209,7 @@
   opacity: 1;
   pointer-events: auto;
   transition:
-    opacity var(--peek-open-duration) var(--peek-open-ease),
+    opacity var(--cmux-motion-standard, 180ms) cubic-bezier(0.2, 0.8, 0.2, 1),
     visibility 0s;
 }
 
@@ -243,16 +236,50 @@
   transform-origin: center;
   opacity: 0;
   transition:
-    transform var(--peek-close-duration) var(--peek-close-ease),
-    opacity var(--peek-close-duration) var(--peek-close-ease);
+    transform var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .peek-motion-layer[aria-hidden="false"] .peek-motion-dialog {
   transform: translateY(0) scale(1);
   opacity: 1;
   transition:
-    transform var(--peek-open-duration) var(--peek-open-ease),
-    opacity var(--peek-open-duration) var(--peek-open-ease);
+    transform var(--cmux-motion-standard, 180ms) cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity var(--cmux-motion-standard, 180ms) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.peek-motion-gallery[data-peek-mode="anchored-peek-340"] .peek-motion-layer {
+  transition:
+    opacity 260ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 260ms;
+}
+
+.peek-motion-gallery[data-peek-mode="anchored-peek-340"] .peek-motion-layer[aria-hidden="false"] {
+  transition:
+    opacity 340ms cubic-bezier(0.32, 0.72, 0, 1),
+    visibility 0s;
+}
+
+.peek-motion-gallery[data-peek-mode="anchored-peek-340"] .peek-motion-dialog {
+  transition:
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.peek-motion-gallery[data-peek-mode="anchored-peek-340"]
+  .peek-motion-layer[aria-hidden="false"]
+  .peek-motion-dialog {
+  transition:
+    transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 340ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.peek-motion-gallery[data-peek-mode="immediate"] .peek-motion-layer,
+.peek-motion-gallery[data-peek-mode="immediate"] .peek-motion-dialog,
+.peek-motion-gallery[data-peek-mode="reduced-motion"] .peek-motion-layer,
+.peek-motion-gallery[data-peek-mode="reduced-motion"] .peek-motion-dialog {
+  transition-duration: 0ms;
+  transition-delay: 0ms;
 }
 
 .peek-motion-dialog__bar {
@@ -298,16 +325,14 @@
   .peek-motion-layer,
   .peek-motion-dialog,
   .peek-motion-layer[aria-hidden="false"] .peek-motion-dialog {
-    --peek-open-duration: 0ms;
-    --peek-close-duration: 0ms;
     transition-duration: 0ms;
+    transition-delay: 0ms;
   }
 }
 
 [data-agent-motion="off"] .peek-motion-layer,
 [data-agent-motion="off"] .peek-motion-dialog,
 [data-agent-motion="off"] .peek-motion-layer[aria-hidden="false"] .peek-motion-dialog {
-  --peek-open-duration: 0ms;
-  --peek-close-duration: 0ms;
   transition-duration: 0ms;
+  transition-delay: 0ms;
 }
