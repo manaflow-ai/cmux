@@ -65,6 +65,32 @@ extension AgentChatSessionRegistry {
         prune(&record, now: event.receivedAt)
     }
 
+    /// Background-task bookkeeping from Claude's `Stop`/`SubagentStop` hooks.
+    ///
+    /// Both carry the parent session's whole `background_tasks` list (what
+    /// `/tasks` shows: background shells, subagents, monitors, workflows), so
+    /// the latest report replaces the previous one. A report without the key
+    /// (older Claude Code) leaves the list alone; `SessionEnd` clears it. The
+    /// list is only as fresh as the last report: Claude sends one at every
+    /// turn end, including the turn a finished background task wakes.
+    nonisolated static func applyBackgroundTasksEvent(
+        _ record: inout AgentChatSessionRecord,
+        event: WorkstreamEvent
+    ) {
+        switch event.hookEventName {
+        case .stop, .subagentStop:
+            guard event.source == "claude",
+                  let tasks = AgentChatBackgroundTask.decodeList(fromExtraFieldsJSON: event.extraFieldsJSON) else {
+                return
+            }
+            record.backgroundTasks = tasks
+        case .sessionEnd:
+            record.backgroundTasks = []
+        default:
+            break
+        }
+    }
+
     private nonisolated static func isTaskSpawn(_ event: WorkstreamEvent) -> Bool {
         // Claude Code renamed the spawn tool "Task" -> "Agent" (2.x); both
         // names remain on the wire depending on CLI version.

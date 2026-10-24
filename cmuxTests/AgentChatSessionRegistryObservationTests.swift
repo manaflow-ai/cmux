@@ -473,6 +473,75 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(detailReadCount == 0)
     }
 
+    @MainActor
+    @Test func processExitClearsBackgroundTasksWithSession() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "claude-exit-background-tasks"
+        let tasks = #"{"background_tasks":[{"id":"task-001","type":"shell","status":"running"}]}"#
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            ppid: 123,
+            receivedAt: Date(timeIntervalSince1970: 1)
+        ))
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .stop,
+            source: "claude",
+            extraFieldsJSON: tasks,
+            receivedAt: Date(timeIntervalSince1970: 2)
+        ))
+        let live = try #require(registry.record(sessionID: sessionID))
+        #expect(live.backgroundTasks.count == 1)
+
+        registry.handleProcessExit(sessionID: sessionID, pid: 123)
+
+        let ended = try #require(registry.record(sessionID: sessionID))
+        #expect(ended.state == .ended)
+        #expect(ended.backgroundTasks.isEmpty)
+    }
+
+    @MainActor
+    @Test func resumeClearsBackgroundTasksFromPreviousProcess() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "claude-resume-background-tasks"
+        let surfaceID = UUID().uuidString
+        let tasks = #"{"background_tasks":[{"id":"task-001","type":"shell","status":"running"}]}"#
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: surfaceID,
+            ppid: 123,
+            receivedAt: Date(timeIntervalSince1970: 1)
+        ))
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .stop,
+            source: "claude",
+            surfaceId: surfaceID,
+            extraFieldsJSON: tasks,
+            receivedAt: Date(timeIntervalSince1970: 2)
+        ))
+        let live = try #require(registry.record(sessionID: sessionID))
+        #expect(live.backgroundTasks.count == 1)
+
+        registry.noteResumeInitiated(
+            sessionID: sessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: nil,
+            workingDirectory: nil
+        )
+
+        let resumed = try #require(registry.record(sessionID: sessionID))
+        #expect(resumed.backgroundTasks.isEmpty)
+        #expect(resumed.state == .idle)
+    }
+
     private func topProcess(
         pid: Int,
         name: String,

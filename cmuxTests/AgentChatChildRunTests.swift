@@ -237,4 +237,98 @@ struct AgentChatChildRunTests {
         )
         #expect(rec.children.count == 1)
     }
+
+    // MARK: - Background tasks (Claude's `background_tasks`, what `/tasks` shows)
+
+    private func stopEvent(
+        _ name: WorkstreamEvent.HookEventName,
+        extraFields: String?,
+        source: String = "claude",
+        at seconds: TimeInterval
+    ) -> WorkstreamEvent {
+        WorkstreamEvent(
+            sessionId: "sess",
+            hookEventName: name,
+            source: source,
+            receivedAt: Date(timeIntervalSince1970: seconds),
+            extraFieldsJSON: extraFields
+        )
+    }
+
+    @Test func claudeStopRecordsBackgroundTasks() {
+        var rec = record()
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(
+                .stop,
+                extraFields: #"{"background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"make"}]}"#,
+                at: 10
+            )
+        )
+        #expect(rec.backgroundTasks.count == 1)
+        #expect(rec.backgroundTasks[0].id == "t1")
+        #expect(rec.backgroundTasks[0].type == "shell")
+        #expect(rec.backgroundTasks[0].command == "make")
+    }
+
+    @Test func subagentStopReplacesBackgroundTasks() {
+        var rec = record()
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.stop, extraFields: #"{"background_tasks":[{"id":"t1","type":"shell","status":"running"}]}"#, at: 10)
+        )
+        // SubagentStop carries the parent's full list; it replaces the old one.
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.subagentStop, extraFields: #"{"background_tasks":[{"id":"t2","type":"monitor","status":"running"}]}"#, at: 20)
+        )
+        #expect(rec.backgroundTasks.map(\.id) == ["t2"])
+        // An empty list means everything finished.
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.stop, extraFields: #"{"background_tasks":[]}"#, at: 30)
+        )
+        #expect(rec.backgroundTasks.isEmpty)
+    }
+
+    @Test func stopWithoutBackgroundTasksKeyKeepsList() {
+        var rec = record()
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.stop, extraFields: #"{"background_tasks":[{"id":"t1","type":"shell","status":"running"}]}"#, at: 10)
+        )
+        // Older Claude Code versions omit the key; that says nothing new.
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.stop, extraFields: nil, at: 20)
+        )
+        #expect(rec.backgroundTasks.map(\.id) == ["t1"])
+    }
+
+    @Test func sessionEndClearsBackgroundTasks() {
+        var rec = record()
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.stop, extraFields: #"{"background_tasks":[{"id":"t1","type":"shell","status":"running"}]}"#, at: 10)
+        )
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(.sessionEnd, extraFields: nil, at: 20)
+        )
+        #expect(rec.backgroundTasks.isEmpty)
+    }
+
+    @Test func nonClaudeStopIgnoresBackgroundTasksField() {
+        var rec = record()
+        AgentChatSessionRegistry.applyBackgroundTasksEvent(
+            &rec,
+            event: stopEvent(
+                .stop,
+                extraFields: #"{"background_tasks":[{"id":"t1","type":"shell","status":"running"}]}"#,
+                source: "codex",
+                at: 10
+            )
+        )
+        #expect(rec.backgroundTasks.isEmpty)
+    }
 }
