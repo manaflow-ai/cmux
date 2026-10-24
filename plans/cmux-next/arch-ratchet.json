@@ -549,6 +549,12 @@
       "allow": 2,
       "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override",
       "applied_sha": "98b020961a613c685cf7016ff7b295838102b89a"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8."
     }
   ],
   "observer_wrappers": [
