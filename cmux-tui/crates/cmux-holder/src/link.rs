@@ -361,9 +361,13 @@ fn read_loop(
                         && matches!(refused, Some(Kind::Spawn | Kind::Attach | Kind::Adopt))
                     {
                         // The holder will not start or stream this terminal:
-                        // the spawn waiting for it fails, else the sink
-                        // waiting for its stream ends (errors of other
-                        // requests leave the stream as it is).
+                        // its sink stops being routed, and the spawn waiting
+                        // for it fails, else the sink hears the refusal
+                        // (errors of other requests leave the stream as it
+                        // is). Both leave under one lock: the ATTACH right
+                        // behind a refused SPAWN is refused too, and finds
+                        // nothing, and the spawn's own cleanup finds nothing
+                        // left to remove.
                         let (waiter, sink) = {
                             let mut state = link.lock();
                             let waiter = if refused == Some(Kind::Spawn) {
@@ -371,14 +375,14 @@ fn read_loop(
                             } else {
                                 None
                             };
-                            let sink =
-                                if waiter.is_none() { state.sinks.remove(&chan) } else { None };
-                            (waiter, sink)
+                            (waiter, state.sinks.remove(&chan))
                         };
+                        if waiter.is_some() || sink.is_some() {
+                            acked.remove(&chan);
+                        }
                         if let Some(waiter) = waiter {
                             let _ = waiter.try_send(Err(io::Error::other(message)));
                         } else if let Some(sink) = sink {
-                            acked.remove(&chan);
                             sink.refused(&message);
                         }
                     }
