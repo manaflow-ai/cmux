@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -79,10 +80,7 @@ final class HomeNewMessageView: NSView {
     // page that asks for the same resources finds them released. Only a release off main (OffMainReleaseCleanupTests'
     // shape, 39256ad7181) hops to the main actor, and only when stop() has not run yet.
     nonisolated deinit {
-        if Thread.isMainThread {
-            MainActor.assumeIsolated { stop() } // main-proof: checked Thread.isMainThread above
-            return
-        }
+        if MainThreadInlineRun.ifOnMainThread({ stop() }) { return }
         guard !stopped else { return }
         let composer = composer, composerStore = composerStore
         // task-owner: the main-actor half of an off-main release; one call each, then it ends
