@@ -1,0 +1,39 @@
+.il-card {
+  --il-border: color-mix(in srgb, var(--cmux-hairline, #454545) 75%, transparent);
+  display: grid;
+  grid-template-columns: minmax(220px, .9fr) minmax(220px, 1.1fr);
+  align-items: center;
+  gap: 24px;
+  min-height: 360px;
+  padding: 28px;
+  color: var(--cmux-text, #e8e8e8);
+  background: var(--cmux-surface-solid, #1d1d1d);
+  border: 1px solid var(--il-border);
+  border-radius: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+.il-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.il-kicker { color: var(--cmux-text-secondary, #999); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.il-copy h2 { margin: 0; font-size: 22px; line-height: 1.15; }
+.il-copy p { max-width: 34ch; margin: 0; color: var(--cmux-text-secondary, #aaa); font-size: 13px; line-height: 1.45; }
+.il-card button { border: 1px solid var(--il-border); border-radius: 6px; padding: 6px 11px; color: inherit; background: var(--cmux-elevated-background, #2b2b2b); font: inherit; cursor: pointer; }
+.il-card button:hover { background: var(--cmux-elevated-background-hover, #363636); }
+.il-card button:focus-visible { outline: 2px solid var(--cmux-focus-ring, #5ea7ff); outline-offset: 2px; }
+.il-child, .il-interrupt-panel { display: flex; flex-direction: column; gap: 8px; min-height: 130px; padding: 20px; border: 1px solid var(--il-border); border-radius: 10px; background: color-mix(in srgb, var(--cmux-accent, #3574d4) 14%, var(--cmux-surface-solid, #1d1d1d)); }
+.il-child[aria-hidden="true"], .il-interrupt-panel[aria-hidden="true"] { pointer-events: none; opacity: 0; transform: translateY(-12px) scale(.98); }
+.il-child span, .il-interrupt-panel span { color: var(--cmux-text-secondary, #aaa); font-size: 13px; }
+.il-meter { display: block; height: 4px; margin-top: auto; overflow: hidden; background: var(--il-border); }
+.il-meter i { display: block; width: 72%; height: 100%; background: var(--cmux-accent, #62a0ff); }
+.il-actions { display: flex; gap: 8px; }
+.il-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.il-list li { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 0 12px; border: 1px solid var(--il-border); border-radius: 8px; background: color-mix(in srgb, var(--cmux-elevated-background, #2b2b2b) 80%, transparent); font-size: 13px; }
+.il-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cmux-accent, #62a0ff); }
+.il-gesture-track { display: grid; place-items: center; min-height: 180px; overflow: hidden; border: 1px dashed var(--il-border); border-radius: 10px; background: repeating-linear-gradient(90deg, transparent, transparent 30px, color-mix(in srgb, var(--il-border) 55%, transparent) 31px); }
+.il-tile { touch-action: none; user-select: none; min-width: 120px; min-height: 76px; border-radius: 10px !important; background: var(--cmux-accent, #3574d4) !important; color: white !important; box-shadow: 0 10px 28px color-mix(in srgb, #000 30%, transparent); }
+.il-reduced-status { display: grid; place-items: center; min-height: 140px; border: 1px solid var(--il-border); border-radius: 10px; background: color-mix(in srgb, var(--cmux-accent, #3574d4) 12%, transparent); font-size: 15px; }
+@media (prefers-reduced-motion: reduce) {
+  .il-card *, .il-card *::before, .il-card *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
+@media (max-width: 680px) {
+  .il-card { grid-template-columns: 1fr; padding: 20px; }
+}
