@@ -23,12 +23,4 @@ extension NotificationCenterService {
         guard hypot(up.x - press.screenLocation.x, up.y - press.screenLocation.y) <= TabTunables.dragStartDistance.value else { return }
         interacted(.click, tabID: press.tab)
     }
-
-    /// Whether `location` (window coordinates) is on a tab strip, the way `PaneSwapDrag` finds it.
-    static func pressesTabStrip(in window: NSWindow, at location: NSPoint) -> Bool {
-        guard let frame = window.contentView?.superview else { return false }
-        var view = frame.hitTest(frame.convert(location, from: nil))
-        while let current = view, !(current is TabStripView) { view = current.superview }
-        return view != nil
-    }
 }
