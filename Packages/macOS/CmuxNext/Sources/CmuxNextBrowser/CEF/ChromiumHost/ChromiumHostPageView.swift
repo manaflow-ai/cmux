@@ -19,6 +19,8 @@ public final class ChromiumHostPageView: NSView {
     var sink: ((ChromiumHostFrame) -> Void)?
     /// The view's size or screen place changed.
     var onGeometry: ((ChromiumHostGeometry) -> Void)?
+    /// The view left its window (its pane closed, or it moved out of every window).
+    var onLeftWindow: (() -> Void)?
     /// The shown context, 0 while none.
     private(set) var contextID: UInt32 = 0
     private let root = CALayer()
@@ -84,7 +86,11 @@ public final class ChromiumHostPageView: NSView {
                 MainActorObservation(name, object: window) { [weak self] in self?.reportGeometry() }
             }
         } ?? []
-        reportGeometry()
+        if window == nil {
+            onLeftWindow?()
+        } else {
+            reportGeometry()
+        }
     }
 
     public override func viewDidChangeBackingProperties() {
