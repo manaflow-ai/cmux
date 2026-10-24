@@ -49,4 +49,20 @@ import Testing
         #expect(buffer.holds(letter, limit: .seconds(2), expiring: true, closes: false))
         #expect(buffer.hasPendingCreation)
     }
+
+    /// Lawrence 2026-10-23: Cmd-D, type, Cmd-D, type, Cmd-W. The keys go to the pane the person saw
+    /// when they typed them. The Cmd-W closes the second new pane before the daemon made it: the keys
+    /// typed for it go with it, and the keys typed for the first new pane still wait for that pane.
+    /// Before, the first pane got both, or (with no other creation pending) the close replayed them
+    /// into whatever had the focus.
+    @Test func closingAPendingCreationDropsOnlyTheKeysTypedForIt() {
+        let buffer = CreationInputBuffer(began: .now)
+        _ = buffer.open(generation: 1, tab: "first")
+        let forFirst = Self.key("a", code: 0)
+        buffer.capture(forFirst)
+        _ = buffer.open(generation: 2, tab: "second")
+        buffer.capture(Self.key("b", code: 11))
+        #expect(buffer.cancel(tab: "second"))
+        #expect(buffer.take() == [forFirst], "the keys typed for the closed pane went to another one")
+    }
 }
