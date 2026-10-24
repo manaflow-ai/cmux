@@ -259,6 +259,10 @@ jobs:
           PART_ARGS: ${{ needs.plan.outputs.args }}
           PART_ARTIFACT: ${{ needs.plan.outputs.artifact }}
           RUN_SECONDS: ${{ needs.plan.outputs.run_seconds || '900' }}
+          # The host the plan pinned the part to (the measurement's host, or a bisect step's rows' host); empty: the
+          # bench host. run-part records the worker the step really ran on, and the report refuses a part from
+          # another host than the measurement's.
+          WORKER: ${{ needs.plan.outputs.worker }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/perf-cron-part"
@@ -270,7 +274,7 @@ jobs:
             echo "::notice title=perf cron::the build-fleet client is not installed on runner $RUNNER_NAME; no part ran"
             exit 0
           fi
-          python3 -I scripts/cmux-next/perf-cron.py fleet-check --client "$client" --yield-mode "$YIELD_MODE" \
+          python3 -I scripts/cmux-next/perf-cron.py fleet-check --client "$client" --worker "${WORKER:-cmux20-bench}" --yield-mode "$YIELD_MODE" \
             --not-started "$out/not-started.json" --output "$RUNNER_TEMP/fleet.out" | tee "$RUNNER_TEMP/fleet.log"
           { echo "### perf cron fleet check"; echo; sed -n 's/^perf-cron fleet: //p' "$RUNNER_TEMP/fleet.log"; } >> "$GITHUB_STEP_SUMMARY"
           if ! grep -qx 'ok=true' "$RUNNER_TEMP/fleet.out"; then
@@ -280,7 +284,7 @@ jobs:
             exit 0
           fi
           python3 -I scripts/cmux-next/perf-cron.py run-part --client "$client" --sha "$SHA" --args "$PART_ARGS" \
-            --artifact "$PART_ARTIFACT" --run-seconds "$RUN_SECONDS" --key "perf-cron-${SHA:0:12}-${PART}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --artifact "$PART_ARTIFACT" --run-seconds "$RUN_SECONDS" --worker "${WORKER:-cmux20-bench}" --key "perf-cron-${SHA:0:12}-${PART}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --out "$out" | tee "$RUNNER_TEMP/part.log"
           { echo "### perf cron part $PART at ${SHA:0:12}"; echo; sed -n 's/^perf-cron part: //p' "$RUNNER_TEMP/part.log"; } >> "$GITHUB_STEP_SUMMARY"
 
@@ -390,10 +394,14 @@ jobs:
         env:
           PART: ${{ needs.plan.outputs.linux_part }}
           SHA: ${{ needs.plan.outputs.sha }}
+          # The runner class this job runs on (the same expression as runs-on above; keep them equal): the Linux
+          # rows' host, so a diff row is compared only with values of the same class.
+          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
         run: |
           set -uo pipefail
           cp "$RUNNER_TEMP/perf-cron.py" scripts/cmux-next/perf-cron-tip.py
-          python3 -I scripts/cmux-next/perf-cron-tip.py run-linux-part --out "$RUNNER_TEMP/perf-cron-linux" | tee "$RUNNER_TEMP/linux.log"
+          python3 -I scripts/cmux-next/perf-cron-tip.py run-linux-part --runner-class "$RUNNER_CLASS" \
+            --out "$RUNNER_TEMP/perf-cron-linux" | tee "$RUNNER_TEMP/linux.log"
           { echo "### perf cron part $PART at ${SHA:0:12} (Linux)"; echo; sed -n 's/^perf-cron linux part: //p' "$RUNNER_TEMP/linux.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the part's result

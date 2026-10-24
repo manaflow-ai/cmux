@@ -153,7 +153,9 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(len(regs), 1)
 
     def test_no_baseline_no_regression(self):
-        self.assertEqual(cron.find_regressions({"a": row(99.0)}, {}, None, None, budgets_mod), [])
+        self.assertEqual(cron.find_regressions({"a": row(9.0)}, {}, None, None, budgets_mod), [])
+        self.assertEqual([r["base"] for r in cron.find_regressions({"a": row(99.0)}, {}, None, None, budgets_mod)], [None],
+                         "over target with no reference: listed with no base, not compared")
 
 
 class RowsTests(unittest.TestCase):
@@ -354,7 +356,7 @@ class DisplayTests(OneRunRule):
 
     def report_tick(self, d, parts, last_good_rows, result=None, host=None):
         """cmd_report finishing a tip measurement of `parts` ({name: report}) against last_good_rows. result: each
-        part's result.json (default {"state": "done"}); host: the measurement's host before the tick."""
+        part's result.json (default: done on the bench host); host: the measurement's host before the tick."""
         state = cron.empty_state(T0)
         state["persisted"] = True
         state["last_good"] = state["last"] = {"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": last_good_rows,
@@ -368,7 +370,7 @@ class DisplayTests(OneRunRule):
         for name, report in parts.items():
             part_dir = os.path.join(d, name)
             os.makedirs(part_dir)
-            for file, value in (("result.json", result or {"state": "done"}), ("report.json", report)):
+            for file, value in (("result.json", result or {"state": "done", "worker": cron.BENCH_WORKER}), ("report.json", report)):
                 with open(os.path.join(part_dir, file), "w") as f:
                     json.dump(value, f)
             results.append(f"{name}={part_dir}")
@@ -381,7 +383,7 @@ class DisplayTests(OneRunRule):
     def test_each_part_keeps_its_own_refresh(self):
         stress = {"refresh_ms": 8.33, "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3,
                                                    "frames_p95_ms": 8.4, "missed": 0}]}
-        B = "@" + cron.BENCH_WORKER  # no worker in the result: the bench host
+        B = "@" + cron.BENCH_WORKER  # the default result ran on the bench host
         base = {"panes.split.4x2.frame" + B: {**row(8.4), "refresh_ms": 8.33}, "panes.close.stress.frame" + B: {**row(8.4), "refresh_ms": 8.33}}
         fallback = {"rows": [{"name": "panes.split.4x2.frame", "p50": 16.7, "p95": 17.0, "unit": "ms"}],
                     "display": {"requested_hz": 120, "vdisplay": False, "refresh_ms": None, "line": "error: x"}}
@@ -846,7 +848,8 @@ class Review2Tests(OneRunRule):
             state["last"] = state["last_good"] = {"sha": "0" * 40, "measured_at": cron.iso(T0), "rows": {}, "refresh_ms": 8.33}
             state["current"] = cron.new_measurement("a" * 40, "tip", ["stress", "motion"], T0)
             # A's stress part finishes; its report is kept in parts/.
-            state = self.report(d, state, [self.part_dir(d, "stress", {"state": "done"}, self.STRESS)])
+            state = self.report(d, state, [self.part_dir(d, "stress", {"state": "done", "worker": cron.BENCH_WORKER},
+                                                         self.STRESS)])
             self.assertTrue(os.listdir(os.path.join(d, "parts")))
             # A is abandoned; the plan starts B and deletes A's part files.
             plan = PlanReportTests()
@@ -1144,6 +1147,9 @@ class HostTests(OneRunRule):
         with tempfile.TemporaryDirectory() as d:
             state = self.report_tick(d, {"motion": motion}, base, result={"state": "done", "worker": "aws-m4pro-9"})
         self.assertEqual(state["regressions"], [], "a slower host is not a regression of the bench host's rows")
+        self.assertEqual([(u["name"], u["base"], u["why"]) for u in state["unconfirmed"]],
+                         [("cmd_d.e2e@aws-m4pro-9", None, cron.NO_REFERENCE)],
+                         "30 ms is three times the 10 ms target: reported, not compared with cmux20-bench's 10 ms")
         self.assertEqual(state["last"]["rows"]["cmd_d.e2e@aws-m4pro-9"]["p95"], 30.0)
         self.assertEqual((state["last"]["host"], state["last"]["macos"]), ("aws-m4pro-9", "26.4.1"))
         self.assertEqual(state["hosts"]["aws-m4pro-9"]["macos"], "26.4.1")
@@ -1151,7 +1157,8 @@ class HostTests(OneRunRule):
         self.assertIn("on aws-m4pro-9 (macOS 26.4.1)", body)
         self.assertIn("aws-m4pro-9 (macOS 26.4.1)", body.split("Coverage:")[1])
         with tempfile.TemporaryDirectory() as d:
-            state = self.report_tick(d, {"motion": motion}, base, host="cmux20-bench")
+            state = self.report_tick(d, {"motion": motion}, base, host="cmux20-bench",
+                                     result={"state": "done", "worker": "cmux20-bench"})
         self.assertEqual([r["name"] for r in state["regressions"]], ["cmd_d.e2e@cmux20-bench"], "the same host compares")
 
     def test_a_bisect_step_runs_on_the_host_of_its_rows(self):
@@ -1180,8 +1187,8 @@ class HostTests(OneRunRule):
         motion = {"rows": [{"name": "cmd_d.e2e", "p50": 9.0, "p95": 9.0, "unit": "ms"}]}
         with tempfile.TemporaryDirectory() as d:
             state = self.report_tick(d, {"motion": motion}, {}, result={"state": "done", "worker": "a b"})
-        self.assertEqual(state["last"]["host"], cron.BENCH_WORKER, "a worker name the controller would refuse is not kept")
-        self.assertIn("cmd_d.e2e@" + cron.BENCH_WORKER, state["last"]["rows"])
+        self.assertEqual(state["history"][-1]["status"], "empty", "a worker name the controller would refuse names no row")
+        self.assertEqual(state["history"][-1]["failed_parts"], ["motion"])
 
 
 class IssueRefreshTests(unittest.TestCase):
@@ -1310,7 +1317,8 @@ class ConfirmTests(unittest.TestCase):
                                   "range": {"good": "a" * 40, "bad": "b" * 40}, "first_bad": {"sha": "b" * 40}}]}
         state = cron.migrate_state(state)
         self.assertEqual(state["regressions"], [])
-        self.assertEqual([u["name"] for u in state["unconfirmed"]], ["diff.stream.p95"])
+        self.assertEqual([u["name"] for u in state["unconfirmed"]], ["diff.stream.p95@" + cron.LEGACY_LINUX_CLASS],
+                         "renamed to its runner class first")
         self.assertEqual(cron.issue_plan(state, None, T0, True, True, False), {"open": False, "comment": "recovered"})
         body = cron.issue_body(state, "o/r", T0)
         self.assertIn("Unconfirmed (1 row(s), not a regression)", body)
