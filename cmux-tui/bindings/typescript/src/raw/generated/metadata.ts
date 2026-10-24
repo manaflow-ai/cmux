@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR 173474d05b1d6c6d58297a8440438bc8103b7aeeb4f17212ddec982d4710a45a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2" as const;
+export const SDK_IR_SHA256 = "173474d05b1d6c6d58297a8440438bc8103b7aeeb4f17212ddec982d4710a45a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -11318,7 +11318,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "SnapshotRequestResult": {
     "additional_properties": false,
     "constraints": [
-      "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; retry after retry_after_ms. Every status echoes request_id."
+      "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; the request is held and its snapshot is sent when the interval ends, in retry_after_ms (no retry needed). Every status echoes request_id."
     ],
     "fields": {
       "reason": {

@@ -52,7 +52,8 @@
 //! `snapshot-request {surface, reason?, have?, request_id?}` is the raw v12
 //! form of the channel message `snapshot_request` (sync-and-transport.md):
 //! requests collapse while a snapshot is pending, and a viewer gets at most
-//! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`).
+//! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`: the
+//! request is held and served when the interval ends).
 //! A channel transport maps its message onto [`handle_request`].
 
 use crate::panic_free::JsonFields;
