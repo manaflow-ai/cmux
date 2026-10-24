@@ -8,6 +8,10 @@
 3. The app starts with launchd's soft limits (a Finder launch's), not the caller's raised ones: a bench at 65536
    open files hid a crash at 256 (cmux-lawrence-2, 2026-10-23). Also `finder-exec`, and the caller's limits are
    restored after the launch.
+4. Low Power Mode (a fake pmset): host_facts records it; a launch in Low Power Mode is refused unless the bench passes
+   low_power_mode_ok=True; a bench switches it only in an exclusive step and switches it back at exit, SIGTERM and
+   SIGHUP; a launch after a switch nobody proved undone is refused while Low Power Mode differs from its value
+   before that switch.
 
 Runs on any Mac, no GUI session or build needed (BENCH_LAUNCH_ANY_SESSION=1, a copy of /bin/sleep stands in for the
 app's executable). Signals only the processes it starts.
@@ -20,6 +24,7 @@ from __future__ import annotations
 import os
 import resource
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -183,6 +188,138 @@ class FinderLimitsTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(out.stdout.strip().splitlines()[-1], str(self.launchd))
 
+
+FAKE_PMSET = """#!/bin/sh
+# A fake pmset: `-g` prints the state file's Low Power Mode (no key when the file holds "none"); `-a lowpowermode N`
+# writes N unless the file "stuck" exists (a switch back that does not take).
+state="$(dirname "$0")/state"
+if [ "$1" = "-g" ]; then
+  echo "System-wide power settings:"
+  echo "Currently in use:"
+  echo " sleep                0"
+  v="$(cat "$state")"
+  [ "$v" = none ] || echo " lowpowermode         $v"
+  exit 0
+fi
+if [ "$1" = "-a" ] && [ "$2" = lowpowermode ]; then
+  [ -e "$(dirname "$0")/stuck" ] && [ "$3" = 0 ] && exit 0
+  echo "$3" > "$state"; exit 0
+fi
+exit 1
+"""
+
+
+class LowPowerModeTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-lpm-"))
+        self.pmset = os.path.join(self.folder, "pmset")
+        with open(self.pmset, "w") as f:
+            f.write(FAKE_PMSET)
+        os.chmod(self.pmset, 0o755)
+        self.set_state("0")
+        self.saved_env = dict(os.environ)
+        os.environ.update(BENCH_LAUNCH_PMSET=self.pmset, BENCH_LAUNCH_TEST_NO_SUDO="1", BENCH_LAUNCH_ANY_SESSION="1",
+                          BENCH_LAUNCH_LPM_MARKER=os.path.join(self.folder, "lpm-marker.json"))
+        os.environ.pop("CMUX_CI_STEP_CLASS", None)
+        self.tag = f"bl-lpm-{os.getpid()}"
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.saved_env)
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def set_state(self, value):
+        with open(os.path.join(self.folder, "state"), "w") as f:
+            f.write(value + "\n")
+
+    def state(self):
+        with open(os.path.join(self.folder, "state")) as f:
+            return f.read().strip()
+
+    def bench(self, **kwargs):
+        app = os.path.join(self.folder, f"cmux DEV {self.tag}.app")
+        if not os.path.exists(app):
+            os.makedirs(os.path.join(app, "Contents/MacOS"))
+            main = os.path.join(app, "Contents/MacOS/cmux DEV")
+            with open(main, "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")  # exits at once: a launch that passes the checks fails "exited"
+            os.chmod(main, 0o755)
+        return bl.BenchApp(app, out=os.path.join(self.folder, "out"), teardown=False, **kwargs)
+
+    def launch_reason(self, bench):
+        with self.assertRaises(bl.LaunchError) as caught:
+            bench.launch(timeout=5)
+        return caught.exception.reason
+
+    def test_host_facts_record_low_power_mode_and_null_without_the_key(self):
+        self.set_state("1")
+        self.assertIs(bl.host_facts()["low_power_mode"], True)
+        self.set_state("0")
+        self.assertIs(bl.host_facts()["low_power_mode"], False)
+        self.set_state("none")
+        self.assertIsNone(bl.host_facts()["low_power_mode"])
+
+    def test_a_launch_in_low_power_mode_is_refused_unless_the_bench_allows_it(self):
+        self.set_state("1")
+        bench = self.bench()
+        self.assertEqual(self.launch_reason(bench), "low-power-mode")
+        self.assertIsNone(bench.process, "the refused launch started the app")
+        self.assertEqual(self.launch_reason(self.bench(low_power_mode_ok=True)), "exited")
+        self.set_state("none")  # a Mac whose pmset has no lowpowermode key
+        self.assertEqual(self.launch_reason(self.bench()), "exited")
+
+    def test_a_switch_outside_an_exclusive_step_is_refused(self):
+        with self.assertRaises(bl.LaunchError) as caught:
+            with bl.LowPowerModeSwitch(True):
+                pass
+        self.assertEqual(caught.exception.reason, "low-power-mode-switch")
+        self.assertEqual(self.state(), "0")
+
+    def test_a_switch_is_undone_at_exit_and_proved(self):
+        os.environ["CMUX_CI_STEP_CLASS"] = "exclusive"
+        with bl.LowPowerModeSwitch(True):
+            self.assertEqual(self.state(), "1")
+            self.assertEqual(self.launch_reason(self.bench(low_power_mode_ok=True)), "exited")
+        self.assertEqual(self.state(), "0")
+        self.assertFalse(os.path.exists(os.environ["BENCH_LAUNCH_LPM_MARKER"]))
+        self.assertEqual(self.launch_reason(self.bench()), "exited")
+
+    def test_a_switch_is_undone_at_sigterm_and_sighup(self):
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import os, sys, time; sys.path.insert(0, sys.argv[1]); import bench_launch as bl\n"
+                 "with bl.LowPowerModeSwitch(True):\n    print('on', flush=True)\n    time.sleep(60)\n", str(HERE)],
+                env=dict(os.environ, CMUX_CI_STEP_CLASS="exclusive"), stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "on")
+                self.assertEqual(self.state(), "1")
+                child.send_signal(sig)  # the process this test started
+                child.wait(30)
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait()
+                child.stdout.close()
+            self.assertEqual(child.returncode, -sig)
+            self.assertEqual(self.state(), "0", f"Low Power Mode stayed on after {sig.name}")
+            self.assertFalse(os.path.exists(os.environ["BENCH_LAUNCH_LPM_MARKER"]))
+
+    def test_a_switch_nobody_proved_undone_refuses_later_launches(self):
+        os.environ["CMUX_CI_STEP_CLASS"] = "exclusive"
+        open(os.path.join(self.folder, "stuck"), "w").close()  # the switch back does not take
+        with self.assertRaises(bl.LaunchError) as caught:
+            with bl.LowPowerModeSwitch(True):
+                pass
+        self.assertEqual(caught.exception.reason, "low-power-mode-not-restored")
+        self.assertEqual(self.state(), "1")
+        self.assertTrue(os.path.exists(os.environ["BENCH_LAUNCH_LPM_MARKER"]), "the unproved switch left no record")
+        # Still on: no later launch runs, even one that allows Low Power Mode.
+        self.assertEqual(self.launch_reason(self.bench(low_power_mode_ok=True)), "low-power-mode-not-restored")
+        # Back to the value from before the switch (someone switched it back): the record clears, launches run.
+        os.unlink(os.path.join(self.folder, "stuck"))
+        self.set_state("0")
+        self.assertEqual(self.launch_reason(self.bench()), "exited")
+        self.assertFalse(os.path.exists(os.environ["BENCH_LAUNCH_LPM_MARKER"]))
 
 if __name__ == "__main__":
     unittest.main()
