@@ -1986,6 +1986,12 @@ class WarningTests(Fixture):
             f"{PKG}/Sources/CmuxNextTerminal/GhosttyRuntime.swift": ["PL-ghostty"],
             f"{PKG}/Sources/CmuxNextApp/GhosttyConfigLiveReload.swift": ["PL-ghostty"],
             "cmux-tui/crates/cmux-tui-core/src/service.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-server/src/lib.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-pty/src/lib.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-process/src/spawn_apple.rs": ["PL-holder"],
+            "cmux-tui/crates/cmux-flow-trace/src/lib.rs": ["PL-trace"],
+            # Not listed: a crate no row names has no owner (no catch-all row).
+            "cmux-tui/crates/cmux-git/src/lib.rs": [],
             "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon holder"],
             "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon holder"],
             "cmux-tui/crates/acpmux/src/lib.rs": ["PL-acpmux"],

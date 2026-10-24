@@ -7,7 +7,8 @@ its contract, and tell its owner what you changed (through the Performance Lead 
 your report). The pre-push hook (`scripts/cmux-next/guardrails.py`) prints one warning line per
 owned area a push touches. It never refuses. One row per area: a file belongs to the most specific
 row that matches it (an exact path over a glob or a folder; a longer literal start wins), so the
-`cmux-tui/` row covers only the daemon files no narrower row (holder, acpmux) names.
+daemon's crate rows never name a second owner for a file the holder row assigns. A crate no row lists has
+no owner (see "Not listed" below); a new crate is not covered by any row until someone adds one.
 
 Owners are agent names (a590), workstreams (PL-*, plans/cmux-next/perf-lead.md section 4) or
 people. When a workstream ends, its row goes back to the Performance Lead. Change a row in the
@@ -25,7 +26,9 @@ same commit that changes ownership, and name who decided it.
 | Typing (key router, terminal key path, Home composer, typing probe) | `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeComposer.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/TypingLatencyProbe.swift` | PL-typing | [home-mac.md](home-mac.md) |
 | Tab strip and hover cards (strip layout, cells, hover-card hit testing) | `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripView*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardCoordinator*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionPath.swift` | PL-instant, session cmux-1c (interim, cmux-b6 decision 2026-10-24) | [perf-lead.md](perf-lead.md); CLAUDE.md "Typing-latency-sensitive paths" |
 | Terminal surface and Ghostty integration | `Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/`, `Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/**/Ghostty*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/TerminalHost*.swift`, `ghostty`, `docs/ghostty-fork.md` | PL-ghostty (session cmux-b6) | [ghostty-integration-DESIGN.md](ghostty-integration-DESIGN.md) |
-| cmux-tui daemon (request speed, terminal host model) | `cmux-tui/` | PL-daemon (session cmux-b6) | [perf-lead.md](perf-lead.md) "Daemon and acpmux targets" |
+| cmux-tui daemon (request speed, journal, store, PTY) | `cmux-tui/crates/cmux-tui-core/`, `cmux-tui/crates/cmux-server/`, `cmux-tui/crates/cmux-server-core/`, `cmux-tui/crates/cmux-pty/` | PL-daemon (session cmux-b6): request speed, journal, store, PTY (lead decision cmux-b6 2026-10-24) | [perf-lead.md](perf-lead.md) "Daemon and acpmux targets" |
+| Daemon child processes (spawn, descriptors, the no-raw-spawn guard) | `cmux-tui/crates/cmux-process/` | PL-holder (session cmux-1c); PL-daemon migrates its own crates' call sites (lead decision cmux-b6 2026-10-24) | [pty-holder.md](pty-holder.md) |
+| Flow traces | `cmux-tui/crates/cmux-flow-trace/` | PL-trace (session cmux-1c; lead decision cmux-b6 2026-10-24) | [trace.md](trace.md) |
 | PTY holder (custody, ring, attach) | `cmux-tui/crates/cmux-holder/`, `cmux-tui/crates/cmux-holder-v3/`, `cmux-tui/crates/cmux-tui-core/src/holder_runtime.rs`, `cmux-tui/crates/cmux-tui-core/src/holder_runtime/` | PL-daemon holder (session cmux-4f) | [pty-holder.md](pty-holder.md) |
 | Hang reports and their signposts | `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/` | PL-telemetry (session cmux-b6) | [hang-reports-DESIGN.md](hang-reports-DESIGN.md) |
 | Motion gate and animation switches | `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/`, `scripts/cmux-next/check-motion.sh` | Performance Lead | [motion-DESIGN.md](motion-DESIGN.md) |

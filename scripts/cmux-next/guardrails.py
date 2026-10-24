@@ -2018,8 +2018,9 @@ def glob_specificity(pattern: str) -> tuple[int, bool]:
 
 def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str]]) -> list[str]:
     """One warning per owned area of FILES. A file belongs to the most specific row whose globs match it
-    (glob_specificity of its best glob), so a catch-all folder row (`cmux-tui/`) never names a second owner for
-    a file a narrower row assigns (`cmux-tui/crates/acpmux/`); rows tied on the same glob both name theirs."""
+    (glob_specificity of its best glob), so a folder row (`cmux-tui/crates/cmux-tui-core/`) never names a second
+    owner for a file a narrower row assigns (`cmux-tui/crates/cmux-tui-core/src/holder_runtime/`); rows tied on the
+    same glob both name theirs. A file no row matches names no owner: a new crate has none until a row lists it."""
     hits: dict[int, list[str]] = collections.defaultdict(list)
     for path in files:
         scored = [(max(glob_specificity(g) for g in globs if glob_match(path, g)), row)
