@@ -132,22 +132,8 @@ import Testing
     /// the live socket, and each /tmp event is one bounded check.
     @Test func aLiveSocketNamingAnExitedPidSettlesOnTheDirectoryWatch() async throws {
         let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
-        let descriptor = try liveSocket(at: path, listening: false)
+        let descriptor = try socketNamingAnExitedPid(at: path)
         defer { close(descriptor); unlink(path) }
-        // Swift marks fork() unavailable; the child only calls listen() and _exit(), both
-        // async-signal-safe, so a fork from this multithreaded process is sound.
-        let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "fork"))  // RTLD_DEFAULT
-        let forkCall = unsafeBitCast(symbol, to: (@convention(c) () -> pid_t).self)
-        let child = forkCall()
-        if child == 0 {
-            _ = listen(descriptor, 64)
-            _exit(0)
-        }
-        try #require(child > 0)
-        var status: Int32 = 0
-        try #require(waitpid(child, &status, 0) == child)  // reaped: kill(child, 0) is ESRCH
-        try #require(ControlSocketServer.probe(path) == .accepted(listener: child),
-                     "the socket does not name the exited child that listened")
 
         let queue = DispatchQueue(label: "test.path-watch")
         let restores = RestoreCount()
@@ -164,17 +150,163 @@ import Testing
         // On the directory watch (the documented fallback): writes in /tmp are noticed, each with
         // a bounded check, and none of them runs the restore while the live socket holds the path.
         let settled = watch.checks.load(ordering: .relaxed)
-        let other = "/tmp/cspw-other-\(UUID().uuidString.prefix(8).lowercased())"
-        let file = open(other, O_CREAT | O_WRONLY | O_EXCL, 0o600)
-        try #require(file >= 0)
-        close(file)
-        unlink(other)
+        try writeInTmp()
         #expect(try await eventually { watch.checks.load(ordering: .relaxed) > settled }, "the watch is not on /tmp")
         queue.sync {}
         #expect(restores.value.load(ordering: .relaxed) == 0, "a /tmp event ran the restore on a live socket")
         // Nor does a /tmp event connect to that socket again: its queue holds only this test's
         // probe above and the watch start's.
         #expect(Self.pendingConnections(descriptor) == 2, "a /tmp event probed the held socket again")
+    }
+
+    /// A live socket at `path` whose `LOCAL_PEERPID` names an exited, reaped child: the child
+    /// called listen() and exited while this process keeps the descriptor (as a process that
+    /// inherited it keeps another app's socket accepting). Its descriptor.
+    func socketNamingAnExitedPid(at path: String) throws -> Int32 {
+        let descriptor = try liveSocket(at: path, listening: false)
+        // Swift marks fork() unavailable; the child only calls listen() and _exit(), both
+        // async-signal-safe, so a fork from this multithreaded process is sound.
+        let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "fork"))  // RTLD_DEFAULT
+        let forkCall = unsafeBitCast(symbol, to: (@convention(c) () -> pid_t).self)
+        let child = forkCall()
+        if child == 0 {
+            _ = listen(descriptor, 64)
+            _exit(0)
+        }
+        try #require(child > 0)
+        var status: Int32 = 0
+        try #require(waitpid(child, &status, 0) == child)  // reaped: kill(child, 0) is ESRCH
+        try #require(ControlSocketServer.probe(path) == .accepted(listener: child),
+                     "the socket does not name the exited child that listened")
+        return descriptor
+    }
+
+    /// One file made and removed in /tmp: one directory event for a watch on /tmp.
+    func writeInTmp() throws {
+        let other = "/tmp/cspw-other-\(UUID().uuidString.prefix(8).lowercased())"
+        let file = open(other, O_CREAT | O_WRONLY | O_EXCL, 0o600)
+        try #require(file >= 0)
+        close(file)
+        unlink(other)
+    }
+
+    /// The other probe outcomes that leave a held path with no listener to follow ran a full
+    /// watch() on every /tmp event: an open of the entry, a probe (a connect to the other app's
+    /// socket), an open of /tmp and a new kqueue source. Here the probe is inconclusive (a socket
+    /// whose mode lets no one connect: EACCES, as for another user's private socket). The held
+    /// file is recorded once; a /tmp event that finds the same file there installs nothing.
+    @Test func aHeldSocketThatCannotBeProbedInstallsNoWatchPerTmpEvent() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let descriptor = try liveSocket(at: path)
+        defer { close(descriptor); unlink(path) }
+        try #require(chmod(path, 0) == 0)
+        try #require(ControlSocketServer.probe(path) == .inconclusive(EACCES), "the probe is not inconclusive")
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            restores.value.add(1, ordering: .relaxed)
+            return true
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        let installed = watch.installs.load(ordering: .relaxed)
+        #expect(installed == 1, "the start installed \(installed) watches")
+        for _ in 0..<5 {
+            let checks = watch.checks.load(ordering: .relaxed)
+            try writeInTmp()
+            #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checks }, "the watch is not on /tmp")
+            queue.sync {}
+        }
+        #expect(watch.installs.load(ordering: .relaxed) == installed, "a /tmp event installed a new watch for the same held socket")
+        #expect(restores.value.load(ordering: .relaxed) == 0, "a /tmp event ran the restore on a held path")
+    }
+
+    /// A stale socket of this user at the link's path (a classic cmux of the same tag that
+    /// crashed): nothing listens, so the probe is refused. The watch kept the /tmp directory watch
+    /// and never ran the restore, which replaces exactly that file (makeLink), so the link was
+    /// never made and /tmp woke the app for the whole run. The restore now runs once, and the
+    /// watch then follows the link it made.
+    @Test func aStaleSocketOfThisUserAtTheLinkPathIsReplacedOnce() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let target = path + ".target"
+        let descriptor = try liveSocket(at: path, listening: false)  // bound, not listening: refused
+        defer { close(descriptor); unlink(path) }
+        try #require(ControlSocketServer.probe(path) == .refused, "the probe is not refused")
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            restores.value.add(1, ordering: .relaxed)
+            return ControlSocketServer.makeLink(path, to: target)
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        #expect(restores.value.load(ordering: .relaxed) == 1, "the stale socket was not replaced")
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: path)) == target, "no link at the path")
+
+        // On the link it made, not on /tmp: writes there wake nothing and restore nothing.
+        let settled = watch.checks.load(ordering: .relaxed)
+        for _ in 0..<20 { try writeInTmp() }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "writes in /tmp woke the link's watch")
+        #expect(restores.value.load(ordering: .relaxed) == 1)
+    }
+
+    /// Leaving the held state: the socket whose pid names no holder is replaced at the same path
+    /// by a live listener (`nc`, moved into place with one rename while it already listens), as
+    /// when a classic cmux takes the path again. A watch that kept the recorded file too long
+    /// (never forgot it, or compared only part of its identity) would never follow the new
+    /// listener and never take the path back when it ends.
+    @Test func aHeldSocketReplacedByALiveListenerIsFollowedAndTakenBack() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let staging = path + ".staging"
+        let descriptor = try socketNamingAnExitedPid(at: path)
+        defer { close(descriptor); unlink(path); unlink(staging) }
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            restores.value.add(1, ordering: .relaxed)
+            return false  // the path stays held: only following the listener can take it back
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        #expect(restores.value.load(ordering: .relaxed) == 0)
+
+        let holder = Process()
+        holder.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+        holder.arguments = ["-lkU", staging]  // -k: a probe's connection does not end it
+        holder.standardOutput = FileHandle.nullDevice
+        holder.standardError = FileHandle.nullDevice
+        try holder.run()
+        defer { if holder.isRunning { holder.terminate() } }
+        let listening = try await eventually {
+            if case .accepted = ControlSocketServer.probe(staging) { return true }
+            return false
+        }
+        try #require(listening, "nc did not listen at \(staging)")
+        // The staging socket's creation is a /tmp event too, but it finds the held file at the
+        // path and installs nothing; only the rename's event makes the watch follow nc.
+        let installs = watch.installs.load(ordering: .relaxed)
+        try #require(rename(staging, path) == 0)  // one directory change; the socket keeps listening
+        #expect(try await eventually { watch.installs.load(ordering: .relaxed) > installs },
+                "the watch kept the held file's record after a new socket replaced it")
+        queue.sync {}
+
+        // It follows nc's process now, not /tmp.
+        let settled = watch.checks.load(ordering: .relaxed)
+        for _ in 0..<20 { try writeInTmp() }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "the watch did not move from /tmp to the new listener")
+
+        let before = restores.value.load(ordering: .relaxed)
+        holder.terminate()
+        holder.waitUntilExit()
+        #expect(try await eventually { restores.value.load(ordering: .relaxed) > before },
+                "the path was not taken back when the new listener ended")
     }
 
     /// Takes every connection waiting in `listener`'s accept queue (closed ones too) and returns

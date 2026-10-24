@@ -74,6 +74,8 @@ final class ControlSocketPathWatch: Sendable {
     #if DEBUG
     /// Path checks run so far: each is one wakeup of `queue` (tests count them).
     let checks = Atomic<Int>(0)
+    /// Watches installed so far: each is a new kqueue source (tests count them).
+    let installs = Atomic<Int>(0)
     #endif
 
     struct Failures {
@@ -220,6 +222,9 @@ final class ControlSocketPathWatch: Sendable {
             return true
         }
         if !installed { watch.cancel() }
+        #if DEBUG
+        if installed { installs.add(1, ordering: .relaxed) }
+        #endif
         return installed
     }
 
