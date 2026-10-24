@@ -212,7 +212,7 @@ final class ScreenContentView: NSView {
         // A split still springing when the next structural update lands (the daemon's echo of the
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
-        let wasMoving = hasMotion // a press during a motion: no lead step (M1)
+        let wasMoving = hasMotion, targetsBefore = (panes: paneFrames.mapValues(\.targetRect), dividers: dividerFrames.mapValues(\.targetRect)) // M1, M4
         let inFlight = splits && structural && arrivals.isEmpty && !departing
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
@@ -277,8 +277,7 @@ final class ScreenContentView: NSView {
         if context.model.acceptsRowOps {
             for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
         }
-        // A column edge whose column changed id at the same place (an optimistic New Column's
-        // column handed over to the daemon's) keeps its spring: it does not jump to its rest.
+        // A column edge whose column changed id in place (a New Column stand-in's handoff) keeps its spring.
         var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
             if case .columnEdge = kind, targets[kind] == nil { return frame }
             return nil
@@ -341,7 +340,8 @@ final class ScreenContentView: NSView {
             releasedDivider = nil
             if animateFrames, splits, let divider = dividerFrames[released.kind] {
                 SplitMotion.seed(velocity: released.velocity, along: dividerViews[released.kind]?.axis ?? .horizontal, divider: divider,
-                                 panes: &paneFrames, dividers: &dividerFrames)
+                                 panes: &paneFrames, dividers: &dividerFrames, moved: Set(paneFrames.keys.filter { targetsBefore.panes[$0] != paneFrames[$0]?.targetRect }),
+                                 movedDividers: Set(dividerFrames.keys.filter { targetsBefore.dividers[$0] != dividerFrames[$0]?.targetRect }))
             }
         }
 
