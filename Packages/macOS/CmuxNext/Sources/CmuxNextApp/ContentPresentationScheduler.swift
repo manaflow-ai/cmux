@@ -84,22 +84,31 @@ final class ContentPresentationScheduler {
         }
     }
 
+    /// Shows the queued panes this frame's budget allows. A pane's `showSelected()` may queue,
+    /// show or cancel panes in turn (a shown page marks the launch's pane ready, whose waiters
+    /// queue a deferred chat): the drain works on the queue as it was when the frame fired, and
+    /// a pane queued during it stays queued for a later frame.
     private func drain() {
-        var created = false
+        let snapshot = order
+        order = []
+        createdThisFrame = false
         var remaining: [ObjectIdentifier] = []
-        for key in order {
+        for key in snapshot {
             guard let pane = pending[key] else { continue }
-            if pane.selectedContentIsAlive || !created {
-                if !pane.selectedContentIsAlive { created = true }
+            let alive = pane.selectedContentIsAlive
+            if alive || !createdThisFrame {
+                if !alive { createdThisFrame = true }
                 pending[key] = nil
                 BenchSpans.measure("presentation.frame") { pane.showSelected() }
             } else {
                 remaining.append(key)
             }
         }
-        order = remaining
-        createdThisFrame = created
-        if remaining.isEmpty, !idleWaiters.isEmpty {
+        // Keys queued during the drain go after the ones that waited; a key cancelled (and maybe
+        // queued again) during the drain appears once, only while it is still pending.
+        var kept = Set<ObjectIdentifier>()
+        order = (remaining + order).filter { pending[$0] != nil && kept.insert($0).inserted }
+        if pending.isEmpty, !idleWaiters.isEmpty {
             let waiting = idleWaiters
             idleWaiters.removeAll()
             for work in waiting { work() }
