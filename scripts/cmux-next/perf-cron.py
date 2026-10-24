@@ -705,28 +705,28 @@ def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     return payload if raw else (json.loads(payload) if payload else {})
 
 
-def linux_job(job):
-    labels = " ".join(job.get("labels") or []).lower()
-    return bool(labels) and ("ubuntu" in labels or "linux" in labels) and "macos" not in labels and "glaeda" not in labels
+# A fleet runner, named positively: glaeda's labels (glaeda-mini, glaeda-trusted-std-xcode-26.6, glaeda-side-...), or
+# `self-hosted` with a macOS label. Anything else is rented or hosted capacity (GitHub's macos-26, Blacksmith,
+# Depot, Namespace, Warp, ...), which a perf part never competes with: on 2026-10-24 a dev build waiting 2 h for
+# blacksmith-12vcpu-macos-26 held every Mac part back while cmux20-bench was idle.
+FLEET_RUNNER_LABEL = re.compile(r"^glaeda-", re.IGNORECASE)
+MACOS_LABEL = re.compile(r"^(macos|osx|darwin)$|macos", re.IGNORECASE)
 
 
-# A hosted runner image: GitHub's (macos-26, macos-15-xlarge, windows-latest) or Blacksmith's rented machines
-# (blacksmith-12vcpu-macos-26, blacksmith-4vcpu-ubuntu-2404). Neither is a fleet Mac: on 2026-10-24 a dev build
-# waiting 2 h for blacksmith-12vcpu-macos-26 held every Mac part back although the fleet was idle.
-GITHUB_HOSTED_LABEL = re.compile(r"^((macos|windows|ubuntu)-[0-9a-z._-]+|blacksmith-[0-9a-z._-]+)$", re.IGNORECASE)
-
-
-def github_hosted_job(job):
-    """Every label is a hosted runner image (GitHub's or Blacksmith's): the job never waits for a fleet Mac, the
-    bench host or the gateway."""
-    labels = job.get("labels") or []
-    return bool(labels) and all(GITHUB_HOSTED_LABEL.match(str(label)) for label in labels)
+def fleet_mac_job(job):
+    """The job's labels name a fleet Mac runner: a glaeda label, or self-hosted with a macOS label. A job with no
+    labels on record counts too (it may want a fleet runner; GitHub has not said yet)."""
+    labels = [str(label) for label in job.get("labels") or []]
+    if not labels:
+        return True
+    if any(FLEET_RUNNER_LABEL.match(label) for label in labels):
+        return True
+    return any(label.lower() == "self-hosted" for label in labels) and any(MACOS_LABEL.search(label) for label in labels)
 
 
 def mac_job_waiting(job):
-    """A job queued for a self-hosted Mac runner (not one waiting on an environment approval): not a Linux job and
-    not a GitHub-hosted image. A job with no labels on record counts (it may want a fleet runner)."""
-    return job.get("status") == "queued" and not linux_job(job) and not github_hosted_job(job)
+    """A job queued for a fleet Mac runner (not one waiting on an environment approval)."""
+    return job.get("status") == "queued" and fleet_mac_job(job)
 
 
 FRAME_PACING_WORKFLOW = "cmux-next-frame-pacing.yml"
