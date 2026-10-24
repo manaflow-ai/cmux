@@ -83,7 +83,7 @@ public final class BackdropImageStore {
     /// still has to download shows it at once). Nil when there is neither.
     func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
         let size = min(Self.previewPixelSize, maxPixelSize)
-        let image = snapshotURL(selection, texture: texture, dark: dark).flatMap { Self.decode($0, maxPixelSize: size) }
+        let image = snapshotURL(selection, source: selection.resolvedImageURL(dark: dark), texture: texture, dark: dark).flatMap { Self.decode($0, maxPixelSize: size) }
             ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size) }
         return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
     }
@@ -121,7 +121,9 @@ public final class BackdropImageStore {
         if let running = loads[key] {
             load = running
         } else {
-            let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
+            // Resolved once: the desktop picture's file is a window server round trip (DesktopPicture).
+            let source = selection.resolvedImageURL(dark: dark)
+            let snapshot = snapshotURL(selection, source: source, texture: texture, dark: dark)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
                 Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: dark)
@@ -140,8 +142,8 @@ public final class BackdropImageStore {
 
     /// The snapshot file of `selection` at this store's size and `texture`. Its name carries the
     /// source file's size and modification date, so a replaced file never matches an old one.
-    private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture, dark: Bool = false) -> URL? {
-        guard let snapshots, let source = selection.resolvedImageURL(dark: dark),
+    private func snapshotURL(_ selection: BackdropSelection, source: URL?, texture: BackdropTexture, dark: Bool = false) -> URL? {
+        guard let snapshots, let source,
               let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0
