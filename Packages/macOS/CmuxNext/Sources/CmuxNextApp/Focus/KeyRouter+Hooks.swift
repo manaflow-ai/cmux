@@ -165,7 +165,7 @@ extension KeyRouter {
     /// dispatcher held for it (``runUnhandledPageKey(_:)``), such as Find after a page that has
     /// no search of its own.
     func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool {
-        runUnhandledPageKey(event)
+        runUnhandledPageKey(event, from: ObjectIdentifier(tab))
     }
 
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
