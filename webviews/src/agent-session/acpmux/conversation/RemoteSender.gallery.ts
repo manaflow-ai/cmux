@@ -65,7 +65,10 @@ export default agentPaneEntry({
           assistant("Sent the order to codex-lane on build-box.", 8.5),
           summary(8.5, { status: "completed" }),
         ],
-        { title: "claude-sr2", sessions: [session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" })] },
+        {
+          title: "claude-sr2",
+          sessions: [session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" })],
+        },
       ),
     },
   },
