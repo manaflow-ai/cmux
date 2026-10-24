@@ -55,9 +55,9 @@ public final class PointerHover: NSObject {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Reads Sendable state only (`area` is a main-actor class). The area leaves the view on main
-    // inline, as before; a release on another thread (it skipped the removal before) hands it to the
-    // main thread, and until then the area's owner (retained by `area`) drops its enters and exits.
+    // Reads Sendable state only (`area` is a main-actor class): the area leaves the view on the main
+    // thread, inline when the target is released there, otherwise on the next turn of the main queue;
+    // until then the area's owner (retained by `area`) drops its enters and exits.
     nonisolated deinit {
         let area = area
         MainDelivery().run { area.remove() }

@@ -54,9 +54,8 @@ public final class HoverReveal {
         }
 
         // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-        // Reads Sendable state only; the reveal's change runs on the main thread, inline when the hold is
-        // dropped there (as before), a hop from any other thread (that release was skipped before, and
-        // the views stayed shown).
+        // Reads Sendable state only: the reveal ends the hold on the main thread, inline when the hold is
+        // released there, otherwise on the next turn of the main queue.
         nonisolated deinit {
             guard !isReleased, let owner else { return }
             let generation = generation
@@ -129,9 +128,9 @@ public final class HoverReveal {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Reads Sendable state only (the probe and the registry keys); the view and registry work runs on the
-    // main thread, inline when the reveal is released there (as before), a hop from any other thread
-    // (skipped before: the probe stayed in the region). By now every weak reference to this reveal reads
+    // Reads Sendable state only (the probe and the registry keys): the probe leaves the region and the
+    // registry drops this reveal's entries on the main thread, inline when the reveal is released there,
+    // otherwise on the next turn of the main queue. By now every weak reference to this reveal reads
     // nil, so under its keys the released entries are the ones whose reveal reads nil (an entry another
     // reveal claimed since then stays).
     nonisolated deinit {
