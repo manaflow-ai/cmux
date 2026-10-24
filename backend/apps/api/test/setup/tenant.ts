@@ -169,7 +169,9 @@ export const sample = (t: Type, ids: Record<string, string>, depth = 0): unknown
 }
 export const sampleParams = (op: string, ids: Record<string, string>) => {
   const out: Record<string, unknown> = {}
-  for (const [k, f] of Object.entries(catalogOps[op]!.params.fields)) if (f.required) out[k] = sample(f.type, ids)
+  // Required fields, plus every optional field that names a resource (a ref to an Id type): the other tenant's id
+  // can hide in an optional parameter (cloud.machine.create from_snapshot).
+  for (const [k, f] of Object.entries(catalogOps[op]!.params.fields)) if (f.required || (f.type.kind === "ref" && /Id$/.test(f.type.name))) out[k] = sample(f.type, ids)
   return out
 }
 /** Every id-shaped string in a JSON value, keyed by the catalog id type whose pattern it matches. */
