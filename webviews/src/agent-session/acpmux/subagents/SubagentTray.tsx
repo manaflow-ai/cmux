@@ -207,13 +207,18 @@ export const SubagentTray = memo(function SubagentTray({
                 ? undefined
                 : formatDuration(Math.max(0, now - item.command.startedAt))
             }
-            onOpen={() =>
-              setOpenCommands((current) => {
-                const next = new Set(current);
-                if (next.has(key)) next.delete(key);
-                else next.add(key);
-                return next;
-              })
+            onOpen={
+              onOpenCommand
+                ? () => {
+                    setOpenCommands((current) => {
+                      const next = new Set(current);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                    onOpenCommand(item.command);
+                  }
+                : undefined
             }
             after={
               stopProcess &&

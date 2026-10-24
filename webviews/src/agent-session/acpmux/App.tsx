@@ -3691,7 +3691,16 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {afterLatest}
+      {afterLatest && (
+        <div
+          className="acpmux-transcript-after-latest"
+          // The dock is absolute over the stage. Keep an after-latest tray in flow above its
+          // measured room so the composer never covers the expansion or its live tail.
+          style={dockSpace > 0 ? { marginBottom: dockSpace } : undefined}
+        >
+          {afterLatest}
+        </div>
+      )}
       {jumpButton && (
         <JumpToLatest
           // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
@@ -5554,22 +5563,24 @@ function AcpmuxPane() {
     !quick &&
     !freshView &&
     (trayList.length > 0 || trayFinished.length > 0) ? (
-      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-        <SubagentTray
-          key={shownSessionId}
-          items={trayList}
-          finished={trayFinished}
-          working={snapshot.isWorking}
-          waiting={waitingAgents}
-          onOpen={showSubagent}
-          onOpenCommand={openTrayCommand}
-          canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-          onOpenSession={openOfferChat}
-          stop={stopSubagent}
-          stopProcess={stopProcess}
-          placement={trayPlacement}
-        />
-      </SubagentClockContext.Provider>
+      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+          <SubagentTray
+            key={shownSessionId}
+            items={trayList}
+            finished={trayFinished}
+            working={snapshot.isWorking}
+            waiting={waitingAgents}
+            onOpen={showSubagent}
+            onOpenCommand={openTrayCommand}
+            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+            onOpenSession={openOfferChat}
+            stop={stopSubagent}
+            stopProcess={stopProcess}
+            placement={trayPlacement}
+          />
+        </SubagentClockContext.Provider>
+      </BackgroundTaskOutputContext.Provider>
     ) : null;
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
