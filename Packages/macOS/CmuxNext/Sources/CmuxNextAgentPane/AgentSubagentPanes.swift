@@ -112,12 +112,12 @@ public final class AgentSubagentPanes {
         /// The time, for ``focusBound``.
         public var now: () -> ContinuousClock.Instant
         /// Calls `acted` on the person's next action (``watchUser(_:)``); returns what stops watching.
-        public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
+        public var watchUser: @MainActor (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
                     place: @escaping (String, Bool, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
                     again: @escaping (Request) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now },
-                    watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
+                    watchUser: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
             self.isOpen = isOpen
             self.focus = focus
             self.place = place
@@ -176,11 +176,10 @@ public final class AgentSubagentPanes {
 
     /// Calls `acted` on the next click or key press in the app, or when another window takes the
     /// keyboard or the app resigns active; returns what stops watching.
-    nonisolated public static func watchUser(_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+    public static func watchUser(_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+        // A main-actor closure (inferred here): AppKit calls local monitors on the main thread.
         let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
-            guard Thread.isMainThread else { return event }
-            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main)
-            MainActor.assumeIsolated { acted() }
+            acted()
             return event
         }
         let center = NotificationCenter.default
