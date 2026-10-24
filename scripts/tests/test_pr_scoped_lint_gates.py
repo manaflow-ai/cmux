@@ -18,6 +18,7 @@ SCRIPTS = (
     'scripts/ci/pr_owned_findings.py',
     'scripts/cmux-next/check-concurrency.sh',
     'scripts/cmux-next/check-main-actor-work.py',
+    'scripts/cmux-next/swift_scope.py',
     'Packages/macOS/CmuxNext/Package.swift',
 )
 # The fixture starts with no grandfathered debt.
@@ -192,6 +193,14 @@ class GateTests(unittest.TestCase):
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT, '.gitattributes': f'{MANIFEST} -diff\n'},
                                  {MANIFEST: manifest})
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
+
+    def test_crash_class_pr_changing_only_the_shared_detector_owns_every_violation(self):
+        # check-concurrency.sh's crash-class rules read scripts/cmux-next/swift_scope.py: a PR that changes
+        # only it changes the lint, so a violation in a file it does not touch is its own.
+        detector = 'scripts/cmux-next/swift_scope.py'
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT},
+                                 {detector: (ROOT / detector).read_text() + '# edited\n'})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift', detector)
 
     def test_crash_class_without_pr_scope_fails_on_any_violation(self):
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT})
