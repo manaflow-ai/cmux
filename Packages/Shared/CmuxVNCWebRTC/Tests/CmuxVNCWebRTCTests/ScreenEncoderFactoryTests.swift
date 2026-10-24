@@ -52,7 +52,7 @@ struct ScreenEncoderFactoryTests {
         settings.qpMax = 51
         settings.mode = .screensharing
         #expect(encoder.startEncode(with: settings, numberOfCores: 4) == 0)
-        defer { _ = encoder.releaseEncoder() }
+        defer { _ = encoder.release() }
         var made: CVPixelBuffer?
         let attributes = [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()] as CFDictionary
         CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, attributes, &made)
