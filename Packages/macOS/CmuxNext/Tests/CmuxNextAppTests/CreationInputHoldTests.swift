@@ -65,4 +65,17 @@ import Testing
         #expect(buffer.cancel(tab: "second"))
         #expect(buffer.take() == [forFirst], "the keys typed for the closed pane went to another one")
     }
+
+    /// A creation whose keys were all typed for it: its close drops them all; one that is not
+    /// pending any more (its reply came) is not this hold's to cancel.
+    @Test func aCreationIsCancelledOnlyWhileItIsPending() {
+        let buffer = CreationInputBuffer(began: .now)
+        let ticket = buffer.open(generation: 1, tab: "new")
+        #expect(buffer.isCreating(tab: "new"))
+        buffer.capture(Self.key("a", code: 0))
+        buffer.resolve(ticket, awaitsFocus: true)
+        #expect(!buffer.isCreating(tab: "new"))
+        #expect(!buffer.cancel(tab: "new"))
+        #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
+    }
 }
