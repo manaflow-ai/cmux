@@ -144,6 +144,13 @@ pub(super) async fn check(
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
     }
+    // GitHub actions run with the owner's local `gh` keyring. A dashboard or
+    // app page must never turn the peer channel into an account-wide API.
+    if m == method::MUX_GITHUB_ACTION
+        && !matches!(origin, super::Origin::Local | super::Origin::Peer)
+    {
+        return Err(refused("_acpmux/github_action"));
+    }
     let web = origin.web_class();
     // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
     // only a local client does that.
