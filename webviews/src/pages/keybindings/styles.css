@@ -527,7 +527,7 @@
 }
 
 .keys-recorder-hint {
-  font-size: var(--text-caption);
+  font-size: var(--text-body);
   color: var(--ui-fg-2);
 }
 
@@ -575,7 +575,7 @@
 .keys-recorder-refusal {
   display: block;
   max-width: 280px;
-  font-size: var(--text-body);
+  font-size: var(--text-title);
   font-weight: 600;
   color: var(--keys-taken);
 }
@@ -623,12 +623,12 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 28px;
-  height: 28px;
+  min-width: 24px;
+  height: 24px;
   padding: 0 8px;
   border-radius: 6px;
   font: inherit;
-  font-size: var(--text-title);
+  font-size: var(--text-body);
   color: inherit;
   background: var(--ui-hover);
   box-shadow:
