@@ -18,9 +18,12 @@ How it is enforced:
   (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
   `debug.blocking` socket command; launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended `Mutex`
   wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
-  `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
-  `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it will never trap and has no log or menu. Release: compiled out.
+  `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. cmux NEXT Nightly (track
+  `nightly-next`): built with `-DCMUX_BLOCKING_CHECKS` (`scripts/cmux-next/lib/nightly-swift-defines.sh`, read
+  by `nightly.yml` and `check-release-compile.sh --nightly`); it records each new site once, never traps, has
+  no menu, and writes one public unified-log line per site with the kind and the image UUID + offset frames
+  only (`BlockingLogSink`, category `blocking`; no path, file or symbol). The opt-in hang reports do not carry
+  the sites yet (a report schema change with PL-telemetry). Release: compiled out.
 - **What the detector does not see yet** (slice (c): migrate to a seam, or the probe below finds it): every
   raw call that does not go through a seam (today almost all of them: `FileManager.default`, `Data(contentsOf:)`
   and so on), `NSXPCConnection.synchronousRemoteObjectProxy`, `DispatchQueue.asyncAndWait`, semaphore and group
@@ -141,7 +144,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 
 `allowBlocking(<reason>)` lets the main thread block for one of these reasons only (Chrome's
 `ScopedAllowBlocking` friend list). A new `BlockingAllowance` needs a row here in the same push. It is not for
-hot paths: in Debug and bench builds (and Nightly, to come) each outermost scope adds and removes one `CFRunLoopObserver` (it
+hot paths: in Debug and bench builds (and Nightly) each outermost scope adds and removes one `CFRunLoopObserver` (it
 holds the allowance back while a nested run of the main run loop runs other work).
 
 | Reason | Why the wait cannot move off the main thread |

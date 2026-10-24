@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Is a bench build as fast as Release? Same actions, same host, interleaved runs.
 
-A bench build (`scripts/reload.sh --config bench`: Release optimization with `-DCMUX_BENCH_HOOKS`)
-keeps the debug.* control commands the fleet benches drive, so it is not byte-for-byte the shipped
-app. This compares it with a Release build of the same commit on what both builds have:
+A bench build (`scripts/reload.sh --config bench`: Release optimization with `-DCMUX_BENCH_HOOKS
+-DCMUX_BLOCKING_CHECKS`, scripts/cmux-next/lib/bench-swift-defines.sh) keeps the debug.* control commands
+the fleet benches drive and the main-thread blocking detector (record only, as a Nightly has it), so it
+is not byte-for-byte the shipped Release app. This compares it with a Release build of the same commit on what both builds have:
 
   * the always-on action signposts (`action.perform`, `action.commit`; CmuxNextSignposts), for the
     same actions run through `action.run` (a normal socket method): --rounds of newTab + closeTab

@@ -109,7 +109,7 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
-    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
+    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking`, and its log sink (``BlockingLogSink``).
     let blocking = BlockingDetector.forProcess()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
@@ -596,6 +596,9 @@ final class AppServices {
         browserHost?.start()
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
+        // Builds with the detector (Nightly, bench, Debug) log each new main-thread blocking site once
+        // (kind + image UUID + offset frames only); Release compiles the detector out and this does nothing.
+        blocking.install(sink: BlockingLogSink())
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
             self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
             self?.browserHost?.noteInput(event)
