@@ -2354,5 +2354,34 @@ class BisectGoneHostTests(unittest.TestCase):
                     self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
 
 
+
+class DiffBenchVersionTests(unittest.TestCase):
+    """Lead 2026-10-24: a change to the diff benches at the measured commit is version-gated like split-spring.sh."""
+
+    def test_the_constants_are_read_from_both_benches_and_absent_means_legacy(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(cron.diff_bench_versions(d), {"sidecar": 1, "stream": 1})
+            os.makedirs(os.path.join(d, "Native/DiffSidecar/src"))
+            os.makedirs(os.path.join(d, "webviews/bench"))
+            with open(os.path.join(d, "Native/DiffSidecar/src/benchmark.rs"), "w") as f:
+                f.write("pub const DIFF_BENCH_VERSION: u32 = 2;\n")
+            with open(os.path.join(d, "webviews/bench/diff-stream.bench.ts"), "w") as f:
+                f.write("export const DIFF_BENCH_VERSION = 3;\n")
+            self.assertEqual(cron.diff_bench_versions(d), {"sidecar": 2, "stream": 3})
+
+    def test_a_bench_version_bump_rebases_only_that_bench_s_rows(self):
+        part = cron.PART_BY_NAME["diff-viewer"]
+
+        def rows(stream_version):
+            report = {"sidecar": {"manifestDecodeP95Micros": 3, "sequentialReadMibPerSecond": 20000.0},
+                      "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": stream_version}}
+            return cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
+        base = rows(1)
+        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1)
+        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in base.items()}
+        self.assertEqual(cron.version_changed(rows(1), legacy), [], "a reference stored before versions is version 1")
+        self.assertEqual(cron.version_changed(rows(2), base), ["diff.stream.p95"])
+
+
 if __name__ == "__main__":
     unittest.main()

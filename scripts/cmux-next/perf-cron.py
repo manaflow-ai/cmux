@@ -501,8 +501,11 @@ def rows_of_part(part, report, budgets_mod, budgets):
             values["diff.sidecar.read_ms_per_gib"] = (round(1024 * 1000 / read, 2), "ms/GiB", 50.0)
         if isinstance(stream.get("p95Ms"), (int, float)):
             values["diff.stream.p95"] = (stream["p95Ms"], "ms", 10.0)
+        versions = report.get("bench_versions") if isinstance(report.get("bench_versions"), dict) else {}
         for name, (v, unit, floor) in values.items():
             out[name] = {"p50": v, "p95": v, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
+            version = versions.get(name.split(".")[1])  # sidecar or stream
+            out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
     return out
 
 
@@ -607,7 +610,7 @@ def version_changed(rows, base_rows):
         if base is None:
             continue
         if isinstance(now, int):
-            then = base.get("measure_version", LEGACY_MEASURE_VERSION) if mac_host(n) else None
+            then = base.get("measure_version", LEGACY_MEASURE_VERSION if mac_host(n) else DIFF_LEGACY_VERSION)
             if isinstance(then, int) and then != now:
                 out.append(n)
                 continue
@@ -1438,6 +1441,26 @@ MEASURE_VERSION_RE = re.compile(r"^SPLIT_SPRING_MEASURE_VERSION=(\d+)\s*$", re.M
 # (36289e3cd3b, which added --config=bench, unused here) and 9a147625 (3c2bfd8efbb, which added a report key, macos).
 # Older blobs built or displayed differently, so they have no version (not measured).
 LEGACY_MEASURE_VERSION = 2  # the version of every row stored before rows carried one (2026-10-24)
+# The diff part's benches run at the measured commit (the Rust sidecar's `benchmark` feature, webviews `bun run
+# benchmark`): each may carry `DIFF_BENCH_VERSION` (a `pub const ...: u32` in Native/DiffSidecar/src/benchmark.rs, an
+# `export const` in webviews/bench/diff-stream.bench.ts), bumped by an edit that changes what it measures; a bench
+# without one measures as DIFF_LEGACY_VERSION, so adding the constant at 1 rebases nothing.
+DIFF_LEGACY_VERSION = 1
+DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
+DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
+
+
+def diff_bench_versions(root):
+    """{bench: version} of the diff part's benches in a checkout ROOT (pure but for reading the files)."""
+    out = {}
+    for bench, rel in DIFF_BENCH_FILES.items():
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+                m = DIFF_BENCH_VERSION_RE.search(f.read())
+        except OSError:
+            m = None
+        out[bench] = int(m.group(1)) if m else DIFF_LEGACY_VERSION
+    return out
 KNOWN_MEASURE_VERSIONS = {"626c77accc2f511146571fbb9314b1af95d2d7c9": 2, "07ed24bb2427ca2681f2762221a579d6185feeda": 2,
                           "9a14762578b353ec46d64c67049a3bade4c3d0ea": 2}
 _versions_by_blob = {}
@@ -2582,6 +2605,7 @@ def cmd_run_linux_part(o):
             ok = False
         else:
             report[name] = value
+    report["bench_versions"] = diff_bench_versions(ROOT)
     json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
     result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:],
               "worker": o.runner_class}
