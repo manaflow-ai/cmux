@@ -8,11 +8,11 @@ import Testing
 /// after the detector's first check: at `.finished`. A commit re-adds only the binding.
 @Suite struct CEFVerificationBridgeCallsTests {
     static func methods(_ phase: BrowserLoadPhase) -> [String] {
-        CEFVerificationBridge.documentCalls(phase: phase).map(\.0)
+        CEFVerificationBridge.documentCalls(phase: phase).map(\.method)
     }
 
     static func readyCalls(_ phase: BrowserLoadPhase) -> Int {
-        CEFVerificationBridge.documentCalls(phase: phase).filter { $0.0 == "Page.addScriptToEvaluateOnNewDocument" }.count
+        CEFVerificationBridge.documentCalls(phase: phase).filter { if case .once = $0 { true } else { false } }.count
     }
 
     @Test func aCommitAddsOnlyTheBinding() {

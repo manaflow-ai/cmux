@@ -16,17 +16,24 @@ import Foundation
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
-/// The observer keeps a timer only while what it reported plays or, for at
-/// most ten looks, while a report waits for the binding: an idle frame costs
-/// its renderer no wakeup and no work per DOM change. A paused element the
-/// page removes (its events fire on a detached node no listener here sees)
-/// reports null at the next natural event: a media event, or the page
-/// showing again.
+/// The observer keeps a timer only while what it reported plays: an idle
+/// frame costs its renderer no wakeup and no work per DOM change. A report
+/// the channel was not ready for waits, with no timer, for the channel's
+/// ready call (``readyHook``: Chromium's bridge calls it right after each
+/// binding add), the next media event or the page showing again. A paused
+/// element the page removes (its events fire on a detached node no listener
+/// here sees) reports null at once: while a paused report is held, the
+/// observer watches the child lists of that element's ancestors (not their
+/// subtrees), and stops watching when the report plays or clears.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
     /// The isolated world the observer runs in.
     static let world = "cmux-media"
+    /// The function the observer puts on its world's `window`; calling it says the channel
+    /// exists now, and a report that waited for it is sent (`CEFMediaBridge` calls it once in the
+    /// existing worlds after each binding add).
+    static let readyHook = "__cmuxMediaReady"
 
     /// The observer, posting with `post` (a JS expression taking `message`,
     /// `{frame, report}`) once `ready` (a JS expression) is true.
@@ -38,11 +45,9 @@ nonisolated extension BrowserMediaState {
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // What the last look found playing, and the one-second look-again while it plays (`follow`).
           let playing = false, ticks = 0, ticker = 0;
-          // Looks a report has waited for the binding; after `maxRetries` only a natural event retries.
-          let retries = 0;
-          const maxRetries = 10;
-          // The element last reported: the page showing again checks it is still in the document.
-          let held = null;
+          // The element last reported, and the watch on its ancestors' child lists while it is
+          // held paused (`guardHeld`), with the parent it was made for.
+          let held = null, watch = null, watchedParent = null;
           // This document's id: the tab keeps one report per frame.
           const frame = Math.random().toString(36).slice(2) + Date.now().toString(36);
           // The elements the tab's mute muted, which Unmute unmutes.
@@ -52,7 +57,6 @@ nonisolated extension BrowserMediaState {
           const send = (report) => {
             if (!(\#(ready))) { pending = true; return false; }
             pending = false;
-            retries = 0;
             const message = { frame, report };
             try { \#(post); return true; } catch (_) { return false; }
           };
@@ -101,18 +105,17 @@ nonisolated extension BrowserMediaState {
             held = element;
           };
           // Metadata changes fire no event: look again every second while what this frame reported
-          // plays (every third look sends it again with its position), and for at most `maxRetries`
-          // looks while a report waits for the binding (an iframe made after the last binding add
-          // never gets one: the next media event tries again). Nothing else keeps a timer, so a
-          // frame with nothing playing (every idle page, hidden or shown) never wakes its renderer.
+          // plays (every third look sends it again with its position). Nothing else keeps a timer,
+          // so a frame with nothing playing (every idle page, hidden or shown) never wakes its
+          // renderer. A report that waits for the channel keeps none: the channel's ready call
+          // (`readyHook`), the next media event or the next show sends it.
           const follow = () => {
-            const on = (playing && reported) || (pending && retries < maxRetries);
+            const on = playing && reported;
             if (on && !ticker) {
               ticks = 0;
               ticker = setInterval(() => {
                 ticks += 1;
                 heartbeat = reported && ticks % 3 === 0;
-                if (pending) retries += 1;
                 schedule();
               }, 1000);
             } else if (!on && ticker) {
@@ -120,12 +123,38 @@ nonisolated extension BrowserMediaState {
               ticker = 0;
             }
           };
+          const unwatch = () => {
+            if (watch) watch.disconnect();
+            watch = null;
+            watchedParent = null;
+          };
+          // A paused report's element can leave the document with no media event (a route swap
+          // removes it or a container of it). While one is held, watch the child lists of its
+          // ancestors (each one level, no subtree), up through shadow roots: a removal looks again
+          // at once. Off while it plays (the one-second look sees it go) or nothing is reported.
+          const guardHeld = () => {
+            if (!reported || playing || !held || !held.isConnected) { unwatch(); return; }
+            if (watch && watchedParent === held.parentNode) return;
+            unwatch();
+            watchedParent = held.parentNode;
+            watch = new MutationObserver(() => {
+              if (!held || !held.isConnected) { unwatch(); schedule(); }
+              else if (held.parentNode !== watchedParent) guardHeld();
+            });
+            for (let node = held.parentNode; node; node = node.parentNode || node.host || null) {
+              watch.observe(node, { childList: true });
+            }
+          };
           const report = () => {
             timer = 0;
             look();
             follow();
+            guardHeld();
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
+          // The channel exists now (Chromium's bridge calls this once after each binding add): a
+          // report that waited for it goes.
+          window.\#(readyHook) = () => { if (pending) schedule(); };
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
             'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']) {
             addEventListener(type, schedule, true);
@@ -135,10 +164,11 @@ nonisolated extension BrowserMediaState {
           addEventListener('pagehide', () => {
             if (reported && send(null)) { reported = false; last = ''; held = null; }
             follow();
+            guardHeld();
           }, true);
           addEventListener('pageshow', (event) => { if (event.persisted) schedule(); }, true);
-          // The page shows again: a reported element the page removed meanwhile, or a report that
-          // waits, looks again. One check per show, no DOM watch.
+          // The page shows again: a report that waits, or a reported element gone meanwhile, looks
+          // again. One check per show.
           addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') return;
             if (pending || (reported && held && !held.isConnected)) schedule();
