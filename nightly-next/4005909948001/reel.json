@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "build": "4005909948001",
+  "notes": "notes/4005909948001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24715,
+      "title": "cmux NEXT transcript: move Send now into message actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24712,
+      "title": "fix(next): match Chrome rail end caps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24648,
+      "title": "feat(agent-chat): use terminal theme colors for status text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24703,
+      "title": "lw#966 acpmux: add cmux-harness Pi profile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24692,
+      "title": "cmux next new tab: cmd-t spam and fast closes no longer flash black, draw the chip row twice or show the chat screen",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24707,
+      "title": "cmux NEXT: add palette and context-menu UI inspector entry points",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24700,
+      "title": "fix(next): make Chrome group rail cut visible",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24664,
+      "title": "cmux next: the diff tab picks split or unified from its width, like the codex app",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24702,
+      "title": "fix(webviews): make focused tests typecheck",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24699,
+      "title": "follow-up: carry #22868 command digits with fresh settings exports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24652,
+      "title": "cmux NEXT composer: path-based files and resumable attachment transport",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24631,
+      "title": "cmux NEXT composer: capability-driven Fast and work-on New Tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24623,
+      "title": "cmux NEXT composer: restore project icons after an empty host answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24694,
+      "title": "fix dispatch destination attribution",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24696,
+      "title": "test(mcp): document agent report ownership split",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24695,
+      "title": "parse canonical dispatch names in codex envelopes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24697,
+      "title": "ci: preserve release compiles and promote newest green tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24645,
+      "title": "feat(next): add Tailscale peers from the machine picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24693,
+      "title": "fix(mcp): reserve agent report dispatch name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24608,
+      "title": "cmux NEXT: render agent dispatch cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24607,
+      "title": "cmux mcp: expose harness-agnostic agent dispatch tools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24606,
+      "title": "acpmux: dispatch attributed briefs across harnesses",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24676,
+      "title": "follow-up: carry #24194 stable model menu fix",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24673,
+      "title": "follow-up: carry #21244 custom icon family safely",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24673/a5b5dd3f/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "a5b5dd3f",
+      "tour": "core"
+    },
+    {
+      "pr": 24630,
+      "title": "feat(cmux-next): point at cmux UI to inspect it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24690,
+      "title": "fix(cmux-next): avoid Self in pipeline render default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24684,
+      "title": "Use checked-in Swift watcher for UI-layer reloads",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24684/ui-layer-real-data.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 24686,
+      "title": "ci: skip saving an exact Linux SwiftPM cache hit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23871,
+      "title": "cmux NEXT Settings > Chief: Look holds the pet, the characters and Bubble Style on one glass card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23120,
+      "title": "acpmux: resume dead agents and recreate their linked worktree (cx-fbt7f)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24682,
+      "title": "cx-121mv: ci: snapshot Linux SwiftPM cache inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24681,
+      "title": "ci: explicit nightly tick coalescer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24669,
+      "title": "cmux NEXT: normalize shared composer footer geometry (HQ #3322 #3325)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24680,
+      "title": "fix(cmux-next): export Foundation for mailbox Date API",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24677,
+      "title": "ci: size fork Linux compile lanes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24617,
+      "title": "fix(cmux-next): replay agent page events across bridge gaps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24678,
+      "title": "ci: remove duplicate macOS relay tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24611,
+      "title": "cx-121mv: ci: reuse weekly Linux SwiftPM build-cache seeds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24659,
+      "title": "Add read-only live attach to UI layer host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24665,
+      "title": "ci: stop admitting retired AWS root labels",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
