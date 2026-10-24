@@ -1,0 +1,60 @@
+# Disposable nested-virt GCP runner
+
+`gcp_nested_runner.py` provisions one `n4d-standard-16` instance in
+`manaflow-437420` and runs the sandbox capability probe on it. It is a dry run
+unless `--apply` is passed. The default run prints the exact `gcloud` commands
+without making a cloud API call (it still requires `gcloud` to be installed).
+
+```sh
+# Review the plan; no instance is created.
+python3 scripts/sandbox-bench/gcp_nested_runner.py --json
+
+# Explicitly create, probe, and delete one instance.
+python3 scripts/sandbox-bench/gcp_nested_runner.py --apply --json
+```
+
+The instance name is random and the create request carries these labels:
+
+```text
+owner=claude-sr2
+purpose=rd-biz-sandboxes
+ttl-hours=4
+```
+
+The startup script writes a readiness marker and runs a watchdog. It powers
+the VM off at the hard TTL or after the idle marker has not been touched for
+the configured idle interval (15 minutes by default). The runner touches that
+marker before its probe. On normal completion or any failure after a successful
+create, it deletes only that exact generated name. `--keep` is an explicit
+escape hatch for debugging; the watchdog remains active.
+
+The runner does not create firewall rules, networks, routes, IAM bindings,
+service accounts, disks, or snapshots. It uses an ephemeral external IP on the
+existing `default` network, so SSH requires the existing network policy to
+permit it. If a create command fails after the API accepted it, cleanup is
+allowed only when a follow-up describe confirms both `owner=claude-sr2` and
+`purpose=rd-biz-sandboxes` on the generated name. An unrelated instance is
+never deleted.
+
+## Permissions and limits
+
+The invoking principal needs, at minimum, `compute.instances.create`,
+`compute.instances.get`, `compute.instances.setMetadata`, and
+`compute.instances.delete` on the project. The create call also needs
+`compute.subnetworks.use` and `compute.subnetworks.useExternalIp` for the
+existing default network, plus `compute.zones.get`/`compute.projects.get` for
+normal gcloud discovery. `iam.serviceAccounts.actAs` is needed if the project
+attaches a service account. SSH via OS Login needs the appropriate
+`roles/compute.osLogin` (or admin variant), and `gcloud compute ssh/scp` needs
+the normal SSH key propagation permissions.
+
+The runner intentionally does not request broad project IAM or firewall
+permissions. A `PERMISSION_DENIED`, missing zone/machine type, unavailable
+external IP, or failed SSH leaves the error in the receipt and triggers the
+exact-name cleanup path when possible. No secret or access token is written to
+the receipt or metadata.
+
+N4D availability is regional. Choose `--zone` from a zone that offers the
+requested N4D shape; the default `us-west1-a` is a starting point, not a
+guarantee. The guest probe is the checked-in `sandbox_bench.py`; pass a pinned
+copy with `--probe-file` for a fleet run.
