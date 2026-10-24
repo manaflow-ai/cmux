@@ -5,7 +5,7 @@
   "panes": ["panes\\..*\\.frame"],
   "tab_switch": ["tab_switch\\..*\\.e2e"],
   "palette": ["palette\\..*\\.key_to_frame"],
-  "sidebar": ["sidebar\\.\\d+\\.(scroll|scroll_while_ticking|drag|ticking)\\.frame", "sidebar\\.\\d+\\.ticking\\.(cpu_pct|main_ms_per_s)", "workspace_switch\\..*"],
+  "sidebar": ["sidebar\\.\\d+\\.(scroll|scroll_while_ticking|drag|ticking)\\.frame", "sidebar\\.\\d+\\.ticking\\.(cpu_pct|main_ms_per_s)", "sidebar\\.\\d+\\.workspace_switch\\.click_to_idle", "workspace_switch\\..*"],
   "home": ["home\\.typing\\.key_dispatch", "home\\.scroll\\.frame"],
   "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
   "idle": ["idle\\..*\\.app_cpu_pct"],

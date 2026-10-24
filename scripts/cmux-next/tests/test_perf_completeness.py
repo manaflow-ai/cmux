@@ -2,6 +2,7 @@
 """Fast deterministic checks for the perf gate's incomplete-data contract."""
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 import types
@@ -115,6 +116,13 @@ class PerfBudgetManifestTests(unittest.TestCase):
         rows = [{"name": "panes.split.4x2.frame", "p95": None}]
         self.assertEqual(pb.incomplete_rows(rows, {}, {"panes": [r"panes\..*\.frame"]}, ["panes"]),
                          [{"name": r"panes\..*\.frame", "reason": "manifest row not measured"}])
+
+    def test_sidebar_click_switch_is_an_expected_family(self):
+        manifest = json.loads((ROOT / "scripts/cmux-next/perf-budgets.json").read_text())["expected"]
+        row = "sidebar.400.workspace_switch.click_to_idle"
+        self.assertTrue(any(re.fullmatch(pattern, row) for pattern in manifest["sidebar"]))
+        self.assertIn({"name": row, "reason": "missing current p95"},
+                      pb.incomplete_rows([], {row: 16.7}, manifest, ["sidebar"]))
 
 
 if __name__ == "__main__":
