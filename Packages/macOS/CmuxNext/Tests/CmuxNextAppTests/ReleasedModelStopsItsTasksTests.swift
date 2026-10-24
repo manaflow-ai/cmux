@@ -1,5 +1,6 @@
 import CmuxNextFilesUI
 @testable import CmuxNextApp
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -18,7 +19,7 @@ struct ReleasedModelStopsItsTasksTests {
     static let root = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
 
     @Test func releasingTheModelOnMainCancelsItsWaitingSearch() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         var asked: [String] = []
         let handoff = Handoff()
         handoff.model = FindSectionModel(search: { query, _ in
@@ -37,7 +38,7 @@ struct ReleasedModelStopsItsTasksTests {
     }
 
     @Test func releasingTheModelOffMainCancelsItsWaitingSearch() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         var asked: [String] = []
         let handoff = Handoff()
         handoff.model = FindSectionModel(search: { query, _ in
