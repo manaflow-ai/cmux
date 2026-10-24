@@ -76,6 +76,13 @@ final class AppControl {
                                           logsRuns: ControlService.isDebugBuild)
         actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
+        // A script's action.batch shows once per window: each daemon store opens (or joins) a stage
+        // under the batch's scope, and the batch's end commits its part in each (StoreStage).
+        service.bridge.stager = { [weak services] scope, deadline in
+            guard let services else { return nil }
+            let stages = services.machines.daemons.map { $0.store.openStage(for: scope, until: deadline) }
+            return { for stage in stages { stage.commit() } }
+        }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())

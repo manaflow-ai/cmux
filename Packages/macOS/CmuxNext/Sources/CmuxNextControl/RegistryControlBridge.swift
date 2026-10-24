@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextSettings
 import Observation
+public import CmuxNextDaemon
 
 /// Connects the action registry to the control socket: publishes a catalog
 /// snapshot to the router whenever descriptors, bindings, shortcut
@@ -19,6 +20,10 @@ import Observation
 @MainActor
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
+    /// Opens the app's stage for one `action.batch` (``stageChanges(scope:until:)``): the app sets
+    /// it at launch (its daemon stores hold the batch's in-place changes until it commits); nil
+    /// stages nothing.
+    public var stager: (@MainActor (DaemonCommandScope, ContinuousClock.Instant) -> (@MainActor @Sendable () -> Void)?)?
     private var router: ControlRouter?
     /// The current observation chain (state-audit R1): each attach starts a
     /// new epoch and detach ends it. A chain armed under an older epoch fires
@@ -165,6 +170,11 @@ public final class RegistryControlBridge: ControlActionExecutor {
 
     /// Same as ``performAction(_:)``.
     public func perform(_ request: ControlActionRequest) -> ControlActionOutcome { performAction(request) }
+
+    /// Opens the app's stage for one `action.batch` through ``stager``; nil when none is set.
+    public func stageChanges(scope: DaemonCommandScope, until deadline: ContinuousClock.Instant) -> (@MainActor @Sendable () -> Void)? {
+        stager?(scope, deadline)
+    }
 
     /// Runs `request` and collects the daemon work its handler started.
     public func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {

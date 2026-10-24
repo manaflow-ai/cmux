@@ -21,9 +21,6 @@ public final class ControlRouter: Sendable {
         /// (``ControlMethod/Deadline/terminalStart``).
         public var terminalStartDeadline: Duration
         public var queueLimits: MainActorWorkQueue.Limits
-        /// Most ops one `action.batch` transaction takes (ControlRouter+ActionBatch): the batch
-        /// applies in one main-actor work item, so its length bounds that item.
-        public var batchOpLimit: Int
         /// Whether `debug.*` methods may be registered: only in DEBUG builds
         /// (``ControlRouter/debugMethodsAllowed``). A release router drops
         /// every `debug.*` registration, so no release build serves one.
@@ -31,12 +28,10 @@ public final class ControlRouter: Sendable {
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
                     queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits(),
-                    batchOpLimit: Int = ControlRouter.batchOpLimit,
                     allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed) {
             self.requestDeadline = requestDeadline
             self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
-            self.batchOpLimit = batchOpLimit
             self.allowsDebugMethods = allowsDebugMethods
         }
     }
@@ -59,16 +54,6 @@ public final class ControlRouter: Sendable {
     /// daemon command answers or fails before the request does.
     public static let terminalStartDeadline: Duration = TerminalStartDeadline.request
 
-    /// Default ``Configuration/batchOpLimit``: one `action.batch` transaction applies in one
-    /// main-actor work item, which cannot yield to the person's input while it runs.
-    ///
-    /// Not measured: 64 is a provisional bound on that item's op count. It does not bound its
-    /// cost (a transaction of 64 New Column or New Browser Tab ops costs far more than 64 tab
-    /// renames), and nothing yet ties it to the automation class's 1 ms per frame
-    /// (plans/cmux-next/main-thread-budget.md). Open item: plans/cmux-next/perf-lead.md section 2,
-    /// row 29 (a per-op main-thread cost, light and STRESS, then a limit derived from it).
-    public static let batchOpLimit = 64
-
     /// Wire protocol version reported by `system.ping` and `system.identify`.
     public static let protocolVersion = 1
 
@@ -78,6 +63,9 @@ public final class ControlRouter: Sendable {
     /// Events for `events.stream` (ControlRouter+EventStream).
     public let events = ControlEventBus()
     public let workQueue: MainActorWorkQueue
+    /// The frames the work queue drains on, with the app's main-thread budget (`action.batch`
+    /// slices its ops by that budget).
+    let frameSource: any ControlFrameSource
     /// Recent `action.run` results by idempotency key.
     let idempotency = ControlIdempotencyCache()
     let executor: any ControlActionExecutor
@@ -120,6 +108,7 @@ public final class ControlRouter: Sendable {
         self.settings = settings
         self.settingsWriter = settingsWriter
         self.configuration = configuration
+        self.frameSource = frameSource
         self.workQueue = MainActorWorkQueue(limits: configuration.queueLimits, frameSource: frameSource)
         register(builtinMethods())
     }
