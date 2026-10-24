@@ -1,6 +1,19 @@
 public import Foundation
 import os
 
+/// How a client reaches the running hub: its SOCKS socket, and the per-launch token the hub
+/// requires of every client (SOCKS5 username/password), so another program of this user that
+/// finds the socket still cannot use the tunnel.
+public struct CloudHubEndpoint: Sendable, Equatable {
+    public let socket: String
+    public let clientToken: String
+
+    public init(socket: String, clientToken: String) {
+        self.socket = socket
+        self.clientToken = clientToken
+    }
+}
+
 /// The app's one userspace WireGuard tunnel: `cmux-tui wg hub`, which serves
 /// SOCKS5 on a Unix socket to every machine link (a WireGuard key supports
 /// one live session, so links share it). Enrolls this Mac's public key with
@@ -21,8 +34,8 @@ public actor CloudTunnelHub {
 
     private enum Phase {
         case idle
-        case starting(Task<String, any Error>)
-        case running(socket: String)
+        case starting(Task<CloudHubEndpoint, any Error>)
+        case running(CloudHubEndpoint)
         case revoked
     }
 
@@ -43,13 +56,13 @@ public actor CloudTunnelHub {
         self.deviceName = deviceName
     }
 
-    /// The hub's SOCKS socket, starting the hub when it is not running.
-    public func socketPath() async throws -> String {
+    /// The hub's endpoint, starting the hub when it is not running.
+    public func endpoint() async throws -> CloudHubEndpoint {
         switch phase {
         case .revoked:
             throw HubError.revoked
-        case .running(let socket) where child?.isRunning == true:
-            return socket
+        case .running(let endpoint) where child?.isRunning == true:
+            return endpoint
         case .starting(let task):
             return try await task.value
         case .idle, .running:
@@ -77,7 +90,7 @@ public actor CloudTunnelHub {
     /// refuses new starts until `resume()`.
     public func revoke() async {
         generation += 1
-        let inflight: Task<String, any Error>? = if case .starting(let task) = phase { task } else { nil }
+        let inflight: Task<CloudHubEndpoint, any Error>? = if case .starting(let task) = phase { task } else { nil }
         phase = .revoked
         terminateChild()
         // Its enrollment may already be on the wire; let it land (the start
@@ -97,7 +110,7 @@ public actor CloudTunnelHub {
         child = nil
     }
 
-    private func start(generation: UInt64) async throws -> String {
+    private func start(generation: UInt64) async throws -> CloudHubEndpoint {
         terminateChild()
         try paths.prepare()
         let key = try paths.loadOrCreateKey()
@@ -111,20 +124,22 @@ public actor CloudTunnelHub {
         )
         let enrollment = try await api.enrollTunnel(request)
         guard generation == self.generation else { throw CancellationError() }
-        try paths.writeSecret(WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString()),
-                              to: paths.wireGuardConfig)
+        // The config holds the private key: it goes to the hub on stdin, never into a file.
+        // Earlier builds wrote it next to the key; that copy goes.
+        let config = WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString())
+        try? FileManager.default.removeItem(at: paths.legacyWireGuardConfig)
         let socketPath = paths.hubSocket
         unlink(socketPath)
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
         let child = ChildProcess(executable: binary, arguments: [
-            "wg", "hub", "--config", paths.wireGuardConfig.path, "--socket", socketPath, "--exit-with-parent",
-        ])
+            "wg", "hub", "--config", "-", "--socket", socketPath, "--exit-with-parent", "--client-token",
+        ], input: Data(config.utf8))
         try child.start()
         self.child = child
-        let ready: String
+        let ready: CloudHubEndpoint
         do {
             ready = try await child.firstLine(within: .seconds(45), label: "cmux-tui wg hub") { line in
-                if case .hubReady(let socket) = CloudLinkEvent.parse(line) { return socket }
+                if case .hubReady(let endpoint) = CloudLinkEvent.parse(line) { return endpoint }
                 return nil
             }
         } catch {
@@ -137,7 +152,7 @@ public actor CloudTunnelHub {
             if self.child === child { self.child = nil }
             throw CancellationError()
         }
-        phase = .running(socket: ready)
+        phase = .running(ready)
         logger.info("wireguard hub ready (tunnel \(enrollment.tunnelId, privacy: .public))")
         return ready
     }

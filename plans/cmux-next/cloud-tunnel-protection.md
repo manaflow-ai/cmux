@@ -1,0 +1,81 @@
+# Cloud tunnel protection (cmux next vs classic)
+
+Status: implemented in https://github.com/manaflow-ai/cmux/pull/23952 (2026-10-23).
+Policy recommendation below is a draft for
+https://github.com/manaflow-ai/cmux/issues/13742; it is not posted yet.
+
+## Threat model
+
+A Cloud VM's private address (its VPC, `10.x` / `fd7a::`) is reachable only
+through this Mac's WireGuard peer. The VM's own services there (the daemon's
+link, noVNC on 6901, a dev server) trust that network. What must not reach
+them:
+
+1. Another computer: covered by WireGuard (only this Mac's key is a peer).
+2. Another user on this Mac: covered by the socket's `0600` mode, its `0700`
+   directory and the hub's peer-uid check.
+3. Another program of the same user (a browser page through a local port, a
+   rogue npm script, any tool that finds the socket): this is the gap.
+4. Malware with the user's full privileges that can read the app's memory or
+   debug it: out of scope for both apps (hardened runtime blocks
+   `task_for_pid` on the app; it can still read files the user owns).
+
+## Classic and next before this change
+
+| | cmux classic | cmux next (before) |
+|---|---|---|
+| App panes reach VMs through | userspace `cmux-tui wg hub` (SOCKS5 on a Unix socket) | same hub |
+| Browser to a VM's localhost | per-machine authenticated CONNECT proxy | `RemoteLocalhostProxy` (peer-checked: only the app and its helpers) to the hub |
+| Hub clients allowed | any process of the user (uid check, no auth) | same |
+| WireGuard key at rest | `~/.cmuxterm/wireguard/`, plaintext, `0600` | `cloud-next/`, plaintext, `0600` |
+| Full config on disk | yes, `0600` | yes, `wireguard.conf`, `0600` |
+| System-wide VPN | opt-in `cmux vpn up`: `NEPacketTunnelProvider` system extension, VPC CIDRs only | none (REWRITE.md decision X2) |
+
+The Network Extension is not what protects classic's panes: classic's panes
+use the same userspace hub. It is an opt-in way to give every program on the
+Mac the VPC, which widens access rather than narrowing it.
+
+## What changed
+
+- `wg hub --client-token` makes a fresh 32-byte random token per launch,
+  prints it only in its readiness line (stdout, a pipe only the app reads) and
+  serves only SOCKS5 clients that send it (RFC 1929 username/password,
+  constant-time compare). A same-user program that finds the socket gets
+  method `0xFF` or an auth failure and reaches nothing (gap 3).
+- `wg hub --config -` reads the wg-quick config from stdin. The app no longer
+  writes `wireguard.conf` and deletes an earlier build's copy.
+- `remote connect --wireguard-hub-token-stdin`: the app hands each link
+  sidecar the token on stdin; it never appears in argv, the environment or a
+  file.
+- Open Desktop's `HubLoopbackOpener` presents the token.
+- `remote-probe --json` reports `wireguard-hub-token`.
+
+Tests: `cmux-remote` `wireguard_hub_e2e` (a tokenless and a forged client are
+refused at the real hub, the real dialer with the token gets through),
+`socks` unit tests, `cmux-tui` flag and stdin tests, and Swift
+`CloudHubLoopbackTests` and `CloudLinkReconnectingTests` (config and token on
+stdin, nothing on disk).
+
+## What is left
+
+- The private key file itself (`cloud-next/wireguard.private.key`, `0600`) is still
+  plaintext, as in classic. Moving it into the Keychain needs a keychain
+  access group, which next-dev (Developer ID without a provisioning profile)
+  does not have; the legacy file keychain would prompt after every re-signed
+  dev build. Recommended once next ships with a profile.
+- `wg hub --control` (datagram ports) is not used by next and is not
+  token-gated; gate it before anything uses it.
+- `cmux vpn up` parity (the Network Extension) is a product decision, not a
+  protection gap. It needs NE and system-extension entitlements, an App
+  Group, `.tunnel` App IDs and profiles, release-workflow embedding, and
+  lifting the guard in `scripts/sign-cmux-bundle.sh`.
+
+## Draft recommendation for 13742
+
+Recommend: require the per-launch client token for every app-started hub
+(shipped here), keep the hub the only way into a VM for app panes, and do
+not add a system-wide VPN to next until there is a user need for VM access
+from programs outside cmux. If that need comes, ship it as the classic
+opt-in `cmux vpn up` routing only the account's VPC CIDRs. Move the WireGuard
+key into the Keychain (this device only) when next has a provisioning
+profile.

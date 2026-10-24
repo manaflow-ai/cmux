@@ -5,13 +5,25 @@ import Network
 /// SOCKS5 on the `cmux-tui wg hub` socket (`CloudTunnelHub`, enrolled for
 /// this Mac with `POST /api/vm/tunnel`) to the machine's private address.
 /// Open Desktop's route, as cmux Classic reaches a machine's desktop: the
-/// app dials behind `RemoteLocalhostProxy`'s peer check, and no TCP port
-/// opens on this Mac. Only loopback hosts map; anything else refuses.
+/// app dials behind `RemoteLocalhostProxy`'s peer check, presents the hub's
+/// client token, and no TCP port opens on this Mac. Only loopback hosts map;
+/// anything else refuses.
 public struct HubLoopbackOpener: LoopbackTunnelOpening {
-    /// The hub's SOCKS socket, starting the hub when it is not running.
-    public typealias SocketPath = @Sendable () async throws -> String
+    /// The running hub's SOCKS socket and the client token it requires.
+    public struct Endpoint: Sendable {
+        public let socket: String
+        public let token: String
 
-    private let socketPath: SocketPath
+        public init(socket: String, token: String) {
+            self.socket = socket
+            self.token = token
+        }
+    }
+
+    /// The hub's endpoint, starting the hub when it is not running.
+    public typealias Hub = @Sendable () async throws -> Endpoint
+
+    private let hub: Hub
     private let address: IPv4Address
     private let timeout: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
@@ -19,21 +31,21 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
     private let queue = DispatchQueue(label: "com.cmuxterm.next.cloud-hub-loopback", qos: .userInitiated)
 
     /// - Parameters:
-    ///   - socketPath: The hub's SOCKS socket path (`CloudTunnelHub.socketPath()`).
+    ///   - hub: The hub's endpoint (`CloudTunnelHub.endpoint()`).
     ///   - address: The machine's private IPv4 address on its Cloud network; nil for any other value.
     ///   - timeout: The deadline over the whole open (starting the hub, connecting, the handshake).
-    public init?(socketPath: @escaping SocketPath, address: String, timeout: Duration = .seconds(15)) {
-        self.init(socketPath: socketPath, address: address, timeout: timeout, sleep: { duration in
+    public init?(hub: @escaping Hub, address: String, timeout: Duration = .seconds(15)) {
+        self.init(hub: hub, address: address, timeout: timeout, sleep: { duration in
             // wakeup-allow: one bounded, cancellable open deadline; tests inject this clock.
             try await ContinuousClock().sleep(for: duration)
         })
     }
 
     /// Test seam for the open's one-shot deadline.
-    init?(socketPath: @escaping SocketPath, address: String, timeout: Duration,
+    init?(hub: @escaping Hub, address: String, timeout: Duration,
           sleep: @escaping @Sendable (Duration) async throws -> Void) {
         guard let parsed = IPv4Address(address) else { return nil }
-        self.socketPath = socketPath
+        self.hub = hub
         self.address = parsed
         self.timeout = timeout
         self.sleep = sleep
@@ -41,11 +53,11 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
 
     public func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
         guard LoopbackHost(host).isLoopback else { throw .other("Only the machine's localhost goes through the Cloud tunnel") }
-        let socketPath = socketPath, address = address, queue = queue, timeout = timeout, sleep = sleep
+        let hub = hub, address = address, queue = queue, timeout = timeout, sleep = sleep
         do {
             // concurrency-allow: the injected sleeper honors cancellation and cancelling the open cancels its NWConnection, so both children exit.
             return try await withThrowingTaskGroup(of: (any LoopbackTunnel)?.self) { group in
-                group.addTask { try await Self.connect(socketPath: socketPath, address: address, port: port, queue: queue) }
+                group.addTask { try await Self.connect(hub: hub, address: address, port: port, queue: queue) }
                 group.addTask {
                     // wakeup-allow: the open's one-shot deadline, not polling or settling.
                     try await sleep(timeout)
@@ -65,16 +77,16 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
     }
 
     /// The hub's socket, a connection to it, then SOCKS5 CONNECT to the machine's address.
-    private static func connect(socketPath: SocketPath, address: IPv4Address, port: UInt16,
+    private static func connect(hub: Hub, address: IPv4Address, port: UInt16,
                                 queue: DispatchQueue) async throws -> (any LoopbackTunnel)? {
-        let path: String
-        do { path = try await socketPath() } catch { throw LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable") }
+        let endpoint: Endpoint
+        do { endpoint = try await hub() } catch { throw LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable") }
         try Task.checkCancellation()
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let connection = NWConnection(to: .unix(path: endpoint.socket), using: .tcp)
         do {
             return try await withTaskCancellationHandler {
                 guard await connection.ready(on: queue) else { throw LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable") }
-                try await negotiate(connection, address: address, port: port)
+                try await negotiate(connection, token: endpoint.token, address: address, port: port)
                 return CloudProxyLoopbackTunnel(connection: connection, initialData: Data())
             } onCancel: {
                 connection.cancel()
@@ -85,10 +97,20 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
         }
     }
 
-    /// SOCKS5 with no authentication (the hub's socket is this user's own), then CONNECT.
-    private static func negotiate(_ connection: NWConnection, address: IPv4Address, port: UInt16) async throws {
-        try await connection.sendAll(Data([0x05, 0x01, 0x00]))
-        guard try await read(2, from: connection) == Data([0x05, 0x00]) else {
+    /// SOCKS5 username/password (RFC 1929) carrying the hub's client token, then CONNECT.
+    private static func negotiate(_ connection: NWConnection, token: String, address: IPv4Address, port: UInt16) async throws {
+        let secret = Data(token.utf8)
+        guard !secret.isEmpty, secret.count <= 255 else { throw LoopbackTunnelFailure.other("Cloud tunnel refused the handshake") }
+        try await connection.sendAll(Data([0x05, 0x01, 0x02]))
+        guard try await read(2, from: connection) == Data([0x05, 0x02]) else {
+            throw LoopbackTunnelFailure.other("Cloud tunnel refused the handshake")
+        }
+        var auth = Data([0x01, 0x04])
+        auth.append(contentsOf: Array("cmux".utf8))
+        auth.append(UInt8(secret.count))
+        auth.append(secret)
+        try await connection.sendAll(auth)
+        guard try await read(2, from: connection) == Data([0x01, 0x00]) else {
             throw LoopbackTunnelFailure.other("Cloud tunnel refused the handshake")
         }
         var request = Data([0x05, 0x01, 0x00, 0x01])

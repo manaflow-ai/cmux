@@ -2,8 +2,8 @@ import Foundation
 
 /// The JSON lines cmux-tui helpers print on stdout.
 package enum CloudLinkEvent: Equatable, Sendable {
-    /// `wg hub`: `{"event":"hub-ready","socket":…,"routes":[…]}`.
-    case hubReady(socket: String)
+    /// `wg hub --client-token`: `{"event":"hub-ready","socket":…,"routes":[…],"client_token":…}`.
+    case hubReady(CloudHubEndpoint)
     /// `remote connect --headless --json`: the first
     /// `{"event":"connection-snapshot","local_socket":…}` names the local v12
     /// socket the app connects to like a local daemon.
@@ -16,8 +16,9 @@ package enum CloudLinkEvent: Equatable, Sendable {
               let event = object["event"] as? String else { return .other }
         switch event {
         case "hub-ready":
-            guard let socket = object["socket"] as? String, !socket.isEmpty else { return .other }
-            return .hubReady(socket: socket)
+            guard let socket = object["socket"] as? String, !socket.isEmpty,
+                  let token = object["client_token"] as? String, !token.isEmpty else { return .other }
+            return .hubReady(CloudHubEndpoint(socket: socket, clientToken: token))
         case "connection-snapshot":
             guard let socket = object["local_socket"] as? String, !socket.isEmpty else { return .other }
             return .connected(localSocket: socket)

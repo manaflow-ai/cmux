@@ -16,7 +16,7 @@ cmux daemon start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
-cmux wg hub --config <wg-quick file> --socket <unix socket>
+cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token]
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -33,7 +33,9 @@ socket. Machine connectors use it as a transport primitive. `wg hub` owns one
 in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
 socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
-on SIGTERM or SIGINT.
+on SIGTERM or SIGINT. With `--client-token` it serves only clients presenting the
+per-launch token it reports in that line (`remote connect
+--wireguard-hub-token-stdin`); `--config -` reads the config from stdin.
 
 `cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
 no daemon running, the capabilities every daemon

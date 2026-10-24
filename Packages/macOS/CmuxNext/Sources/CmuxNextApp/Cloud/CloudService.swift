@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
+import CmuxNextRemoteLocalhost
 import Foundation
 import Observation
 import os
@@ -24,12 +25,16 @@ final class CloudService {
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
-    /// The tunnel's SOCKS socket, starting it when needed: how the browser reaches a machine's
-    /// localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService). Nil without the hub.
-    var tunnelSocket: (@Sendable () async throws -> String)? {
+    /// The tunnel's SOCKS socket and client token, starting it when needed: how the browser
+    /// reaches a machine's localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService).
+    /// Nil without the hub.
+    var tunnelSocket: HubLoopbackOpener.Hub? {
         guard let hub else { return nil }
-        let socket: @Sendable () async throws -> String = { try await hub.socketPath() }
-        return socket
+        let endpoint: HubLoopbackOpener.Hub = {
+            let endpoint = try await hub.endpoint()
+            return HubLoopbackOpener.Endpoint(socket: endpoint.socket, token: endpoint.clientToken)
+        }
+        return endpoint
     }
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.

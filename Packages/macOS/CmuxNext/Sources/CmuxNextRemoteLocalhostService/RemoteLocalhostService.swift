@@ -20,9 +20,9 @@ public final class RemoteLocalhostService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// cmux.json `browser.remoteLocalhost*`, live.
     public var setting: RemoteLocalhostSetting = .fallback
-    /// The app's WireGuard tunnel socket (`CloudTunnelHub.socketPath()`): Open Desktop's route
-    /// to a Cloud machine, as cmux Classic reaches a machine's desktop. Nil until the app sets it.
-    public var cloudTunnelSocket: (@Sendable () async throws -> String)?
+    /// The app's WireGuard tunnel (`CloudTunnelHub.endpoint()`): Open Desktop's route to a Cloud
+    /// machine, as cmux Classic reaches a machine's desktop. Nil until the app sets it.
+    public var cloudTunnelSocket: HubLoopbackOpener.Hub?
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     /// DEBUG builds: `CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET` names a second
@@ -115,7 +115,7 @@ public final class RemoteLocalhostService {
             // Open Desktop: over the app's WireGuard tunnel, in its own store. No tunnel (signed
             // out, the machine gone or without an address) is nil: a blank page, never this Mac.
             guard let socket = cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
-                  let hub = HubLoopbackOpener(socketPath: socket, address: address) else { return nil }
+                  let hub = HubLoopbackOpener(hub: socket, address: address) else { return nil }
             key = Self.machineKey(registryID: "cloud-tunnel:" + machine)
             opener = hub
         } else {

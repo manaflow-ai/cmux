@@ -5,14 +5,17 @@ import Testing
 
 /// Open Desktop's route (HubLoopbackOpener): a Cloud machine's localhost goes through the app's
 /// WireGuard hub as SOCKS5 to the machine's private address, the way cmux-tui's `wg hub` serves
-/// its links. A stand-in hub on a Unix socket checks the bytes and echoes the stream.
+/// its links, presenting the hub's per-launch client token (RFC 1929 username/password). A
+/// stand-in hub on a Unix socket checks the bytes and the token, and echoes the stream.
 @Suite(.serialized)
 struct CloudHubLoopbackTests {
-    /// One connection's SOCKS5 server: greeting, then CONNECT, answered `reply`; after a success it echoes.
+    /// One connection's SOCKS5 server: greeting, the token `cmux-hub-token`, then CONNECT, answered
+    /// `reply`; after a success it echoes. A wrong token is answered with an auth failure.
     /// Nonisolated: this target defaults to the main actor, and its accept loop runs on its own thread.
     nonisolated final class FakeHub: @unchecked Sendable {
         let path = "/tmp/cmux-hubtest-\(UUID().uuidString.prefix(8)).sock"
         private let listener: Int32
+        static let token = "cmux-hub-token"
         private let lock = NSLock()
         private var connect = Data()
 
@@ -35,8 +38,15 @@ struct CloudHubLoopbackTests {
                 let client = accept(fd, nil, nil)
                 guard client >= 0 else { return }
                 defer { close(client) }
-                guard Self.read(client, 3) == Data([0x05, 0x01, 0x00]) else { return }
-                Self.write(client, Data([0x05, 0x00]))
+                guard Self.read(client, 3) == Data([0x05, 0x01, 0x02]) else { return }
+                Self.write(client, Data([0x05, 0x02]))
+                guard Self.read(client, 2) == Data([0x01, 0x04]), Self.read(client, 4) == Data("cmux".utf8) else { return }
+                let length = Self.read(client, 1)
+                guard let count = length.first, Self.read(client, Int(count)) == Data(Self.token.utf8) else {
+                    Self.write(client, Data([0x01, 0x01]))
+                    return
+                }
+                Self.write(client, Data([0x01, 0x00]))
                 let request = Self.read(client, 10)
                 lock.withLock { connect = request }
                 Self.write(client, Data([0x05, reply, 0x00, 0x01, 0, 0, 0, 0, 0, 0]))
@@ -75,7 +85,7 @@ struct CloudHubLoopbackTests {
     func theMachinesLocalhostGoesToItsPrivateAddressThroughTheHub() async throws {
         let hub = try FakeHub(reply: 0x00)
         let path = hub.path
-        let made = HubLoopbackOpener(socketPath: { path }, address: "10.149.25.1")
+        let made = HubLoopbackOpener(hub: { .init(socket: path, token: FakeHub.token) }, address: "10.149.25.1")
         let opener = try #require(made)
         let tunnel = try await opener.openTunnel(host: "vm-test.cloud-desktop.localhost", port: 6901)
         // CONNECT, IPv4 10.149.25.1, port 6901: the machine's noVNC on its Cloud network.
@@ -94,16 +104,29 @@ struct CloudHubLoopbackTests {
     func aRefusalFromTheHubIsRefused() async throws {
         let hub = try FakeHub(reply: 0x05)
         let path = hub.path
-        let made = HubLoopbackOpener(socketPath: { path }, address: "10.149.25.1")
+        let made = HubLoopbackOpener(hub: { .init(socket: path, token: FakeHub.token) }, address: "10.149.25.1")
         let opener = try #require(made)
         await #expect(throws: LoopbackTunnelFailure.refused) { _ = try await opener.openTunnel(host: "localhost", port: 6901) }
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func aHubThatRefusesTheTokenOpensNothing() async throws {
+        let hub = try FakeHub(reply: 0x00)
+        let path = hub.path
+        let made = HubLoopbackOpener(hub: { .init(socket: path, token: "stale-token") }, address: "10.149.25.1")
+        let opener = try #require(made)
+        await #expect(throws: LoopbackTunnelFailure.other("Cloud tunnel refused the handshake")) {
+            _ = try await opener.openTunnel(host: "localhost", port: 6901)
+        }
+        #expect(hub.connectRequest.isEmpty, "no CONNECT after a refused token")
+    }
+
     @Test func onlyTheMachinesLocalhostGoesThroughTheHub() async throws {
-        let made = HubLoopbackOpener(socketPath: { Issue.record("dialed the hub"); return "/nonexistent" }, address: "10.149.25.1")
+        let made = HubLoopbackOpener(hub: { Issue.record("dialed the hub"); return .init(socket: "/nonexistent", token: "t") },
+                                     address: "10.149.25.1")
         let opener = try #require(made)
         await #expect(throws: LoopbackTunnelFailure.self) { _ = try await opener.openTunnel(host: "example.com", port: 443) }
-        let refused = HubLoopbackOpener(socketPath: { "/nonexistent" }, address: "not-an-address")
+        let refused = HubLoopbackOpener(hub: { .init(socket: "/nonexistent", token: "t") }, address: "not-an-address")
         #expect(refused == nil)
     }
 }
