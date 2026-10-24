@@ -161,11 +161,12 @@ export function codeViewUnsafeCSS(): string {
     [data-interactive-lines] [data-line] {
       cursor: text;
     }
-    /* The file header never shows scrolled code crisp through it (Lawrence):
-       over an opaque window it paints the backdrop composited onto the theme
-       color at full alpha; over an image or a see-through window it is the
-       app's plain glass (--cmux-diff-header-bg and the shared blur, styles.css),
-       so code under it frosts and the backdrop shows. Its
+    /* Over an opaque window the file header paints the backdrop composited onto
+       the theme color at full alpha, so scrolled code never shows through it
+       (Lawrence). Over an image or a see-through window it is a clear film
+       (--cmux-diff-header-bg, a 5% text tint) with a plain blur(20px)
+       (styles.css): WebKit frosts the code under it; Chromium cannot blur behind
+       the page, so there the code shows through the film. Its
        content is the slotted FileHeader (renderCustomHeader), so the row's
        height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
@@ -324,6 +325,11 @@ export function fileTreeUnsafeCSS(): string {
        backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
        styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
        strength is 100%, the status color itself. */
+    /* A shortened name's marker covers the hidden text: over glass the solid backdrop
+       (--cmux-diff-truncate-marker-bg), since the tree's own surfaces are clear there. */
+    [data-type='item'] {
+      --truncate-marker-background-color: var(--cmux-diff-truncate-marker-bg, var(--trees-bg));
+    }
     [data-item-git-status] > [data-item-section='content'] {
       color: color-mix(
         in oklab,

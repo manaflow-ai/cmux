@@ -71,8 +71,8 @@
   --cmux-diff-pill-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
   --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
-  /* The files panel paints opaque (the tree's truncation marker must hide the text under it):
-     3% of the text color over the solid backdrop. */
+  /* The files panel in an opaque window: 3% of the text color over the solid backdrop (over glass
+     it paints nothing; see the glass rules below). */
   --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
   --cmux-diff-files-selected-bg: color-mix(in srgb, var(--cmux-diff-accent) 16%, var(--cmux-diff-files-bg));
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
@@ -83,9 +83,9 @@
      override); without a host, the terminal theme color. Only `html` paints
      it; the toolbar, diff body and every other block are clear over it.
      `--cmux-diff-solid-bg` is that backdrop composited onto the theme color at
-     full alpha (backdrop.ts sets it): file header bars are never transparent,
-     and the files panel uses it because the tree's truncation marker must
-     cover the text under it. This fallback is the opaque case. */
+     full alpha (backdrop.ts sets it): the file header bars and the files panel
+     paint it in an opaque window, and the tree's truncation marker always does,
+     so it covers the text under it. This fallback is the opaque case. */
   --cmux-diff-viewer-bg: var(--cmux-surface-background, var(--cmux-diff-bg));
   --cmux-diff-solid-bg: var(--cmux-diff-bg);
 
@@ -108,49 +108,42 @@ html {
   background: var(--cmux-diff-viewer-bg);
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
-   the backdrop shows through as it does through every other surface:
-   - the file bars and the files panel are a clear film (a 5% tint of the text color) with the
-     shared blur (ui/glass/glass.css); the floating bars take the same film.
-   The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
-   the host's) keeps them solid. */
-:root[data-cmux-see-through]:not([data-reduce-transparency]) {
-  /* The files panel paints nothing, as the app's right sidebar (RightSidebarView: "It paints no
-     ground: the window's shows through"): the window's own tint and blur over the image are what
-     make its names readable. Only its sticky folder rows keep the file bars' film, so rows that
-     scroll under them do not show through their text. */
-  --cmux-diff-files-bg: transparent;
-  --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
-  --cmux-diff-files-filter: none;
-  --cmux-diff-files-layer-bg: transparent;
-  --cmux-diff-tree-name-strength: 65%;
-  /* A clear film: a tint of the text color, not the theme surface (no navy or other theme hue),
-     with the blur doing the work where the engine can blur. */
-  --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
-  /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
-     (a navy or a vivid image) through the film. */
-  --cmux-diff-glass-filter: blur(20px);
-}
-/* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's own
-   pixels, so code under a frosted bar reads crisp through its tint (ui/glass/glass.css, CHROMIUM
-   OVER THE WINDOW GLASS). As the app's floating glass does there, the Stage all / Revert all bar
-   and the hunk pill lay their tint over the theme surface at --glass-underlay, so the code under
-   them fades. The file bars and the files panel stay a clear film. WebKit keeps the real blur. */
+   the backdrop shows through as it does through every other surface. Off under Reduce Transparency
+   (the system's, by the media query, or the host's data-reduce-transparency): every variable below
+   then falls back to the opaque look.
+   - The file bars are a clear film (a 5% tint of the text color) with a plain blur.
+   - The files panel paints nothing, as the app's right sidebar (RightSidebarView: "It paints no
+     ground: the window's shows through"): the window's own tint and blur over the image make its
+     names readable. Its sticky folder rows keep the film, so rows scrolling under them do not show
+     through their text; it takes the film while it slides, when it passes over code.
+   - The tree's own layers go clear so no tint stacks; a shortened name's marker keeps the solid
+     backdrop so the hidden text does not show under it.
+   - File names keep their status color, mixed toward the text color for contrast. */
 @media not (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) {
+    --cmux-diff-files-bg: transparent;
+    --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
+    --cmux-diff-files-float-bg: var(--cmux-diff-header-bg);
+    --cmux-diff-files-layer-bg: transparent;
+    --cmux-diff-truncate-marker-bg: var(--cmux-diff-solid-bg);
+    --cmux-diff-tree-name-strength: 65%;
+    /* A tint of the text color, not the theme surface (no navy or other theme hue). */
+    --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
+    /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
+       (a navy or a vivid image) through the film. */
+    --cmux-diff-glass-filter: blur(20px);
+  }
+  /* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's
+     own pixels, so code under a frosted bar reads crisp through its tint (ui/glass/glass.css,
+     CHROMIUM OVER THE WINDOW GLASS). As the app's floating glass does there, the Stage all / Revert
+     all bar and the hunk pill lay their tint over the theme surface at --glass-underlay, so the
+     code under them fades. The file bars stay a clear film. WebKit keeps the real blur. */
   @supports not (-webkit-backdrop-filter: none) {
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) {
       --cmux-diff-float-fill:
         linear-gradient(var(--cmux-diff-header-bg), var(--cmux-diff-header-bg)),
         color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
     }
-  }
-}
-@media (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through] {
-    --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
-    --cmux-diff-files-layer-bg: var(--cmux-diff-files-bg);
-    --cmux-diff-header-bg: var(--cmux-diff-solid-bg);
-    --cmux-diff-files-filter: none;
-    --cmux-diff-glass-filter: none;
   }
 }
 html,
@@ -842,8 +835,7 @@ body[data-status-only="true"] #content {
   bottom: 0;
   z-index: 2;
   width: var(--cmux-diff-files-width);
-  -webkit-backdrop-filter: var(--cmux-diff-files-filter, none);
-  backdrop-filter: var(--cmux-diff-files-filter, none);
+
   min-height: 0;
   min-width: 0;
   display: flex;
@@ -889,6 +881,13 @@ body[data-files-hidden="true"] #files-sidebar {
    the accessibility tree. */
 body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
   visibility: visible;
+}
+/* While it slides over code (and as the narrow overlay below), a panel that paints nothing over
+   glass takes the file bars' film and blur, so its names never sit on crisp code. */
+#files-sidebar[data-files-motion] {
+  background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+  -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+  backdrop-filter: var(--cmux-diff-glass-filter, none);
 }
 body[data-status-only="true"] #files-sidebar {
   display: none;
@@ -1158,7 +1157,9 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     opacity: 1;
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-rim);
-    background: var(--cmux-diff-files-bg);
+    background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+    -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+    backdrop-filter: var(--cmux-diff-glass-filter, none);
     box-shadow: var(--elevation-2);
     isolation: isolate;
   }
@@ -1608,7 +1609,8 @@ body[data-loading="true"] #status::before {
   align-items: center;
   border-radius: 7px;
   /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code in
-     an opaque window; over glass it is the panel's glass plus its blur, so code under it frosts. */
+     an opaque window; over glass it is the file bars' film plus their blur (and Chromium's underlay,
+     --cmux-diff-float-fill), so code under it frosts. */
   background: var(--cmux-diff-float-fill, color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg)));
   -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
   backdrop-filter: var(--cmux-diff-glass-filter, none);
@@ -1737,8 +1739,12 @@ body[data-loading="true"] #status::before {
 .diff-git-tools .acpmux-git-tool:hover:not(:disabled) {
   background: var(--cmux-diff-pill-hover-bg);
 }
-/* The commit form is open: the accent tint, as an open base picker. */
-.diff-git-tools .acpmux-git-tool[aria-expanded="true"] {
+.diff-git-tools .acpmux-git-tool:active:not(:disabled) {
+  background: var(--acpmux-step-pressed);
+}
+/* The commit form is open: the accent tint, as an open base picker, hovered or not. */
+.diff-git-tools .acpmux-git-tool[aria-expanded="true"],
+.diff-git-tools .acpmux-git-tool[aria-expanded="true"]:hover:not(:disabled) {
   background: var(--cmux-diff-accent-tint);
 }
 .diff-git-bar {
@@ -2127,6 +2133,7 @@ svg[data-icon-fill] {
   border: 1px solid transparent;
   border-radius: 8px;
   background: var(--cmux-diff-pill-bg);
+  background-clip: padding-box;
   box-shadow: var(--cmux-diff-pill-rim);
 }
 .diff-pill-button {
@@ -2148,7 +2155,7 @@ svg[data-icon-fill] {
   background: var(--cmux-diff-pill-hover-bg);
   color: var(--cmux-diff-fg);
 }
-/* A pressed toggle (the files sidebar) sinks into the pill. */
+/* A pressed toggle (the files sidebar): a stronger tint than hover, so it reads as on. */
 .diff-pill-button[aria-pressed="true"] {
   background: color-mix(in lab, var(--cmux-diff-fg) 16%, transparent);
   color: var(--cmux-diff-fg);
