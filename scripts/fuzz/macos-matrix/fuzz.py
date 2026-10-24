@@ -373,20 +373,23 @@ def check_input(g: Guest, vnc: RFB) -> dict:
 
 
 def report_kind(name: str) -> str:
-    """A DiagnosticReports file's finding kind: only .ips files are crashes; .diag files are resource
-    reports (disk writes, CPU, wakeups) and .hang files are hang reports."""
+    """A DiagnosticReports file's finding kind: .ips files of the app are crashes; .diag files are
+    resource reports (disk writes, CPU, wakeups), .hang files hang reports and JetsamEvent files
+    the system's memory kills."""
     if name.endswith(".hang"):
         return "hang-report"
     if name.endswith(".diag"):
         return "resource-report"
+    if name.startswith("JetsamEvent"):
+        return "jetsam"  # the system ended processes for memory: not a crash of the app's code
     return "crash"
 
 
 def new_reports(g: Guest, since: float, seen: set[str]) -> list[str]:
-    """Crash (.ips) and hang reports of the app's processes written since `since` (epoch s)."""
+    """Crash (.ips), hang and Jetsam (memory kill) reports written since `since` (epoch s)."""
     perl = ("for my $d (glob('~/Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports') {"
             " for my $p (glob(\"$d/*\")) { my ($n) = $p =~ m{([^/]+)$};"
-            " next unless $n =~ /cmux|acpmux|optchat/ || $n =~ /\\.hang$/;"
+            " next unless $n =~ /cmux|acpmux|optchat/ || $n =~ /\\.hang$/ || $n =~ /^JetsamEvent/;"
             " print \"$p\\n\" if (stat $p)[9] > $ARGV[0] } }")
     r = g.sh(f"/usr/bin/perl -e {shlex.quote(perl)} {since}")
     return [p for p in r.stdout.splitlines() if p and p not in seen]
@@ -482,7 +485,8 @@ def main() -> int:
     g.install_helpers()
     if o.minimize:
         g.snapshot_state()
-    if not g.launch():
+    exit_file = f"/tmp/cmux-fuzz-exit-{os.getpid()}"
+    if not g.launch(exit_file=exit_file):
         sys.exit("the app did not answer a ping within the launch deadline")
     actions = load_actions(g)
     rng = random.Random(o.seed)
@@ -526,6 +530,7 @@ def main() -> int:
 
     walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
     run_id = os.getpid()  # in live-sample names: a reused guest never matches an older file
+    last_pid = g.pid()
     for i, step in enumerate(steps):
         if walk_end is not None and time.time() >= walk_end:
             summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
@@ -550,6 +555,8 @@ def main() -> int:
             except Exception as e:  # best effort
                 print("screenshot failed:", e, flush=True)
         pid = g.pid()
+        dead_pid = last_pid if pid is None else None
+        last_pid = pid if pid is not None else last_pid
         if ms is not None and ms > o.hang_ms and pid:
             summary["hangs"] += 1
             # The live sample appears only complete (renamed after 5 s and symbolication): wait for it, bounded.
@@ -608,9 +615,20 @@ def main() -> int:
             if o.insert_dylib:
                 open(os.path.join(o.out, f"dead-{i}.dylib.txt"), "w").write(
                     g.sh("cat /tmp/taskalloc-*.log 2>/dev/null", timeout=30).stdout)
-            finding("dead", i, step, {"ping_ms": ms})
+            # Why the process ended: its exit status (the guest shell that started it records it; 128+N
+            # is signal N: 137 a SIGKILL, e.g. from the system) and the system's log of the last minutes
+            # about it (memory kills, a quit request, its own quit lines).
+            status = g.sh(f"cat {shlex.quote(exit_file)} 2>/dev/null", timeout=20).stdout.strip()
+            died = {"ping_ms": ms, "exit_status": int(status) if status.lstrip("-").isdigit() else None}
+            if dead_pid:
+                open(os.path.join(o.out, f"dead-{i}.system-log.txt"), "w").write(g.sh(
+                    "log show --last 5m --style compact --predicate "
+                    + shlex.quote(f'(eventMessage CONTAINS "{dead_pid}") OR (process == "kernel" AND eventMessage CONTAINS[c] "memorystatus")'
+                                  ' OR (subsystem == "com.cmuxterm.app.next" AND category == "app.quit")')
+                    + " 2>/dev/null | tail -400", timeout=120).stdout)
+            finding("dead", i, step, died)
             g.sh(": >/tmp/cmux-fuzz-app.log", timeout=20)
-            g.launch()
+            g.launch(exit_file=exit_file)
 
     faults = g.sh(f"log show --style ndjson --start '@{int(t0)}' --predicate "
                   "'(process CONTAINS \"cmux\") AND (messageType == fault)' 2>/dev/null | tail -500", timeout=120)
