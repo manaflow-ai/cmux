@@ -27,6 +27,13 @@ public nonisolated enum AgentPaneConfigurationOperation: String, Sendable {
 }
 
 extension AgentPaneView {
+    /// The daemon's harness/family for this pane's current session, used to
+    /// scope model suggestions to the chat that the action will change.
+    public var sessionHarness: String? {
+        guard let session = model.sessionId else { return nil }
+        return model.transport.sessions.harness(of: session)
+    }
+
     /// Applies a model, effort/config option or mode through the page's own
     /// direct action bridge. This preserves the same typed daemon routes as a
     /// picker click while avoiding focus changes for CLI/MCP callers.

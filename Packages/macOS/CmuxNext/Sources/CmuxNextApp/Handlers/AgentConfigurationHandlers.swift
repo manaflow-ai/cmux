@@ -9,7 +9,7 @@ import Foundation
 enum AgentConfigurationHandlers {
     @MainActor
     private final class SuggestionStore {
-        var models: [ActionEnumCase] = []
+        var modelsByHarness: [String: [ActionEnumCase]] = [:]
         let efforts = ["default", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
             .map { ActionEnumCase(value: $0, title: $0) }
         let modes = ["default", "read-only", "agent", "agent-full-access", "plan"]
@@ -59,7 +59,9 @@ enum AgentConfigurationHandlers {
         let previous = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
             switch source {
-            case ActionSuggestions.agentModels: store.models
+            case ActionSuggestions.agentModels:
+                guard let harness = focusedHarness(context) else { return [] }
+                return store.modelsByHarness[harness] ?? []
             case ActionSuggestions.agentEfforts: store.efforts
             case ActionSuggestions.agentModes: store.modes
             default: previous?(source) ?? []
@@ -68,9 +70,11 @@ enum AgentConfigurationHandlers {
         let center = context.services.agentHarnesses
         Task { @MainActor in
             guard let answer = try? await center.models(), let harnesses = answer["harnesses"]?.arrayValue else { return }
-            var choices: [String: ActionEnumCase] = [:]
+            var modelsByHarness: [String: [String: ActionEnumCase]] = [:]
             for harness in harnesses {
-                guard let models = harness["models"]?.arrayValue else { continue }
+                guard let harnessID = harness["harness"]?.stringValue,
+                      let models = harness["models"]?.arrayValue else { continue }
+                var choices: [String: ActionEnumCase] = [:]
                 for model in models {
                     if let id = model.stringValue, !id.isEmpty {
                         choices[id] = ActionEnumCase(value: id, title: id)
@@ -78,9 +82,21 @@ enum AgentConfigurationHandlers {
                         choices[id] = ActionEnumCase(value: id, title: model["name"]?.stringValue ?? id)
                     }
                 }
+                let rows = choices
+                modelsByHarness[harnessID] = rows
+                if let short = harnessID.split(separator: "/").last.map(String.init) { modelsByHarness[short] = rows }
             }
-            store.models = choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            store.modelsByHarness = modelsByHarness.mapValues { choices in
+                choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            }
         }
+    }
+
+    private static func focusedHarness(_ context: AppActionContext) -> String? {
+        guard let pane = context.services.windows.active?.focusedPane,
+              let key = pane.currentTabKey,
+              let view = context.services.agentTabs.existingView(key) else { return nil }
+        return view.sessionHarness
     }
 
     /// A Priority row carries an `agent-chat:` session id rather than the tab
