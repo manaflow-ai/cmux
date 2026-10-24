@@ -97,6 +97,9 @@ public final class DaemonStore: StateResourceQueries {
     /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
     /// build (status ticks apply batches several hundred times a second).
     @ObservationIgnored var listGeneration: UInt64 = 0
+    /// Workspace records the sidebar flattening visited since creation (tests: a batch of moves
+    /// costs one flattening, and one flattening is one pass over the workspaces).
+    @ObservationIgnored var sidebarWorkspaceVisits = 0
     @ObservationIgnored var checkedListGeneration: UInt64?
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
@@ -440,6 +443,7 @@ public final class DaemonStore: StateResourceQueries {
     }
 
     func recomputeSidebar() {
+        sidebarWorkspaceVisits &+= workspaces.count * (groups.count + 1)
         listGeneration &+= 1
         let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
