@@ -481,8 +481,10 @@ struct PageChromiumCostTests {
     }
 
     /// A page in a window that is covered, minimized or ordered out is unseen: its grace starts and
-    /// it may freeze; it thaws when the window is back. Chromium keeps drawing it meanwhile (no
-    /// hide and show on every cover), so only the freeze follows the window.
+    /// it may freeze; it thaws when the window is back. Chromium keeps drawing it while it only is
+    /// covered (no hide and show on every cover). A freeze hides it in Chromium, and a thaw alone
+    /// does not show it again, so the thaw shows it: before, the page came back frozen-hidden
+    /// (no frames, `visibilityState` hidden) until a tab switch.
     @Test func aPageInACoveredWindowFreezesAndThawsWhenTheWindowIsBack() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let policy = RecordingFreezePolicy()
@@ -501,9 +503,12 @@ struct PageChromiumCostTests {
         #expect(view.chromiumLifecycle == "hidden")
         #expect(view.freezeWhileHidden())
 
+        #expect(Array(page.lifecycle.suffix(2)) == ["hidden", "frozen"])
+
         stage.isOnScreen = true
-        #expect(page.lifecycle.last == "thawed")
-        #expect(page.visibility == [true])
+        #expect(Array(page.lifecycle.suffix(2)) == ["thawed", "shown"])
+        #expect(page.isDrawing, "the page came back from its freeze hidden in Chromium")
+        #expect(!view.isChromiumFrozen)
         #expect(policy.noLongerHidden == 2)
         view.close()
     }
