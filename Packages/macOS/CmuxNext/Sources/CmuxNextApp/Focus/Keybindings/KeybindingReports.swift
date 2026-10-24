@@ -182,7 +182,8 @@ enum KeybindingReports {
             guard case .object(var object) = json(entry, registry: registry) else { return .null }
             object["id"] = JSONValue(index)
             let conflicts = (byKeys[entry.keys] ?? []).filter { other in
-                guard other != index, shows(other) else { return false }
+                // One action on the keys twice (its cmux and its Ghostty default) runs either way.
+                guard other != index, shows(other), entries[other].command != entry.command else { return false }
                 // The later entry wins; the pair conflicts when the earlier one can never run.
                 let (winner, loser) = other > index ? (entries[other], entry) : (entry, entries[other])
                 return WhenClause.implies(loser.when, winner.when)

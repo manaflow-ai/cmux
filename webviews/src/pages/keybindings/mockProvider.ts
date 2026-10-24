@@ -321,6 +321,7 @@ export class MockKeybindingsProvider implements PageClient {
         .filter(
           (b) =>
             b.id !== a.id &&
+            b.command !== a.command &&
             !b.removed &&
             !b.unset &&
             normalized(b.key) === normalized(a.key) &&

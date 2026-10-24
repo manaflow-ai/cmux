@@ -45,6 +45,24 @@ import Testing
         }
     }
 
+    /// One action on the same keys twice (its cmux default and its Ghostty default keybind, as
+    /// Focus Left on Cmd-Opt-Left) runs either way: never its own conflict.
+    @Test func noActionConflictsWithItself() {
+        let registry = ActionRegistry.standard()
+        // Ghostty's own split keys, routed as Ghostty defaults (as the app loads them).
+        KeyBindingLoader(registry).loadGhostty([
+            KeyBinding(keys: [Shortcut("d", modifiers: [.command, .shift])], command: "splitDown", source: .ghosttyFallback),
+            KeyBinding(keys: [Shortcut(Shortcut.leftArrowKey, modifiers: [.command, .option])], command: "focusLeft",
+                       source: .ghosttyFallback),
+        ])
+        let rows = Self.rows(registry)
+        for row in rows {
+            guard let command = Self.field(row, "command")?.stringValue,
+                  let conflicts = Self.conflicts(of: command, in: [row] + rows.filter { $0 != row }) else { continue }
+            #expect(!conflicts.contains(command), "\(command) conflicts with itself")
+        }
+    }
+
     @Test func aUsersCmdZeroWithNoConditionTakesItFromEverySurface() {
         let registry = ActionRegistry.standard()
         registry.setShortcutOverride(Shortcut("0", modifiers: .command), for: "newWindow")
