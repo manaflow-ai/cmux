@@ -59,8 +59,6 @@ export interface ConflictPrompt {
   display: string;
   /** The entries the keys would take (`cmux.keybindings.conflicts`). */
   conflicts: Binding[];
-  /** The app lets both keep the keys (they share some contexts only): the recorder offers Keep both. */
-  keepBoth: boolean;
   /** After the answer: the recording goes on (a release asked), or closes (Close or Return). */
   after: "continue" | "close";
 }
@@ -319,9 +317,8 @@ export class KeybindingsStore {
   }
 
   /** The recorder's answer to keys another action has: `overwrite` takes them from the other
-   *  actions first, then saves them; `keep` saves them and leaves the others theirs; `close` saves
-   *  nothing and closes. A new shortcut instead drops the question (onRecorded). */
-  async resolveConflict(choice: "overwrite" | "keep" | "close"): Promise<void> {
+   *  actions first, then saves them; `close` saves nothing and closes. A new shortcut instead drops the question (onRecorded). */
+  async resolveConflict(choice: "overwrite" | "close"): Promise<void> {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row" || !recording.prompt) return;
     const { prompt } = recording;
@@ -340,8 +337,7 @@ export class KeybindingsStore {
     // While the writes run the recorder holds no keys of its own: Return's release (the key
     // that answered) must not commit these keys a second time.
     this.set({ recording: { ...asked, key: "" } });
-    // Keep both leaves the other actions their keys (where only they run, they still do).
-    for (const other of choice === "keep" ? [] : prompt.conflicts) {
+    for (const other of prompt.conflicts) {
       try {
         await this.client?.call(KeybindingOps.remove, {
           command: other.command,
@@ -475,9 +471,7 @@ export class KeybindingsStore {
   private async commit(recording: Extract<Recording, { target: "row" }>, after: "continue" | "close"): Promise<void> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
-    const { conflicts, refusal, owner, keepBoth } = same
-      ? { conflicts: [], keepBoth: false }
-      : await this.conflictsOf(binding, key);
+    const { conflicts, refusal, owner } = same ? { conflicts: [] } : await this.conflictsOf(binding, key);
     const current = this.snapshot.recording;
     // Newer keys went down (or another row records) while the app answered: they decide.
     if (current?.target !== "row" || current.row !== recording.row || current.key !== key || current.prompt) return;
@@ -496,7 +490,7 @@ export class KeybindingsStore {
         display,
         held: "",
         warned,
-        prompt: { key, display, conflicts, keepBoth, after },
+        prompt: { key, display, conflicts, after },
       });
       return;
     }
@@ -513,7 +507,7 @@ export class KeybindingsStore {
   private async conflictsOf(
     binding: Binding,
     key: string,
-  ): Promise<{ conflicts: Binding[]; refusal?: string; owner?: string; keepBoth: boolean }> {
+  ): Promise<{ conflicts: Binding[]; refusal?: string; owner?: string }> {
     try {
       // As `set` gets them (setParams), so the app works out the `when` the write would carry.
       const { idempotency_key: _, ...params } = this.setParams(binding, key, binding.when);
@@ -522,10 +516,9 @@ export class KeybindingsStore {
         conflicts: result?.bindings ?? [],
         refusal: result?.refusal,
         owner: result?.owner,
-        keepBoth: result?.keep_both === true,
       };
     } catch {
-      return { conflicts: [], keepBoth: false };
+      return { conflicts: [] };
     }
   }
 

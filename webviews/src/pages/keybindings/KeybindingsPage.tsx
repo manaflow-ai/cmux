@@ -469,17 +469,6 @@ function Recorder({
             >
               {withKeys(t("keybindings.page.recorder.closeOnly"), ["esc"])}
             </button>
-            {prompt.keepBoth && (
-              // Only where the app lets both keep the keys (not two actions in the same place).
-              <button
-                type="button"
-                className="keys-recorder-button keys-recorder-keep"
-                onMouseDown={keepFocus}
-                onClick={() => void store.resolveConflict("keep")}
-              >
-                {t("keybindings.page.recorder.keepBoth")}
-              </button>
-            )}
             <button
               type="button"
               className="keys-recorder-button keys-recorder-overwrite"

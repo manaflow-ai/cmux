@@ -241,19 +241,6 @@ struct KeybindingPageWrites {
         return (ShortcutAssessmentText(registry).refusal(refusal, shortcut: first, id: id), owner)
     }
 
-    /// Whether `key` may be saved for `command` with another action keeping it too (the
-    /// recorder's rules, as the Settings recorder reads them): free, or a conflict in another
-    /// context (`canKeepBoth`). False for a conflict in the same place: one of the two never runs.
-    func keepsBoth(_ params: [String: JSONValue]) -> Bool {
-        guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
-              let first = keys.first else { return false }
-        switch assessment(first, for: id) {
-        case .available: return true
-        case .conflict(_, let canKeepBoth, _, _): return canKeepBoth
-        case .refused: return false
-        }
-    }
-
     /// The `when` the entry `set` writes would carry, for the conflict check before the write
     /// (`cmux.keybindings.conflicts`): a cmux.json override keeps only the action's own context
     /// (its `requires`, Home's chat scope), not a default's extra conditions (`!codeEditorFocused`,

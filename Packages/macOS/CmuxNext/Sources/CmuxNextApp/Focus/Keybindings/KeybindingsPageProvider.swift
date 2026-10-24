@@ -49,9 +49,6 @@ final class KeybindingsPageProvider: PageProvider {
                 ?? fields["when"]?.stringValue.flatMap { try? WhenClause.parse($0) }
             guard case .object(var reply) = KeybindingReports.conflicts(fields, when: when, registry: services.registry)
             else { return [:] }
-            // Another action keeps the keys where only it runs (a conflict in another context): the
-            // page saves both rather than taking them (Save, not Overwrite).
-            reply["keep_both"] = .bool(writes?.keepsBoth(fields) ?? false)
             if let refusal = writes?.refusal(fields) {
                 reply["refusal"] = .string(refusal.message)
                 // The action that holds the keys (a system action that always runs, a numbered family).

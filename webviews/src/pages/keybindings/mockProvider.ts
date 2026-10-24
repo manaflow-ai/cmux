@@ -366,8 +366,6 @@ export class MockKeybindingsProvider implements PageClient {
         whenOverlaps(b.when, params.when ?? null),
     );
     return {
-      // As the app's recorder rules: both may keep the keys unless one is in the same place.
-      keep_both: taken.every((b) => (b.when ?? null) !== (params.when ?? null)),
       ...(owner
         ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.`, owner }
         : {}),

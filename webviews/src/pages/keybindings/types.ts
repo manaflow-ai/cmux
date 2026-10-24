@@ -47,9 +47,6 @@ export interface BindingListResult {
  *  (a key another action always runs), before any write. */
 export interface ConflictsResult extends BindingListResult {
   refusal?: string;
-  /** True when the other actions keep the keys where only they run (a conflict in another
-   *  context): saving keeps both (the recorder's Save); false: one would never run (Overwrite). */
-  keep_both?: boolean;
   /** The title of the action that holds the refused keys (one that always runs, a numbered
    *  family), when there is one. */
   owner?: string;
