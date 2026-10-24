@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Semaphore, broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -370,6 +370,12 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Bound pre-authentication work separately from the per-connection request budget.
+/// A client can otherwise hold a task and file descriptor while it dribbles out
+/// an HTTP upgrade request.
+const WS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const WS_HANDSHAKE_CONCURRENCY: usize = 64;
+
 /// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
 /// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
@@ -409,6 +415,7 @@ pub async fn serve_ws_with(
     // (`hub/web_token.rs`) applies from the next one on. The daemon set it
     // already; a caller that did not (tests) gets `token`.
     hub.web_token.set_if_unset(token);
+    let handshake_slots = Arc::new(Semaphore::new(WS_HANDSHAKE_CONCURRENCY));
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -418,6 +425,14 @@ pub async fn serve_ws_with(
             }
         };
         tune_ws_socket(&stream);
+        let handshake_slot = match handshake_slots.clone().try_acquire_owned() {
+            Ok(slot) => slot,
+            Err(_) => {
+                tracing::warn!(peer = %peer, error = "handshake_capacity", "rejecting websocket handshake");
+                tokio::spawn(refuse_ws_transport(stream, 503, "handshake_capacity"));
+                continue;
+            }
+        };
         let hub = hub.clone();
         // Read and subscribed before the handshake, so a rotation during it
         // still closes a connection that presented the old token.
@@ -426,13 +441,9 @@ pub async fn serve_ws_with(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
+            let _handshake_slot = handshake_slot;
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                stream.peek(&mut head),
-            )
-            .await
-            {
+            let n = match tokio::time::timeout(WS_HANDSHAKE_TIMEOUT, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
                 _ => return,
             };
@@ -488,19 +499,29 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
-                stream,
-                callback,
-                Some(ws_config()),
+            let ws = match tokio::time::timeout(
+                WS_HANDSHAKE_TIMEOUT,
+                tokio_tungstenite::accept_hdr_async_with_config(
+                    stream,
+                    callback,
+                    Some(ws_config()),
+                ),
             )
             .await
             {
-                Ok(ws) => ws,
-                Err(e) => {
+                Err(_) => {
+                    tracing::warn!(peer = %peer, error = "handshake_timeout", "closing stalled websocket handshake");
+                    return;
+                }
+                Ok(Ok(ws)) => ws,
+                Ok(Err(e)) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
                     return;
                 }
             };
+            // Only the HTTP upgrade is admission-controlled; an established
+            // connection is governed by its authenticated request budget.
+            drop(_handshake_slot);
             let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
             let device = match admitted {
                 pairing::Admitted::Ticket(secret) => {
@@ -624,6 +645,20 @@ pub async fn serve_ws_with(
             reader.abort();
         });
     }
+}
+
+async fn refuse_ws_transport(mut stream: tokio::net::TcpStream, status: u16, error: &str) {
+    let reason = match status {
+        503 => "Service Unavailable",
+        _ => "Bad Request",
+    };
+    let body = format!("{{\"error\":\"{error}\"}}\n");
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
 }
 
 /// Check the `Host` and `Origin` values of a complete request head.
