@@ -1359,6 +1359,9 @@ for expected in \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
   "group: nightly-next-legacy-identity-publish" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
+  "needs.publish-nightly.outputs.refused != 'true'" \
+  "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
+  "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" \
   "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
   grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
@@ -1382,7 +1385,7 @@ if grep -Eq 'smoke-dmg\.sh|smoke-launch|signing-keychain\.sh create' <<<"$publis
 fi
 bash "$ROOT_DIR/tests/test_nightly_next_legacy_tested_digest.sh"
 
-if grep -Fq "publish-nightly.result == 'success'" <<<"$legacy_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
+if grep -Fq "publish-nightly.result == 'success'" <<<"$sign_job$verify_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
   echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
   exit 1
 fi

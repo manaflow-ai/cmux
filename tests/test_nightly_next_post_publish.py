@@ -76,6 +76,8 @@ if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
     failures.append("legacy identity publication must stop when NEXT publication was refused")
 if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
     failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
+if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
+    failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))
