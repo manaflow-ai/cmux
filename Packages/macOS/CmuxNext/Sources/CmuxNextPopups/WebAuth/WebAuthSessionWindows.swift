@@ -1,4 +1,6 @@
+package import AppKit
 package import CmuxNextBrowser
+package import CmuxNextDesign
 import Foundation
 package import os
 
@@ -18,6 +20,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     private let profiles: OffTheRecordProfiles
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
+    private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private(set) var windows: [UUID: WebAuthSessionWindow] = [:]
 
     /// - Parameters:
@@ -28,24 +31,31 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     ///   - signInCallbacks: Where a Chromium sign-in page registers the callback the shim stops.
     ///     Must be the instance the Chromium engine reports stopped callbacks to.
     ///   - contextMenus: The builder for a sign-in page's right-click menu.
+    ///   - present: Orders a sign-in panel in (always with `.focus`). The default is
+    ///     ``WindowActivation/show(_:_:)``, the app's one owner of window order and
+    ///     activation; a test passes a recorder so it neither orders a window in nor
+    ///     activates the test process.
     package init(
         host: any WebAuthHost,
         logger: Logger,
         profiles: OffTheRecordProfiles,
         signInCallbacks: CEFSignInCallbacks,
-        contextMenus: BrowserContextMenuBuilder
+        contextMenus: BrowserContextMenuBuilder,
+        present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     ) {
         self.host = host
         self.logger = logger
         self.profiles = profiles
         self.signInCallbacks = signInCallbacks
         self.contextMenus = contextMenus
+        self.present = present
     }
 
     package func open(_ request: any WebAuthSessionRequest, broker: WebAuthSessionBroker) -> (any WebAuthSessionSurface)? {
         let window = WebAuthSessionWindow(
             request: request, broker: broker, host: host, logger: logger,
-            profiles: profiles, signInCallbacks: signInCallbacks, contextMenus: contextMenus
+            profiles: profiles, signInCallbacks: signInCallbacks, contextMenus: contextMenus,
+            present: present
         ) { [weak self] id in
             self?.windows[id] = nil
         }
