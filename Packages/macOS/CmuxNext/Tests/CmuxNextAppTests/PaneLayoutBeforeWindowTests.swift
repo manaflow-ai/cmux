@@ -41,4 +41,24 @@ import Testing
         let empty = provider.made.reduce(0) { $0 + $1.emptyLayouts }
         #expect(empty == 0, "\(empty) pane content layouts at an empty size before the root had a window")
     }
+
+    /// A parked (or hidden) workspace's root re-places no ring and notifies no pane on layout changes (A4,
+    /// PL-script): the overlay syncs once when it shows again.
+    @Test func aParkedRootSyncsItsOverlayOnlyWhenItShows() throws {
+        let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
+        let root = LayoutRootView(model: model, contentProvider: Panes())
+        root.context.reduceMotionOverride = true
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        root.isHidden = true
+        let before = root.overlaySyncs
+        model.apply(screens: PaneMotionBench.grid(2, 1, extraColumn: true))
+        root.syncWithModel()
+        model.apply(screens: PaneMotionBench.split(2, 1, axis: .vertical))
+        root.syncWithModel()
+        #expect(root.overlaySyncs == before, "a hidden root ran \(root.overlaySyncs - before) overlay syncs")
+        root.isHidden = false
+        #expect(root.overlaySyncs == before + 1, "showing again ran \(root.overlaySyncs - before) overlay syncs, not 1")
+    }
 }
