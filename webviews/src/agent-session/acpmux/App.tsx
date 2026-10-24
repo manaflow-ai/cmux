@@ -478,7 +478,7 @@ declare global {
         layout?: Record<string, unknown>;
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
-      command?(name: string): void;
+      command?(name: string, sessionId?: string): void;
       /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
       /// since a script it runs here is no gesture the page's clipboard accepts.
       lastCodeBlock?(): string | null;
@@ -6112,8 +6112,16 @@ function AcpmuxPane() {
           return null;
         }
       },
-      command(name) {
+      command(name, sessionId) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Stop Agent Turn (the native command palette): the composer owns the guarded cancel
+        // callback, so a palette invocation cannot race a session switch with a stale client.
+        if (name === "stopTurn") {
+          // The page may hold chat A's last snapshot while the live client has already selected B.
+          // Recheck the live selection before dispatching so A's command cannot cancel B.
+          if (directClient.current?.selectedSession !== sessionId) return;
+          window.dispatchEvent(new CustomEvent("cmux-acpmux-stopTurn", { detail: { sessionId } }));
+        }
         // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
         if (name === "sideQuestion" && opensSideSessionsRef.current) composerHandle.current?.prefill("/btw ");
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).

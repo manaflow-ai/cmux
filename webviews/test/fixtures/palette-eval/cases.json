@@ -80,6 +80,16 @@
       "group": "exact"
     },
     {
+      "query": "session info",
+      "expect": ["action:agentPane.toggleInspector"],
+      "group": "exact"
+    },
+    {
+      "query": "stop turn",
+      "expect": ["action:agentPane.stopTurn"],
+      "group": "exact"
+    },
+    {
       "query": "reload tab",
       "expect": ["action:reloadTab"],
       "group": "exact"

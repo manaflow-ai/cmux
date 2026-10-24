@@ -8,6 +8,13 @@ extension AgentPaneView {
     public func showContinueIn() { send("continueIn") }
     /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.
     public func archiveChat() { send("archiveChat") }
+    /// Stop Agent Turn: the palette, keyboard and composer button use the same guarded stop path.
+    public func stopTurn() {
+        guard let session = model.sessionId else { return }
+        let json = JSONValue.string(session).compactText
+        deliver([AgentPageEvent(kind: "stopTurn", value: .string(session))],
+                scripts: ["window.cmuxAcpmuxBridge?.command?.(\"stopTurn\",\(json));"])
+    }
     private func send(_ command: String) {
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
