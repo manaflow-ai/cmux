@@ -274,7 +274,11 @@ public final class DaemonService {
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor
         let clock = startupClock
-        var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
+        // Binary frames only where every hop carries bytes unchanged: a paired
+        // server's `cmux link dial` bridge does; the SSH bridge parses lines.
+        var configuration = DaemonConnection.Configuration(
+            advertisedCapabilities: DaemonCapabilities.advertised(carriesFrames: bridge != nil),
+            retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
         runTask = Task { [weak self, scheduler, logger, configuration] in
             weak let weakSelf = self

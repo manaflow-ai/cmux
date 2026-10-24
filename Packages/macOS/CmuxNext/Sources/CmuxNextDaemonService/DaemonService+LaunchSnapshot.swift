@@ -90,7 +90,9 @@ extension DaemonService {
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
-        var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
+        // The local daemon alone may hand terminal views its shared-memory output ring.
+        var configuration = DaemonConnection.Configuration(advertisedCapabilities: DaemonCapabilities.advertisedLocally,
+                                                           retryWake: retryWake, terminalEnvironment: terminalEnvironment,
                                                            resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
                                                            clientHello: ClientHelloIdentity(installKey: installKey))
         // A stopped or wedged owner keeps its socket open: only the heartbeat

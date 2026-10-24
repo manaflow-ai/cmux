@@ -16,8 +16,10 @@ enum WireCoding {
     /// names go to snake case; a ``VerbatimFieldsRequest``'s verbatim fields
     /// are added after that, unchanged (the snake case strategy also renames
     /// the keys inside nested objects).
-    static func encodeRequest<R: DaemonRequest>(_ request: R, id: UInt64?) throws -> Data {
-        let line = try encoder().encode(RequestEnvelope(id: id, request: request))
+    /// `stream`: the client attach stream the request acts for
+    /// (`attach-streams-v1`): the daemon runs it on that stream's lane.
+    static func encodeRequest<R: DaemonRequest>(_ request: R, id: UInt64?, stream: UInt16? = nil) throws -> Data {
+        let line = try encoder().encode(RequestEnvelope(id: id, stream: stream, request: request))
         guard let verbatim = request as? any VerbatimFieldsRequest,
               case .object(var fields) = try JSONDecoder().decode(JSONValue.self, from: line) else { return line }
         for (name, value) in verbatim.verbatimFields { fields.updateValue(value, forKey: name) }
@@ -38,16 +40,18 @@ enum WireCoding {
 
 struct RequestEnvelope<R: DaemonRequest>: Encodable {
     var id: UInt64?
+    var stream: UInt16?
     var request: R
 
     enum CodingKeys: String, CodingKey {
-        case id, cmd
+        case id, cmd, stream
     }
 
     func encode(to encoder: any Encoder) throws {
         try request.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(stream, forKey: .stream)
         try container.encode(R.command, forKey: .cmd)
     }
 }

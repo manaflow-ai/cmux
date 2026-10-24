@@ -54,8 +54,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
+    /// `streams`: the machine's connection as a stream carrier (`DaemonService.terminalStreams(device:)`).
     init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
          policyBlocked: @escaping @Sendable () -> Bool = { false },
+         streams: (@Sendable (TerminalSizingDevice) async throws -> TerminalStreamCarrier?)? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -73,7 +75,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 #if DEBUG
                 try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
                 #endif
-                return try await TerminalAttachment.attach(endpoint: try await endpoint(), target: attachment,
+                return try await TerminalAttachment.attach(streams: streams, endpoint: endpoint, target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,

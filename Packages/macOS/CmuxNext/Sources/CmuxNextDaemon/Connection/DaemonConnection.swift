@@ -70,6 +70,9 @@ public actor DaemonConnection {
     var handoffHoldNext: UInt64 = 0
     var handoffQueue: [CheckedContinuation<Void, Never>] = []
     var handoffHoldTimer: DemandTimer?
+    /// This connection's device declaration for terminal streams, once per connect
+    /// (``terminalStreams(device:)``).
+    var streamSizingDeclaration: (serial: UInt64, task: Task<Void, any Error>)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 

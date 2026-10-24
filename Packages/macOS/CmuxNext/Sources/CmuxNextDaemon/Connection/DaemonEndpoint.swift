@@ -458,6 +458,18 @@ public struct DaemonCapabilities: Sendable {
     /// Whole workspaces in a stash: `stash.create {workspaces}` closes them with their terminals
     /// (`StateResourceClient.stashWorkspaces`), and their members list with `kind: "workspace"`.
     public static let stashWorkspaces = "stash-workspaces-v1"
+    /// Terminal views attach as client-minted streams on the app's one
+    /// connection, with no handshake of their own (plans/cmux-next/app-daemon-connection-DESIGN.md).
+    public static let attachStreams = "attach-streams-v1"
+    /// The streams' events travel as binary frames, output without base64 (D4).
+    /// Advertised only where every hop carries bytes unchanged
+    /// (``advertised(carriesFrames:)``).
+    public static let attachFrames = "attach-frames-v1"
+    /// A local terminal's output bytes stay in a shared-memory ring the view
+    /// maps; its stream carries only the ring's new end (zero copies). Only the
+    /// app's connection to its local daemon advertises it (``advertisedLocally``):
+    /// a descriptor cannot cross a link.
+    public static let terminalOutputRing = "terminal-output-ring-v1"
     /// `layout.bulk` close: one gesture over several panes, screens or workspaces is one commit and
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
@@ -482,7 +494,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, rowClientKeys, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
-                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash, stashWorkspaces] }
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash, stashWorkspaces, attachStreams, attachFrames, terminalOutputRing] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -505,7 +517,20 @@ public struct DaemonCapabilities: Sendable {
     /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
     public static var advertised: [String] {
         // `placementShift` only with the sidebar document (`handshakeCapabilities`).
-        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }
+        (required + optional + unservedByBundledDaemon).filter {
+            $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing && $0 != terminalOutputRing
+        }
+    }
+
+    /// ``advertised`` plus ``terminalOutputRing``: the app's connection to its local daemon.
+    public static var advertisedLocally: [String] { advertised + [terminalOutputRing] }
+
+    /// ``advertised`` for a connection whose path does or does not carry
+    /// binary frames unchanged. A local socket and a paired server's
+    /// `cmux link dial` bridge do; the SSH bridge splits lines and parses JSON
+    /// (`cmux-remote` mux_codec), so it gets JSON events tagged with their stream.
+    public static func advertised(carriesFrames: Bool) -> [String] {
+        carriesFrames ? advertised : advertised.filter { $0 != attachFrames }
     }
 
     /// What a connection echoes in `set-client-info`.
