@@ -3595,8 +3595,14 @@ jobs:
     outputs:
       verdict: ${{ steps.compile.outputs.verdict }}
     steps:
+      # A compile failure keeps this step red but not the job: the job fails only
+      # when it never reached a verdict (refused at runner setup, or killed), the
+      # one case release-compile takes over. The admission job turns verdict=fail
+      # red under the gate name, and downstream jobs read the verdict from a job
+      # that succeeded.
       - name: Run the fast fleet compile check
         id: compile
+        continue-on-error: true
         env:
           REF: ${{ github.sha }}
         run: |

@@ -2031,7 +2031,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # fallback and is green only on pass, so a fleet error stays red under the gate name;
         # unavailable, or a fast check refused before a verdict, leaves it to the Mac fallback.
         for verdict, result, runs in (("pass", "success", True), ("unavailable", "success", False),
-                                      ("fail", "failure", True), ("", "failure", False),
+                                      ("fail", "success", True), ("", "failure", False),
                                       ("", "skipped", False), ("", "cancelled", False)):
             with self.subTest(verdict=verdict, result=result):
                 context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
@@ -2039,6 +2039,10 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
                            "needs.release-compile-fast.outputs.verdict": verdict}
                 self.assertEqual(bool(evaluate(admitted["if"], context)), runs)
         self.assertIn('"$VERDICT" == pass && "$RESULT" == success', admitted["steps"][0]["run"])
+        # A compile failure must not fail the fast job: a failed job is the refused case, and
+        # its verdict output is what the admission job turns red.
+        compile_step = next(step for step in fast["steps"] if step.get("id") == "compile")
+        self.assertIs(compile_step.get("continue-on-error"), True)
         self.assertIn("CI_COMPILE_CHECK_GATEWAY", fast["runs-on"])
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
@@ -2053,7 +2057,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         gate = [job for job in jobs.values() if job.get("name") == "cmux-next Release compile (Xcode 26)"]
         self.assertEqual(len(gate), 2)
-        for verdict, result in (("pass", "success"), ("unavailable", "success"), ("fail", "failure"),
+        for verdict, result in (("pass", "success"), ("unavailable", "success"), ("fail", "success"),
                                 ("", "failure"), ("", "skipped")):
             with self.subTest(verdict=verdict, result=result):
                 context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
@@ -2150,8 +2154,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # verdict; the fallback must still compile, or no commit can be promoted.
         context = self.context([], event="push")
         for result, verdict, runs in (("failure", "", True), ("success", "unavailable", True),
-                                      ("failure", "fail", False), ("success", "pass", False),
-                                      ("failure", "pass", False)):
+                                      ("success", "fail", False), ("success", "pass", False),
+                                      ("cancelled", "", False)):
             with self.subTest(result=result, verdict=verdict):
                 context["needs.release-compile-fast.result"] = result
                 context["needs.release-compile-fast.outputs.verdict"] = verdict
