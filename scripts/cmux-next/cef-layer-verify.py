@@ -147,6 +147,8 @@ CG.CGMainDisplayID.restype = ctypes.c_uint32
 CG.CGDisplayBounds.restype = CGRect
 CG.CGDisplayBounds.argtypes = [ctypes.c_uint32]
 CF.CFRelease.argtypes = [ctypes.c_void_p]
+CG.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
+CG.CGPreflightPostEventAccess.restype = ctypes.c_bool
 KEYCODES = {"a": 0, "b": 11, "c": 8, "escape": 53}
 
 
@@ -245,6 +247,14 @@ def snapshot_bars(path):
         if counts[1] * 8 > width * 0.3:
             blue.append(y)
     return red, blue
+
+
+def main_window_number():
+    """The cmux window's WindowServer number (debug.layers)."""
+    for window in (rpc("debug.layers") or {}).get("windows") or []:
+        if window.get("window_number"):
+            return int(window["window_number"])
+    return None
 
 
 def page_rect():
@@ -348,13 +358,17 @@ def main():
             return
         time.sleep(1.5)  # test harness: first frames settle
 
-        # Two images: the app's own composited window (no page images painted in, `webviews: false`; without
-        # Screen Recording the window server may leave out the GPU process's layers) and screencapture of the
-        # page's rect (what the display shows, when this process may record the screen).
+        # The window server's images, which draw CALayerHost content (AppKit drawing does not): the cmux window
+        # alone (`screencapture -l`: a layer-hosted page is in it, a page child window is not) and the page's rect
+        # on screen (every window). Both need this process's Screen Recording grant (`capture` fact).
+        FACTS["capture"] = bool(CG.CGPreflightScreenCaptureAccess())
+        FACTS["post_events"] = bool(CG.CGPreflightPostEventAccess())
         images = {}
-        shot = os.path.join(opts.out, f"verify-{opts.mode}-window.png")
-        reply = rpc("debug.window_snapshot", {"path": shot, "webviews": False}, timeout=60) or {}
-        images["window"] = (shot, {k: reply.get(k) for k in ("method", "child_windows", "child_windows_failed")})
+        number = main_window_number()
+        if number:
+            shot = os.path.join(opts.out, f"verify-{opts.mode}-window.png")
+            subprocess.run(["screencapture", "-x", "-o", "-l", str(number), shot], capture_output=True, timeout=60)
+            images["window"] = shot
         rect = page_rect()
         if rect:
             main = CG.CGDisplayBounds(CG.CGMainDisplayID())
@@ -362,16 +376,23 @@ def main():
             screen = os.path.join(opts.out, f"verify-{opts.mode}-screen.png")
             subprocess.run(["screencapture", "-x", "-R", f"{int(x)},{int(main.size.y - y - h)},{int(w)},{int(h)}", screen],
                            capture_output=True, timeout=60)
-            images["screen"] = (screen, {})
-        for name, (path, info) in images.items():
+            images["screen"] = screen
+        for name, path in images.items():
             try:
                 red, blue = snapshot_bars(path)
-                row(f"pixels.{name}", red and blue and max(red) < min(blue),
-                    {"red_rows": [min(red), max(red)] if red else None,
-                     "blue_rows": [min(blue), max(blue)] if blue else None} | info)
+                bars = bool(red and blue and max(red) < min(blue))
             except (OSError, struct.error, IndexError) as error:
-                row(f"pixels.{name}", False, f"image unreadable: {error}")
+                row(f"pixels.{name}", False, f"image unreadable: {error} (capture grant {FACTS['capture']})")
+                continue
+            observed = {"red_rows": [min(red), max(red)] if red else None,
+                        "blue_rows": [min(blue), max(blue)] if blue else None, "capture_grant": FACTS["capture"]}
+            # The cmux window alone holds the page only while it is hosted.
+            expected = bars if name == "screen" or opts.mode == "on" else not bars
+            row(f"pixels.{name}", expected, observed)
 
+        if opts.input == "hid" and not FACTS["post_events"]:
+            row("input", False, "this process may not post events (CGPreflightPostEventAccess false): the input rows would prove nothing")
+            return
         point = screen_point(0.3, 0.5)
         if not point:
             row("click", False, "no page rect in debug.layers")
