@@ -554,11 +554,16 @@ declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",
 "args": {…}}`), and sends them as ONE `action.batch` request: the app checks
 every op before any runs (one bad op runs nothing and names its index), runs
-them in order in one main-thread task (one transaction: the person never sees
-half of it, and the model publishes once), and answers once. A refusal while
-running stops there and says how many ops applied. One transaction holds at
-most 64 ops; `--no-atomic` applies a longer list as consecutive transactions,
-and without it a longer list is refused (`batch_too_large`). Targets name
+them in order in one main-thread task, and answers once. What the app owns
+(selection, focus, settings) changes in that one task and shows together;
+what the session daemon owns (a daemon tab renamed, a column made, a close)
+shows as the daemon's echoes arrive, which can take more than one frame. It
+is not all-or-nothing: a refusal while running stops there, the ops before it
+stay applied, and the answer says how many (`applied`). One transaction holds
+at most 64 ops; `--no-atomic` applies a longer list as consecutive
+transactions (one that never runs, because its deadline passed or the app was
+busy, ends the batch with `applied` set and is never `not_run`), and without
+it a longer list is refused (`batch_too_large`). Targets name
 objects that exist before the batch. Layout ops the session daemon owns
 (`cmux workspace <ws> move`, `cmux tab <id> move|rename`) are not app actions;
 send those to the daemon.
