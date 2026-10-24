@@ -54,6 +54,9 @@
 #               ThemedPicker.Coordinator; 6bf522e6cdd's ObservedMap.Slot).
 #               scripts/cmux-next/swift_scope.py is the one detector; the
 #               pre-push guardrails.py applies the same one to what a push adds.
+#               A class generic only through an extension names the
+#               declaration that makes it so (`generic context: <file>:<line>`):
+#               crash-class-gate.sh --pr counts a PR that changes that file.
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
@@ -192,7 +195,7 @@ WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 
-def crash_class_hits(code, lines, index, default_main, main_lines, relative, is_generic):
+def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared):
     """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
     hits = []
     if ISOLATED_DEINIT.match(code):
@@ -201,11 +204,15 @@ def crash_class_hits(code, lines, index, default_main, main_lines, relative, is_
     if PLAIN_DEINIT.match(code) and default_main and main_lines[index]:
         hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
                     "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
-    if ("class" in code and swift_scope.judge(lines, index, is_generic, main_lines, default_main)
-            and not swift_scope.escaped(lines, index, swift_scope.GENERIC_CLASS_ALLOW)):
+    judged = (swift_scope.judge(lines, index, generic_declared.__contains__, main_lines, default_main)
+              if "class" in code else None)
+    if judged is not None and not swift_scope.escaped(lines, index, swift_scope.GENERIC_CLASS_ALLOW):
+        # A class generic only by an extension of a type declared generic in another file names that
+        # declaration: a change there makes it a candidate, so crash-class-gate.sh --pr counts that file too.
+        context = "; ".join(f"generic context: {site}" for name in judged.extended for site in generic_declared[name])
         hits.append("generic main-actor class with no `nonisolated deinit` (generic by itself or by context; its "
                     "isolated deinit crashes the Release compile's optimizer, #23050 / #23233); declare "
-                    "`nonisolated deinit {}`")
+                    "`nonisolated deinit {}`" + (f" ({context})" if context else ""))
     if TASK_LOCAL_BINDING.search(code) and relative != TASK_LOCAL_HELPER and not allowed(lines, index):
         hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
                     "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
@@ -238,9 +245,13 @@ for dirpath, _, files in os.walk(sources):
             path = os.path.join(dirpath, filename)
             with open(path, encoding="utf-8") as handle:
                 texts[path] = handle.read()
-# The generic-class rule reads an extension's context: is its type declared generic anywhere in Sources?
-generic_types = set().union(*(swift_scope.generic_names(text) for text in texts.values()))
-is_generic = generic_types.__contains__
+# The generic-class rule reads an extension's context: is its type declared generic anywhere in Sources,
+# and where ({type name: ["Sources/<path>:<line>", ...]}).
+generic_declared = {}
+for path, text in sorted(texts.items()):
+    for name, numbers in swift_scope.generic_declarations(text).items():
+        site = os.path.relpath(path, root).replace(os.sep, "/")
+        generic_declared.setdefault(name, []).extend(f"{site}:{number}" for number in numbers)
 for dirpath, _, files in os.walk(sources):
     for filename in sorted(files):
         if not filename.endswith(".swift"):
@@ -269,7 +280,7 @@ for dirpath, _, files in os.walk(sources):
             if ONLY == "synchronization":
                 continue
             hits = crash_class_hits(code, lines, index, default_main, main_lines, relative.replace(os.sep, "/"),
-                                    is_generic)
+                                    generic_declared)
             if ONLY == "crash-class":
                 for name in hits:
                     print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
