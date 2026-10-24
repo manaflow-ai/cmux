@@ -4,8 +4,10 @@
 /// Make one at the composition root with ``KernelMemoryPressureSource`` and inject it, so one source
 /// serves every owner that reacts to pressure; a test passes a source it drives. Each subscriber keeps
 /// the registration ``observe(_:)`` returns and stops when it releases it (on any thread) or cancels
-/// it: a cancelled subscriber gets no later event, because the source delivers on the main actor and
-/// cancelling removes the handler at once. The source starts in the init and is cancelled in the deinit.
+/// it: a subscriber cancelled on the main actor gets no later event, not even later in a delivery
+/// that is running, because cancelling removes the handler at once and each delivery looks a handler
+/// up just before it calls it (see ``MainActorHandlers/call(_:)`` for a release on another thread).
+/// The source starts in the init and is cancelled in the deinit.
 ///
 /// ```swift
 /// let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
