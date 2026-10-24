@@ -24,6 +24,8 @@ final class AppControl {
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
+    /// Over-budget action runs: the Release report's counters, and the Debug log line per run.
+    private(set) var actionBudget: ActionBudgetReporter?
 
     var socketPath: String? { service?.socketPath }
 
@@ -49,6 +51,9 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
+                                          stalls: watchdog.log, threshold: watchdog.configuration.threshold, logsRuns: ControlService.isDebugBuild)
+        actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
@@ -85,6 +90,8 @@ final class AppControl {
         // Diagnostics for tagged DEV builds; a release build registers no debug.* method
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
+        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
+        service.router.register([budget.method])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([

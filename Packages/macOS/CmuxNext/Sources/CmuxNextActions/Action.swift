@@ -98,6 +98,9 @@ public struct Action: Identifiable {
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
     public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
+    /// The index the registry's run timing records this action's runs under, interned when it was
+    /// registered (``ActionRunTiming/intern(_:)``); 0 before.
+    public internal(set) var timingIndex: UInt32 = 0
 
     public init(
         id: ActionID,
