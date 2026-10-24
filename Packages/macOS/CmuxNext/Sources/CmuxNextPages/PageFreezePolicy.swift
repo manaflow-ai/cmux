@@ -1,7 +1,7 @@
-/// Decides when a hidden cmux page in Chromium freezes: the app's hibernation, which freezes hidden
-/// browser tabs by the same rule (`browser.freezeHiddenTabs`), so a Settings, Diff, Files, Stats or
-/// chat page you switched away from stops its timers, React effects and clocks after a grace
-/// (perf-lead.md F3). Handed to each page by its ``PageChromiumHosting/freezePolicy``.
+/// Decides when a hidden cmux page in Chromium freezes: ``CmuxPageFreezing``, kept by the app's
+/// hibernation on the rule that freezes hidden browser tabs (`browser.freezeHiddenTabs`), so a
+/// Settings, Diff, Files, Stats or chat page you switched away from stops its timers, React effects
+/// and clocks after a grace (perf-lead.md F3). Handed to each page by its ``PageChromiumHosting/freezePolicy``.
 ///
 /// A page reports only changes of its own state, and the policy calls
 /// ``PageWebView/freezeWhileHidden()`` when one is due. The page thaws by itself before it shows

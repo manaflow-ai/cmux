@@ -1,5 +1,4 @@
 import AppKit
-@testable import CmuxNextApp
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
@@ -148,25 +147,6 @@ struct CmuxPageFreezingTests {
         pass(after: 31, freezing)
         #expect(page.freezes == [true])
         view.close()
-    }
-
-    /// The app's assembly: the hibernation applies `browser.freezeHiddenTabs` to the same policy the
-    /// app's page host hands to every page. The host was made at launch after the hibernation
-    /// started and the policy was set on it through an optional cast of a host that did not exist
-    /// yet, so no cmux page in the app ever reported to it; the policy is now a required argument
-    /// of the host.
-    @Test func theAppsPageHostHandsEveryPageTheHibernationsPolicy() throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let freezing = policy()
-        let hibernation = BrowserHibernation(cache: services.cache, cmuxPages: freezing)
-        let host = services.makeChromiumPageHost(freezePolicy: freezing)
-        #expect(host.freezePolicy === freezing)
-
-        var setting = BrowserHibernationSetting.fallback
-        setting.freezeSeconds = 120
-        hibernation.apply(setting)
-        #expect(freezing.setting == setting)
     }
 
     /// A page that hid before its first message still boots (a chat's seeded prompt runs at start):

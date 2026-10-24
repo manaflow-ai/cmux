@@ -1,6 +1,4 @@
-@testable import CmuxNextApp
-import CmuxNextCompat
-import CmuxNextControl
+@testable import CmuxNextPages
 import Testing
 
 /// A workspace or tab switch that shows N cmux pages that never showed made N CEF tabs in the
@@ -9,24 +7,21 @@ import Testing
 /// of a later display frame, one page per frame.
 @MainActor
 struct ChromiumPageFrameBudgetTests {
-    /// A frame source the test fires by hand (as CmuxNextControlTests' ManualFrameSource).
-    private final class SteppedFrames: ControlFrameSource {
-        // Lock carve-out: `scheduleFrame` is a nonisolated, synchronous requirement of the protocol.
-        private let pending = Mutex<[@MainActor @Sendable () -> Void]>([])
+    /// Display frames the test fires by hand.
+    @MainActor
+    private final class SteppedFrames {
+        private var pending: [@MainActor @Sendable () -> Void] = []
 
-        func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
-            pending.withLock { $0.append(work) }
+        func request(_ work: @escaping @MainActor @Sendable () -> Void) {
+            pending.append(work)
         }
 
-        var scheduledCount: Int { pending.withLock { $0.count } }
+        var scheduledCount: Int { pending.count }
 
-        /// Runs the frame callbacks scheduled so far.
-        @MainActor
+        /// Runs the frame callbacks requested so far.
         func fire() {
-            let works = pending.withLock { works in
-                defer { works.removeAll() }
-                return works
-            }
+            let works = pending
+            pending.removeAll()
             for work in works { work() }
         }
     }
@@ -53,7 +48,7 @@ struct ChromiumPageFrameBudgetTests {
 
     @Test func eachPageStartTakesItsOwnLaterFrame() async {
         let frames = SteppedFrames()
-        let budget = ChromiumPageFrameBudget(frames: frames)
+        let budget = ChromiumPageFrameBudget(requestFrame: { frames.request($0) })
         let starts = Starts()
         let first = await start(1, budget: budget, starts: starts)
         let second = await start(2, budget: budget, starts: starts)

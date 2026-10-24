@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -89,8 +90,8 @@ final class BrowserHibernation {
     var agentPages: AgentPageHibernation? {
         didSet { agentPages?.update(setting: setting, pressure: pressure) }
     }
-    /// Hidden cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (CmuxPageFreezing);
-    /// the page host hands the same policy to every page (`AppServices.makeChromiumPageHost`).
+    /// Hidden cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (``CmuxPageFreezing``);
+    /// the app's page host (``ChromiumPageHost``) hands the same policy to every page.
     let cmuxPages: CmuxPageFreezing
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.

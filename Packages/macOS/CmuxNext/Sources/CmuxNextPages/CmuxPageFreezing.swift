@@ -1,20 +1,29 @@
-import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextSettings
 import CmuxNextWakeups
 
 /// Freezes hidden cmux pages in Chromium (Settings, Diff, Files, History, Stats, Cloud, Home
 /// channels, Keybindings, agent chats) by the rule that freezes hidden browser tabs:
-/// `browser.freezeHiddenTabs` seconds hidden (30 by default; `off` never), through
-/// ``HibernationPlanner/freezePlan(_:candidates:)`` (perf-lead.md F3). A page you switched away
-/// from then stops its timers, React effects and 1 Hz clocks, so it costs no CPU and no wakeups.
+/// `browser.freezeHiddenTabs` seconds hidden (30 by default; `off` never) (perf-lead.md F3). A page
+/// you switched away from then stops its timers, React effects and 1 Hz clocks, so it costs no CPU
+/// and no wakeups.
 ///
 /// Events only, no polling: a page reports when it hides or the host reaches it while hidden
 /// (``PageFreezePolicy``), and one deadline runs for the next page to come due. The page itself
 /// thaws before it shows and before any host call or push, and reports again, so its grace
 /// restarts (a chat that streams while hidden never freezes). Releasing a hidden chat's page
-/// after the hibernation threshold stays with ``AgentPageHibernation``.
+/// after the hibernation threshold stays with the app's agent page hibernation.
+///
+/// The app makes one policy at its composition root, hands it to its Chromium page host (every
+/// started page reports to it) and keeps it on the browser hibernation's setting:
+///
+/// ```swift
+/// let cmuxPages = CmuxPageFreezing()
+/// cmuxPages.update(setting: hibernationSetting)
+/// ```
+///
+/// Tests pass a clock whose time they step (`init(clock:)`).
 @MainActor
-final class CmuxPageFreezing: PageFreezePolicy {
+public final class CmuxPageFreezing: PageFreezePolicy {
     private final class Hidden {
         weak var page: PageWebView?
         var since: ContinuousClock.Instant
@@ -30,11 +39,11 @@ final class CmuxPageFreezing: PageFreezePolicy {
     private let deadline: DemandTimer
     /// The injected clock's time: how long each page has been hidden, on the deadline's clock.
     private let now: @Sendable () -> ContinuousClock.Instant
-    /// Pages frozen so far (`debug.surfaces`, tests).
+    /// Pages frozen so far (tests).
     private(set) var frozenCount = 0
 
-    /// The policy on the continuous clock (the app).
-    convenience init() {
+    /// The policy on the continuous clock, with the default setting until ``update(setting:)``.
+    public convenience init() {
         self.init(clock: ContinuousClock())
     }
 
@@ -52,7 +61,9 @@ final class CmuxPageFreezing: PageFreezePolicy {
 
     /// Applies `browser.freezeHiddenTabs`. Off forgets every hidden page and its deadline; after an
     /// on, a page counts from its next hide, call or push.
-    func update(setting: BrowserHibernationSetting) {
+    ///
+    /// - Parameter setting: The browser hibernation's setting; only its `freezeSeconds` counts.
+    public func update(setting: BrowserHibernationSetting) {
         guard setting != self.setting else { return }
         self.setting = setting
         guard setting.freezeSeconds != nil else {
@@ -68,7 +79,7 @@ final class CmuxPageFreezing: PageFreezePolicy {
     /// and that pass arms the next); a new page's grace is the longest, so it needs a pass only
     /// when no deadline runs.
     /// Off (`browser.freezeHiddenTabs` off): nothing is recorded, so a hide costs no pass.
-    func hiddenPageWoke(_ page: PageWebView) {
+    public func hiddenPageWoke(_ page: PageWebView) {
         guard setting.freezeSeconds != nil else { return }
         let key = ObjectIdentifier(page)
         if let entry = hidden[key] {
@@ -79,36 +90,39 @@ final class CmuxPageFreezing: PageFreezePolicy {
         if !deadline.isScheduled { replan() }
     }
 
-    func pageIsNoLongerHidden(_ page: PageWebView) {
+    public func pageIsNoLongerHidden(_ page: PageWebView) {
         guard hidden.removeValue(forKey: ObjectIdentifier(page)) != nil else { return }
         if hidden.isEmpty { deadline.cancel() }
     }
 
     /// Freezes every hidden page past its grace and arms one deadline for the next.
+    ///
+    /// The grace is counted in the clock's own durations, so the deadline lands when the next page
+    /// comes due (a clock sleep ends at or after its deadline), with no rounding margin.
     func replan() {
         hidden = hidden.filter { $0.value.page != nil }
-        let current = now()
-        let candidates = hidden.map { key, entry in
-            HibernationPlanner.Candidate(key: Self.name(key), hiddenFor: (current - entry.since).seconds)
+        guard let seconds = setting.freezeSeconds else {
+            deadline.cancel()
+            return
         }
-        let plan = HibernationPlanner.freezePlan(setting, candidates: candidates)
-        let due = Set(plan.due)
-        for (key, entry) in hidden where due.contains(Self.name(key)) {
+        let grace = Duration.seconds(seconds)
+        let current = now()
+        var next: Duration?
+        // Iterates a copy: removing a frozen page below does not disturb the loop.
+        for (key, entry) in hidden {
+            let remaining = grace - (current - entry.since)
+            guard remaining <= .zero else {
+                next = min(next ?? remaining, remaining)
+                continue
+            }
             // Frozen, or not freezable now (it still boots: it reports again at its first message).
             if entry.page?.freezeWhileHidden() == true { frozenCount += 1 }
             hidden[key] = nil
         }
-        if let next = plan.nextCheck {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+        if let next {
+            deadline.schedule(after: next) { @MainActor [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
     }
-
-    /// The planner's key of a live page: its object address, unique while the page lives.
-    private static func name(_ key: ObjectIdentifier) -> String { String(UInt(bitPattern: key)) }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

@@ -11,7 +11,7 @@ public import WebKit
 //   workspace that is not shown, or a restore makes no renderer until it shows, unless its owner
 //   has work only the page can do and starts it at once (``startWithoutShowing()``). The host makes
 //   the CEF tab on a later display frame, one page per frame, never in the frame of the action that
-//   showed it (the app's `ChromiumPageFrameBudget`).
+//   showed it (``ChromiumPageFrameBudget``).
 // - Frozen after a grace while hidden. A started page that hides stops drawing at once and keeps
 //   running (it boots and takes its pushes, as a WebKit page does); once it has stayed hidden for
 //   the hibernation's grace with no call or push from the host, the policy freezes it

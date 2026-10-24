@@ -26,8 +26,8 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage
-    /// Freezes this host's started pages while they stay hidden (the app's hibernation, with its
-    /// grace); nil: a hidden page is never frozen. Read at each hide, wake and show.
+    /// Freezes this host's started pages while they stay hidden (the app's ``CmuxPageFreezing``, on
+    /// the hibernation's grace); nil: a hidden page is never frozen. Read at each hide, wake and show.
     var freezePolicy: (any PageFreezePolicy)? { get }
 }
 

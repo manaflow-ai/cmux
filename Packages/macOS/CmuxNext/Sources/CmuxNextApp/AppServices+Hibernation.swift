@@ -10,9 +10,9 @@ extension AppServices {
     ///
     /// - Parameters:
     ///   - settings: The settings whose `browser.hibernation` the hibernation follows.
-    ///   - cmuxPages: The freeze policy of cmux's own pages in Chromium; the same object goes to
-    ///     ``makeChromiumPageHost(freezePolicy:)``, so the setting the hibernation applies is the one
-    ///     every page reports to.
+    ///   - cmuxPages: The freeze policy of cmux's own pages in Chromium; the same object goes to the
+    ///     app's ``ChromiumPageHost``, so the setting the hibernation applies is the one every page
+    ///     reports to.
     func startHibernation(settings: SettingsController, cmuxPages: CmuxPageFreezing) {
         let hibernation = BrowserHibernation(cache: cache, cmuxPages: cmuxPages)
         cache.hibernation = hibernation
@@ -26,22 +26,6 @@ extension AppServices {
         hibernation.agentPages = AgentPageHibernation(services: self)
         hibernation.follow(settings)
         hibernation.start()
-    }
-
-    /// The one Chromium host of cmux's own pages (``PageWebView/chromiumHosting``): every page view
-    /// follows `browser.defaultEngine` through it, and every started page reports to `freezePolicy`,
-    /// so a hidden cmux page (Settings, Diff, Files, chats...) freezes as hidden browser tabs do.
-    ///
-    /// - Parameter freezePolicy: The hibernation's freeze policy (``startHibernation(settings:cmuxPages:)``).
-    /// - Returns: The host.
-    func makeChromiumPageHost(freezePolicy: any PageFreezePolicy) -> ChromiumPageHost {
-        ChromiumPageHost(
-            cef: cache.cef,
-            preference: { [weak self] in
-                self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
-            },
-            keyRouter: keyRouter,
-            freezePolicy: freezePolicy)
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
