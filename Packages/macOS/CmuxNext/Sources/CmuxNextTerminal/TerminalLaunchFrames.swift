@@ -61,8 +61,8 @@ public final class TerminalLaunchFrames {
     /// (``TerminalLaunchFrame``), and `content`, the pane content held for launch, at once with it
     /// (no fade: it is the frame the pane showed). Only a frame of the terminal's size and the
     /// window's scale: another would move or scale when the live frame replaced it. A frame not
-    /// decoded yet is shown when it is, unless the terminal drew its own content first. Returns
-    /// whether it showed one now.
+    /// decoded yet is shown when it is, unless the terminal drew its own content first or is no
+    /// longer hosted in `content`. Returns whether it showed one now.
     @discardableResult
     public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
         let decoded = frames.take(key) { [weak self, weak session, weak content] frame in
@@ -74,8 +74,12 @@ public final class TerminalLaunchFrames {
         return Self.present(decoded, on: session, in: content, reveal: reveal)
     }
 
-    /// Shows `frame` over `session` in `content` when it fits the terminal and the window's scale.
+    /// Shows `frame` over `session` in `content` when the terminal is still hosted there and the
+    /// frame fits it and the window's scale. Both ways in (the pane build, a later decode) check the
+    /// host: a terminal moved to another pane's content host (a tab moved or re-hosted during
+    /// restore) must not be resized to, or revealed in, the pane it left.
     private static func present(_ frame: SavedFrame, on session: TerminalSession, in content: NSView, reveal: LaunchReveal) -> Bool {
+        guard session.view.isDescendant(of: content) else { return false }
         // The surface's size in this pane: its own frame is a placeholder until the pane lays it out
         // (this transaction does anyway). A pane not laid out yet (zero) takes the launch snapshot's
         // size, which the frame was saved at.
