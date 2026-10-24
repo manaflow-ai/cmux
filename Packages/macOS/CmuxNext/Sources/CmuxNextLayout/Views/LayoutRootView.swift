@@ -85,6 +85,8 @@ public final class LayoutRootView: NSView {
     /// Pane rings and dims the overlay syncs placed, cumulative (PaneMotionWorkTests: per frame it
     /// is the panes that moved, not every pane).
     var overlayHostsPlaced = 0
+    /// Overlay syncs run, cumulative (PaneLayoutBeforeWindowTests: a parked root runs none).
+    var overlaySyncs = 0
     /// The panes whose ring, dim or window frame the last overlay sync changed: a pane that moved,
     /// resized, faded or was newly covered. Observers of ``observeOverlaySync(_:)`` read it to touch
     /// only those panes (a Chromium page's geometry post, a divider catcher); empty for a sync that
