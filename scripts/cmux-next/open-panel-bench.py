@@ -21,7 +21,7 @@ missed), and left out of the session's percentiles; each OPEN-PANEL row says how
 Usage: open-panel-bench.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 5]
 Fleet: scripts/measure/split-spring.sh --suite=open-panel [--sessions=...] [--rounds=N]
 """
-import argparse, importlib.util, json, os, statistics, sys, threading, time
+import argparse, importlib.util, json, os, statistics, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -67,6 +67,12 @@ def measure(app, session, report, opts):
     first_open = True  # the session's first open: right after the launch or the STRESS build
     for mode in opts.modes.split(","):
         runs = []
+        sampler = None
+        if os.environ.get("OPEN_PANEL_SAMPLE") and app.process:
+            # Diagnostic: every thread's stack each 1 ms over this mode's first opens, blocked waits included.
+            sample_path = os.path.join(opts.out, f"sample-{session}-{mode}.txt")
+            sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), os.environ["OPEN_PANEL_SAMPLE"], "1",
+                                        "-file", sample_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for index in range(opts.rounds):
             # A call that does not answer in 45 s: the app's main thread as it hangs (the quit-time hang of
             # 2026-10-23, the 4th new-panel open on mac26), before the call's own timeout ends it.
@@ -91,11 +97,41 @@ def measure(app, session, report, opts):
             print(f"  {session:<6} {mode:<6} #{index}: init {run['init_ms']} begin {run['begin_ms']} sync {run['sync_ms']} "
                   f"visible {run['visible_ms']} ms, longest frame {run['frame_max_ms']} ms (refresh {run['refresh_ms']} ms) "
                   f"made_before {run['made_ahead_before']} {run['error'] or ''}", flush=True)
+        if sampler is not None:
+            sampler.wait()
+            print_main_sample(sample_path, session, mode)
         report["runs"].extend(runs)
         later = [run for run in runs if not run["first_open"]]
         row = {"session": session, "mode": mode, "n": len(later), **{k: summary(later, k) for k in TIMES}}
         report["summary"].append(row)
         print("OPEN-PANEL " + json.dumps(row), flush=True)
+
+
+def print_main_sample(path, session, mode):
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        print(f"OPEN-PANEL-SAMPLE {session} {mode}: no sample", flush=True)
+        return
+    graph = text.split("Call graph:", 1)[-1].splitlines()
+    main, started = [], False
+    for line in graph:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        top = line.startswith("    ") and not line.startswith("     ") and "Thread_" in line
+        if top and started:
+            break
+        if top:
+            started = True
+        if not started:
+            continue
+        count = stripped.lstrip("+!:|- ").split(" ", 1)[0]
+        if count.isdigit() and int(count) >= 25:
+            main.append(line.rstrip()[:220])
+    print(f"OPEN-PANEL-SAMPLE {session} {mode} main thread (nodes with >= 25 samples of 1 ms):", flush=True)
+    for line in main[:400]:
+        print("SMP " + line, flush=True)
 
 
 def quit_probe(app, report):

@@ -54,6 +54,15 @@ enum DebugOpenPanelBench {
             panel.isVisible && panel.occlusionState.contains(.visible) && (mode == "window" || window.attachedSheet === panel)
         }, start: start, window: 300, deadline: 10_000)
         let stats = frames.stop()
+        let state: JSONValue = .object([
+            "is_visible": .bool(panel.isVisible),
+            "occlusion_visible": .bool(panel.occlusionState.contains(.visible)),
+            "attached_sheet_is_panel": .bool(window.attachedSheet === panel),
+            "sheet_parent_is_window": .bool(panel.sheetParent === window),
+            "panel_frame": .string(NSStringFromRect(panel.frame)),
+            "window_frame": .string(NSStringFromRect(window.frame)),
+            "window_occlusion_visible": .bool(window.occlusionState.contains(.visible)),
+        ])
         if mode == "window" {
             panel.cancel(nil)
         } else {
@@ -71,7 +80,9 @@ enum DebugOpenPanelBench {
             "sync_ms": .number(BenchSpans.ms(begun - start)),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "frames": stats,
+            "state_at_end": state,
         ])
     }
 }
+
 #endif
