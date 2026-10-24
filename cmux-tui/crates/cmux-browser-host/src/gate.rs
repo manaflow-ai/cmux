@@ -289,7 +289,19 @@ impl Gate {
             });
             filter
         });
-        let installed = self.driver.set_request_filter(filter);
+        let mut installed = self.driver.set_request_filter(filter);
+        // An engine without a request filter (an app WebKit tab) can take
+        // the domain policy as content rules, which hold only the policy's
+        // domain rules: not for a session whose egress checks need the
+        // filter (a remote caller, an isolated session).
+        let rules_cover = !self.grants.remote && self.grants.isolated.is_none();
+        if active && !installed && rules_cover {
+            let lists =
+                self.policy.lock().unwrap_or_else(PoisonError::into_inner).content_rule_lists();
+            installed = self.driver.set_content_rules(Some(Value::Array(lists)));
+        } else if !active {
+            self.driver.set_content_rules(None);
+        }
         let policy = self.policy.clone();
         let connections = self.driver.set_connection_policy(active.then(|| {
             Arc::new(move |host: &str, port: u16| {

@@ -49,6 +49,8 @@ pub struct ProviderDriver {
     /// Each session's request filter and the CEF tabs it applies to
     /// (`crate::provider_engine`), by subscription id.
     pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_source::SessionFilter>>,
+    /// Sessions' domain policies on WebKit tabs (crate::provider_rules).
+    pub(crate) content_rules: crate::provider_rules::ContentRules,
     /// Downloads the app reported (`download.path` of provider sessions).
     pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
     /// Tabs agent sessions kept (`tab.keep`): deliverables later sessions list.
@@ -250,6 +252,7 @@ impl ProviderDriver {
             cef_tabs,
             attach_lock: Mutex::new(()),
             request_filters: Mutex::new(HashMap::new()),
+            content_rules: Default::default(),
             downloads,
             kept_tabs: Mutex::default(),
             leases,

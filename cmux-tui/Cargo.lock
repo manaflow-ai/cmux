@@ -955,6 +955,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hmac",
  "libc",
+ "regex",
  "rquickjs",
  "serde",
  "serde_json",

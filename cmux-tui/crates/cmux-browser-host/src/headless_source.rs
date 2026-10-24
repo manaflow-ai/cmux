@@ -858,6 +858,10 @@ impl Driver for HeadlessSession {
         self.engine.as_ref().map_or(Ok(()), |e| e.set_connection_policy(policy))
     }
 
+    fn set_content_rules(&self, lists: Option<Value>) -> bool {
+        self.engine.as_ref().is_some_and(|e| e.set_content_rules(lists))
+    }
+
     fn send_session_event(&self, event: DriverEvent) -> bool {
         self.engine.as_ref().is_some_and(|e| e.send_session_event(event))
     }

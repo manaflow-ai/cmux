@@ -108,6 +108,15 @@ pub trait Driver: Send + Sync {
         Ok(())
     }
 
+    /// Installs (or with `None` removes) the session's domain policy as
+    /// WebKit content rule lists (`Policy::content_rule_lists`) on the tabs
+    /// it drives, where the engine takes no request filter (the app's
+    /// WebKit tabs); false when it cannot (the gate then fails closed).
+    fn set_content_rules(&self, lists: Option<Value>) -> bool {
+        let _ = lists;
+        false
+    }
+
     /// Whether this session's after-the-fact checks (a response from a
     /// refused address stops the load) apply to `target_id`. A driver of its
     /// own browser answers true for every tab; a session on a shared source

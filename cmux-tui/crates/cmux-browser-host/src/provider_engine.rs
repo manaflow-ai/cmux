@@ -454,6 +454,10 @@ impl Driver for ProviderEngine {
         self.provider.set_request_filter(self.subscription, &self.engine, filter)
     }
 
+    fn set_content_rules(&self, lists: Option<Value>) -> bool {
+        self.provider.set_content_rules(self.subscription, &self.engine, &self.lease.session, lists)
+    }
+
     /// The session's connection policy; when its new tabs just moved to a
     /// checked store, each live tab it created before reopens there at the
     /// same URL (the old one closes), so no page of the session keeps a way

@@ -507,6 +507,7 @@ impl Policy {
 
 mod cookies;
 pub mod egress;
+mod webkit_rules;
 
 /// Parses a list of patterns.
 pub fn parse_patterns(list: &[String]) -> Result<Vec<DomainPattern>, PolicyError> {
