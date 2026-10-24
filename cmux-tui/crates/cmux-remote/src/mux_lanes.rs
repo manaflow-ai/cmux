@@ -333,4 +333,21 @@ mod tests {
             Some(Lane::Bulk)
         );
     }
+
+    /// `attach-streams-v1` over the SSH bridge: a client stream's
+    /// `cancel-stream` rides the attach's lane, so it never overtakes the
+    /// `attach-surface` it cancels (a cancel that ran first would answer
+    /// `ended` and the attach would open a stream nobody reads). Its
+    /// `stream-end` rides the lane of its output, so it never overtakes the
+    /// stream's queued output (review of 0ade7bf4318, minor 4).
+    #[test]
+    fn a_client_streams_cancel_and_end_keep_their_stream_order() {
+        let attach = br#"{"id":2,"cmd":"attach-surface","attach_stream":3,"surface":7}"#;
+        let cancel = br#"{"id":3,"cmd":"cancel-stream","attach_stream":3}"#;
+        assert_eq!(classify_client_line(attach), classify_client_line(cancel));
+        let tracker = MuxLaneTracker::default();
+        let output = br#"{"attach_stream":3,"event":"output","surface":7,"data":"eA=="}"#;
+        let end = br#"{"attach_stream":3,"event":"stream-end","reason":"ended"}"#;
+        assert_eq!(tracker.classify_server_line(output), tracker.classify_server_line(end));
+    }
 }
