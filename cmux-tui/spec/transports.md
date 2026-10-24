@@ -358,6 +358,10 @@ registered), and a control request waits until its surface's earlier stream
 requests are accepted (the input a `clear-history` must follow). A request is
 accepted when its effect is applied; only `wait-for` replies later than that,
 so a key sent after a blocked `wait-for` of the same surface runs at once.
+A control request held for its surface's stream input holds back only that
+surface's later control requests; the connection's other control requests run
+past it. `set-client-info` is the one connection-wide barrier: a stream request
+sent after it waits until it is applied (the capabilities an attach needs).
 Requests of different surfaces never wait for each other. Replies of different
 surfaces may therefore come out of wire order; match by `id`. `cancel-stream {attach_stream}` ends a stream at once (idempotent: a stream that
 is not open answers `{"outcome": "ended"}`).

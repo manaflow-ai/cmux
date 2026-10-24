@@ -186,6 +186,12 @@ Client to daemon (requests), per stream lane:
   after the writes it should see. Output is not a request (it is ordered by the stream itself), and a
   detach or cancel runs on its stream's lane, so its `stream-end` follows the stream's queued frames.
   Different surfaces never wait for each other, so a key for terminal A still never waits for terminal B.
+  A control request held for its surface's stream input (a close after a send that blocks while the
+  terminal's program stopped reading, or while its host reconnects) holds back only that surface's later
+  control requests; the control lane runs every other request past it (review of 0ade7bf4318, M2).
+  `set-client-info` is the only connection-wide barrier: a stream request sent after it waits until it is
+  applied, because it records the capabilities and sizing identity an attach needs. Other control requests
+  of no surface (a workspace switch, a new tab) order nothing on the stream lanes.
 - Lane workers: a per-connection pool of threads that park on a condvar when no lane is runnable (no timer,
   no polling, D6). A lane runs on at most one worker at a time. A worker is spawned only when a lane becomes
   runnable and every worker is busy, so the thread count is the high-water of concurrently busy lanes
