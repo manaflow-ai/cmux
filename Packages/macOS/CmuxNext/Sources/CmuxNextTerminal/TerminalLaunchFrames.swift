@@ -14,6 +14,9 @@ public final class TerminalLaunchFrames {
 
     let directory: URL?
     private var taken: Set<String> = []
+    /// Hears `terminal_frames` when a frame file was read and decoded on the main thread, for the
+    /// launch guard of #17587 (`launch_read_on_main.<name>`).
+    public static var onLaunchReadOnMain: ((String) -> Void)?
 
     init(directory: URL?) {
         self.directory = directory
@@ -88,6 +91,7 @@ public final class TerminalLaunchFrames {
             guard let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, bytes <= Self.maximumBytes,
                   // concurrency-allow: one capped read of a small local image before the terminal's first frame
                   let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
+            Self.onLaunchReadOnMain?("terminal_frames")
             let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
             rep.size = image.size
             image.addRepresentation(rep)

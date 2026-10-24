@@ -20,7 +20,8 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+      [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
+      [--launch-guard [--max-launch-stall MS] [--first-frame-budget MS]]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -31,7 +32,25 @@ seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent pane's handshake as well as the
-first terminal frame.
+first terminal frame. --profile stress seeds one priming launch with the
+standard STRESS session (scripts/cmux-next/perf-stress-session.py: 60
+workspaces, the measured one 4 x 3 panes plus nested splits, 6 tabs each with
+terminals, Chromium and WebKit pages and an agent chat), so the measured
+launch restores 14 panes; its runs end at the first live terminal frame.
+
+--launch-guard (the regression guard of #17587, a script, not a CI gate)
+exits 1 when a launch holds its first window frame with work it does not
+show: any run marked `launch_read_on_main.<file>` (a file the launch draws or
+keeps, read or waited for on the main thread instead of off it from `main`:
+the launch snapshot, the panes' last frames, the agent pages' last images,
+the new chats' unsent drafts, the chats' composer states, the Home cache and
+the Home list's last state); any main-thread stall over --max-launch-stall
+ms (default 50, the watchdog's own stall threshold; measured through
+debug.hangs, so it also catches work no mark reports); or a median
+first_window_frame_committed over --first-frame-budget ms (default 150, the
+launch target in plans/cmux-next/perf-lead.md). Run it light and STRESS:
+`--mode warm --profile realistic --launch-guard` and
+`--mode warm --profile stress --launch-guard`.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -61,6 +80,10 @@ from bench_launch import finder_limits, limits_line, require_gui_session, socket
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
+FIRST_FRAME_MARK = "first_window_frame_committed"
+# A file the launch draws or keeps was read or waited for on the main thread
+# (`launch_read_on_main.<file>`): --launch-guard fails on any.
+MAIN_THREAD_READ = "launch_read_on_main."
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -81,6 +104,14 @@ MARKS = [
     ("dfl.settings", "dfl: settings and control"),
     ("dfl.menu", "dfl: main menu"),
     ("daemon.binary_resolved", "daemon binary resolved"),
+    ("launch_snapshot_read", "launch snapshot read and decoded"),
+    ("launch_read_on_main.launch_snapshot", "MAIN THREAD: launch snapshot read"),
+    ("launch_read_on_main.terminal_frames", "MAIN THREAD: terminals' last frames read"),
+    ("launch_read_on_main.agent_page_images", "MAIN THREAD: agent pages' last images read"),
+    ("launch_read_on_main.unsent_drafts", "MAIN THREAD: new chats' unsent drafts read"),
+    ("launch_read_on_main.agent_wake_states", "MAIN THREAD: chats' composer states read"),
+    ("launch_read_on_main.home_cache", "MAIN THREAD: Home cache read"),
+    ("launch_read_on_main.home_list", "MAIN THREAD: Home list's last state read"),
     ("launch_snapshot_applied", "cached layout read (launch snapshot)"),
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
@@ -109,6 +140,7 @@ MARKS = [
     ("daemon.first_tree_applied", "first live tree applied"),
     ("daemon_snapshot_loaded", "windows restored from live tree"),
     ("first_terminal_surface_created", "first Ghostty surface"),
+    ("terminal.launch_frame_shown", "first terminal's last frame shown"),
     ("terminal.attach_start", "first terminal attach started"),
     ("terminal.attach_end", "first terminal attached (replay)"),
     ("first_terminal_content", "first terminal content decoded"),
@@ -420,6 +452,48 @@ def seed_realistic(tag, scratch, timeout):
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
 
+def load_stress():
+    """scripts/cmux-next/perf-stress-session.py, the shared STRESS builder (PL-motion-core)."""
+    import importlib.util  # noqa: E402
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def stress_config(tag):
+    """The cmux.json the STRESS session was built with (its bench minimum pane size): every
+    stress run starts from it, so the measured launch lays the 14 panes out as they were built."""
+    return os.path.join(state_directories(tag)[0], "bench-startup-stress-cmux.json")
+
+
+def seed_stress(tag, scratch, timeout):
+    """Builds the standard STRESS session in a priming launch (perf-stress-session.py) and quits
+    the app with its sessions kept, so the measured launch restores it."""
+    stress = load_stress()
+    reset_state(tag)
+    prime = Launch(tag, scratch)
+    try:
+        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never drew its first content")
+        app_client(tag).close()  # the control socket answers: the builder can start
+        path = next((candidate for candidate in socket_candidates(tag) if os.path.exists(candidate)), None)
+        if path is None:
+            raise SystemExit(f"tag {tag}: no control socket at {', '.join(socket_candidates(tag))}")
+        summary = stress.Stress(stress.socket_rpc(path), log=lambda line: print(f"  {tag} stress: {line}", file=sys.stderr)).build()
+        print("STRESS-SESSION " + json.dumps(summary), flush=True)
+    finally:
+        prime.quit()
+    shutil.copyfile(os.path.join(scratch, "cmux.json"), stress_config(tag))
+    with open(stress_marker(tag), "w") as out:
+        out.write("stress\n")
+
+
+def stress_marker(tag):
+    return os.path.join(state_directories(tag)[0], "bench-startup-stress")
+
+
 def seeded_agent(tag):
     try:
         with open(seeded_marker(tag)) as marker:
@@ -448,17 +522,22 @@ def one_run(tag, mode, timeout, profile=None):
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
+    if profile == "stress" and os.path.exists(stress_marker(tag)):
+        shutil.copyfile(stress_config(tag), os.path.join(scratch, "cmux.json"))
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
     # A first launch shows the agent New Tab page, not a terminal: other
     # profiles end at whichever content draws first.
     final = [FINAL_MARK, AGENT_MARK]
-    any_of = profile != "realistic"
+    any_of = profile not in ("realistic", "stress")
     if profile == "empty":
         reset_state(tag)
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
-    if profile == "realistic" and not seeded_agent(tag):
+    elif profile == "stress" and not os.path.exists(stress_marker(tag)):
+        seed_stress(tag, scratch, timeout)
+    if profile == "realistic" and not seeded_agent(tag) or profile == "stress":
+        # STRESS selects a terminal in every pane: its runs end at the first live terminal frame.
         final = [FINAL_MARK]
     if mode == "cold":
         # Builds of one tag (a before and an after copy) share its daemon.
@@ -599,8 +678,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
-    parser.add_argument("--profile", choices=["empty", "realistic"],
-                        help="empty: no saved state before each run; realistic: a seeded day's work "
+    parser.add_argument("--profile", choices=["empty", "realistic", "stress"],
+                        help="empty: no saved state before each run; realistic: a seeded day's work; "
+                             "stress: the standard STRESS session (perf-stress-session.py) "
                              "(default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
@@ -617,9 +697,22 @@ def main():
                              "(for example first_window_frame_committed<launch.non_paint_services)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
+    parser.add_argument("--launch-guard", action="store_true",
+                        help="exit 1 when a launch reads or waits for a launch file on the main thread "
+                             "(launch_read_on_main.<file>), stalls its main thread over --max-launch-stall, "
+                             "or its median first window frame is over --first-frame-budget (#17587)")
+    parser.add_argument("--max-launch-stall", type=float, default=50.0, metavar="MS",
+                        help="with --launch-guard: the longest main-thread stall a launch may have (debug.hangs; "
+                             "50, the watchdog's own stall threshold)")
+    parser.add_argument("--first-frame-budget", type=float, default=150.0, metavar="MS",
+                        help=f"with --launch-guard: the median {FIRST_FRAME_MARK} budget (the launch target, 150)")
     args = parser.parse_args()
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
     HANG_THRESHOLD_MS = args.hangs
+    if args.launch_guard:
+        # The guard judges every stall over --max-launch-stall: the app records at least those
+        # (a --hangs above it would hide the stalls between the two).
+        HANG_THRESHOLD_MS = int(min(filter(None, [args.hangs, args.max_launch_stall])))
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
@@ -662,13 +755,19 @@ def main():
             print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
             for label, mark, median, worst, gap, count in table(runs):
                 print(f"  {label:<46} {median:>8.0f} {worst:>8.0f} {gap:>+8.0f}  {count}")
-            if args.hangs:
+            if HANG_THRESHOLD_MS:
                 print_stalls(runs)
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
-    orders = args.order + (LAUNCH_ORDER if args.budget else [])
-    over = check_budgets(results, args.budget) + check_orders(results, orders)
+    budgets = args.budget + ([f"{FIRST_FRAME_MARK}={args.first_frame_budget:g}"] if args.launch_guard else [])
+    orders = args.order + (LAUNCH_ORDER if budgets else [])
+    over = check_budgets(results, budgets) + check_orders(results, orders)
+    if args.launch_guard:
+        guard = check_launch_guard(results, args.max_launch_stall)
+        print(f"launch guard: {'FAIL' if guard else 'pass'}"
+              + "".join(f"\n  {line}" for line in guard), file=sys.stderr if guard else sys.stdout)
+        over += guard
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
@@ -688,6 +787,28 @@ def check_budgets(results, budgets):
                 elif values and statistics.median(values) > float(limit):
                     over.append(f"{tag} {mode}: {mark} median {statistics.median(values):.0f} ms > {limit} ms")
     return over
+
+
+def check_launch_guard(results, max_launch_stall):
+    """#17587's regression guard: the files a launch draws or keeps are read off the main thread
+    (no run marked `launch_read_on_main.<file>`), and no run recorded a main-thread stall over
+    `max_launch_stall` ms (measured, so it also catches work no mark covers). The first window
+    frame's budget is checked with the other budgets."""
+    out = []
+    for tag, modes in results.items():
+        for mode, runs in modes.items():
+            for index, run in enumerate(runs):
+                where = f"{tag} {mode} run {index + 1}"
+                for mark in sorted(name for name in run if name.startswith(MAIN_THREAD_READ)):
+                    out.append(f"{where}: {mark.removeprefix(MAIN_THREAD_READ)} read on the main thread at "
+                               f"{run[mark]:.0f} ms")
+                if "stalls" not in run:
+                    out.append(f"{where}: no main-thread stall record (debug.hangs did not answer)")
+                for stall in run.get("stalls", []):
+                    if stall["ms"] > max_launch_stall:
+                        out.append(f"{where}: main thread stalled {stall['ms']:.0f} ms (limit {max_launch_stall:.0f}): "
+                                   + " < ".join(stall["frames"][:4]))
+    return out
 
 
 def check_orders(results, orders):
