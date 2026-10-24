@@ -31,11 +31,17 @@ extension HomeService {
         }
     }
 
-    /// Quit: the cache's last batch reaches disk, and the links that still
-    /// point at this app go (another build that took them over keeps them).
+    /// The quit's cache step (`QuitSteps.prepareWindows`, awaited): the coalesced batch and the
+    /// write already running reach disk before AppKit's reply, with no thread blocked.
+    func flushCache() async {
+        await homeStore.flushCache()
+    }
+
+    /// Quit: the links that still point at this app go (another build that
+    /// took them over keeps them). The cache was written by the quit's
+    /// awaited step (``flushCache()``).
     func applicationWillTerminate() {
         settleWatch?.cancel()
-        homeStore.flushCache()
         if homeListPrimed { sidebarLaunch.flush() }
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,
                                 daemonSocket: publishedDaemonSocket)

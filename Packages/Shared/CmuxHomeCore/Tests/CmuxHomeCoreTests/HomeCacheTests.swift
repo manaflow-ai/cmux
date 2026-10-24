@@ -34,6 +34,7 @@ import CmuxHomeCoreTestSupport
         let rows = store.rows.map(\.title)
         let transcript = texts(store, Self.austin)
         store.stop()
+        await store.flushCache()
         return (rows, transcript)
     }
 
@@ -69,6 +70,7 @@ import CmuxHomeCoreTestSupport
         store.beginOpen(Self.austin)
         await waitUntil { store.isOnline && !self.texts(store, Self.austin).isEmpty && !self.texts(store, Self.austin).contains("stale copy") }
         #expect(!texts(store, Self.austin).contains("stale copy"))
+        await store.flushCache()
         #expect(try #require(cache.load()).windows[Self.austin]?.contains { $0.parts == [.text("stale copy")] } == false,
                 "the cache follows the owner")
     }
@@ -81,12 +83,14 @@ import CmuxHomeCoreTestSupport
         store.setDraft("half a thought", for: Self.austin)
         store.setScrollAnchor(HomeScrollAnchor(message: MessageID("msg_7"), offset: 42), for: Self.austin)
         store.stop()
+        await store.flushCache()
         let next = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
         next.start()
         #expect(next.draft(for: Self.austin) == "half a thought")
         #expect(next.scrollAnchor(for: Self.austin) == HomeScrollAnchor(message: MessageID("msg_7"), offset: 42))
         next.setDraft("", for: Self.austin)
         next.stop()
+        await next.flushCache()
         #expect(try #require(cache.load()).drafts[Self.austin] == nil, "a sent or cleared draft leaves the cache")
     }
 
@@ -99,7 +103,7 @@ import CmuxHomeCoreTestSupport
         await waitUntil { store.isOnline }
         store.setDraft("typed just before Quit", for: Self.austin)
         #expect(cache.load()?.drafts[Self.austin] == nil, "still in the batch")
-        store.flushCache()
+        #expect(await store.flushCache())
         #expect(try #require(cache.load()).drafts[Self.austin] == "typed just before Quit")
         #expect(store.isOnline, "a flush does not stop the store")
     }

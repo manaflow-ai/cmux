@@ -177,6 +177,8 @@ final class QuitCoordinator {
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
                 await services.sidebarSnapshots.flush()
+                // Home's drafts and unsent sends (the cache's last batch and any write still running).
+                await services.home.flushCache()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },

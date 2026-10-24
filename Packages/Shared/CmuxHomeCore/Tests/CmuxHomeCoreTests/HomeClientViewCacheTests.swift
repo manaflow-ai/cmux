@@ -14,26 +14,28 @@ import Testing
             .appendingPathComponent("home-view-cache-\(UUID().uuidString)/home.json"))
     }
 
-    @Test func aDraftIsWrittenWithTheOwnerStateAndEmptyTextClearsIt() throws {
+    @Test func aDraftIsWrittenWithTheOwnerStateAndEmptyTextClearsIt() async throws {
         let cache = Self.cache()
         let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
         var owner = HomeCacheState()
         owner.drafts = [Self.austin: "owner state never carries drafts"]
         view.ownerState = { owner }
         view.setDraft("hello", for: Self.austin)
+        #expect(await view.flush())
         #expect(try #require(cache.load()).drafts == [Self.austin: "hello"])
         view.setDraft("", for: Self.austin)
         #expect(view.drafts[Self.austin] == nil)
+        #expect(await view.flush())
         #expect(try #require(cache.load()).drafts.isEmpty)
     }
 
-    @Test func writesCoalesceUntilAFlush() throws {
+    @Test func writesCoalesceUntilAFlush() async throws {
         let cache = Self.cache()
         let view = HomeClientViewCache(cache: cache, writeDelay: .seconds(3_600), clock: ContinuousClock())
         let anchor = HomeScrollAnchor(message: MessageID("msg_1"), offset: 12)
         view.setScrollAnchor(anchor, for: Self.austin)
         #expect(cache.load() == nil, "still in the batch")
-        view.flush()
+        #expect(await view.flush())
         #expect(try #require(cache.load()).scroll == [Self.austin: anchor])
     }
 

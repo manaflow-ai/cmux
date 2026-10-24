@@ -34,11 +34,14 @@ import UniformTypeIdentifiers
             self.window = window
         }
 
-        /// Quit: the view goes, then the store writes its cache.
-        @MainActor func quit() {
+        /// Quit, as the app's quit runs it: the view goes, the store stops (which starts its last
+        /// cache write), and the quit awaits that write (`QuitSteps.prepareWindows` awaits
+        /// `HomeService.flushCache()`) before the process would end.
+        @MainActor func quit() async {
             view.stop()
             window.close()
             store.stop()
+            await store.flushCache()
         }
     }
 
@@ -82,13 +85,13 @@ import UniformTypeIdentifiers
         first.view.projection.draftChanged()
         let shot = try await paste(first)
         #expect(first.view.draftAttachments == [shot])
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
         await until { second.view.draftAttachments == [shot] }
         #expect(second.view.draftAttachments == [shot], "the screenshot's chip is back")
         #expect(second.view.draftText.contains("what is this"), "with the text")
+        await second.quit()
     }
 
     @Test func aRemovedScreenshotStaysGoneAfterARelaunch() async throws {
@@ -97,12 +100,12 @@ import UniformTypeIdentifiers
         let first = try await launch(root)
         let shot = try await paste(first)
         first.view.removeDraftAttachment(shot.ref.hash)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
+        await second.quit()
     }
 
     /// Return pressed while the last launch's chips are still coming back: the
@@ -121,10 +124,9 @@ import UniformTypeIdentifiers
                                                             typeIdentifier: UTType.png.identifier)
         await first.view.addDraftAttachment(other)
         #expect(first.store.draftAttachments(for: Self.conversation).count == 2)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
         #expect(second.view.draftAttachments.isEmpty, "Return comes before any chip is back")
         #expect(second.view.sendDraft() != nil, "held for the chips")
         let pictures: @MainActor () -> Int = {
@@ -134,6 +136,7 @@ import UniformTypeIdentifiers
         #expect(pictures() == 2, "one message with both screenshots")
         #expect(second.view.draftAttachments.isEmpty)
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty)
+        await second.quit()
     }
 
     @Test func aSentScreenshotDoesNotComeBack() async throws {
@@ -143,11 +146,11 @@ import UniformTypeIdentifiers
         _ = try await paste(first)
         #expect(first.view.sendDraft() == nil)
         #expect(first.store.draftAttachments(for: Self.conversation).isEmpty)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
+        await second.quit()
     }
 }

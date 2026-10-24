@@ -14,6 +14,11 @@ import Foundation
 /// (speed-of-sound-DESIGN.md 3.5). A write costs the main actor only the
 /// copy-on-write copies of a `HomeCacheState`; the `HomeCache` actor encodes
 /// it and rewrites only the files that changed.
+///
+/// Writes run one after another (each waits for the one before it), and
+/// ``flush()`` waits for the one that is running as well as its own: the
+/// app's quit awaits it, so no write is still on the actor when the process
+/// ends. Nothing here blocks a thread.
 @MainActor
 final class HomeClientViewCache {
     /// The client's durable copy (the ``HomeCache`` actor), nil for none.
@@ -28,6 +33,9 @@ final class HomeClientViewCache {
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
+    /// The newest write handed to the cache (finished or not); it waits for the one before it, so
+    /// awaiting it awaits every write started so far. True when everything reached disk.
+    private var inFlight: Task<Bool, Never>?
     private var writesSuppressed = false
     /// Something changed since the last successful write (or the restore).
     private var dirty = false
@@ -83,7 +91,10 @@ final class HomeClientViewCache {
     func scheduleWrite() {
         guard cache != nil, !writesSuppressed else { return }
         dirty = true
-        guard writeDelay > .zero else { return flush() }
+        guard writeDelay > .zero else {
+            startWrite()
+            return
+        }
         guard pendingWrite == nil else { return }
         let clock = clock
         let delay = writeDelay
@@ -92,20 +103,43 @@ final class HomeClientViewCache {
             do { try await clock.sleep(for: delay) } catch { return }
             guard let self else { return }
             self.pendingWrite = nil
-            let writer = self.writer
-            guard let cache = self.cache, let taken = self.takeState() else { return }
-            // Encoded and written on the cache's actor; this actor only made the copies.
-            let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
-            if !wrote { self.dirty = true }
+            self.startWrite()
         }
     }
 
-    /// Writes the coalesced batch now and waits for it (app quit, stop); nothing when nothing changed.
-    func flush() {
+    /// Hands what changed to the cache now, after the write that runs (if any); nothing when
+    /// nothing changed. Returns at once; ``flush()`` waits.
+    func writeNow() {
         pendingWrite?.cancel()
         pendingWrite = nil
+        startWrite()
+    }
+
+    /// Writes what changed now and waits for it and for the write that was already running (app
+    /// quit, stop). True when everything this cache holds is on disk.
+    @discardableResult
+    func flush() async -> Bool {
+        writeNow()
+        guard let running = inFlight else { return !dirty }
+        let wrote = await running.value
+        return wrote && !dirty
+    }
+
+    /// Starts one write of the current state after the one that runs. A failed write marks the
+    /// state dirty again, so the next change or flush writes it.
+    private func startWrite() {
         guard let cache, let taken = takeState() else { return }
-        if !cache.writeAndWait(taken.state, sequence: taken.sequence, writer: writer) { dirty = true }
+        let writer = writer
+        let previous = inFlight
+        // task-owner: one cache write, chained after the previous one; flush() awaits the newest
+        let write = Task { @MainActor [weak self] in
+            _ = await previous?.value
+            // Encoded and written on the cache's actor; this actor only made the copies.
+            let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
+            if !wrote { self?.dirty = true }
+            return wrote
+        }
+        inFlight = write
     }
 
     /// The state to write and its number, nil when nothing changed; clears `dirty` (a failed
