@@ -29,5 +29,20 @@ import UIKit
         full.setHeights(order: ids, heights: heights, changed: nil)
         #expect(frames(full, count: 5) == incremental)
     }
+
+    /// A reconfigure right after rows were added, before a layout pass, must not trap
+    /// (the frames' array was still the old length).
+    @Test func aChangeBeforeTheLayoutPassAfterAnInsertIsSafe() {
+        let layout = FeedListLayout()
+        let few = (0..<3).map { "r\($0)" }
+        var heights = Dictionary(uniqueKeysWithValues: (0..<6).map { ("r\($0)", CGFloat(100)) })
+        layout.setHeights(order: few, heights: heights, changed: nil)
+        _ = frames(layout, count: 3)
+        let more = (0..<6).map { "r\($0)" }
+        layout.setHeights(order: more, heights: heights, changed: nil)
+        heights["r1"] = 140
+        layout.setHeights(order: more, heights: heights, changed: ["r1"])
+        #expect(frames(layout, count: 6).map(\.minY) == [0, 100, 240, 340, 440, 540])
+    }
 }
 #endif
