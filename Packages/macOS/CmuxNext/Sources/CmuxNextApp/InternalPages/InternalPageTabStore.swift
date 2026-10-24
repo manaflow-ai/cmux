@@ -142,6 +142,17 @@ final class InternalPageTabStore {
 
     func existingView(_ key: String) -> InternalPageView? { views[key] ?? storeKeys[key].flatMap { views[$0] } }
 
+    /// The tab ids (the content cache's keys) that show provider key `key`: the key itself for an
+    /// app-only tab, else each store tab filed under it (a provisional tab and the store's tab
+    /// that replaced it). Filed before the provider makes the tab's view.
+    func tabs(showing key: String) -> [String] {
+        let local = tabsByPane.entries.contains { $0.value.contains(key) } ? [key] : []
+        return local + storeKeys.compactMap { $0.value == key ? $0.key : nil }
+    }
+
+    /// Every page tab view made so far (a presence change about every tab reads them).
+    var madeViews: some Collection<InternalPageView> { views.values }
+
     /// The page an app-only or store page tab shows.
     func page(ofTab tab: String) -> InternalPageID? {
         LocalPageTab.page(of: tab) ?? storeKeys[tab].flatMap(LocalPageTab.page(of:))

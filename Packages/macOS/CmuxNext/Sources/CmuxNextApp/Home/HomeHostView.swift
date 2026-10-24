@@ -17,8 +17,13 @@ import CmuxNextWakeups
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: NSView {
+final class HomeHostView: NSView, PanePresentedContent {
     let transcript: HomeNativeTranscriptView
+    /// A conversation tab's view: its transcript is presented exactly while its tab is.
+    var isTabPresented: Bool {
+        get { transcript.isPresented }
+        set { transcript.isPresented = newValue }
+    }
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a popover under the header's name pill, which

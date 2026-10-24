@@ -9,12 +9,17 @@ import CmuxNextPages
 /// Home entry), and Channels, hq-ec's `home-channels` page (the sidebar's Channels entry). Messages -> Channels
 /// opens `#/conversation/<id>[/message/<id>]` in the page; Channels -> Messages asks the page for
 /// its selection (`home.currentSelection`).
-final class HomeDockView: HomeDockSwitchView {
+final class HomeDockView: HomeDockSwitchView, PanePresentedContent {
     typealias Mode = HomeDockMode
     typealias Selection = HomeDockSelection
 
     private weak var services: AppServices?
     private(set) var messages: TopHomePageView?
+    /// Whether a pane on screen presents the docked Home's tab (``HomeService/followTabPresence()``):
+    /// the Messages view follows it, also when it is made later.
+    var isTabPresented = true {
+        didSet { messages?.isTabPresented = isTabPresented }
+    }
     private(set) var channels: PageWebView?
     /// Asks the Channels page for its selection (`home.currentSelection`); nil when it has none
     /// or does not answer. Set by the provider (the page's reply path).
@@ -32,8 +37,10 @@ final class HomeDockView: HomeDockSwitchView {
         guard let services else { return nil }
         switch mode {
         case .messages:
-            messages = TopHomePageView(services: services, windowKey: { HomeDockTab.widthKey })
-            return messages
+            let view = TopHomePageView(services: services, windowKey: { HomeDockTab.widthKey })
+            view.isTabPresented = isTabPresented
+            messages = view
+            return view
         case .channels:
             guard let page = PageFactory(services: services).homeChannelsWebPage(dock: self) else { return nil }
             // A web link the person clicks opens on the Home workspace's right side (cx-ebm.59.6).
