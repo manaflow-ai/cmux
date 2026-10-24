@@ -67,3 +67,21 @@ test("Show Only Changed keeps unchanged pet rows out of the Look card", async ()
   expect(result?.querySelectorAll("[data-row-key]")).toHaveLength(1);
   page.unmount();
 });
+
+test("search result rows for the pet controls can receive keyboard focus", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  const search = page.container.querySelector<HTMLInputElement>("[data-settings-search]")!;
+  await changeValue(search, "Show Chief Pet");
+  const enabled = page.container.querySelector<HTMLElement>(
+    '[data-search-results] [data-row-key="home.chiefPetEnabled"]',
+  )!;
+  enabled.focus();
+  expect(document.activeElement).toBe(enabled);
+  await changeValue(search, "Character");
+  const mascot = page.container.querySelector<HTMLElement>(
+    '[data-search-results] [data-row-key="home.chiefPetMascot"]',
+  )!;
+  mascot.focus();
+  expect(document.activeElement).toBe(mascot);
+  page.unmount();
+});

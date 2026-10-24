@@ -100,7 +100,7 @@ export function ChiefPetCard({
       <h3 className="group-title">{t("settingsPage.chief.look")}</h3>
       {showPetToggle && (
         <>
-          <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED}>
+          <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED} tabIndex={-1}>
             <p className="chief-pet-lede">{t("settingsPage.chiefPet.lede")}</p>
             <button
               type="button"
@@ -128,7 +128,7 @@ export function ChiefPetCard({
           </div>
           <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
           <RowStatus settingKey={CHIEF_PET_MASCOT} state={character} />
-          <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT}>
+          <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT} tabIndex={-1}>
             {CHIEF_PET_MASCOTS.map((entry) => (
               <button
                 key={entry.id}
