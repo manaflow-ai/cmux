@@ -388,6 +388,19 @@ struct ErrorJournalTests {
         #expect(await ErrorJournal(directory: directory).harvest([Fixed()])["fixed"] == 0)
     }
 
+    /// The app makes its journal at its composition root, on the main thread, before the first
+    /// window (pages report console errors into it from their first load). Making one must touch
+    /// no disk: before, `init` created the folder and read and decoded every segment (up to about
+    /// 8 MiB of NDJSON) on the caller's thread. The first use reads them, on the journal's actor.
+    @Test func makingAJournalTouchesNoDiskUntilItsFirstUse() async throws {
+        let journal = ErrorJournal(directory: directory)
+        #expect(!FileManager.default.fileExists(atPath: directory.path), "init created the journal folder")
+        await journal.record(event("first use"))
+        await journal.flush()
+        #expect(FileManager.default.fileExists(atPath: directory.path))
+        #expect(await ErrorJournal(directory: directory).entryCount == 1, "a later journal reads what this one kept")
+    }
+
     private func permissions(of url: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
