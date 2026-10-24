@@ -5,10 +5,15 @@ public import Foundation
 ///
 /// It replaces the hand-written pair `addObserver(forName:object:queue: .main) { MainActor
 /// .assumeIsolated { ... } }` plus `deinit { MainActor.assumeIsolated { removeObserver } }`:
-/// the main-delivery proof lives here once, and the owner's `deinit` needs nothing
-/// (`NotificationCenter.removeObserver(_:)` is thread-safe, so no isolated `deinit`, which
-/// macOS 14 cannot back-deploy). Keep the token in a stored property; set it to nil or call
-/// ``cancel()`` to stop early.
+/// the main-delivery proof lives here once, and the owner's `deinit` has no body
+/// (`NotificationCenter.removeObserver(_:)` is thread-safe, so the token removes itself from
+/// whatever thread releases it; no isolated `deinit`, which macOS 14 cannot back-deploy). Keep
+/// the token in a stored property; set it to nil or call ``cancel()`` to stop early.
+///
+/// A main-actor owner still declares `nonisolated deinit {}` (check-concurrency.sh enforces it in
+/// main-actor-default targets): its implicit deinit is isolated there, so without one the release
+/// hops to the main actor (the cx-t7hu trap inside an action's task-local scope) and the observer
+/// is removed on the main thread, not on the releasing one.
 ///
 /// ```swift
 /// observation = MainActorObservation(NSWindow.didBecomeKeyNotification, object: window) { [weak self] in
