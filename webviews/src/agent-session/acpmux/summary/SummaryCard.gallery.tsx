@@ -87,7 +87,7 @@ const workflow: WorkflowSummary = {
   id: "workflow-migration",
   title: "Migration workflow",
   state: "running",
-  phase: "Implement",
+  phase: "implement",
   elapsedMs: 92_000,
   tokens: 18_420,
   phases: [

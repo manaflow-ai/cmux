@@ -13,7 +13,7 @@ test("workflow adapter keeps typed phases, agents and counters", () => {
       id: "w",
       title: "Migration",
       state: "running",
-      phase: "Implement",
+      phase: "p",
       elapsedMs: 1200,
       tokens: 42,
       phases: [{ id: "p", name: "Implement", state: "running", agentIds: ["a"] }],
@@ -23,7 +23,7 @@ test("workflow adapter keeps typed phases, agents and counters", () => {
     id: "w",
     title: "Migration",
     state: "running",
-    phase: "Implement",
+    phase: "p",
     elapsedMs: 1200,
     tokens: 42,
     phases: [{ id: "p", name: "Implement", state: "running", agentIds: ["a"] }],
@@ -43,4 +43,7 @@ test("workflow adapter rejects malformed children, references, duplicates and se
   expect(workflowFromWire({ ...base, agents: [...base.agents, base.agents[0]] })).toBeUndefined();
   expect(workflowFromWire({ ...base, phases: [{ ...base.phases[0], agentIds: ["missing"] }] })).toBeUndefined();
   expect(workflowFromWire({ ...base, selectedAgentId: "missing" })).toBeUndefined();
+  expect(workflowFromWire({ ...base, phase: "missing" })).toBeUndefined();
+  expect(workflowFromWire({ ...base, elapsedMs: 1.5 })).toBeUndefined();
+  expect(workflowFromWire({ ...base, tokens: Number.MAX_SAFE_INTEGER + 1 })).toBeUndefined();
 });

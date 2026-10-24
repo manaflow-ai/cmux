@@ -40,7 +40,7 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() ? value : undefined);
 const count = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 const has = (value: Record<string, unknown>, key: string): boolean => Object.hasOwn(value, key);
 
 /// The optional adapter seam for future acpmux workflow events. Until the daemon sends `workflow`,
@@ -97,7 +97,8 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
     phaseIds.add(phaseId);
     phases.push({ id: phaseId, name, state: phaseState as WorkflowPhase["state"], agentIds: ids as string[] });
   }
-  if (has(raw, "phase") && text(raw.phase) === undefined) return undefined;
+  const phase = text(raw.phase);
+  if (has(raw, "phase") && (!phase || !phaseIds.has(phase))) return undefined;
   if (has(raw, "elapsedMs") && count(raw.elapsedMs) === undefined) return undefined;
   if (has(raw, "tokens") && count(raw.tokens) === undefined) return undefined;
   if (has(raw, "large") && typeof raw.large !== "boolean") return undefined;
@@ -107,7 +108,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
     id,
     title,
     state: state as WorkflowSummary["state"],
-    ...(text(raw.phase) ? { phase: text(raw.phase) } : {}),
+    ...(phase ? { phase } : {}),
     phases,
     agents,
     ...(count(raw.elapsedMs) !== undefined ? { elapsedMs: count(raw.elapsedMs) } : {}),
