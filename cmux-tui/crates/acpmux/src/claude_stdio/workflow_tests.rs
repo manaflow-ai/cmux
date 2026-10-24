@@ -323,15 +323,18 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
             "phases": [{"index": 1, "title": "Review"}],
             "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
     );
-/// The event log keeps how many items a workflow snapshot held, not the
-/// items: each repeats every agent so far (`logged_line`). Other lines are
-/// kept whole.
+}
+
+/// The event log keeps how many items a big workflow snapshot held, not the
+/// items: each repeats every agent so far (`logged_line`). A small one, and
+/// any other line, is kept whole.
 #[test]
-fn the_log_keeps_a_workflow_snapshot_size_not_its_agents() {
+fn the_log_keeps_a_big_workflow_snapshot_size_not_its_agents() {
+    let agents: Vec<Value> = (0..17)
+        .map(|n| json!({"type": "workflow_agent", "index": n, "label": format!("review:#{n}")}))
+        .collect();
     let snapshot = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
-        "usage": {"total_tokens": 19738}, "workflow_progress": [
-            {"type": "workflow_phase", "index": 1, "title": "Review"},
-            {"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "progress"}]});
+        "usage": {"total_tokens": 19738}, "workflow_progress": agents});
     let Message::Notification { method, params: Some(kept) } = logged_line(&snapshot) else {
         panic!("not a notification")
     };
@@ -339,8 +342,14 @@ fn the_log_keeps_a_workflow_snapshot_size_not_its_agents() {
     assert_eq!(
         kept,
         json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
-            "usage": {"total_tokens": 19738}, "workflow_progress_items": 2})
+            "usage": {"total_tokens": 19738}, "_acpmux": {"workflowProgressItems": 17}})
     );
+    let small = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
+        "workflow_progress": [{"type": "workflow_phase", "index": 1, "title": "Review"}]});
+    let Message::Notification { params: Some(kept), .. } = logged_line(&small) else {
+        panic!("not a notification")
+    };
+    assert_eq!(kept, small);
     let line =
         json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}});
     let Message::Notification { method, params: Some(kept) } = logged_line(&line) else {
