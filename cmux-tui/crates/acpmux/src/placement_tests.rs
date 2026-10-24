@@ -163,3 +163,43 @@ fn ties_go_to_the_registry_rank_then_fewer_live_agents() {
     let v = place(&[c("big", same(2)), c("small", same(1))], Some(&reg), Work::Agent);
     assert_eq!(v["pick"], "small", "fewer live agents break a tie: {v:#}");
 }
+
+#[test]
+fn an_unknown_build_host_never_turns_away_a_fallback_host_with_room() {
+    let v = place(
+        &[c("big", Value::Null), c("light", health(40.0, 12, 1.0, 300.0, 0))],
+        Some(&registry()),
+        Work::Build,
+    );
+    assert_eq!(v["pick"], "light", "{v:#}");
+    assert_eq!(host(&v, "big")["ok"], true, "{v:#}");
+}
+
+#[test]
+fn bad_readings_and_bad_registry_values_are_unknown_not_room() {
+    // A negative load adds no CPU room; a NaN-free JSON can still carry negatives.
+    let mut neg = health(60.0, 32, 0.0, 400.0, 0);
+    neg["load"] = json!([-50.0, 0.0, 0.0]);
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["max_lanes"] = json!(-1);
+    reg["machines"]["big"]["lanes"]["max_swap_used_fraction"] = json!(7);
+    let mut full = neg.clone();
+    full["swap"] = json!({"usedBytes": (8.0 * GB) as u64, "totalBytes": (8.0 * GB) as u64});
+    let v = place(&[c("big", full)], Some(&reg), Work::Agent);
+    // The fraction is held to 1: a swap 100% full is refused, not ignored.
+    assert!(host(&v, "big")["refused"].as_str().unwrap().starts_with("swap 8/8 GB"), "{v:#}");
+    let v = place(&[c("big", neg)], Some(&reg), Work::Agent);
+    // No CPU term (load unknown) and no lane cap (max_lanes invalid): RAM (60 - 8) / 4 = 13.
+    assert_eq!(host(&v, "big")["room"], 13.0, "{v:#}");
+    assert!(!host(&v, "big")["why"].as_str().unwrap().contains("cores busy"), "{v:#}");
+}
+
+#[test]
+fn the_registry_is_matched_by_canonical_name_everywhere() {
+    let reg = registry();
+    let hosts = lane_hosts(Some(&reg)).unwrap();
+    assert_eq!(canonical("Big-Box.local"), "big-box");
+    assert!(registry_lanes(&hosts, "LAPTOP.local").is_some_and(|l| l["build"] == false));
+    assert!(registry_lanes(&hosts, "ci-mini").is_some_and(|l| l.is_null()));
+    assert!(registry_lanes(&hosts, "stranger").is_none());
+}

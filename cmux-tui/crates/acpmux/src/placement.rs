@@ -86,8 +86,9 @@ impl Default for Lanes {
 impl Lanes {
     fn from_registry(v: &Value) -> Self {
         let d = Self::default();
-        let num =
-            |k: &str, or: f64| v.get(k).and_then(Value::as_f64).filter(|n| *n >= 0.0).unwrap_or(or);
+        let num = |k: &str, or: f64| {
+            v.get(k).and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 0.0).unwrap_or(or)
+        };
         Self {
             rank: num("rank", d.rank),
             build: match v.get("build") {
@@ -100,11 +101,15 @@ impl Lanes {
             free_gb_floor: num("free_gb_floor", d.free_gb_floor),
             disk_per_lane_gb: num("disk_per_lane_gb", d.disk_per_lane_gb).max(0.1),
             cores_per_lane: num("cores_per_lane", d.cores_per_lane).max(0.1),
-            max_lanes: v.get("max_lanes").and_then(Value::as_f64),
+            max_lanes: v
+                .get("max_lanes")
+                .and_then(Value::as_f64)
+                .filter(|n| n.is_finite() && *n >= 0.0),
             max_swap_used_fraction: v
                 .get("max_swap_used_fraction")
                 .and_then(Value::as_f64)
-                .filter(|f| *f > 0.0),
+                .filter(|f| f.is_finite() && *f > 0.0)
+                .map(|f| f.min(1.0)),
         }
     }
 }
@@ -117,16 +122,29 @@ pub fn lane_hosts(registry: Option<&Value>) -> Option<Vec<(Vec<String>, Value)>>
         machines
             .iter()
             .map(|(name, m)| {
-                let mut names = vec![name.to_ascii_lowercase()];
+                let mut names = vec![canonical(name)];
                 for a in m.get("aliases").and_then(Value::as_array).into_iter().flatten() {
                     if let Some(a) = a.as_str() {
-                        names.push(a.to_ascii_lowercase());
+                        names.push(canonical(a));
                     }
                 }
                 (names, m.get("lanes").cloned().unwrap_or(Value::Null))
             })
             .collect(),
     )
+}
+
+/// A host name as the registry lists it: lowercase, without `.local`.
+pub fn canonical(name: &str) -> String {
+    let name = name.to_ascii_lowercase();
+    name.strip_suffix(".local").map(str::to_owned).unwrap_or(name)
+}
+
+/// The registry entry for `name` (by name or alias, `canonical`): its
+/// `lanes` value (null when it has none). `None`: not listed.
+pub fn registry_lanes(hosts: &[(Vec<String>, Value)], name: &str) -> Option<Value> {
+    let short = canonical(name);
+    hosts.iter().find(|(names, _)| names.contains(&short)).map(|(_, l)| l.clone())
 }
 
 /// fleet-registry.json: `FLEET_REGISTRY`, else the copy `reach --install`
@@ -160,6 +178,11 @@ struct Weighed {
 
 const GB: f64 = 1e9;
 
+/// A reading at `ptr` as a finite, non-negative number (a bad one is unknown).
+fn reading(h: &Value, ptr: &str) -> Option<f64> {
+    h.pointer(ptr).and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 0.0)
+}
+
 fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     let h = &c.health;
     let known = h.is_object() && h.get("unsupported").is_none();
@@ -183,20 +206,17 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     let mut parts = Vec::new();
     let mut rooms = Vec::new();
-    if let Some(free) = h.pointer("/ram/freeBytes").and_then(Value::as_f64) {
+    if let Some(free) = reading(h, "/ram/freeBytes") {
         parts.push(format!("{:.0} GB RAM free", free / GB));
         rooms.push(("RAM", (free / GB - lanes.reserved_gb) / lanes.per_lane_gb));
     }
-    let cores = h
-        .pointer("/pressure/cores")
-        .and_then(Value::as_f64)
-        .or_else(|| h.get("cpus").and_then(Value::as_f64));
-    let load = h.pointer("/load/0").and_then(Value::as_f64);
+    let cores = reading(h, "/pressure/cores").or_else(|| reading(h, "/cpus"));
+    let load = reading(h, "/load/0");
     if let (Some(cores), Some(load)) = (cores, load) {
         parts.push(format!("{:.1}/{cores:.0} cores busy", load.min(cores)));
         rooms.push(("CPU", (cores - load) / lanes.cores_per_lane));
     }
-    if let Some(free) = h.pointer("/disk/freeBytes").and_then(Value::as_f64) {
+    if let Some(free) = reading(h, "/disk/freeBytes") {
         parts.push(format!("{:.0} GB disk free", free / GB));
         rooms.push(("disk", (free / GB - lanes.free_gb_floor) / lanes.disk_per_lane_gb));
     }
@@ -211,10 +231,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     w.why = parts.join(", ");
     w.room = room;
-    let swap = (
-        h.pointer("/swap/usedBytes").and_then(Value::as_f64),
-        h.pointer("/swap/totalBytes").and_then(Value::as_f64).filter(|t| *t > 0.0),
-    );
+    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
     if h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false) {
         let over: Vec<&str> = h
             .pointer("/pressure/over")
@@ -249,17 +266,16 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
         let Some(hosts) = &hosts else { return Some(Lanes::default()) };
-        let name = name.to_ascii_lowercase();
-        let short = name.strip_suffix(".local").unwrap_or(&name);
-        hosts
-            .iter()
-            .find(|(names, _)| names.iter().any(|n| n == short))
-            .and_then(|(_, l)| l.is_object().then(|| Lanes::from_registry(l)))
+        registry_lanes(hosts, name).filter(Value::is_object).map(|l| Lanes::from_registry(&l))
     };
     let mut weighed: Vec<Weighed> =
         candidates.iter().map(|c| weigh(c, lanes_of(&c.name))).collect();
     if work == Work::Build {
-        let any_yes = weighed.iter().any(|w| w.refused.is_none() && w.lanes.build == Build::Yes);
+        // A build host counts only with a reading that shows room: one whose
+        // numbers are unknown never turns a fallback host with room away.
+        let any_yes = weighed.iter().any(|w| {
+            w.refused.is_none() && w.lanes.build == Build::Yes && w.room.is_some_and(|r| r >= 1.0)
+        });
         for w in weighed.iter_mut().filter(|w| w.refused.is_none()) {
             match w.lanes.build {
                 Build::Yes => {}

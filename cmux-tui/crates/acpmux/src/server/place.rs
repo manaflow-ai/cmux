@@ -46,13 +46,8 @@ pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
 /// registry does not list, or no registry, forbids nothing.
 pub(super) fn role_refusal(host: &str, work: Work) -> Option<String> {
     let registry = crate::placement::load_registry()?;
-    let short = host.to_ascii_lowercase();
-    let listed = crate::placement::lane_hosts(Some(&registry))?
-        .iter()
-        .any(|(names, _)| names.contains(&short));
-    if !listed {
-        return None;
-    }
+    let hosts = crate::placement::lane_hosts(Some(&registry))?;
+    crate::placement::registry_lanes(&hosts, host)?;
     let only = [Candidate { name: host.to_owned(), local: false, health: Value::Null }];
     let v = crate::placement::place(&only, Some(&registry), work);
     v.pointer("/hosts/0/refused").and_then(Value::as_str).map(|r| format!("{host}: {r}"))

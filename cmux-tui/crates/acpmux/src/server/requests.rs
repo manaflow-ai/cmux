@@ -360,7 +360,7 @@ async fn dispatch_brief(
         .ok_or_else(|| RpcError::internal("dispatch session/new returned no sessionId"))?
         .to_owned();
     let session = hub.resolve(&sid)?;
-    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":params.get("host").cloned().unwrap_or(json!("local")),"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
+    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None | Some("auto") => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
     if let Some(key) = idempotency {
         record["idempotencyKey"] = json!(key);
     }
@@ -1200,6 +1200,10 @@ async fn dispatch_request(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
+        // Names every machine and its numbers: this machine's own clients only.
+        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/place answers on this machine's unix socket only",
+        )),
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
