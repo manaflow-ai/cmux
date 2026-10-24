@@ -170,7 +170,9 @@ final class BrowserDownloadsPopup {
 @MainActor
 @Observable
 final class BrowserDownloadsPopupModel {
-    var list: BrowserDownloadList?
+    /// Weak: the list owns this popup (`BrowserDownloadList.popup`), so a strong
+    /// back reference would make a cycle that keeps both alive.
+    weak var list: BrowserDownloadList?
     var colors = BrowserDownloadsPopupColors()
     /// The pointer went into the popup: it no longer closes by itself.
     var entered = false

@@ -27,7 +27,8 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     let fixGate: ServerFixGate
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
-    init(fixGate: ServerFixGate = ServerFixGate(),
+    /// - Parameter fixGate: required, so no caller makes a second gate by leaving it out.
+    init(fixGate: ServerFixGate,
          makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) }) {
         self.fixGate = fixGate
         self.makeSource = makeSource
