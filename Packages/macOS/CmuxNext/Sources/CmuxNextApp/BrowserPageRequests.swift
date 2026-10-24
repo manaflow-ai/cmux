@@ -37,7 +37,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services?.cache.browserTabs.restoredInMemory = { [weak self] tab, engine in self?.closedHistories.takeRestored(tab, engine: engine) ?? false }
             // The Downloads list a relaunch shows keeps ended downloads (cx-d0d.72).
             if services != nil, downloads.history == nil {
-                downloads.history = BrowserDownloadHistory.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+                downloads.history = services.map { BrowserDownloadHistory.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier, work: $0.work) }
                 // task-owner: one read at startup; the list holds nothing it could race with but this run's rows
                 Task { [downloads] in await downloads.restore() }
             }

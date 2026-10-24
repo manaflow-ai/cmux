@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -9,26 +10,30 @@ import os
 final class BrowserDownloadHistory {
     private let storage: any BrowserDownloadHistoryStoring
     private var written: [Row]?
-    /// The latest write; the next one waits for it, so writes land in order.
-    private var lastWrite: Task<Void, Never>?
+    private let work: BackgroundWork
+    /// Writes land in the order they were made, on the files lane.
+    private let writes: OrderedWrites
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "downloads")
 
-    init(url: URL) {
-        storage = BrowserDownloadHistoryStorage(url: url)
+    convenience init(url: URL, work: BackgroundWork) {
+        self.init(storage: BrowserDownloadHistoryStorage(url: url), work: work)
     }
 
-    init(storage: any BrowserDownloadHistoryStoring) {
+    init(storage: any BrowserDownloadHistoryStoring, work: BackgroundWork) {
         self.storage = storage
+        self.work = work
+        let logger = logger
+        writes = OrderedWrites(work: work) { logger.error("downloads list write failed: \(String(describing: $0), privacy: .public)") }
     }
 
     /// `<Application Support>/<bundle id>/downloads.json`.
-    static func forApplication(bundleIdentifier: String?) -> BrowserDownloadHistory {
+    static func forApplication(bundleIdentifier: String?, work: BackgroundWork) -> BrowserDownloadHistory {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         return BrowserDownloadHistory(storage: BrowserDownloadHistoryStorage(
             url: support.appending(path: bundle).appending(path: "downloads.json")
-        ))
+        ), work: work)
     }
 
     /// One ended download.
@@ -48,41 +53,35 @@ final class BrowserDownloadHistory {
         var downloads: [Row]
     }
 
-    /// The rows the last run kept, oldest first (read off the main thread).
+    /// The rows the last run kept, oldest first (read on the files lane).
     func load() async -> [Row] {
         let storage = storage
-        return await Task.detached(priority: .userInitiated) {
-            // concurrency-allow: runs in a detached task, off the main actor
+        // The Downloads list shows them.
+        return (try? await work.run(.userVisible, mayBlock: .files) {
             guard let data = try? storage.read(),
                   let document = try? JSONDecoder().decode(Document.self, from: data) else { return [Row]() }
             return document.downloads
-        }.value
+        }) ?? []
     }
 
-    /// Records `rows` when they changed (written off the main thread).
+    /// Records `rows` when they changed (written on the files lane, in order).
     func record(_ rows: [Row]) {
         guard rows != written else { return }
         written = rows
-        let storage = storage, logger = logger
+        let storage = storage
         let data = try? JSONEncoder().encode(Document(downloads: rows))
-        let previous = lastWrite
-        lastWrite = Task.detached(priority: .utility) {
-            await previous?.value
-            do {
-                if let data, !rows.isEmpty {
-                    try storage.write(data)
-                } else {
-                    try storage.remove()
-                }
-            } catch {
-                logger.error("downloads list write failed: \(String(describing: error), privacy: .public)")
+        writes.enqueue {
+            if let data, !rows.isEmpty {
+                try storage.write(data)
+            } else {
+                try storage.remove()
             }
         }
     }
 
     /// Waits until the latest queued persistence operation has finished.
     func waitForPendingWrites() async {
-        await lastWrite?.value
+        await writes.flush()
     }
 
 }

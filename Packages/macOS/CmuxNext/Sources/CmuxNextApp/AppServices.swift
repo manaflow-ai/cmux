@@ -350,7 +350,7 @@ final class AppServices {
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read in init (no IUO)
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
-    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID, work: work))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
