@@ -788,51 +788,85 @@ fn a_shell_started_through_login_is_a_login_shell_and_a_close_reaches_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Holder-core review: a shell a new holder adopted after a holder crash
-/// ends its terminal when it exits, even while a background job keeps its
-/// PTY open, as it does on the holder that started it. The adopting
-/// holder is not the shell's parent, so it watches the pid for its exit.
-/// Not on Linux: there a terminal ends at the master's end of file only,
-/// started or adopted (`ENDS_ON_CHILD_EXIT`).
+/// Holder-core review: a shell that exits ends its terminal even while a
+/// job that ignores the hang-up keeps the PTY's slave open, on the holder
+/// that started it and on one that adopted it after a holder crash. The
+/// holder ends a terminal at its master's end of file only (and, for its
+/// own child, once it reaped it): on macOS the kernel revokes a session
+/// leader's controlling terminal when it exits, so the master reads end of
+/// file at once whoever still holds the slave (measured on macOS 27). The
+/// holder's watch of adopted pids and its end-on-reap read were removed
+/// because of it; this test pins that property on every macOS the fleet
+/// runs. Not on Linux: there the job keeps the terminal until it ends.
 #[cfg(not(target_os = "linux"))]
 #[test]
-fn an_adopted_shell_that_exits_ends_its_terminal_while_a_background_job_keeps_the_pty() {
+fn a_shell_that_exits_ends_its_terminal_while_a_job_that_ignores_the_hangup_keeps_the_slave() {
+    /// The job's pid, from the `job=PID` line the shell printed.
+    fn job_pid(screen: &Screen) -> i32 {
+        let text = screen.text();
+        let at = text.find("job=").expect("the shell printed its job's pid") + 4;
+        let digits: String = text[at..].chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().expect("a pid")
+    }
+    /// The next EXIT of `chan`, its output before it ignored.
+    fn exit_of(client: &mut HolderClient, chan: u32) -> ExitStatus {
+        loop {
+            match expect_event(client, "the shell's EXIT") {
+                Event::Exit { chan: ended, status, .. } if ended == chan => return status,
+                Event::Data { .. } => {}
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    }
+    let script = b"(trap '' HUP; exec sleep 60) & echo job=$!; echo ready-$0; read line; exit 0";
+    let shell_with_job = |chan: u32| {
+        let mut request = shell(chan);
+        request.argv = vec![
+            b"/bin/sh".to_vec(),
+            b"-c".to_vec(),
+            script.to_vec(),
+            chan.to_string().into_bytes(),
+        ];
+        request
+    };
     let dir = temp_dir();
     let socket = dir.join("h.sock");
     let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
-    let mut request = shell(1);
-    // The job keeps the PTY's slave open after the shell is gone.
-    request.argv[2] = b"sleep 60 & echo ready-1; read line; exit 0".to_vec();
-    let (pid, master) = client.spawn(1, &request).unwrap();
-    client.attach(1, 0).unwrap();
-    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    let mut screens = BTreeMap::new();
+    for chan in 1..=2 {
+        let (pid, master) = client.spawn(chan, &shell_with_job(chan)).unwrap();
+        client.attach(chan, 0).unwrap();
+        screens.insert(chan, Screen { master, pid, base: 0, bytes: Vec::new() });
+    }
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    let jobs: BTreeMap<u32, i32> =
+        screens.iter().map(|(chan, screen)| (*chan, job_pid(screen))).collect();
+
+    // Started by this holder: the shell exits, its job keeps the slave.
+    client.write(1, b"\n").unwrap();
+    assert_eq!(exit_of(&mut client, 1), ExitStatus::Exited(0));
+    assert!(alive(jobs[&1]), "the job that kept the slave open is gone: nothing was at stake");
+
+    // Adopted by a new holder after a holder crash: the same.
     drop(client);
     kill(first);
-
     let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
-    let screen = &screens[&1];
+    let screen = &screens[&2];
     let mut id = [0u8; 16];
-    id[..4].copy_from_slice(&1u32.to_le_bytes());
-    client.adopt(1, &id, pid, screen.end(), &screen.master).unwrap();
-    client.attach(1, screen.end()).unwrap();
-    // The shell reads its line and exits; `sleep` keeps the slave open.
+    id[..4].copy_from_slice(&2u32.to_le_bytes());
+    client.adopt(2, &id, screen.pid, screen.end(), &screen.master).unwrap();
+    client.attach(2, screen.end()).unwrap();
     write_master(&screen.master, b"\n");
-    loop {
-        match expect_event(&mut client, "the adopted shell's EXIT") {
-            Event::Exit { status, .. } => {
-                assert_eq!(status, ExitStatus::Unobserved, "an adopted child has no status");
-                break;
-            }
-            Event::Data { .. } => {}
-            other => panic!("unexpected {other:?}"),
-        }
+    assert_eq!(exit_of(&mut client, 2), ExitStatus::Unobserved, "an adopted child has no status");
+    assert!(alive(jobs[&2]), "the job that kept the slave open is gone: nothing was at stake");
+
+    for screen in screens.values() {
+        // SAFETY: SIGKILL to the shell's group, which runs its job (a
+        // non-interactive shell runs its jobs in its own group).
+        unsafe { libc::killpg(screen.pid, libc::SIGKILL) };
     }
-    // SAFETY: SIGKILL to the job's group, the shell's (a non-interactive
-    // shell runs its jobs in its own group).
-    unsafe { libc::killpg(pid, libc::SIGKILL) };
     drop(screens);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);

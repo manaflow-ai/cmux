@@ -3,13 +3,13 @@
 //! One `poll` set: the listening socket, the daemon link, connections that
 //! have not said HELLO yet, links another daemon superseded that still
 //! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM),
-//! the kqueue that reports the exit of each child it adopted (`exits.rs`),
 //! the start report of each child that has not run its program yet, and
 //! every PTY master. No handler waits: a SPAWN forks and returns, and its
-//! SPAWNED (or its error) follows when the child's report arrives. While no
-//! daemon is attached to a terminal its output is read as soon as it is
-//! ready and its ring keeps the newest bytes. While a daemon is attached
-//! nothing is lost: the holder reads a
+//! SPAWNED (or its error) follows when the child's report arrives. A
+//! terminal ends at its master's end of file (and, for a child this holder
+//! started, once it reaped it). While no daemon is attached to a terminal
+//! its output is read as soon as it is ready and its ring keeps the newest
+//! bytes. While a daemon is attached nothing is lost: the holder reads a
 //! master only while fewer than [`UNSENT_HIGH_WATER`] bytes wait unsent,
 //! sends at most [`wire::CREDIT_WINDOW`] past what the daemon acknowledged
 //! it parsed, and a shell that prints faster than that blocks in its PTY,
@@ -27,7 +27,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::exits::{ExitWatch, Watch};
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
 use crate::{ExitStatus, Listed, SpawnRequest, pty};
@@ -65,14 +64,6 @@ pub const IDLE_EXIT: Duration = Duration::from_secs(30);
 /// stream that crashes the daemon's parser cannot crash every restart.
 const POISON_STRIKES: usize = 2;
 const STRIKE_WINDOW: Duration = Duration::from_secs(10);
-/// A child's end ends its terminal once the master has nothing more to
-/// read, even while a background job keeps the PTY open: a child this
-/// holder started (SIGCHLD) or adopted ([`ExitWatch`]). Not on Linux: a
-/// slave's last write reaches the master through an asynchronous flip
-/// buffer, so "nothing to read" right after the child's end can still miss
-/// its last output; there the terminal ends at end of file (which Linux
-/// gives only after that buffer drained).
-const ENDS_ON_CHILD_EXIT: bool = !cfg!(target_os = "linux");
 
 /// Error codes of [`Kind::Error`].
 pub mod error_code {
@@ -261,17 +252,6 @@ struct Pending {
 /// the descriptors it passes.
 type Listing = Vec<(u32, Vec<u8>, Vec<OwnedFd>)>;
 
-/// What one [`Holder::read_terminal`] call ended on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReadEnd {
-    /// The master has nothing more right now.
-    Drained,
-    /// The terminal's room or this turn's share ran out; more may wait.
-    Stopped,
-    /// End of file or EIO: every slave closed.
-    Eof,
-}
-
 /// Why a link is dropped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LinkDrop {
@@ -295,9 +275,6 @@ pub struct Holder {
     retiring: Vec<Retiring>,
     pending: Vec<Pending>,
     terminals: BTreeMap<u32, Terminal>,
-    /// Terminals whose child ended but whose master is not at end of file
-    /// yet: read what the child printed, then stop reading.
-    ending: Vec<u32>,
     /// Terminals with `closing` set.
     closing: usize,
     /// The next pump starts at the first sending terminal at or after this
@@ -315,8 +292,6 @@ pub struct Holder {
     /// Terminals and no daemon link since this time.
     orphan_since: Option<Instant>,
     sigchld: OwnedFd,
-    /// Exits of the children this holder adopted (it is not their parent).
-    exits: ExitWatch,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -402,7 +377,6 @@ impl Holder {
             retiring: Vec::new(),
             pending: Vec::new(),
             terminals: BTreeMap::new(),
-            ending: Vec::new(),
             closing: 0,
             pump_cursor: 0,
             child_open_file_limit: None,
@@ -411,7 +385,6 @@ impl Holder {
             orphan_grace: None,
             orphan_since: None,
             sigchld,
-            exits: ExitWatch::new()?,
         })
     }
 
@@ -454,10 +427,6 @@ impl Holder {
             pollfd(self.listener.as_raw_fd(), libc::POLLIN),
             pollfd(self.sigchld.as_raw_fd(), libc::POLLIN),
         ];
-        let exits_at = self.exits.fd().map(|fd| {
-            fds.push(pollfd(fd, libc::POLLIN));
-            fds.len() - 1
-        });
         let link_at = self.link.as_ref().map(|link| {
             let mut events = libc::POLLIN;
             if link.has_output() || self.unsent_output(link.credit) {
@@ -519,14 +488,6 @@ impl Holder {
         if fds[1].revents != 0 {
             self.reap();
         }
-        if exits_at.is_some_and(|index| fds[index].revents != 0) {
-            for pid in self.exits.exited() {
-                let adopted = self.terminals.iter().find(|(_, t)| t.pid == pid && !t.own_child);
-                if let Some(chan) = adopted.map(|(chan, _)| *chan) {
-                    self.child_ended(chan);
-                }
-            }
-        }
         // From the back, before anything adds to `retiring`: swap_remove
         // moves only entries already handled.
         for index in (0..retiring_count).rev() {
@@ -553,7 +514,6 @@ impl Holder {
                 self.write_terminal(*chan);
             }
         }
-        self.finish_ending();
         if let Some(index) = link_at
             && fds[index].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
             && !self.read_link()
@@ -960,11 +920,6 @@ impl Holder {
         terminal.prologue = input.rest().to_vec();
         terminal.prologue_base = base;
         self.terminals.insert(frame.chan, terminal);
-        // Not this holder's child: the kernel reports its exit, or it is
-        // gone already (it ended while no holder ran).
-        if self.exits.watch(pid) == Watch::Exited {
-            self.child_ended(frame.chan);
-        }
         Ok(())
     }
 
@@ -1092,14 +1047,18 @@ impl Holder {
     /// Read the master (non-blocking) straight into the ring: at most the
     /// terminal's room, and at most [`READ_PER_TURN`] per wakeup. Each read
     /// is in the ring (a shared segment the daemon keeps a dup of) the
-    /// moment it returns, so a holder crash loses no byte it read.
-    fn read_terminal(&mut self, chan: u32) -> ReadEnd {
-        let Some(terminal) = self.terminals.get_mut(&chan) else { return ReadEnd::Eof };
+    /// moment it returns, so a holder crash loses no byte it read. End of
+    /// file (or EIO) marks the end of the terminal's output: every slave
+    /// closed. On macOS that comes as the child ends even while a job that
+    /// ignores the hang-up keeps the slave open: the kernel revokes a
+    /// session leader's controlling terminal when it exits.
+    fn read_terminal(&mut self, chan: u32) {
+        let Some(terminal) = self.terminals.get_mut(&chan) else { return };
         let mut read = 0;
         loop {
             let len = (64 * 1024).min(terminal.room()).min(READ_PER_TURN - read);
             if len == 0 {
-                return ReadEnd::Stopped;
+                return;
             }
             let master = terminal.master.as_raw_fd();
             let n = terminal.ring.read_with(len, |room| {
@@ -1112,45 +1071,16 @@ impl Holder {
             }
             if n == 0 {
                 terminal.eof = true;
-                return ReadEnd::Eof;
+                return;
             }
             match io::Error::last_os_error().kind() {
                 io::ErrorKind::Interrupted => continue,
-                io::ErrorKind::WouldBlock => return ReadEnd::Drained,
+                io::ErrorKind::WouldBlock => return,
                 // EIO: every slave closed (the child and its group ended).
                 _ => {
                     terminal.eof = true;
-                    return ReadEnd::Eof;
+                    return;
                 }
-            }
-        }
-    }
-
-    /// A child that ended ends its terminal once the holder read what it
-    /// printed, as on the local path: a background job that still holds
-    /// the PTY open does not keep the terminal, and no master dup the
-    /// daemon holds can delay the end.
-    fn finish_ending(&mut self) {
-        if self.ending.is_empty() {
-            return;
-        }
-        let ending = std::mem::take(&mut self.ending);
-        for chan in ending {
-            let open =
-                self.terminals.get(&chan).map(|terminal| (terminal.eof, terminal.room() > 0));
-            let end = match open {
-                Some((false, true)) => self.read_terminal(chan),
-                Some((false, false)) => ReadEnd::Stopped,
-                _ => continue,
-            };
-            match end {
-                ReadEnd::Drained => {
-                    if let Some(terminal) = self.terminals.get_mut(&chan) {
-                        terminal.eof = true;
-                    }
-                }
-                ReadEnd::Stopped => self.ending.push(chan),
-                ReadEnd::Eof => {}
             }
         }
     }
@@ -1200,24 +1130,13 @@ impl Holder {
             } else {
                 ExitStatus::Exited(libc::WEXITSTATUS(status))
             };
-            let reaped = self.terminals.iter_mut().find(|(_, t)| t.pid == pid && t.own_child).map(
-                |(chan, terminal)| {
-                    terminal.status = Some(exit);
-                    *chan
-                },
-            );
-            if let Some(chan) = reaped {
-                self.child_ended(chan);
+            if let Some(terminal) = self
+                .terminals
+                .values_mut()
+                .find(|terminal| terminal.pid == pid && terminal.own_child)
+            {
+                terminal.status = Some(exit);
             }
-        }
-    }
-
-    /// `chan`'s child ended (reaped, or an adopted one the kernel reported):
-    /// where [`ENDS_ON_CHILD_EXIT`], its terminal ends once the holder read
-    /// what the child printed ([`Self::finish_ending`]).
-    fn child_ended(&mut self, chan: u32) {
-        if ENDS_ON_CHILD_EXIT && self.terminals.get(&chan).is_some_and(|terminal| !terminal.eof) {
-            self.ending.push(chan);
         }
     }
 

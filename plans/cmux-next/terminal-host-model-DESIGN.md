@@ -87,11 +87,14 @@ processes and ~2,000 threads fewer.
   the pipe's end of file, ERROR SPAWN_FAILED when a report arrives. Before, the holder ran
   `stat` on each `PATH` entry and blocked reading the pipe until the child's chdir and execve
   finished, so one directory on a mount that stopped answering stopped every terminal.
-- Adopted children (holder-core review): a shell a new holder adopted after a holder crash is not
-  its child, so no SIGCHLD comes. Its exit comes from a kqueue (`EVFILT_PROC`, `NOTE_EXIT`, in
-  the poll set) and ends the terminal as a reaped child's does, even while a background job keeps
-  the PTY open (before, only the master's end of file did, so such a tab never ended and a
-  closing one was never retired). Linux ends both kinds at end of file only.
+- A terminal's end (holder-core review, corrected): a terminal ends at its master's end of file,
+  started or adopted, on every platform (a started one also once the holder reaped it, for its
+  status). The shell is a session leader with the PTY as its controlling terminal, and on macOS
+  the kernel revokes that terminal when it exits: the master reads end of file within a
+  millisecond even while a job that ignores SIGHUP keeps the slave open (measured on macOS 27;
+  `crash_injection.rs` pins it on every macOS the fleet runs). A kqueue watch of adopted pids
+  and an end-on-reap read that ended a terminal before its end of file were removed: they ended
+  nothing end of file did not. On Linux (no revoke) such a job keeps the terminal until it ends.
 - One kqueue: the daemon link socket, every PTY master (EVFILT_READ), every child
   (EVFILT_PROC NOTE_EXIT, then `waitpid` for the status: the holder is the shells' parent). No
   thread per terminal; no timers.
