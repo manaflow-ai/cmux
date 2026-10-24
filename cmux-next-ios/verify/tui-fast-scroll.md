@@ -58,6 +58,21 @@ Not a cause:
 
 Slow drags are unchanged: two rows of finger give two reports.
 
+## Head after the review fixes (a512eb67c48f), interleaved A/B
+
+The three builds were installed in turn on the same rig: base, the first fix build and head, twice each. A fresh 400-line session was used. Laptop load average was 17 to 51 from other agents' work, and the simulator runs on the laptop.
+
+| Build | Fast flick: reports | Fast flick: 200 rows after first report | Medium flick: reports | Fast flicks with a gap ≥ 0.9 s |
+| --- | --- | --- | --- | --- |
+| Base 49acdd1d589d | 89 to 102 | 169 to 243 ms (1.2 s and 1.9 s with a stall) | 40 to 41 | 5 of 10 |
+| Fix 6fe88e038981 | 281 to 331 | 32 to 57 ms | 67 to 73 | 1 of 10 |
+| Head a512eb67c48f | 284 to 319 | 36 to 57 ms | 70 to 74 | 2 of 10 |
+
+- Rows moved for a medium flick: base 69 to 104; fix 200 to 296; head 151 to 374. Slow drags of 2 rows gave 2 reports in every build.
+- Gaps under this load vary from 0.9 to 1.1 s. They come in all builds, rarely in the fixed ones.
+- Two causes fit: a loss at the very end of a flick, with nothing behind it to trigger fast retransmit; and simulator hitches on the loaded laptop.
+- Raising the unanswered cap above 8 could help with the first: a lost reply would then still have later replies behind it. That is a follow-up candidate, not done here.
+
 ## The Mac, same session
 
 The cmux-next Mac app's trackpad stream was replayed into the same Claude Code PTY (`macreplay.py`). That is the stream `TerminalSurfaceView+Mouse` produces: precise deltas ×2, one report per 17 pt row (Ghostty at 2x), all of an event's reports in one write, macOS momentum decaying 0.998 per ms.
