@@ -243,11 +243,24 @@ class Browser:
         raise RuntimeError(f"{self.name}: no app process within {timeout} s")
 
     def hide(self) -> bool:
-        """True once NSRunningApplication accepted the hide."""
-        return self.helper.run("hide", str(self.instance.pid)).returncode == 0
+        """True once the app is hidden (NSRunningApplication.isHidden), not only asked to hide."""
+        self.helper.run("hide", str(self.instance.pid))
+        return self.wait_hidden(True)
 
     def unhide(self):
         self.helper.run("unhide", str(self.instance.pid))
+
+    def is_hidden(self) -> bool:
+        return self.helper.run("ishidden", str(self.instance.pid)).returncode == 0
+
+    def wait_hidden(self, hidden: bool, timeout: float = 3) -> bool:
+        """True once the app's hidden state is `hidden` (hide and unhide land asynchronously)."""
+        deadline = time.monotonic() + timeout
+        while self.is_hidden() != hidden:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.1)  # bench: waiting for the app to apply the hide or unhide
+        return True
 
     def quit(self):
         if self.instance:
@@ -419,6 +432,24 @@ class CmuxBrowser(Browser):
                 return
             time.sleep(0.5)  # bench: waiting for the app's control socket
         raise RuntimeError("cmux: no control socket within 90 s")
+
+    def hide(self) -> bool:
+        """NSRunningApplication.hide, else the app's own Hide (Cmd-H: NSApp.hide).
+
+        hide() is refused for an app `open -g` started on some fleet hosts (budget.py rows
+        'the app did not hide' on cmux20 and mac26). showHideAllWindows hides only an active
+        app (otherwise it shows the main window), so it runs with focus; a visible app is
+        never reported hidden: the caller checks the result."""
+        if super().hide():
+            return True
+        self.app.action("showHideAllWindows", focus=True)
+        return self.wait_hidden(True)
+
+    def unhide(self):
+        super().unhide()
+        if not self.wait_hidden(False):
+            self.app.action("showHideAllWindows", focus=False)  # hidden: it unhides and shows the main window
+            self.wait_hidden(False)
 
     def act(self, action: str, **args) -> dict:
         # focus: a user's Cmd-T / Cmd-1..9 shows the tab (Chrome's /json/new opens a foreground tab);
