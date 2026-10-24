@@ -60,6 +60,8 @@ public final class GhosttyRuntime {
 
     private let context = RuntimeCallbackContext()
     let hostKeybindCache = HostKeybindCache()
+    /// Presents resized terminals' frames in the commit that carries their size, when drawn by then (G1).
+    let hostFramePresenter = TerminalHostFramePresenter()
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 

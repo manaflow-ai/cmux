@@ -26,6 +26,16 @@ import Testing
         #expect(misses.isEmpty, "\(misses)")
     }
 
+    /// The present never waits on the main thread (the waiting one cost up to 4 ms per drag frame): resizes
+    /// in fast turns, whose frames are not drawn by the commit, keep each pass under a millisecond and a half.
+    @Test func thePresentNeverWaitsForAFrameNotDrawnYet() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        for step in 1...8 { _ = await fixture.resize(width: 600 - CGFloat(step) * 20) }
+        let longest = GhosttyRuntime.shared.hostFramePresenter.longestPass
+        #expect(longest < 0.0015, "a present pass took \(longest * 1_000) ms of the main thread")
+    }
+
     struct Fixture {
         let io = ScriptedTerminalIO()
         let session: TerminalSession
