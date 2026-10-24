@@ -12,18 +12,21 @@ import WebKit
 /// the view first shows (in a window, not hidden, not parked), or when its owner has work only the
 /// page can do. Before this, every page made its renderer in `init`, shown or not.
 ///
-/// A started page that hides is not frozen by the hide: it keeps booting and taking its pushes, as
-/// a WebKit page does (a freeze on every hide stopped a chat's seeded prompt and adopt at document
-/// start, and queued every push for a renderer that runs no script). The hibernation's freeze
-/// policy freezes it after a grace (``PageFreezePolicy``); it thaws before it shows and before any
-/// call or push reaches it.
+/// A started page that hides is not frozen by the hide: it keeps booting and finishes what it was
+/// asked, as a WebKit page does (a freeze on every hide stopped a chat's seeded prompt and adopt at
+/// document start). The hibernation's freeze policy freezes it after a grace (``PageFreezePolicy``)
+/// once it said it booted and no page message is being handled; a window that is covered,
+/// minimized or ordered out counts as unseen too. While frozen, a push does not thaw it (that kept
+/// every page the host feeds awake): its streams keep their newest state for the thaw, and the
+/// theme and scale scripts are sent again at the thaw. It thaws before it is seen and before a host
+/// call or script reaches it.
 ///
 /// A Chromium page's own WebKit view stays empty: no script, load or reload reaches it, so it
 /// starts no WebKit web content process.
 @MainActor
 struct PageChromiumCostTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.chromium-cost", resource: "chromium-cost", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.chromium-cost", resource: "chromium-cost", namespaces: ["test."])
     private let stage = PageTestWindow()
 
     /// A workspace view parked without hiding (`WorkspaceContentView`'s alpha parking).
@@ -33,25 +36,90 @@ struct PageChromiumCostTests {
         }
     }
 
+    /// The page's providers: a state stream the test drives, a stream whose every event counts, and
+    /// a call that waits until the test answers it.
+    private final class TestProvider: PageProvider {
+        var emitState: ((JSONValue) -> Void)?
+        var emitLog: ((JSONValue) -> Void)?
+        var callStarted: (() -> Void)?
+        private var waiting: CheckedContinuation<Void, Never>?
+
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+            await withCheckedContinuation { continuation in
+                waiting = continuation
+                callStarted?()
+            }
+            return .object([:])
+        }
+
+        func answer() {
+            waiting?.resume()
+            waiting = nil
+        }
+
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            if stream == "test.log" {
+                emitLog = onEvent
+                return PageSubscription(freezing: .every) {}
+            }
+            emitState = onEvent
+            return PageSubscription(freezing: .newest) {}
+        }
+    }
+
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-chromium-cost-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
     }
 
-    private func makeView(_ hosting: FakeChromiumHosting) throws -> PageWebView {
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
+    private func makeView(_ hosting: FakeChromiumHosting, provider: TestProvider = TestProvider()) throws -> PageWebView {
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [PageRoute(prefix: "test.", provider: provider)],
+                                            route: "#/start", chromium: hosting))
         view.chromiumClock = PageTestClock.never
         return view
     }
 
-    /// The page's first message reached the host (its paint probe): the page is past its start.
-    private func reachHost(_ view: PageWebView, _ page: FakeChromiumPage) async {
-        let painted: Bool? = await PageTestWait.value("first message") { done in
-            view.whenPainted { done(true) }
-            page.onEvent?(.devTools(FakeChromiumPage.bindingCall(["name": PagePaintProbe.handlerName, "body": 1])))
+    /// Posts `body` from the page (`window.webkit.messageHandlers.cmuxPage`) and waits for the
+    /// bridge's reply to it.
+    @discardableResult
+    private func post(_ body: [String: Any], seq: Int, view: PageWebView, page: FakeChromiumPage) async -> Bool {
+        let replied: Bool? = await PageTestWait.value("reply to \(body["t"] ?? "?")") { done in
+            page.onCall = { [weak page] in
+                if page?.calls.contains(where: { ($0.params["expression"] as? String)?.contains("\(ChromiumPageHostBridge.resolveName)?.(\(seq),") == true }) == true {
+                    done(true)
+                }
+            }
+            page.onEvent?(.devTools(FakeChromiumPage.bindingCall(["name": PageHostTrust.handlerName, "seq": seq, "body": body])))
         }
-        #expect(painted == true)
+        return replied == true
+    }
+
+    /// The page's client said its start is done (pageClient.ts `BOOTED`).
+    private func boot(_ view: PageWebView, _ page: FakeChromiumPage) async {
+        #expect(await post(["t": "booted"], seq: 1, view: view, page: page))
+        #expect(view.chromiumSession?.booted == true)
+    }
+
+    /// Evaluations sent to the page whose expression contains `marker`.
+    private func evaluations(_ page: FakeChromiumPage, containing marker: String) -> Int {
+        page.calls.filter { $0.method == "Runtime.evaluate" && ($0.params["expression"] as? String)?.contains(marker) == true }.count
+    }
+
+    /// Waits until an evaluation containing `marker` reached the page.
+    private func waitForEvaluation(_ page: FakeChromiumPage, containing marker: String) async -> Bool {
+        let reached: Bool? = await PageTestWait.value("evaluation of \(marker)") { done in
+            let check = { [weak page] in
+                guard let page else { return }
+                if page.calls.contains(where: { $0.method == "Runtime.evaluate" && ($0.params["expression"] as? String)?.contains(marker) == true }) {
+                    done(true)
+                }
+            }
+            page.onCall = check
+            check()
+        }
+        return reached == true
     }
 
     private func container() -> NSView {
@@ -75,6 +143,22 @@ struct PageChromiumCostTests {
             try? await Task.sleep(for: .milliseconds(20))
         }
         return WebContentProcess.identifier(of: webView)
+    }
+
+    /// A started page in a pane, booted, hidden, with a freeze policy that records.
+    private func hiddenBootedPage(provider: TestProvider = TestProvider()) async throws
+        -> (PageWebView, FakeChromiumPage, NSView, RecordingFreezePolicy, FakeChromiumHosting) {
+        let policy = RecordingFreezePolicy()
+        let hosting = FakeChromiumHosting()
+        hosting.freezePolicy = policy
+        let pane = container()
+        let view = try makeView(hosting, provider: provider)
+        pane.addSubview(view)
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        pane.isHidden = true
+        await boot(view, page)
+        return (view, page, pane, policy, hosting)
     }
 
     @Test func aPageMadeOutOfSightStartsNoRendererUntilItShows() async throws {
@@ -176,7 +260,7 @@ struct PageChromiumCostTests {
         view.isHidden = true
         pane.isHidden = true
         #expect(page.visibility == [true, false])
-        await reachHost(view, page)
+        await boot(view, page)
         #expect(!page.closed)
 
         let push = "window.__cmuxPushWhileHidden = 1"
@@ -251,10 +335,10 @@ struct PageChromiumCostTests {
         view.close()
     }
 
-    /// The freeze policy decides when a hidden page freezes; the page reports each change once,
-    /// freezes only once it booted, thaws before a push and before it shows, and a push restarts
-    /// its grace.
-    @Test func aHiddenPageFreezesOnlyForThePolicyAndThawsBeforeAPushOrAShow() async throws {
+    /// The freeze policy decides when an unseen page freezes; the page reports each change once,
+    /// freezes only once it said it booted, thaws before a host script and before it is seen, and
+    /// a host script restarts its grace.
+    @Test func aHiddenPageFreezesOnlyForThePolicyAndThawsBeforeAScriptOrAShow() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let policy = RecordingFreezePolicy()
         let hosting = FakeChromiumHosting()
@@ -272,42 +356,155 @@ struct PageChromiumCostTests {
         #expect(view.freezeWhileHidden() == false)
         #expect(page.freezes.isEmpty)
 
-        await reachHost(view, page)
-        #expect(policy.woke == 2) // the grace starts again at the first message
+        await boot(view, page)
+        #expect(policy.woke > 1) // the grace starts again once it booted
         #expect(view.freezeWhileHidden())
         #expect(view.isChromiumFrozen)
+        #expect(view.chromiumLifecycle == "frozen")
         #expect(page.freezes == [true])
         #expect(view.freezeWhileHidden() == false) // sent once
 
-        view.evaluate("window.__cmuxPush = 1")
+        let woke = policy.woke
+        view.evaluate("window.__cmuxScript = 1")
         #expect(page.freezes == [true, false])
-        #expect(policy.woke == 3)
+        #expect(policy.woke == woke + 1)
 
         #expect(view.freezeWhileHidden())
         pane.isHidden = false
         #expect(Array(page.lifecycle.suffix(2)) == ["thawed", "shown"])
         #expect(!view.isChromiumFrozen)
         #expect(policy.noLongerHidden == 2)
-        #expect(view.freezeWhileHidden() == false) // it shows
+        #expect(view.freezeWhileHidden() == false) // it is seen
         view.close()
     }
 
     /// A host call into a frozen hidden page (a snapshot, a script) thaws it first.
     @Test func aCallIntoAFrozenPageThawsItFirst() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        let pane = container()
-        let view = try makeView(hosting)
-        pane.addSubview(view)
-        await view.chromiumStart?.value
-        let page = try #require(hosting.made.first)
-        pane.isHidden = true
-        await reachHost(view, page)
+        let (view, page, _, _, _) = try await hiddenBootedPage()
         #expect(view.freezeWhileHidden())
 
         _ = try await view.callPageScript("return 1")
         #expect(page.freezes == [true, false])
         #expect(page.lifecycle.last == "thawed")
+        view.close()
+    }
+
+    /// The reason a hidden page kept running: a push thawed it. Now a stream's newest state waits
+    /// in the host while the page is frozen, the page stays frozen, and the thaw sends only the
+    /// newest event; a stream whose every event counts thaws the page for its event.
+    @Test func aPushDoesNotThawAFrozenPageAndItGetsTheNewestStateAtTheThaw() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let provider = TestProvider()
+        let (view, page, pane, _, _) = try await hiddenBootedPage(provider: provider)
+        #expect(await post(["t": "sub", "id": 1, "stream": "test.state"], seq: 2, view: view, page: page))
+        #expect(await post(["t": "sub", "id": 2, "stream": "test.log"], seq: 3, view: view, page: page))
+        let emitState = try #require(provider.emitState)
+        #expect(view.freezeWhileHidden())
+
+        emitState(["state": "pushed-while-frozen-1"])
+        emitState(["state": "pushed-while-frozen-2"])
+        emitState(["state": "pushed-while-frozen-3"])
+        #expect(page.freezes == [true], "a push thawed the hidden page")
+        #expect(view.router.frozen.count == 1)
+
+        pane.isHidden = false
+        #expect(await waitForEvaluation(page, containing: "pushed-while-frozen-3"))
+        #expect(evaluations(page, containing: "pushed-while-frozen-1") == 0)
+        #expect(evaluations(page, containing: "pushed-while-frozen-2") == 0)
+
+        pane.isHidden = true
+        #expect(view.freezeWhileHidden())
+        provider.emitLog?(["change": "log-while-frozen"])
+        #expect(page.freezes == [true, false, true, false])
+        #expect(await waitForEvaluation(page, containing: "log-while-frozen"))
+        view.close()
+    }
+
+    /// The theme (and scale, attributes, glass) a frozen page would get waits too: the page stays
+    /// frozen, and the thaw sends the document's state again.
+    @Test func aThemeChangeWaitsForTheThawAndIsSentThen() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page, pane, _, _) = try await hiddenBootedPage()
+        // The document finished: its state (theme, scale) goes in once before the freeze.
+        page.onEvent?(.finished)
+        #expect(await waitForEvaluation(page, containing: "cmuxTheme.apply("))
+        #expect(view.freezeWhileHidden())
+        let themes = evaluations(page, containing: "cmuxTheme.apply(")
+
+        view.applyTheme(force: true)
+        view.applyUIScale()
+        #expect(page.freezes == [true], "a theme push thawed the hidden page")
+        #expect(evaluations(page, containing: "cmuxTheme.apply(") == themes)
+
+        pane.isHidden = false
+        let sent: Bool? = await PageTestWait.value("theme after the thaw") { done in
+            let check = { [weak page] in
+                guard let page else { return }
+                if self.evaluations(page, containing: "cmuxTheme.apply(") > themes { done(true) }
+            }
+            page.onCall = check
+            check()
+        }
+        #expect(sent == true)
+        view.close()
+    }
+
+    /// A page busy with the host (a call of its own still running) does not freeze: its grace
+    /// starts again when the reply went.
+    @Test func aPageWithACallRunningDoesNotFreezeUntilTheReplyWent() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let provider = TestProvider()
+        let (view, page, _, policy, _) = try await hiddenBootedPage(provider: provider)
+        let started: Bool? = await PageTestWait.value("the page's call reached the provider") { done in
+            provider.callStarted = { done(true) }
+            page.onEvent?(.devTools(FakeChromiumPage.bindingCall([
+                "name": PageHostTrust.handlerName, "seq": 2, "body": ["t": "call", "id": 7, "op": "test.wait", "params": [String: Any]()],
+            ])))
+        }
+        #expect(started == true)
+        #expect(view.freezeWhileHidden() == false)
+
+        let woke = policy.woke
+        let replied: Bool? = await PageTestWait.value("reply") { done in
+            page.onCall = { [weak page] in
+                if page?.calls.contains(where: { ($0.params["expression"] as? String)?.contains("\(ChromiumPageHostBridge.resolveName)?.(2,") == true }) == true {
+                    done(true)
+                }
+            }
+            provider.answer()
+        }
+        #expect(replied == true)
+        #expect(policy.woke > woke)
+        #expect(view.freezeWhileHidden())
+        view.close()
+    }
+
+    /// A page in a window that is covered, minimized or ordered out is unseen: its grace starts and
+    /// it may freeze; it thaws when the window is back. Chromium keeps drawing it meanwhile (no
+    /// hide and show on every cover), so only the freeze follows the window.
+    @Test func aPageInACoveredWindowFreezesAndThawsWhenTheWindowIsBack() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let policy = RecordingFreezePolicy()
+        let hosting = FakeChromiumHosting()
+        hosting.freezePolicy = policy
+        let view = try makeView(hosting)
+        stage.show(view)
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        await boot(view, page)
+        #expect(view.freezeWhileHidden() == false) // seen
+
+        let woke = policy.woke
+        stage.isOnScreen = false
+        #expect(policy.woke == woke + 1)
+        #expect(view.chromiumLifecycle == "hidden")
+        #expect(view.freezeWhileHidden())
+
+        stage.isOnScreen = true
+        #expect(page.lifecycle.last == "thawed")
+        #expect(page.visibility == [true])
+        #expect(policy.noLongerHidden == 2)
         view.close()
     }
 }

@@ -1,6 +1,6 @@
-@testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextPages
 import Testing
 
 /// A workspace or tab switch that shows N cmux pages that never showed made N CEF tabs in the
@@ -42,7 +42,7 @@ struct ChromiumPageFrameBudgetTests {
 
     @Test func eachPageStartTakesItsOwnLaterFrame() async {
         let frames = SteppedFrames()
-        let budget = ChromiumPageFrameBudget(frames: frames)
+        let budget = ChromiumPageFrameBudget(scheduleFrame: frames.scheduleFrame)
         let starts = Starts()
         let first = Task { @MainActor in
             await budget.nextFrame()
