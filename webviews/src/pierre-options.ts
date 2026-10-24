@@ -18,12 +18,36 @@ export type DiffViewerOptions = {
   expandUnchanged: boolean;
   /** The delineated diff: files in kind order, code first (diff-kind-groups.ts). */
   groupByKind: boolean;
+  /**
+   * Hide white space: the sidecar diffs with `--ignore-all-space` (session.ts
+   * `diffSessionRequest`), so it reloads the diff and is not a render option.
+   */
+  hideWhitespace: boolean;
+  /**
+   * Hide imports: the page leaves import-only hunks out of each file's patch
+   * (diff-viewer/importHunks.ts), so it reloads the diff. Not saved: it lasts for the tab.
+   */
+  hideImports: boolean;
+  /**
+   * Load full files: each shown file's two sides load (diff-viewer/fullFiles.ts), so its
+   * "N unmodified lines" rows expand from their chevrons, `EXPANSION_LINE_COUNT` lines a click.
+   * Nothing expands by itself. Not saved: it lasts for the tab.
+   */
+  loadFullFiles: boolean;
+  /**
+   * Rich preview: Markdown and image files get a Preview button that opens their sheet
+   * (diff-viewer/RichPreviewSheet.tsx). Not saved: it lasts for the tab.
+   */
+  richPreview: boolean;
   layout: "split" | "unified";
   lineNumbers: boolean;
   showBackgrounds: boolean;
   wordDiffs: boolean;
   wordWrap: boolean;
 };
+
+/** How many unchanged lines one press of a gap's chevron shows (Load full files). */
+export const EXPANSION_LINE_COUNT = 20;
 
 /** Height of a file header row; also the virtualizer's header metric. */
 export const DIFF_FILE_HEADER_HEIGHT = 38;
@@ -36,6 +60,7 @@ export function codeViewOptions(options: DiffViewerOptions, appearance: DiffView
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
     expandUnchanged: options.expandUnchanged,
+    expansionLineCount: EXPANSION_LINE_COUNT,
     disableBackground: !options.showBackgrounds,
     disableLineNumbers: !options.lineNumbers,
     lineHoverHighlight: "number",
@@ -75,6 +100,19 @@ export function workerHighlighterOptions(
 
 export function codeViewUnsafeCSS(): string {
   return `
+    /* An inline preview (diff-viewer/InlinePreview.tsx) is the only file item the diff tab draws:
+       its one placeholder line and its line numbers are hidden, and its annotation (the
+       preview) takes the whole width. Diffs are \`pre[data-diff]\` and keep theirs. */
+    pre[data-file] {
+      --diffs-code-grid: 0 minmax(0, 1fr);
+    }
+    pre[data-file] [data-gutter],
+    pre[data-file] [data-content] > [data-line] {
+      display: none;
+    }
+    pre[data-file] [data-code] {
+      padding-block: 0;
+    }
     :host {
       /* Code rows and separators are clear over the page's one backdrop
          (only html paints it, so a translucent backdrop never stacks). */
@@ -110,6 +148,11 @@ export function codeViewUnsafeCSS(): string {
     [data-line] {
       -webkit-user-select: text;
       user-select: text;
+      cursor: text;
+    }
+    /* A line listener (Cmd-click opens the file, openFile.ts) makes Pierre show a pointer on
+       every line; the text cursor stays, since a plain click selects text. */
+    [data-interactive-lines] [data-line] {
       cursor: text;
     }
     /* The file header is never transparent (Lawrence): it paints the
@@ -209,6 +252,8 @@ export function fileTreeUnsafeCSS(): string {
       --trees-icon-purple: var(--cmux-file-icon-purple);
       --trees-icon-pink: var(--cmux-file-icon-pink);
       --trees-icon-mauve: var(--cmux-file-icon-mauve);
+      /* A modified or renamed file's name and change square: the terminal palette's blue. */
+      --cmux-tree-modified: var(--cmux-diff-count-modified);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
@@ -241,6 +286,22 @@ export function fileTreeUnsafeCSS(): string {
     }
     [data-item-section='decoration'] svg {
       display: block;
+    }
+    /* An added file's name and icon are green, a deleted one's red (the counts' colors), a modified
+       or renamed one's blue (file-tree-stats \`nameColoredGitStatus\`). The row's square says the
+       change, so the tree's status letters and folder dots are hidden. */
+    [data-item-section='git'] {
+      display: none;
+    }
+    [data-item-git-status='added'] {
+      --trees-item-git-status-color: var(--trees-status-added);
+    }
+    [data-item-git-status='deleted'] {
+      --trees-item-git-status-color: var(--trees-status-deleted);
+    }
+    [data-item-git-status='modified'],
+    [data-item-git-status='renamed'] {
+      --trees-item-git-status-color: var(--cmux-tree-modified);
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;

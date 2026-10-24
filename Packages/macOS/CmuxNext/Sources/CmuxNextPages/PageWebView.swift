@@ -312,6 +312,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PageRegistry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()

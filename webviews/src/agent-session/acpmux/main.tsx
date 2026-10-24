@@ -2,6 +2,7 @@
 import "../../pages/shared/desktop";
 // The shared icon+label button (cx-s6zvc); the pane does not load the rest of ui.css.
 import "../../ui/ghost.css";
+import "./composerFooterShared.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp } from "./App";
