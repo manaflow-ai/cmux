@@ -232,6 +232,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_STEER, Request),
         untyped(method::MUX_BRIEFS, Request),
         untyped(method::MUX_REPORT, Request),
+        untyped(method::MUX_TASK_NEW, Request),
+        untyped(method::MUX_TASKS, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.
