@@ -28,6 +28,15 @@ marker before its probe. On normal completion or any failure after a successful
 create, it deletes only that exact generated name. `--keep` is an explicit
 escape hatch for debugging; the watchdog remains active.
 
+Before marking the VM ready, startup installs pinned x86_64 releases of
+gVisor `runsc` `release-20261019.0`, Firecracker `v1.17.0`, and Cloud
+Hypervisor `v54.0` under `/opt/rd-sandbox/bin`. The gVisor and Firecracker
+archives are SHA-256 checked before extraction. The probe passes those paths
+explicitly, so a successful run tests the selected binaries rather than an
+ambient PATH. Guest kernel/rootfs images are intentionally caller supplied for
+the next Firecracker boot slice; installing an image here would make the
+benchmark less reproducible.
+
 The runner does not create firewall rules, networks, routes, IAM bindings,
 service accounts, disks, or snapshots. It uses an ephemeral external IP on the
 existing `default` network, so SSH requires the existing network policy to

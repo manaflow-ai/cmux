@@ -28,10 +28,15 @@ OWNER = "claude-sr2"
 PURPOSE = "rd-biz-sandboxes"
 DEFAULT_ZONE = "us-west1-a"
 DEFAULT_MACHINE = "n4d-standard-16"
-DEFAULT_IMAGE_FAMILY = "ubuntu-2404-lts"
+DEFAULT_IMAGE_FAMILY = "ubuntu-2404-lts-amd64"
 DEFAULT_IMAGE_PROJECT = "ubuntu-os-cloud"
 DEFAULT_TTL_HOURS = 4.0
 DEFAULT_IDLE_MINUTES = 15
+RUNSC_VERSION = "release-20261019.0"
+RUNSC_SHA256 = "1298e8ed9c3fee900f00d2ea96ec2d79d80ed93f2175812f29b7e7da718041a3"
+FIRECRACKER_VERSION = "v1.17.0"
+FIRECRACKER_SHA256 = "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558"
+CLOUD_HYPERVISOR_VERSION = "v54.0"
 
 
 class RunnerError(RuntimeError):
@@ -80,6 +85,24 @@ def _startup_script(ttl_seconds: int, idle_seconds: int) -> str:
     return f"""#!/bin/bash
 set -eu
 install -d -m 0755 /var/lib/rd-sandbox
+install -d -m 0755 /opt/rd-sandbox/bin /tmp/rd-sandbox-download
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq --no-install-recommends ca-certificates curl bzip2 xz-utils
+curl -fsSL -o /tmp/rd-sandbox-download/gvisor.tar.bz2 \\
+  https://github.com/google/gvisor/releases/download/{RUNSC_VERSION}/gvisor-x86_64.tar.bz2
+echo '{RUNSC_SHA256}  /tmp/rd-sandbox-download/gvisor.tar.bz2' | sha256sum -c -
+mkdir -p /tmp/rd-sandbox-download/gvisor
+tar -xjf /tmp/rd-sandbox-download/gvisor.tar.bz2 -C /tmp/rd-sandbox-download/gvisor
+install -m 0755 /tmp/rd-sandbox-download/gvisor/runsc /opt/rd-sandbox/bin/runsc
+curl -fsSL -o /tmp/rd-sandbox-download/firecracker.tgz \\
+  https://github.com/firecracker-microvm/firecracker/releases/download/{FIRECRACKER_VERSION}/firecracker-{FIRECRACKER_VERSION}-x86_64.tgz
+echo '{FIRECRACKER_SHA256}  /tmp/rd-sandbox-download/firecracker.tgz' | sha256sum -c -
+tar -xzf /tmp/rd-sandbox-download/firecracker.tgz -C /tmp/rd-sandbox-download
+install -m 0755 /tmp/rd-sandbox-download/release-{FIRECRACKER_VERSION}-x86_64/firecracker-{FIRECRACKER_VERSION}-x86_64 /opt/rd-sandbox/bin/firecracker
+curl -fsSL -o /opt/rd-sandbox/bin/cloud-hypervisor \\
+  https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/{CLOUD_HYPERVISOR_VERSION}/cloud-hypervisor-static
+chmod 0755 /opt/rd-sandbox/bin/cloud-hypervisor
 date +%s > /var/lib/rd-sandbox/boot-epoch
 touch /var/lib/rd-sandbox/last-activity
 cat > /usr/local/sbin/rd-sandbox-watchdog <<'WATCHDOG'
@@ -270,7 +293,15 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--idle-stop-minutes", type=lambda value: _valid_minutes(int(value)), default=DEFAULT_IDLE_MINUTES)
     p.add_argument("--wait-seconds", type=int, default=600)
     p.add_argument("--probe-file", default=str(Path(__file__).with_name("sandbox_bench.py")))
-    p.add_argument("--probe-command", default="python3 /tmp/sandbox_bench.py probe --json")
+    p.add_argument(
+        "--probe-command",
+        default=(
+            "python3 /tmp/sandbox_bench.py probe --json "
+            "--runsc /opt/rd-sandbox/bin/runsc "
+            "--firecracker /opt/rd-sandbox/bin/firecracker "
+            "--cloud-hypervisor /opt/rd-sandbox/bin/cloud-hypervisor"
+        ),
+    )
     p.add_argument("--keep", action="store_true", help="keep created instance; TTL/idle watchdog still applies")
     p.add_argument("--json", action="store_true", dest="json_output")
     return p
