@@ -30,6 +30,8 @@ final class ControlSocketPathWatch: Sendable {
     private let failures = Mutex(Failures())
     /// The retry after ``maxFailedRestores`` failures in a row.
     private let retry = DemandTimer(owner: "ControlSocketPathWatch.retry")
+    /// Path checks run so far: each is one wakeup of `queue` (tests count them).
+    let checks = Atomic<Int>(0)
 
     struct Failures {
         var inARow = 0
@@ -74,6 +76,7 @@ final class ControlSocketPathWatch: Sendable {
 
     /// Runs on `queue`, so a restore never overlaps the server's accept handler.
     private func checkPath(retrying: Bool = false) {
+        checks.add(1, ordering: .relaxed)
         if !retrying, failures.withLock({ $0.waiting }) { return }  // backing off
         var info = stat()
         guard lstat(path, &info) != 0, errno == ENOENT, source.withLock({ $0 != nil }) else {
