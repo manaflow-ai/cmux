@@ -7,11 +7,17 @@ import Darwin
 /// The main thread does input dispatch, the minimal mutation of visible state and the Core
 /// Animation commit; everything else runs off it. What the app still schedules there runs as a
 /// task of a ``MainWorkClass``. Frame-locked work (``MainWorkClass/frame``) and injected input run
-/// unbudgeted. Each budgeted class (visible, automation, background) gets a per-frame budget, and
-/// in priority order: a frame's visible updates run before its automation work, which runs before
-/// background work. A budgeted class also yields while a person's input is pending
-/// (``InputPendingSource``, or an injected key queued on ``MainTaskBoard``), so a key or a click
-/// is dispatched before the batch, and the batch runs on the next frame.
+/// unbudgeted. The budgeted classes (visible, automation, background) run in priority order: a
+/// frame's visible updates before its automation work, before background work.
+///
+/// The budget protects two things, and only those: a person's pending input and the frame.
+/// - While a key or a click is pending (``InputPendingSource``, or an injected key queued on
+///   ``MainTaskBoard``), every budgeted class yields, so the input is dispatched before the
+///   batch; under input each class keeps to its own share (``Budgets``) of the frame.
+/// - With no input pending, a class whose own share is spent may use the time the other classes
+///   left (idle-time scheduling): the frame's scheduled work stops only at ``Budgets/total``,
+///   which keeps every main run loop pass under the 8 ms stall target. Input is checked again
+///   before every task, so a key that arrives during the batch stops it at the next task.
 ///
 /// Two rules keep every change on screen within one frame of being due:
 /// - the first task of a class in a frame always fits its budget, so each class makes progress
@@ -20,13 +26,13 @@ import Darwin
 ///   typing at 30 keys a second never starves the sidebar).
 ///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
-/// frame, never later. One instance serves the whole app (``FrameScheduler/app`` owns it, every
-/// window scheduler shares it), so a frame's budget is the same however many display links tick.
+/// frame, never later. The app builds one at its composition root and hands it to the one
+/// ``MainWorkScheduler``, whose single display link opens the budget's window once per frame.
 ///
 /// ```swift
-/// // A FrameBatcher drains its queued work one task at a time:
+/// // A budgeted batch drains its queued work one task at a time:
 /// while let work = queue.first, budget.mayRun(.visible) {
-///     budget.run(.visible, owner: "DaemonStore.drain") { work() }
+///     budget.run(.visible, owner: owner) { work() }   // owner: interned when the queue was built
 /// }
 /// ```
 @MainActor
@@ -46,6 +52,7 @@ public final class MainFrameBudget {
     private var ranThisFrame: [Bool] = [false, false, false]
     private var yieldedLastFrame: [Bool] = [false, false, false]
     private var yieldedThisFrame: [Bool] = [false, false, false]
+    private let totalNanos: UInt64
     private var sequence: UInt32 = 0
     private var open: [OpenTask] = []
     /// The input check's last answer and when (a frame asks several times; the answer is reused
@@ -61,14 +68,15 @@ public final class MainFrameBudget {
     public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
                 signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
         self.budgets = budgets
+        totalNanos = Self.nanos(budgets.total)
         self.input = input
         self.board = board
         self.signposts = signposts
         self.uptimeNanos = uptimeNanos
     }
 
-    /// Starts a display frame's budget window. Every scheduler calls it at its tick; a second call
-    /// for the same vsync (another window's link) keeps the window.
+    /// Starts a display frame's budget window: the ``MainWorkScheduler``'s one link calls it at
+    /// each tick (a second call for the same timestamp keeps the window).
     ///
     /// - Parameters:
     ///   - timestamp: The display link's frame time; nil for a synthesized (stalled) frame.
@@ -93,9 +101,10 @@ public final class MainFrameBudget {
     }
 
     /// Whether a task of `workClass` may start now. Unbudgeted classes always may. A budgeted one
-    /// may not while input is pending (unless it yielded last frame) or once its frame budget is
-    /// spent (its first task of a frame always may). A refusal is counted: the caller keeps the
-    /// task for the next frame.
+    /// may not while input is pending (unless it yielded last frame). Otherwise its first task of
+    /// a frame always may, then it may while its own share is left, and past that, with no input
+    /// pending, while the frame's scheduled work is under ``Budgets/total`` (idle time the other
+    /// classes left). A refusal is counted: the caller keeps the task for the next frame.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         let now = uptimeNanos()
@@ -103,13 +112,19 @@ public final class MainFrameBudget {
         // over. Never while a task runs: a long batch would otherwise reset its own budget and
         // keep the main thread past the frame.
         if open.isEmpty, now &- windowStart >= windowLength { roll(at: now) }
-        if !yieldedLastFrame[index], inputPending(now) {
+        let pending = inputPending(now)
+        if pending, !yieldedLastFrame[index] {
             if !yieldedThisFrame[index] { stats.yieldedToInput[index] += 1 }
             yieldedThisFrame[index] = true
             return false
         }
         guard ranThisFrame[index] else { return true }
         if spentNow(index, workClass: workClass, now: now) < Self.nanos(budget) { return true }
+        // Idle time: nothing a person waits on is pending, so the share only orders the classes.
+        if !pending, frameSpentNow(now) < totalNanos {
+            stats.idleTasks[index] += 1
+            return true
+        }
         stats.deferredOverBudget[index] += 1
         return false
     }
@@ -123,17 +138,22 @@ public final class MainFrameBudget {
     /// is published and charged as itself, and its time is taken out of the outer task's, so each
     /// class pays only for its own work and ``mayRun(_:)`` inside a task sees the time spent so far.
     ///
+    /// - Parameters:
+    ///   - workClass: The task's class.
+    ///   - owner: Its owner, interned on this budget's ``board`` when the queue or method was built
+    ///     (``MainTaskBoard/owner(_:)``), so starting the task takes no lock.
+    ///   - body: The task.
     /// - Returns: What `body` returns.
     @discardableResult
-    public func run<T>(_ workClass: MainWorkClass, owner: String, _ body: () throws -> T) rethrows -> T {
+    public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, _ body: () throws -> T) rethrows -> T {
         sequence &+= 1
         let index = Self.index(workClass)
-        let task = OpenTask(workClass: workClass, owner: owner, ownerIndex: board.ownerIndex(owner), sequence: sequence,
-                            start: uptimeNanos(), budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
+        let task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
+                            budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
         if let index { ranThisFrame[index] = true }
         open.append(task)
-        board.begin(workClass, owner: task.ownerIndex, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
-        let interval = signposts ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner) : nil
+        board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
+        let interval = signposts ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name) : nil
         defer {
             if let interval { Signposter.stall.end(.stallMainTask, interval) }
             finish(index: index)
@@ -156,15 +176,15 @@ public final class MainFrameBudget {
                 over = true
                 stats.overBudgetTasks[index] += 1
                 if signposts {
-                    Signposter.stall.event(.stallOverBudget, "class=\(task.workClass) owner=\(task.owner) ms=\(Self.milliseconds(own)) budget_ms=\(Self.milliseconds(task.budgetNanos))")
+                    Signposter.stall.event(.stallOverBudget, "class=\(task.workClass) owner=\(task.owner.name) ms=\(Self.milliseconds(own)) budget_ms=\(Self.milliseconds(task.budgetNanos))")
                 }
             }
         }
-        board.end(MainTaskBoard.Task(workClass: task.workClass, owner: task.owner, sequence: task.sequence, startNanos: task.start,
+        board.end(MainTaskBoard.Task(workClass: task.workClass, owner: task.owner.name, sequence: task.sequence, startNanos: task.start,
                                      budgetNanos: task.budgetNanos), durationNanos: own, overBudget: over)
         // The outer task runs again: the watchdog names it.
         if let outer = open.last {
-            board.begin(outer.workClass, owner: outer.ownerIndex, sequence: outer.sequence, startNanos: outer.start,
+            board.begin(outer.workClass, owner: outer.owner.index, sequence: outer.sequence, startNanos: outer.start,
                         budgetNanos: outer.budgetNanos, notify: false)
         }
     }
@@ -172,8 +192,7 @@ public final class MainFrameBudget {
     /// One task that started and has not returned.
     private struct OpenTask {
         var workClass: MainWorkClass
-        var owner: String
-        var ownerIndex: UInt32
+        var owner: MainTaskOwner
         var sequence: UInt32
         var start: UInt64
         var budgetNanos: UInt64
@@ -185,6 +204,16 @@ public final class MainFrameBudget {
     private func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
         var total = spent[index]
         for task in open where task.workClass == workClass {
+            let elapsed = now &- task.start
+            total &+= elapsed > task.childNanos ? elapsed - task.childNanos : 0
+        }
+        return total
+    }
+
+    /// What every budgeted class spent this frame, open tasks included (each task's own time).
+    private func frameSpentNow(_ now: UInt64) -> UInt64 {
+        var total = spent.reduce(0, &+)
+        for task in open where task.workClass.isBudgeted {
             let elapsed = now &- task.start
             total &+= elapsed > task.childNanos ? elapsed - task.childNanos : 0
         }

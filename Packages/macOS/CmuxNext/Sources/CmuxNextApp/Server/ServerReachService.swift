@@ -6,6 +6,7 @@ import Foundation
 import Observation
 import os
 import SystemConfiguration
+import CmuxNextWakeups
 
 /// Paired servers in the sidebar (plans/cmux-next/server-reach.md): when the
 /// signed-in user has a chief placed on a paired server, that server's
@@ -246,7 +247,8 @@ final class ServerReachService {
     private func add(_ reach: ServerReach, connect: Bool) {
         guard machines.server(reach.machineID) == nil else { return }
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
-                                           localIdentity: { [machines] in machines.local.identity }, cli: cli)
+                                           localIdentity: { [machines] in machines.local.identity }, cli: cli,
+                                           mainWork: machines.local.mainWork)
         session.daemon.workTracker = machines.local.workTracker
         // The overlay ended: re-read the link (`link show` checks its pid
         // and socket), so a crashed link with a stale link.json falls back.

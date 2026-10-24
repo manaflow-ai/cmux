@@ -9,6 +9,9 @@ extension MainFrameBudget {
         public var yieldedToInput: [Int] = [0, 0, 0]
         /// Per class: times a task was held for the next frame because the class's budget was spent.
         public var deferredOverBudget: [Int] = [0, 0, 0]
+        /// Per class: tasks that started past the class's own share, on frame time the other classes
+        /// left while no input was pending.
+        public var idleTasks: [Int] = [0, 0, 0]
         /// Per class: tasks that ran past the class's whole budget on their own.
         public var overBudgetTasks: [Int] = [0, 0, 0]
         /// Per class: the longest task, in nanoseconds.

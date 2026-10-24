@@ -3,8 +3,8 @@ public import CmuxNextWakeups
 
 extension MainFrameBudget {
     /// The `debug.main_budget` report: frames seen, injected input waiting, and per budgeted class
-    /// its budget, tasks run, input yields, over-budget deferrals and tasks, longest task and the
-    /// most it spent in one frame.
+    /// its budget, tasks run, input yields, over-budget deferrals, tasks run on idle frame time past
+    /// its share, over-budget tasks, longest task and the most it spent in one frame.
     public var report: JSONValue {
         let stats = stats
         var classes: [String: JSONValue] = [:]
@@ -14,6 +14,7 @@ extension MainFrameBudget {
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
                 "yielded_to_input": JSONValue((stats.yieldedToInput[checked: index] ?? 0)),
                 "deferred_over_budget": JSONValue((stats.deferredOverBudget[checked: index] ?? 0)),
+                "idle_tasks": JSONValue((stats.idleTasks[checked: index] ?? 0)),
                 "over_budget_tasks": JSONValue((stats.overBudgetTasks[checked: index] ?? 0)),
                 "max_task_ms": .number(Double((stats.maxTaskNanos[checked: index] ?? 0)) / 1_000_000),
                 "max_frame_ms": .number(Double((stats.maxFrameNanos[checked: index] ?? 0)) / 1_000_000),

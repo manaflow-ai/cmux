@@ -14,6 +14,7 @@ import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -29,7 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private var settings: SettingsController?
-    private let control = AppControl()
+    /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
+    /// person's pending-input check and task signposts. Built here, the composition root, and
+    /// handed to the control socket and the services.
+    private let mainWork: MainWorkScheduler
+    private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
@@ -46,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        self.mainWork = mainWork
+        control = AppControl(mainWork: mainWork)
         super.init()
     }
 
@@ -93,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment)
+        let services = AppServices(environment: environment, mainWork: mainWork)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
