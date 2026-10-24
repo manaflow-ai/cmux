@@ -107,3 +107,39 @@ describe("attachments of another tenant", { timeout: 120_000 }, () => {
     expect(dl.status).not.toBe(200)
   })
 })
+
+describe("the personal Claude Code route stays closed to other tenants", () => {
+  // The chief-cc image holds private clones (cmuxterm-hq) in the agent's home (backend/scripts/tenant-isolation-vms.sh finds them),
+  // so the CHIEF_CC_OWNERS allowlist is the only thing between that image and a stranger's Chief turn.
+  it("only an exact owner id, or that owner's personal team, reaches it; prefixes, other users and an empty list do not", async () => {
+    const { ccRoute } = await import("../src/chief-brain-cc/vm.ts")
+    const base = { ENVIRONMENT: "staging", CHIEF_CC_ENABLED: "1", CHIEF_CC_FREESTYLE_API_KEY: "k", CHIEF_CC_TS_OAUTH: "{}", CHIEF_CC_SNAPSHOT: "sh-x", CHIEF_BRAIN_CLAUDE_OWNERS: "user_aaaaaaaaaaaaaaaaaaaa,user_bbbbbbbbbbbbbbbbbbbb,user_aaaaaaaaaaaaaaaaaaaab" } as never
+    const withList = (list: string) => ({ ...(base as object), CHIEF_CC_OWNERS: list }) as never
+    expect(ccRoute(withList("user_aaaaaaaaaaaaaaaaaaaa"), "user_aaaaaaaaaaaaaaaaaaaa")).toBe(true)
+    expect(ccRoute(withList("user_aaaaaaaaaaaaaaaaaaaa"), "user_bbbbbbbbbbbbbbbbbbbb")).toBe(false)
+    expect(ccRoute(withList("user_aaaaaaaaaaaaaaaaaaaa"), "user_aaaaaaaaaaaaaaaaaaaab")).toBe(false)
+    expect(ccRoute(withList(""), "user_aaaaaaaaaaaaaaaaaaaa")).toBe(false)
+    expect(ccRoute(withList("*"), "user_aaaaaaaaaaaaaaaaaaaa")).toBe(false)
+    expect(ccRoute(withList("user_aaaaaaaaaaaaaaaaaaaa"), null)).toBe(false)
+    expect(ccRoute({ ...(withList("user_aaaaaaaaaaaaaaaaaaaa") as object), CHIEF_CC_ENABLED: "0" } as never, "user_aaaaaaaaaaaaaaaaaaaa")).toBe(false)
+  })
+})
+
+describe("billing: a stranger cannot spend or read another tenant's credits", { timeout: 60_000 }, () => {
+  it("naming A's team in x-cmux-team on the inference and credits routes is refused before any meter or ledger is touched", async () => {
+    const body = { model: "fake", messages: [{ role: "user", content: "hi" }] }
+    for (const path of ["/v1/inference/chat/completions", "/v1/inference/v1/messages"]) {
+      const r = await outcome(await raw("POST", path, b.session, body, { "x-cmux-team": a.team }))
+      expect([401, 403], `${path}: ${r.status} ${r.text.slice(0, 160)}`).toContain(r.status)
+      expect(r.text).not.toContain(a.canary)
+    }
+    // An install token (not a session) cannot select a team at all.
+    const viaInstall = await outcome(await raw("POST", "/v1/inference/chat/completions", b.installToken, body, { "x-cmux-team": a.team }))
+    expect([401, 403]).toContain(viaInstall.status)
+    // The usage and cap ops answer for the caller's own team whatever the params say.
+    const summary = await callRead(b.session, "usage.summary", { team: a.team, owner: a.team })
+    expect(summary.raw).not.toContain(a.team)
+    expect((await callOp(b.session, "usage.cap.set", { cap_usd: 1, team: a.team, owner: a.team })).raw).not.toContain(a.team)
+    expect((await callRead(a.session, "usage.summary", {})).raw).not.toContain("\"team_cap_usd\":1,")
+  })
+})

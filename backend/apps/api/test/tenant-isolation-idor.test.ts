@@ -108,16 +108,21 @@ describe("IDOR sweep: B calls every operation with A's ids", { timeout: 300_000 
       if (def.principals.includes("session")) callers.push(["session", b.session])
       if (def.principals.includes("install")) callers.push(["install", b.installToken])
       for (const [kind, token] of callers) {
-        const real = await call(def.class, token, name, sampleParams(name, fixtures))
+        const sig = (r: Reply) => `${r.status} ${r.code ?? "ok"}`
+        const differs = (real: Reply, control: Reply) => !OWN_STATE.has(name) && !(ACCEPTED_EXISTS.has(name) && real.code === "conversation_exists") && (sig(real) !== sig(control) || (real.code === undefined && shape(real.raw) !== shape(control.raw)))
+        let real = await call(def.class, token, name, sampleParams(name, fixtures))
         // Control: the same call with ids that exist nowhere (fresh random ids of the same shape).
-        const control = await call(def.class, token, name, sampleParams(name, missing))
+        let control = await call(def.class, token, name, sampleParams(name, missing))
+        // Random ids can occasionally build a refused value; a real oracle differs every time, so two more draws must also differ.
+        for (let retry = 0; retry < 2 && differs(real, control); retry++) {
+          real = await call(def.class, token, name, sampleParams(name, fixtures))
+          control = await call(def.class, token, name, sampleParams(name, missing))
+        }
         if (real.code === "validation.invalid") invalid++
         else reached++
         if (real.raw.includes("CANARY-A-") || real.raw.includes(a.email)) leaks.push(`${name} (${kind}): ${real.raw.slice(0, 200)}`)
         // Existence oracle: A's real id must be indistinguishable from an unknown id (same status, code, shape).
-        const sig = (r: Reply) => `${r.status} ${r.code ?? "ok"}`
-        if (!OWN_STATE.has(name) && !(ACCEPTED_EXISTS.has(name) && real.code === "conversation_exists") && (sig(real) !== sig(control) || (real.code === undefined && shape(real.raw) !== shape(control.raw))))
-          oracle.push(`${name} (${kind}): A-id -> ${sig(real)} ${real.raw.slice(0, 140)} | unknown-id -> ${sig(control)} ${control.raw.slice(0, 140)}`)
+        if (differs(real, control)) oracle.push(`${name} (${kind}): A-id -> ${sig(real)} ${real.raw.slice(0, 140)} | unknown-id -> ${sig(control)} ${control.raw.slice(0, 140)}`)
         rows.push(`${name}\t${kind}\t${real.status}\t${real.code ?? "ok"}`)
       }
     }
