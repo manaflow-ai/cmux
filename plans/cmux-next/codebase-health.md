@@ -451,15 +451,16 @@ It also warns (never refuses) when a push changes a `// perf-hot:` function (nam
 
 Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner
 marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or
-`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what
-`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and
-declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not
-read as a declaration, is flagged: an edit of that function warns nobody.
+`var`, or on the line with the body's `{` of a wrapped signature, adds no line; or a comment line right above
+the declaration). Which declaration a marker marks is what the hook's own resolver says, and whether it
+warns is what `guardrails.check` itself reports for a push that edits every line of the marked files (its own
+diff scope, not a copy), so a marker outside the hook's diff scope, or one that marks no declaration, is
+flagged: an edit of that function warns nobody.
 
-Marked: 12 of 14 path ids (21 markers); 11 of 14 warn at push; 3 of 21 markers never warn.
+Marked: 12 of 14 path ids (21 markers); 11 of 14 warn at push; 1 of 21 markers never warn.
 
 - `cef-host-input`: CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostConnection.swift:63
-- `key-dispatch`: CmuxNextActions/KeyBindingTable+Sequence.swift:27 (not on a declaration line the hook parses (a multi-line signature's last line?): no warning), CmuxNextApp/Focus/ChordTracker.swift:93 (not on a declaration line the hook parses (a multi-line signature's last line?): no warning), CmuxNextApp/Focus/KeyRouter.swift:179, CmuxNextApp/Focus/KeyRouter.swift:235, CmuxNextApp/Notifications/NotificationCenterService+Lookup.swift:46
+- `key-dispatch`: CmuxNextActions/KeyBindingTable+Sequence.swift:27, CmuxNextApp/Focus/ChordTracker.swift:93, CmuxNextApp/Focus/KeyRouter.swift:179, CmuxNextApp/Focus/KeyRouter.swift:235, CmuxNextApp/Notifications/NotificationCenterService+Lookup.swift:46
 - `terminal-key`: CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift:14
 - `home-key`: Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneHost.swift:669 (outside the pre-push hook's diff scope: no warning)
 - `palette-key`: CmuxNextPalette/PaletteModel+Search.swift:109

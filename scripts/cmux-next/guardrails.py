@@ -21,9 +21,10 @@ report.
 A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
 it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
 Warnings (never refuse):
-  perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (a trailing comment on its
-            declaration line, or in the comment block above it); names the bench from scripts/cmux-next/perf-hot-benches.json to run before
-            and after on the fleet.
+  perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (in the comment block above
+            its declaration, trailing on the declaration line, or trailing on the `{` line of a wrapped
+            signature); names the bench from scripts/cmux-next/perf-hot-benches.json to run before and after
+            on the fleet. A marker the push touches that marks no declaration warns too.
   owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
 
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
@@ -959,34 +960,79 @@ def run_both(repo: Path, *commands: list[str]) -> list[str]:
 
 # ---------------------------------------------------------------- warnings
 
-def function_spans(lines: list[str]) -> list[tuple[int, int, str, str, str]]:
-    """(first, last, declaration, budget, path-id) per `// perf-hot:` marked declaration (1-based, inclusive)."""
-    spans = []
+@dataclass
+class PerfHotMarker:
+    """One `// perf-hot: <budget> <path-id>` marker and the declaration it marks."""
+    line: int  # 1-based line of the marker
+    budget: str
+    path_id: str
+    span: tuple[int, int] | None  # (declaration line, closing line), 1-based; None: it marks no declaration
+    declaration: str = ""
+
+
+def wrapped_declaration(lines: list[str], index: int) -> int | None:
+    """The 0-based line where the declaration whose body `{` is on LINES[INDEX] starts, for a wrapped signature.
+
+    Walking up, the signature's lines hold no brace and its parentheses balance out on the `{` line: the first
+    line that matches DECL with every `(` it opens closed by the `{` line is the declaration. None when the `{`
+    line closes no parenthesis opened above (a statement, not a wrapped signature) or the walk meets a brace.
+    """
+    head = code_of(lines[index]).split("{", 1)[0]
+    unmatched = head.count(")") - head.count("(")
+    k = index - 1
+    while unmatched > 0 and k >= 0:
+        code = code_of(lines[k])
+        if "{" in code or "}" in code:
+            return None
+        unmatched -= code.count("(") - code.count(")")
+        if unmatched == 0 and DECL.search(code):
+            return k
+        k -= 1
+    return None
+
+
+def perf_hot_markers(lines: list[str]) -> list[PerfHotMarker]:
+    """Every `// perf-hot:` marker in LINES and the declaration it marks (codebase-health.py reads these too).
+
+    A marker marks a declaration three ways: in the comment block above it (attributes and blank lines may
+    sit between), trailing on its line, or trailing on the line with the body's `{` of a wrapped signature.
+    """
+    markers = []
     for index, line in enumerate(lines):
-        match = PERF_HOT.search(line)
+        match = PERF_HOT.search(line) if "perf-hot" in line else None
         if not match:
             continue
         if COMMENT_LINE.match(line):  # the marker in the comment block above the declaration
             j = index + 1
             while j < len(lines) and (COMMENT_LINE.match(lines[j]) or ATTRIBUTE_LINE.match(lines[j]) or not lines[j].strip()):
                 j += 1
-        else:  # a trailing marker on the declaration line itself (adds no line to a capped file)
-            j = index
-        if j >= len(lines) or not DECL.search(code_of(lines[j])):
-            continue
-        depth, started, k = 0, False, j
-        while k < len(lines):
-            for c in code_of(lines[k]):
-                if c == "{":
-                    depth += 1
-                    started = True
-                elif c == "}":
-                    depth -= 1
-            if started and depth <= 0:
-                break
-            k += 1
-        spans.append((j + 1, k + 1, code_of(lines[j]).strip(), match.group("budget"), match.group("path") or ""))
-    return spans
+            first = j if j < len(lines) and DECL.search(code_of(lines[j])) else None
+        elif DECL.search(code_of(line)):  # a trailing marker on the declaration line (adds no line)
+            first = index
+        else:
+            first = wrapped_declaration(lines, index) if "{" in code_of(line) else None
+        marker = PerfHotMarker(index + 1, match.group("budget"), match.group("path") or "", None)
+        if first is not None:
+            marker.span = (first + 1, block_end(lines, first) + 1)
+            marker.declaration = code_of(lines[first]).strip()
+        markers.append(marker)
+    return markers
+
+
+def block_end(lines: list[str], first: int) -> int:
+    """The 0-based line that closes the first `{` block opened on or after LINES[FIRST] (the last line if none)."""
+    depth, started, k = 0, False, first
+    while k < len(lines):
+        for c in code_of(lines[k]):
+            if c == "{":
+                depth += 1
+                started = True
+            elif c == "}":
+                depth -= 1
+        if started and depth <= 0:
+            return k
+        k += 1
+    return len(lines) - 1
 
 
 def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str]:
@@ -997,14 +1043,22 @@ def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str
             continue
         if not change.has_perf_hot:
             continue
-        for first, last, decl, budget, hot in function_spans(change.head_lines):
+        for marker in perf_hot_markers(change.head_lines):
+            if marker.span is None:
+                if marker.line in change.touched:
+                    out.append(f"{path}:{marker.line}: this `// perf-hot:` marks no declaration, so no edit of the hot "
+                               "function warns: put it in the comment block above the declaration, or trailing on the "
+                               "line with the body's `{`")
+                continue
+            first, last = marker.span
             if not any(first <= n <= last for n in change.touched):
                 continue
+            hot = marker.path_id
             entry = paths.get(hot, {})
             bench = entry.get("bench", "no bench mapped: add the path id to " + BENCHES)
             owner = f"; owner {entry['owner']}" if entry.get("owner") else ""
-            out.append(f"{path}:{first}: changes perf-hot `{decl[:80]}` (budget {budget}, {hot or 'no path id'}"
-                       f"{owner}). Run before and after on the fleet, light and STRESS: {bench}")
+            out.append(f"{path}:{first}: changes perf-hot `{marker.declaration[:80]}` (budget {marker.budget}, "
+                       f"{hot or 'no path id'}{owner}). Run before and after on the fleet, light and STRESS: {bench}")
     for path, change in sorted(changes.items()):
         # Per path id: an edit of a marked declaration line (a parameter, an attribute) keeps its marker.
         gone = marker_ids(r.text for r in change.removed) - marker_ids(a.text for a in change.added)

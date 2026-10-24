@@ -4,9 +4,9 @@
 plans/cmux-next/perf-lead.md row 24 and codebase-health.md section 6 said `home-key` had no `// perf-hot:` marker
 while it had one (Packages/Shared/CmuxMessagesLab, outside Packages/macOS/CmuxNext/Sources, the only place the
 report looked). These tests build a throwaway repository with markers inside and outside the pre-push hook's
-scope, and one on the last line of a multi-line signature (KeyBindingTable.step and ChordTracker.step have that
-shape; the hook's parser finds no declaration there), and check what the report prints, and that its "warns at
-push" claim is what guardrails.py really does for an edit of each marked function. They also check that a
+scope, one on the `{` line of a multi-line signature (KeyBindingTable.step and ChordTracker.step have that shape;
+the hook's resolver marks that declaration), and one that marks no declaration, and check what the report
+prints, and that its "warns at push" claim is what guardrails.py really does for an edit of each marked function. They also check that a
 NotificationCenter observer behind the `MainActorObservation(` wrapper counts as an observer (sections 1 and 2),
 and that the header cites a sha on feat-cmux-next, not a local commit a rebase rewrites. Not on CI (Lawrence
 2026-10-23: no new CI gates): run it yourself after a change to codebase-health.py or to guardrails.py's diff
@@ -172,7 +172,17 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
 
     def test_the_report_counts_marked_ids_and_ids_that_warn_at_push(self):
         report = health.report(self.repo)
-        self.assertIn("Marked: 2 of 3 path ids (3 markers); 1 of 3 warn at push; 2 of 3 markers never warn.", report)
+        # Only PaneHost (outside the hook's diff scope) never warns: Chord's wrapped signature warns like Router.
+        self.assertIn("Marked: 2 of 3 path ids (3 markers); 1 of 3 warn at push; 1 of 3 markers never warn.", report)
+
+    def test_a_marker_that_marks_no_declaration_is_flagged_and_the_hook_agrees(self):
+        # A trailing marker on a statement line marks nothing: the report flags it, and the hook's own warning
+        # for that marker line (not a hot-function edit) still gives a report.
+        self.write(ROUTER, marked("Router", "key-dispatch", "count += key // perf-hot: 1ms new-tab"))
+        self.commit("a marker on a statement")
+        rows = self.section6()
+        self.assertIn("CmuxNextKit/Router.swift:5 (marks no declaration", rows["new-tab"])
+        self.assertRegex(rows["key-dispatch"], r"CmuxNextKit/Router\.swift:4(,|$)")  # its function still warns
 
     def test_warns_at_push_is_what_the_hook_does_for_an_edit_of_each_marked_function(self):
         rows = self.section6()
