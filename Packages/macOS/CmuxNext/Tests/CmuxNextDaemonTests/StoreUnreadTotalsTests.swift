@@ -65,6 +65,24 @@ import Testing
         expectConsistent(store, "after one notification")
     }
 
+    /// What the badge observes changes only with the count: a retitled tab or a new tab with no
+    /// notification does not wake the Dock badge, the notification panel or a window's sidebar.
+    @Test func aTitleChangeOrANewTabWithoutANotificationDoesNotWakeTheBadge() {
+        let store = loadedStore()
+        notify(store, workspace: 2, tab: 0, id: 4)
+        let changed = Heard()
+        withObservationTracking { _ = store.unreadBadge(homeUnread: ["c-1"]) } onChange: { changed.set() }
+        _ = store.apply(.titleChanged(surface: Self.surface(2, 1), title: "vim README.md"))
+        _ = store.apply(.tabAdded(TabDelta(workspace: Self.handle(2), screen: Self.screen(2), pane: Self.pane(2),
+                                           surface: Self.surface(2, 9), index: 5, entity: Self.tab(2, 9))))
+        _ = store.apply(.tabChanged(TabDelta(workspace: Self.handle(3), screen: Self.screen(3), pane: Self.pane(3),
+                                             surface: Self.surface(3, 0), index: 0, entity: Self.tab(3, 0))))
+        #expect(!changed.value, "the badge's observer woke for a change that left the count as it was")
+        notify(store, workspace: 3, tab: 1, id: 5)
+        #expect(changed.value, "the badge's observer missed a new unread notification")
+        expectConsistent(store, "after unrelated changes")
+    }
+
     @Test func closingAnUnreadTabDropsItsCount() {
         let store = loadedStore()
         notify(store, workspace: 7, tab: 1, id: 1)
