@@ -88,3 +88,42 @@ final class SoonFrameSource: ControlFrameSource {
         frames.fire()
     }
 }
+
+/// A frame source whose every drain request (`scheduleSoon` and `scheduleFrame`) waits until the
+/// test fires it, and which says when one is made: `requests` yields once per request, so a test
+/// waits for "the work queue has an item" on that signal, never on a poll or a time.
+final class SignalingFrameSource: ControlFrameSource {
+    private let frames = ManualFrameSource()
+    let requests: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+    /// Signalled by the next request only (one-shot): a synchronous main-actor handler that must
+    /// hold the main thread until another request is queued waits on it.
+    private let nextRequest = Mutex<DispatchSemaphore?>(nil)
+
+    init() {
+        (requests, continuation) = AsyncStream.makeStream()
+    }
+
+    func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
+        frames.scheduleFrame(work)
+        continuation.yield()
+        nextRequest.withLock { semaphore -> DispatchSemaphore? in
+            let taken = semaphore
+            semaphore = nil
+            return taken
+        }?.signal()
+    }
+
+    /// A semaphore the next drain request signals once.
+    func signalOnNextRequest() -> DispatchSemaphore {
+        let semaphore = DispatchSemaphore(value: 0)
+        nextRequest.withLock { $0 = semaphore }
+        return semaphore
+    }
+
+    /// Runs every drain requested so far.
+    @MainActor
+    func fire() {
+        frames.fire()
+    }
+}

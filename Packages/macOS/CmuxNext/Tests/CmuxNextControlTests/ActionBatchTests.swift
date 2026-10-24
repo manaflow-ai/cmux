@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextSettings
+import Foundation
 import Testing
 
 /// Records each run's `index` argument in order and refuses the run whose index is `refusing`.
@@ -11,21 +12,17 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
     /// The runs whose work fails, by index. The work is a main-actor task, so it fails only after
     /// every op of the batch's transaction ran (as a daemon command's reply comes after it).
     let failingWork: Set<Int>
-    /// How long each run holds the main actor (a slow handler).
-    let holding: Duration
     /// Runs on the main actor at the start of each run, with its index (a test's side effect).
     let beforeRun = Mutex<(@MainActor @Sendable (Int) -> Void)?>(nil)
 
-    init(refusing: Int? = nil, failingWork: Set<Int> = [], holding: Duration = .zero) {
+    init(refusing: Int? = nil, failingWork: Set<Int> = []) {
         self.refusing = refusing
         self.failingWork = failingWork
-        self.holding = holding
     }
 
     @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
         guard case .int(let index)? = request.arguments["index"] else { return .disabled }
         beforeRun.withLock { $0 }?(index)
-        spin(for: holding)
         ran.withLock { $0.append(index) }
         return index == refusing ? .refused("no room") : .ran
     }
@@ -44,11 +41,9 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
 /// request apply as one transaction: validated before any runs, run in order in one main-actor
 /// work item, bounded, and keyed like `action.run`.
 @Suite(.timeLimit(.minutes(1))) struct ActionBatchTests {
-    private func router(_ executor: IndexRecordingExecutor, batchOpLimit: Int = ControlRouter.batchOpLimit,
-                        deadline: Duration? = nil) -> ControlRouter {
+    private func router(_ executor: IndexRecordingExecutor, batchOpLimit: Int = ControlRouter.batchOpLimit) -> ControlRouter {
         var configuration = ControlRouter.Configuration.loadTolerant
         configuration.batchOpLimit = batchOpLimit
-        if let deadline { configuration.requestDeadline = deadline }
         let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: configuration)
         router.snapshots.publish { snapshot in
             snapshot.catalog = sampleCatalog()
@@ -152,29 +147,51 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(executor.indices == [1, 2, 3])
     }
 
+    /// A router whose work queue drains only when the test fires its frame source.
+    private func signalingRouter(_ executor: IndexRecordingExecutor, frames: SignalingFrameSource,
+                                 configure: (inout ControlRouter.Configuration) -> Void) -> ControlRouter {
+        var configuration = ControlRouter.Configuration.loadTolerant
+        configuration.batchOpLimit = 1
+        configure(&configuration)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: configuration, frameSource: frames)
+        router.snapshots.publish { snapshot in
+            snapshot.catalog = sampleCatalog()
+            snapshot.topology.isLoaded = true
+        }
+        return router
+    }
+
     /// A batch split into transactions (`atomic: false`) whose later transaction never runs (its
-    /// deadline passed while the earlier one held the main actor) still records its outcome under
-    /// its key: a retry with the key gets that answer at once (how many ops applied), never waits
-    /// for a run that will not come.
+    /// deadline passed while it was queued) still records its outcome under its key: a retry with
+    /// the key gets that answer at once (how many ops applied), never waits for a run that will
+    /// not come. The test drains the queue by hand: transaction 1 runs; transaction 2 is queued and
+    /// never drained, so its deadline passes in the queue whatever the machine's speed.
     @Test func aKeyedBatchCutShortByItsDeadlineAnswersARetry() async throws {
-        let executor = IndexRecordingExecutor(holding: .milliseconds(400))
-        let router = router(executor, batchOpLimit: 1, deadline: .milliseconds(200))
+        let frames = SignalingFrameSource()
+        let executor = IndexRecordingExecutor()
+        let router = signalingRouter(executor, frames: frames) { $0.requestDeadline = .seconds(2) }
+        var drains = frames.requests.makeAsyncIterator()
         let params: [String: JSONValue] = ["ops": ops([1, 2]), "atomic": false, "idempotency_key": "b-cut"]
-        guard case .failure = await batch(router, params) else {
+        async let answer = batch(router, params)
+        _ = await drains.next() // transaction 1 queued
+        await MainActor.run { frames.fire() }
+        _ = await drains.next() // transaction 2 queued: left there until its deadline passes
+        guard case .failure = await answer else {
             Issue.record("expected the deadline to cut the batch short")
             return
         }
-        // The request answered at its deadline while the batch still ran; the batch ends (its second
-        // transaction expires in the queue) and records its outcome under the key.
-        let end = ContinuousClock.now + .seconds(10)
-        while !router.idempotency.hasOutcome("b-cut"), ContinuousClock.now < end { await Task.yield() }
-        try #require(router.idempotency.hasOutcome("b-cut"), "the cut-short batch left its key without an outcome")
-        let started = ContinuousClock.now
+        // The request answered at its deadline; the batch ends (its second transaction expired in
+        // the queue) and records its outcome under the key.
+        let recorded = await router.idempotency.outcome(of: "b-cut")
+        guard case .failure(let outcome)? = recorded else {
+            Issue.record("the cut-short batch left its key without a failure outcome: \(String(describing: recorded))")
+            return
+        }
+        #expect(outcome.data?["applied"] == 1, "\(outcome)")
         guard case .failure(let retried) = await batch(router, params) else {
             Issue.record("a retry of a cut-short batch ran it again")
             return
         }
-        #expect(ContinuousClock.now - started < .seconds(5), "the retry waited for the cut-short run")
         #expect(retried.data?["applied"] == 1, "\(retried)")
         #expect(executor.indices == [1])
     }
@@ -184,33 +201,27 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
     /// client trusts `not_run` as safe to send again, and sending it again runs op 1 twice. A retry
     /// with the key replays the same answer, still not `not_run`.
     @Test func aBatchCutShortByAFullQueueIsNotNotRun() async throws {
-        let frames = SoonFrameSource()
-        var configuration = ControlRouter.Configuration.loadTolerant
-        configuration.batchOpLimit = 1
-        configuration.queueLimits = MainActorWorkQueue.Limits(maxPendingPerConnection: 1)
+        let frames = SignalingFrameSource()
         let executor = IndexRecordingExecutor()
-        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: configuration, frameSource: frames)
-        router.snapshots.publish { snapshot in
-            snapshot.catalog = sampleCatalog()
-            snapshot.topology.isLoaded = true
-        }
+        let router = signalingRouter(executor, frames: frames) { $0.queueLimits = MainActorWorkQueue.Limits(maxPending: 1) }
         let queue = router.workQueue
         executor.beforeRun.withLock { hook in
             hook = { index in
                 guard index == 1 else { return }
-                // While op 1 holds the main actor, another request of the same connection queues;
-                // the queue takes one item per connection, so the batch's next transaction is busy.
-                Task.detached { _ = try? await queue.run(method: "filler", deadline: .now + .seconds(30)) {} }
-                let end = ContinuousClock.now + .seconds(10)
-                // The filler's enqueue is the condition, not a time: it runs off the main actor.
-                while queue.stats.pending == 0, ContinuousClock.now < end {}
-                // Past the queue's frame budget, so this drain stops after op 1 and the filler waits
-                // for a frame the test fires only at the end.
-                spin(for: queue.limits.frameBudget)
+                // While op 1 holds the main actor, an injected key arrives: the queue's one place is
+                // taken, so the batch's next transaction is busy. The key's enqueue asks for its drain,
+                // which signals this wait; the drain itself waits for the test's last fire.
+                let queued = frames.signalOnNextRequest()
+                Task.detached { _ = try? await queue.run(method: "filler", workClass: .input, deadline: .now + .seconds(30)) {} }
+                queued.wait()
             }
         }
+        var drains = frames.requests.makeAsyncIterator()
         let params: [String: JSONValue] = ["ops": ops([1, 2]), "atomic": false, "idempotency_key": "b-busy"]
-        guard case .failure(let error) = await batch(router, params) else {
+        async let answer = batch(router, params)
+        _ = await drains.next() // transaction 1 queued
+        await MainActor.run { frames.fire() }
+        guard case .failure(let error) = await answer else {
             Issue.record("expected the full queue to cut the batch short")
             return
         }
@@ -229,18 +240,6 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(replayed.data?["not_run"] == false, "the replay of a batch that applied op 1: \(replayed)")
         #expect(executor.indices == [1], "the retry ran ops again")
         await MainActor.run { frames.fire() }
-    }
-
-    @Test func aBatchLevelMemberOnOneOpIsRefused() async {
-        let executor = IndexRecordingExecutor()
-        let op: JSONValue = ["action": "selectWorkspaceByNumber", "args": ["index": 1], "wait": false]
-        guard case .failure(let error) = await batch(router(executor), ["ops": [op]]) else {
-            Issue.record("expected a refusal")
-            return
-        }
-        #expect(error.code == "invalid_params")
-        #expect(error.data?["op"] == 0)
-        #expect(executor.indices.isEmpty)
     }
 
     /// An op's member at the batch level (`origin`, `target`, `focus`) is refused, as `action.run`
