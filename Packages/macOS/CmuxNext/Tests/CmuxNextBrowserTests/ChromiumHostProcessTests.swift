@@ -58,6 +58,29 @@ import Testing
         ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD).close()
     }
 
+    // Before the fix the host got the spawning thread's signal mask: the shell's
+    // SIGUSR1 to itself stayed pending, and it printed "alive" and exited 0.
+    @Test func aHostStartsWithNoBlockedSignals() async throws {
+        let launcher = ChromiumHostLauncher()
+        var blocked = sigset_t()
+        sigemptyset(&blocked)
+        sigaddset(&blocked, SIGUSR1)
+        var previous = sigset_t()
+        // posix_spawn gives the child the calling thread's mask unless told otherwise.
+        // No await until the mask is restored, so this thread runs nothing else meanwhile.
+        pthread_sigmask(SIG_BLOCK, &blocked, &previous)
+        let launched = Result { try launcher.launch(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"]) }
+        pthread_sigmask(SIG_SETMASK, &previous, nil)
+        let handle = try launched.get()
+        let exit = await launcher.exit(of: handle.pid)
+        launcher.reap(handle.pid)
+        var output = [UInt8](repeating: 0, count: 64)
+        let count = read(handle.readFD, &output, output.count)
+        [handle.readFD, handle.writeFD].forEach { _ = Darwin.close($0) }
+        #expect(exit == ChromiumHostExit(signal: SIGUSR1, status: nil))
+        #expect(count == 0)  // EOF: the shell ended at the signal, before it printed
+    }
+
     @Test func aConnectionDroppedWithoutCloseEndsTheWire() async throws {
         var pair: [Int32] = [-1, -1]
         #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
