@@ -36,7 +36,7 @@ public actor LoopbackTunnelReader {
     /// The next bytes; nil at the end of the stream. Throws when the tunnel ended early.
     public func read() async throws -> Data? {
         guard var events = iterator else { return nil }
-        let event = await events.next()
+        let event = await events.next(isolation: self)
         iterator = events
         switch event {
         case .data(let data)?:
