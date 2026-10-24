@@ -247,6 +247,7 @@ async fn daemon(
         LinePolicy::Daemon(
             DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
         ),
+        config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
         receiver,
     )
@@ -274,7 +275,7 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), sender, receiver).await
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
@@ -283,11 +284,16 @@ async fn splice(
     path: &Path,
     label: &str,
     policy: LinePolicy,
+    spent_replies: Option<std::sync::Arc<crate::mailbox::SpentReplies>>,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
+    let reply_phone = match &policy {
+        LinePolicy::Daemon(daemon) => Some(daemon.device_id().to_owned()),
+        LinePolicy::Chief(_) => None,
+    };
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
@@ -371,6 +377,26 @@ async fn splice(
                     }
                     (_, verdict) => verdict,
                 };
+                // A reply to a terminal notification: hostd answers it itself
+                // (the daemon has no such command), into that terminal only.
+                if matches!(verdict, Verdict::Forward)
+                    && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
+                    && is_notification_reply(&line)
+                {
+                    let mut answer = crate::mailbox_apply::answer_notification_reply(
+                        path,
+                        phone,
+                        spent_replies.as_deref(),
+                        &line,
+                    )
+                    .await
+                    .into_bytes();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 match verdict {
                     Verdict::Forward => {
                         if let Some(path) = &terminal_folders {
@@ -462,6 +488,13 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Whether `line` is a `notification-reply` request.
+fn is_notification_reply(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|v| v.get("cmd").and_then(Value::as_str) == Some("notification-reply"))
 }
 
 /// Releases every terminal size the phone claimed on this channel and waits

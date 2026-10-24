@@ -49,8 +49,12 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
     title: firstString(values, ["title", "briefTitle", "brief_title", "name"]),
     from: identityString(values, ["from", "sender"]) ?? firstString(values, ["senderId", "sender_id", "agent"]),
     to: identityString(values, ["to", "target", "recipient"]) ?? firstString(values, ["target", "recipient"]),
-    host: identityField(values, "to", ["host", "hostname", "machine"]) ?? firstString(values, ["host", "hostname", "machine"]),
-    sessionId: identityField(values, "to", ["sessionId", "session_id", "session"]) ?? firstString(values, ["sessionId", "session_id", "session"]),
+    host:
+      identityField(values, "to", ["host", "hostname", "machine"]) ??
+      firstString(values, ["host", "hostname", "machine"]),
+    sessionId:
+      identityField(values, "to", ["sessionId", "session_id", "session"]) ??
+      firstString(values, ["sessionId", "session_id", "session"]),
     status: firstString(values, ["status", "state"]) ?? statusFromTool(tool),
     stopCondition: firstString(values, ["stopCondition", "stop_condition"]),
     text:
@@ -162,7 +166,10 @@ function identityString(values: readonly unknown[], keys: readonly string[]): st
       const found = value[key];
       if (typeof found === "string" && found.trim()) return found.trim();
       if (isRecord(found)) {
-        const identity = firstString([found], ["actor_id", "actorId", "name", "id", "session_id", "session", "harness", "host"]);
+        const identity = firstString(
+          [found],
+          ["actor_id", "actorId", "name", "id", "session_id", "session", "harness", "host"],
+        );
         if (identity) return identity;
       }
     }

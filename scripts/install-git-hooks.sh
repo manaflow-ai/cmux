@@ -63,8 +63,10 @@ rm -rf "$TRUSTED_CHECKS_STAGE"
 mkdir -p "$TRUSTED_CHECKS_STAGE"
 while IFS= read -r -d '' checker; do
     relative="${checker#scripts/cmux-next/}"
+    # lint/ holds the linters' configs; arch_rules/ holds the rule modules arch-ratchet.py loads from its
+    # own directory (without it the installed ratchet runs no layer gate).
     case "$relative" in
-        */*) [[ "$relative" == lint/* ]] || continue ;;
+        */*) [[ "$relative" == lint/* || "$relative" == arch_rules/* ]] || continue ;;
     esac
     mkdir -p "$TRUSTED_CHECKS_STAGE/$(dirname "$relative")"
     cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"

@@ -219,6 +219,23 @@ impl ApiClient {
         Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
     }
 
+    /// [`Self::notify`] with a body already built (a sealed notify, API 0.13.0).
+    pub async fn notify_body(
+        &self,
+        mac_device_id: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        let response = self
+            .http
+            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
+            .bearer_auth(&self.token)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
+    }
+
     /// `GET /v1/me/devices`: every device the caller registered.
     pub async fn my_devices(&self) -> Result<Vec<MyDevice>, ApiError> {
         #[derive(Deserialize)]
