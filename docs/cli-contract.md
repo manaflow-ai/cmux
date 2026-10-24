@@ -559,7 +559,11 @@ them in order in one main-thread task, and answers once. What the app owns
 what the session daemon owns (a daemon tab renamed, a column made, a close)
 shows as the daemon's echoes arrive, which can take more than one frame. It
 is not all-or-nothing: a refusal while running stops there, the ops before it
-stay applied, and the answer says how many (`applied`). One transaction holds
+stay applied, and the answer says how many (`applied`). The daemon work an op
+started (a rename, a close) can fail after the ops after it ran, so it does
+not stop them: the answer names the first such op (`op`, 0-based, with its
+own `action`), lists every op whose work failed (`failed`) and says how many
+ops ran (`applied`); an earlier op's failure answers before a later refusal. One transaction holds
 at most 64 ops; `--no-atomic` applies a longer list as consecutive
 transactions (one that never runs, because its deadline passed or the app was
 busy, ends the batch with `applied` set and is never `not_run`), and without
