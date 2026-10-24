@@ -164,10 +164,6 @@ import Testing
         #expect(try await processes.run(request).succeeded)
         #expect(queue.withLock { $0 } == "com.cmuxterm.next.process.true")
     }
-        let outcome = try await processes.run(Self.tool("/usr/bin/true"))
-        #expect(outcome.succeeded)
-        #expect(spawnedOnMain.withLock { $0 } == false)
-    }
 
     @Test func theChildRunsAtItsWaitersPriority() async throws {
         // Process.qualityOfService clamps the child (posix_spawn's QoS clamp), so the child's own scheduler
