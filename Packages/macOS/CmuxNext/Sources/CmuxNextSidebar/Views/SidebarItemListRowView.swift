@@ -27,6 +27,7 @@ final class SidebarItemListRowView: SidebarRowView {
     }
 
     override var debugIcon: String? { hasIcon ? "favicon" : nil }
+    override var debugArchived: Bool { archived }
     override var debugIconAddress: String? { hasIcon ? iconAddress : nil }
     private var iconAddress: String?
     override var titleFrame: NSRect { title.frame }

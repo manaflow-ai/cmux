@@ -185,6 +185,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
+    override var debugArchived: Bool { archived }
     override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 

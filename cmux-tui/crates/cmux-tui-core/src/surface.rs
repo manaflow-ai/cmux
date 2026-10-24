@@ -20,6 +20,7 @@ mod holder_spawn;
 mod host_launch;
 mod host_state;
 mod input;
+mod local_output;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -759,6 +760,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -976,6 +979,8 @@ impl Surface {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyGeometryTestStep {
+    LocalReaderReady,
+    LocalDrainSnapshot,
     ResizeStarted,
     ResizeCommitBoundary,
     CellPixelStarted,
