@@ -1245,18 +1245,32 @@ class Recording:
         """Focuses a pane of the measured workspace whose selected tab is a terminal that is not one of the busy
         ones, so the keys go to a terminal whose only output is their echo. A key-press flow takes the first
         output on its terminal after the PTY write as the echo: on a busy terminal that would be the busy loop's
-        line (plans/cmux-next/trace.md, "Key-press flows")."""
+        line (plans/cmux-next/trace.md, "Key-press flows").
+
+        This moves typing off the pane STRESS focuses (its first, busy one) in every record run: the summary
+        names both panes (`typed_pane`). A failure to find or focus the pane is a warning, never the build's
+        end: the trace is still taken, on the busy pane."""
         stress = self.stress
-        busy = set(getattr(stress, "busy", []) or [])
-        panes = stress.panes(stress.workspace(getattr(stress, "measured", None)))
-        quiet = next((pane for pane in reversed(panes)
-                      if any(t.get("kind") == "terminal" and t.get("selected") and t.get("id") not in busy
-                             for t in pane.get("tabs") or [])), None)
-        if quiet is None:
-            self.warn("no quiet terminal in the measured workspace: key-press flows type into a busy terminal")
-            return
-        stress.focus_pane(quiet["id"])
-        self.meta["typed_pane"] = quiet["id"]
+        typed = {"before": None, "after": None, "quiet": False}
+        self.meta["typed_pane"] = typed
+        try:
+            typed["before"] = (stress.topology().get("focus") or {}).get("pane")
+            busy = set(getattr(stress, "busy", []) or [])
+            panes = stress.panes(stress.workspace(getattr(stress, "measured", None)))
+            quiet = next((pane for pane in reversed(panes)
+                          if any(t.get("kind") == "terminal" and t.get("selected") and t.get("id") not in busy
+                                 for t in pane.get("tabs") or [])), None)
+            if quiet is None:
+                self.warn("no quiet terminal in the measured workspace: key-press flows type into a busy terminal")
+                return
+            stress.focus_pane(quiet["id"])
+            typed["after"] = (stress.topology().get("focus") or {}).get("pane")
+            typed["quiet"] = typed["after"] == quiet["id"]
+            if not typed["quiet"]:
+                self.warn(f"focus did not move to the quiet pane {quiet['id']} (focused: {typed['after']}): key-press "
+                          "flows type into a busy terminal")
+        except Exception as error:  # a warning: the trace is still taken (StageTimeout is a BaseException)
+            self.warn(f"could not focus a quiet terminal: {type(error).__name__}: {str(error)[:200]}")
 
     def build_light(self):
         """The light session: the window placed at the STRESS size, LIGHT_BACKGROUND workspaces (targets of the
@@ -2647,7 +2661,7 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
     return {
         "host": meta.get("host"), "macos": meta.get("macos"), "tag": meta.get("tag"), "scenario": meta.get("scenario"),
         "scenario_label": meta.get("scenario_label"),
-        "window_s": None if window_s is None else round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "storm_ops": meta.get("storm_ops"),
+        "window_s": None if window_s is None else round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "typed_pane": meta.get("typed_pane"), "storm_ops": meta.get("storm_ops"),
         "light": meta.get("light"), "storm_targets": meta.get("storm_targets"),
         "keys": meta.get("keys"), "chords": meta.get("chords"), "key_to_frame_ms": meta.get("key_to_frame_ms"),
         "frames": meta.get("frames"), "cef": meta.get("cef"), "window_state": meta.get("window_state"),
@@ -2742,6 +2756,10 @@ def summary_text(s):
         st = s["stress"]
         lines.append(f"  STRESS: {st.get('workspaces')} workspaces, {st.get('measured_panes')} panes, tabs {st.get('measured_tabs')}, "
                      f"{st.get('busy_terminals')} busy terminals" + (f"; NOT the STRESS shape: {st['shape_error']}" if st.get("shape_error") else ""))
+    typed = s.get("typed_pane") or {}
+    if typed:
+        lines.append(f"  typed pane: {typed.get('before')} -> {typed.get('after')}"
+                     + ("" if typed.get("quiet") else " (NOT a quiet terminal: key-press flows may join the busy output)"))
     if s.get("storm_ops") is not None:
         lines.append(f"  storm ops {s.get('storm_ops')}, keys {s.get('keys')}, chords {s.get('chords')}, "
                      f"key to frame {s.get('key_to_frame_ms')}")
@@ -3764,6 +3782,51 @@ def check_flow_gaps_warn():
     assert any("flow id" in w and "daemon.send.write" in w for w in warnings), warnings
     assert flow_warnings([], [], []) == [], "a recording without flows warns about nothing"
 
+def check_focus_quiet_terminal():
+    """The keys move to a quiet terminal and the summary names both panes; a focus that fails or raises is a
+    warning, never the end of the build (review of flows3)."""
+    class FakeStress:
+        def __init__(self, focus_raises=False, focus_moves=True):
+            self.busy, self.measured, self.focus = ["t1"], "w", "p1"
+            self.focus_raises, self.focus_moves = focus_raises, focus_moves
+
+        def topology(self):
+            return {"focus": {"pane": self.focus}}
+
+        def workspace(self, _id):
+            return {}
+
+        def panes(self, _workspace):
+            return [{"id": "p1", "tabs": [{"kind": "terminal", "selected": True, "id": "t1"}]},
+                    {"id": "p2", "tabs": [{"kind": "terminal", "selected": True, "id": "t2"}]}]
+
+        def focus_pane(self, pane):
+            if self.focus_raises:
+                raise RuntimeError("socket closed")
+            if self.focus_moves:
+                self.focus = pane
+
+    import io
+    with tempfile.TemporaryDirectory() as out:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rec = quiet_recording(out)
+            rec.stress = FakeStress()
+            rec.focus_quiet_terminal()
+            assert rec.meta["typed_pane"] == {"before": "p1", "after": "p2", "quiet": True}, rec.meta
+            assert not rec.meta["warnings"], rec.meta["warnings"]
+            rec = quiet_recording(out)
+            rec.stress = FakeStress(focus_raises=True)
+            rec.focus_quiet_terminal()
+            assert rec.meta["typed_pane"]["quiet"] is False and "socket closed" in rec.meta["warnings"][0], rec.meta
+            rec = quiet_recording(out)
+            rec.stress = FakeStress(focus_moves=False)
+            rec.focus_quiet_terminal()
+            assert rec.meta["typed_pane"] == {"before": "p1", "after": "p1", "quiet": False}, rec.meta
+            assert "did not move" in rec.meta["warnings"][0], rec.meta["warnings"]
+    text = summary_text({"typed_pane": {"before": "p1", "after": "p1", "quiet": False}})
+    assert "typed pane: p1 -> p1 (NOT a quiet terminal" in text, text
+
+
 SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
@@ -3772,7 +3835,7 @@ SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
               check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
-              check_flow_gaps_warn]
+              check_flow_gaps_warn, check_focus_quiet_terminal]
 
 
 def self_test():

@@ -576,12 +576,10 @@ impl Surface {
     /// The hex terminal id key-press flow marks name this terminal by (`cmux_flow_trace`): the host's
     /// terminal id, which the terminal host and the holder also know. Empty for a browser surface or a
     /// local PTY with no host identity.
-    pub(crate) fn flow_terminal_id(&self) -> String {
+    pub(crate) fn flow_terminal_id(&self) -> &str {
         match self {
-            Self::Pty(surface) => {
-                surface.host_identity.as_ref().map(|id| id.terminal_id.clone()).unwrap_or_default()
-            }
-            Self::Browser(_) => String::new(),
+            Self::Pty(surface) => surface.flow_terminal_id(),
+            Self::Browser(_) => "",
         }
     }
 
