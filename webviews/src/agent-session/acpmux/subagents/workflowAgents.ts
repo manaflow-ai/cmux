@@ -86,14 +86,15 @@ export function workflowPhases(value: unknown): WorkflowPhase[] | undefined {
 /// `agents` with one update's `workflowAgents` merged in, as a new map when anything changed (the
 /// one passed in is never changed, so a row drawn from it keeps what it drew). `full` replaces:
 /// agents the update does not name are dropped. A field the update sets null is removed; one of the
-/// wrong type is ignored.
+/// wrong type is ignored. `agents` that is not a map (a row restored from the page's cached
+/// snapshot, whose JSON turned the map into `{}`) counts as none.
 export function mergeWorkflowAgents(
   agents: ReadonlyMap<number, WorkflowAgent> | undefined,
   value: unknown,
   full = false,
 ): ReadonlyMap<number, WorkflowAgent> | undefined {
   if (!Array.isArray(value)) return agents;
-  const next = new Map(full ? [] : (agents ?? []));
+  const next = new Map(full || !(agents instanceof Map) ? [] : agents);
   for (const entry of value) {
     const at = index(entry?.index);
     if (at === undefined) continue;

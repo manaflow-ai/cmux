@@ -33,6 +33,12 @@ test("each update's agent changes merge by index; null removes a field; a new ma
   expect(mergeWorkflowAgents(second, undefined)).toBe(second);
 });
 
+test("agents restored from a cached snapshot's JSON (a map turned `{}`) count as none", () => {
+  const restored = JSON.parse(JSON.stringify({ agents: mergeWorkflowAgents(undefined, [{ index: 1, label: "a" }]) }));
+  const merged = mergeWorkflowAgents(restored.agents, [{ index: 2, label: "b" }]);
+  expect([...merged!.values()]).toEqual([{ index: 2, label: "b" }]);
+});
+
 test("a full update replaces the agents", () => {
   const before = mergeWorkflowAgents(undefined, [
     { index: 1, label: "a", tokens: 9 },
