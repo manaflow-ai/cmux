@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextApp
 @testable import CmuxNextTerminal
 import Foundation
 import GhosttyNextKit
@@ -162,5 +163,31 @@ import Testing
         try await h.hover(10, 1)
         h.session.clickLinkForTesting(column: 10, row: 1)
         #expect(h.opens.texts == [url, url])
+    }
+
+    @Test func aPrintedPathKeepsItsLineAndColumn() {
+        let code = TerminalLinkResolver.location("src/app.ts:3:5")
+        #expect(code?.line == 3 && code?.column == 5)
+        let note = TerminalLinkResolver.location("\"notes/todo.md:12\",")
+        #expect(note?.line == 12 && note?.column == nil)
+        #expect(TerminalLinkResolver.location("README.md") == nil)
+        #expect(TerminalLinkResolver.location("localhost:3000/docs") == nil)
+        #expect(TerminalLinkResolver.location("https://example.com:8080") == nil)
+    }
+
+    @Test func onlyAWordBrokenAtTheEdgeJoinsTheNextRow() {
+        // 30 columns: the first row's URL fills the row.
+        let wrapped = ["  https://example.com/aaaaaaaa", "  bbbb/c?d=1 and more"]
+        #expect(TerminalWrappedLink.find(rows: wrapped, firstRow: 0, columns: 30, column: 3, row: 1)?.text
+            == "https://example.com/aaaaaaaabbbb/c?d=1")
+        #expect(TerminalWrappedLink.find(rows: wrapped, firstRow: 0, columns: 30, column: 3, row: 1)?.segments.count == 2)
+        // The URL ends well before the edge: the next row's word is not part of it.
+        let short = ["  see https://example.com/x", "  next"]
+        #expect(TerminalWrappedLink.find(rows: short, firstRow: 0, columns: 40, column: 3, row: 1) == nil)
+        #expect(TerminalWrappedLink.find(rows: short, firstRow: 0, columns: 40, column: 10, row: 0) == nil)
+        // A frame border after the URL does not stop the join.
+        let framed = ["│ https://example.com/aaaaaa │", "│ bbb.html                   │"]
+        #expect(TerminalWrappedLink.find(rows: framed, firstRow: 0, columns: 30, column: 10, row: 0)?.text
+            == "https://example.com/aaaaaabbb.html")
     }
 }

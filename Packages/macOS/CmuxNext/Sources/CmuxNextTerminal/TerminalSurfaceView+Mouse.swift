@@ -22,12 +22,15 @@ extension TerminalSurfaceView {
     public override func mouseDown(with event: NSEvent) {
         session?.surfaceClicked()
         if !isFirstResponder { window?.makeFirstResponder(self) }
-        sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
+        if linkPointer.mouseDown(event) { return }
+        sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, mods: linkPointer.buttonMods(event.modifierFlags))
     }
 
     public override func mouseUp(with event: NSEvent) {
         previousPressureStage = 0
-        sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+        let mods = linkPointer.buttonMods(event.modifierFlags)
+        if linkPointer.mouseUp(event) { return }
+        sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, mods: mods)
         if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
     }
 
@@ -59,6 +62,7 @@ extension TerminalSurfaceView {
 
     /// Moves Ghostty's pointer off-grid so link hover state clears.
     public override func mouseExited(with event: NSEvent) {
+        linkPointer.exited()
         guard let surface else { return }
         ghostty_surface_mouse_pos(surface, -1, -1, GhosttyInput.mods(event.modifierFlags))
     }
@@ -149,20 +153,25 @@ extension TerminalSurfaceView {
 
     // MARK: Helpers
 
+    /// `mods`: the left button's keys from ``TerminalLinkPointer`` (a link click carries
+    /// Command alone); the event's own otherwise.
     @discardableResult
-    private func sendButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e) -> Bool {
+    private func sendButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e,
+                            mods: ghostty_input_mods_e? = nil) -> Bool {
         guard let surface else { return false }
         sendPosition(event)
         return clipboardRequests.asUserClipboardWrite {
-            ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(event.modifierFlags))
+            ghostty_surface_mouse_button(surface, state, button, mods ?? GhosttyInput.mods(event.modifierFlags))
         }
     }
 
     private func sendPosition(_ event: NSEvent) {
         guard let surface else { return }
         let point = convert(event.locationInWindow, from: nil)
+        let mods = linkPointer.moveMods(event.modifierFlags, buttonsDown: NSEvent.pressedMouseButtons != 0)
         // Ghostty expects points with a top-left origin.
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(event.modifierFlags))
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mods)
+        linkPointer.moved(to: point, flags: event.modifierFlags)
     }
 
     private static func button(for number: Int) -> ghostty_input_mouse_button_e {

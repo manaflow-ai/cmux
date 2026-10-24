@@ -93,6 +93,8 @@ extension TerminalSurfaceView {
     public override func flagsChanged(with event: NSEvent) {
         guard !hasMarkedText(), let action = GhosttyInput.modifierAction(for: event) else { return }
         sendKey(action, event: event)
+        // After the key: with a program reading the mouse, Ghostty's key path clears the link.
+        linkPointer.modifiersChanged(event.modifierFlags)
     }
 
     /// Key equivalents reach the view before the main menu

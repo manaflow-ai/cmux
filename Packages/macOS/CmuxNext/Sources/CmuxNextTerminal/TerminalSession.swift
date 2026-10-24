@@ -232,11 +232,12 @@ public final class TerminalSession {
         if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
             surfaceView.flagsChanged(with: event)
         }
+        surfaceView.linkPointer.modifiersChanged(flags)
     }
 
     /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
     public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
-        (nil, surfaceView.cursor == .pointingHand)
+        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
     #endif
 

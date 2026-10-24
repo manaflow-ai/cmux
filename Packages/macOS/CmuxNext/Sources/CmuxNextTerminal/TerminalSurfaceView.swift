@@ -85,6 +85,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) lazy var copyMode = TerminalCopyMode(view: self)
     /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
+    /// Cmd-hover and Cmd-click on links (``TerminalLinkPointer``).
+    private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
 
     // MARK: Lifecycle
 
