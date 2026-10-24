@@ -5,6 +5,7 @@ Each test commits into a throwaway repository and runs `guardrails.check` on wha
 (Lawrence 2026-10-23: no new CI tests): run it yourself after a change to those rules:
 python3 tests/test_cmux_next_guardrails_blocking.py
 """
+import collections
 import importlib.util
 import os
 from pathlib import Path
@@ -33,9 +34,11 @@ let package = Package(name: "CmuxNext", targets: [
 """
 DOC = """# threading model
 
+A label `<x>` in prose, and `com.cmuxterm.next.prose-only` outside the section, list nothing.
+
 ## Registered threads and queues
 
-- `com.cmuxterm.next.known`, `com.cmuxterm.next.daemon.exit.<pid>`, `cmux-next known thread`
+- `com.cmuxterm.next.known`, `com.cmuxterm.next.daemon.exit.<pid>`, `cmux-next known thread`, `<x>`
 
 ## Reviewed blocking allowances
 
@@ -72,6 +75,19 @@ CASES = {
         (UI, "func done() {\n    process.waitUntilExit()\n}\n",
          "func done() {\n    process.terminationHandler = { _ in }\n}\n"),
     ],
+    "main-blocking ": [  # the same rule: cases the review found refused correct code
+        (UI, "func load() async {\n    try await backoff.wait(owner: self)\n}\n", None),
+        (UI, "func load() async {\n    let x = await waiter.wait(timeout: .now())\n}\n", None),
+        (UI, "func load() {\n    ioQueue.async {\n        _ = FileManager.checked.fileExists(atPath: path)\n    }\n}\n", None),
+        (UI, "func run() {\n    process.terminationHandler = { _ in\n        semaphore.blockingWait()\n    }\n}\n", None),
+        (UI, "func watch() {\n    source.setEventHandler {\n        _ = try? Data(blockingContentsOf: url)\n    }\n}\n", None),
+        # An unnamed thread is thread-doc's (name it, list it); its body is not main-blocking's.
+        (UI, "func start() {\n    Thread {\n        _ = FileManager.checked.fileExists(atPath: path)\n    }.start()\n}\n",
+         "thread-doc"),
+        (UI, "func check() {\n    if ready {\n        _ = FileManager.checked.fileExists(atPath: path)\n    }\n}\n",
+         "main-blocking"),
+        (UI, "func save() {\n    try? data.write(to: url)\n}\n", "main-blocking"),
+    ],
     "raw-blocking": [
         (SERVICE, "func load() -> Data? {\n    try? Data(contentsOf: url)\n}\n",
          "func load() -> Data? {\n    try? Data(blockingContentsOf: url)\n}\n"),
@@ -81,6 +97,18 @@ CASES = {
          "func read() -> Int {\n    queue.blockingSync { count }\n}\n"),
         (SERVICE, "func w() {\n    _ = group.wait(timeout: .now() + 1)\n}\n",
          "func w() {\n    _ = group.blockingWait(timeout: .now() + 1)\n}\n"),
+    ],
+    "raw-blocking ": [
+        (SERVICE, "func save() {\n    try? data.write(to: url)\n}\n", "raw-blocking"),
+        (SERVICE, "func save() {\n    try? data.blockingWrite(to: url)\n}\n", None),
+        (SERVICE, "func load() async {\n    try await backoff.wait(owner: self)\n}\n", None),
+    ],
+    "thread-doc ": [
+        (SERVICE, 'let q = DispatchQueue(label: "com.cmuxterm.next.prose-only")\n', "thread-doc"),
+        (SERVICE, 'let q = DispatchQueue(label: "anything-at-all")\n', "thread-doc"),
+        (SERVICE, "let q = DispatchQueue(label: label, qos: .utility)\n", None),
+        (SERVICE, "extension Thread {\n    var isWorker: Bool { false }\n}\n", None),
+        (SERVICE, "func f(_ thread: Thread) {}\n", None),
     ],
     "thread-doc": [
         (SERVICE, 'let q = DispatchQueue(label: "com.cmuxterm.next.unknown")\n',
@@ -145,6 +173,12 @@ class BlockingRuleTests(unittest.TestCase):
 
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, cases in CASES.items():
+            if rule.endswith(" "):  # (directory, text, the one rule it must trip or None) cases
+                for number, (directory, text, expected) in enumerate(cases):
+                    with self.subTest(rule=rule, case=number):
+                        ids = [i for i in self.push(directory, text) if i in ("main-blocking", "raw-blocking", "thread-doc")]
+                        self.assertEqual(ids, [expected] if expected else [], text)
+                continue
             for number, (directory, bad, good) in enumerate(cases):
                 with self.subTest(rule=rule, case=number):
                     if (rule, number) in LISTED:
@@ -177,14 +211,25 @@ class BlockingRuleTests(unittest.TestCase):
         self.assertIn("main-blocking", [r.id for r, _ in refusals])
         self.assertTrue(any(kind == "guardrails" and "thread-doc" in text for kind, text in warnings))
 
-    def test_the_whole_gate_stays_fast_on_a_large_push(self):
-        body = "".join(f"func f{i}() {{\n    print({i})\n}}\n" for i in range(1000))
+    def test_the_blocking_rules_stay_fast_on_a_large_keyword_heavy_push(self):
+        """60,000 added lines in main-actor code, a third of them blocking calls behind escapes (so every one
+        goes through the main-actor scope and the closure check): the three rules' CPU time stays under 1 s."""
+        body = "".join(f"func f{i}() {{\n    // blocking-allow: fixture\n    _ = FileManager.checked.fileExists(atPath: p{i})\n}}\n"
+                       for i in range(750))
         for index in range(20):
             self.write(f"{UI}/Big{index}.swift", body)
         self.commit("a large push")
-        started = time.monotonic()
-        self.refused_ids()
-        self.assertLess(time.monotonic() - started, 1.0)
+        changes = []
+        for index in range(20):
+            path = f"{UI}/Big{index}.swift"
+            lines = body.split("\n")
+            changes.append(guardrails.FileChange(path, lines, [guardrails.Added(path, n + 1, t) for n, t in enumerate(lines)]))
+        guardrails.BLOCKING_CONTEXT.update(threading_doc=DOC, manifest=MANIFEST)
+        guardrails.BLOCKING_CONTEXT.pop("ui_targets", None)
+        started = time.process_time()
+        for rule in guardrails.BLOCKING_RULES:
+            rule.find(changes, collections.Counter())
+        self.assertLess(time.process_time() - started, 1.0)
 
 
 if __name__ == "__main__":
