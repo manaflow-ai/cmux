@@ -207,6 +207,14 @@ fn parent_of(pid: i32) -> i32 {
     String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
 }
 
+/// The command line of `pid`, as `ps` shows it (the test reads its own
+/// daemon's holder).
+fn command_line(pid: i32) -> String {
+    let out =
+        Command::new("ps").args(["-ww", "-o", "args=", "-p", &pid.to_string()]).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 only probes a pid this test's daemon started.
     unsafe { libc::kill(pid, 0) == 0 }
@@ -248,6 +256,14 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
         terminals.iter().map(|(_, surface)| shell_pid(&daemon.socket, *surface)).collect();
     let holder = parent_of(shells[0]);
     assert!(holder > 1, "the shell's parent is the holder");
+    // The holder carries its daemon's owner mark, as a terminal host does,
+    // so a teardown finds it after the daemon is gone (tag_teardown.py).
+    let holder_args = command_line(holder);
+    let daemon_pid = daemon.child.as_ref().map(Child::id).unwrap();
+    assert!(
+        holder_args.contains(" --owner ") && holder_args.contains(&format!("@{daemon_pid}")),
+        "the holder names no owner: {holder_args}"
+    );
 
     // 2. The daemon crashes and starts again on the same state: every
     // terminal comes back with its whole screen from the holder's ring.

@@ -504,6 +504,12 @@ impl HolderService {
             let mut command = cmux_process::Command::new(&path);
             command.arg0(crate::host_exe::HOLDER_NAME);
             configure(&mut command);
+            // Not to a file `CMUX_TUI_HOLDER_EXE` names: that is a test's
+            // stand-in for an older holder, which refuses arguments it
+            // does not know.
+            if std::env::var_os(crate::host_exe::HOLDER_ENV).is_none_or(|value| value.is_empty()) {
+                command.args(crate::terminal_host_runtime::host_owner_args());
+            }
             let started = command.spawn().and_then(|child| self.handshake(child));
             match started {
                 Ok(()) => return Ok(()),
@@ -530,6 +536,7 @@ impl HolderService {
         let child = crate::host_exe::spawn_host_isolated(|command| {
             command.arg("__holder");
             configure(command);
+            command.args(crate::terminal_host_runtime::host_owner_args());
         })?;
         self.handshake(child)
     }
