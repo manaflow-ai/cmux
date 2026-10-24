@@ -381,12 +381,67 @@ def resources(pid):
     except (OSError, subprocess.TimeoutExpired, ValueError):
         pass
     try:
-        lsmp = subprocess.run(["/usr/bin/lsmp", "-p", str(pid)], capture_output=True, text=True, timeout=20).stdout
-        match = re.search(r"(\d+)\s+(?:entries|ports)", lsmp)
-        out["mach_ports"] = int(match.group(1)) if match else len(lsmp.splitlines())
+        # `top` reads the app's Mach port count without root (lsmp needs it).
+        top = subprocess.run(["/usr/bin/top", "-l", "1", "-pid", str(pid), "-stats", "pid,ports,mem,threads"],
+                             capture_output=True, text=True, timeout=20).stdout.splitlines()
+        row = next((l.split() for l in top if l.strip().startswith(str(pid))), None)
+        if row and len(row) >= 4:
+            out["ports"] = int(re.sub(r"\D", "", row[1]) or 0)
+            out["top_mem"] = row[2]
+        out["system_mem"] = next((l.split(":", 1)[1].strip() for l in top if l.startswith("PhysMem")), None)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    try:
+        pressure = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True, timeout=20).stdout
+        match = re.search(r"free percentage:\s*(\d+)%", pressure)
+        out["mem_free_pct"] = int(match.group(1)) if match else None
+        vm = subprocess.run(["/usr/bin/vm_stat"], capture_output=True, text=True, timeout=10).stdout
+        page = int(re.search(r"page size of (\d+)", vm).group(1))
+        def pages(name):
+            m = re.search(rf"{name}:\s+(\d+)", vm)
+            return round(int(m.group(1)) * page / 2**20) if m else None
+        out["vm_mb"] = {"free": pages("Pages free"), "compressor": pages("Pages occupied by compressor"),
+                        "swapouts": pages("Swapouts")}
+    except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
+        pass
+    try:
+        helpers = subprocess.run(["pgrep", "-P", str(pid), "-f", "Helper"], capture_output=True, text=True, timeout=10).stdout.split()
+        out["cef_helpers"] = len(helpers)
     except (OSError, subprocess.TimeoutExpired):
         pass
     return out
+
+
+def report_cap(window="1d"):
+    """Whether the host's crash reporter refused reports in `window` (osanalyticshelper's 25-log limit)."""
+    try:
+        text = subprocess.run(["/usr/bin/log", "show", "--last", window, "--style", "compact", "--predicate",
+                               'process == "osanalyticshelper" AND eventMessage CONTAINS "limit of 25"'],
+                              capture_output=True, text=True, timeout=600).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    hits = [l for l in text.splitlines() if "limit of 25" in l]
+    return {"refusals": len(hits), "last": hits[-1][:200] if hits else None}
+
+
+def cef_logs(app_path):
+    """The tail of each cef.log (and its previous copy) under the app's Application Support folder."""
+    found = {}
+    bundle_id = None
+    try:
+        import plistlib
+        with open(os.path.join(app_path, "Contents/Info.plist"), "rb") as f:
+            bundle_id = plistlib.load(f).get("CFBundleIdentifier")
+    except (OSError, ValueError):
+        pass
+    homes = {os.environ.get("HOME", ""), account_home()}
+    for home in homes:
+        for path in glob.glob(os.path.join(home, "Library/Application Support", bundle_id or "*", "Chromium", "*.log")):
+            try:
+                found[path] = open(path, errors="replace").read()[-6000:]
+            except OSError:
+                pass
+    return found
 
 
 class CrashRun:
@@ -397,7 +452,8 @@ class CrashRun:
         import resource
         os.makedirs(self.out, exist_ok=True)
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        result = {"rlimit_nofile": [soft, hard], "samples": []}
+        result = {"rlimit_nofile": [soft, hard], "samples": [], "report_cap": report_cap()}
+        note("crash: crash reporter 25-log refusals in the last day: " + json.dumps(result["report_cap"]))
         note(f"crash: RLIMIT_NOFILE of the step (the app inherits it) soft {soft} hard {hard}; launchctl maxfiles "
              + subprocess.run(["launchctl", "limit", "maxfiles"], capture_output=True, text=True).stdout.strip())
         app = self.activation.App(self.app_path, self.out, self.hang_ms)
@@ -423,9 +479,9 @@ class CrashRun:
             last = 0
             while builder.is_alive() and alive(pid) and app.process.poll() is None:
                 builder.join(5)
+                sample_row = resources(pid)
                 if time.monotonic() - last >= 15:
                     last = time.monotonic()
-                    sample_row = resources(pid)
                     tabs = app.rpc("snapshot.get", timeout=10)
                     if isinstance(tabs, dict) and not tabs.get("error"):
                         topology = tabs.get("topology") or {}
@@ -438,14 +494,17 @@ class CrashRun:
                         sample_row["workspaces"], sample_row["tabs"] = len(topology.get("workspaces") or []), kinds
                     else:
                         sample_row["rpc"] = str((tabs or {}).get("error"))[:80]
-                    result["samples"].append(sample_row)
-                    note("crash: " + json.dumps(sample_row))
+                result["samples"].append(sample_row)
+                note("crash: " + json.dumps(sample_row))
             ended = app.process.poll() is not None or not alive(pid)
             result["ended"] = ended
             result["sizes"] = box.get("sizes")
             if ended:
                 time.sleep(8)  # test script: ReportCrash writes the report a few seconds after the process ends
                 result["exit"] = app.process.poll()
+                if isinstance(result["exit"], int) and result["exit"] < 0:
+                    import signal as signals
+                    result["signal"] = signals.Signals(-result["exit"]).name
                 result["last_samples"] = result["samples"][-3:]
                 note(f"crash: the app ended (exit {result['exit']}) after {round(time.time() - started)} s; last resources "
                      + json.dumps(result["samples"][-1:] or None))
@@ -468,6 +527,9 @@ class CrashRun:
                     note("crash: lldb\n" + result["lldb"][:9000])
                 except OSError:
                     pass
+            result["cef_logs"] = cef_logs(self.app_path)
+            for path, tail in result["cef_logs"].items():
+                note(f"crash: {path} tail\n" + "\n".join(l[:300] for l in tail.splitlines()[-25:]))
             reports = all_reports(started - 1)
             result["reports"] = [ips_frames(path) for path in reports]
             for item in result["reports"]:
@@ -549,7 +611,7 @@ def main():
         if "crash" in parts:
             note(f"{name}: heavy activation session with lldb and resource samples")
             run["crash"] = CrashRun(apps[which], os.path.join(opts.out, name, "crash"), opts.hang_ms, activation_module,
-                                    lldb="nolldb" not in parts).run()
+                                    lldb="lldb" in parts).run()
             write()
         if "gate" in parts:
             note(f"{name}: perf-gate")
