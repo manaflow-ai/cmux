@@ -288,19 +288,59 @@ class RuleTests(Fixture):
             ("public struct DaemonClient {}\n", "public actor DaemonClient {}\n", True),
             ("public struct DaemonClient {}\n", "public struct DaemonClient: Sendable {}\n", False),
             ("public final class DaemonClient {}\n", "public struct DaemonClient {}\n", False),
+            # Declared by the push alone (moved into Sources from another package), or no longer declared.
+            (None, "public final class DaemonClient {}\n", True),
+            (None, "public actor DaemonClient {}\n", True),
+            (None, "public struct DaemonClient {}\n", False),
+            ("public final class DaemonClient {}\n", None, False),
         ):
             for user in ("enum Env {\n    static let live = DaemonClient()\n}\n",
                          "extension DaemonClient {\n    static let current = DaemonClient()\n}\n"):
                 with self.subTest(before=before, after=after, user=user):
                     self.git("reset", "--quiet", "--hard", start)
-                    self.rebase_on({f"{KIT}/DaemonClient.swift": before, f"{KIT}/Env.swift": user}, "a named static")
-                    self.write(f"{KIT}/DaemonClient.swift", after)
+                    declared = {f"{KIT}/DaemonClient.swift": before} if before is not None else {}
+                    self.rebase_on({**declared, f"{KIT}/Env.swift": user}, "a named static")
+                    if after is None:
+                        (self.repo / KIT / "DaemonClient.swift").unlink()
+                    else:
+                        self.write(f"{KIT}/DaemonClient.swift", after)
                     self.commit("changes the stored type's kind in another file")
                     refusals = self.refused()
                     self.assertEqual(refusals != [], refused, refusals)
                     if refused:
                         self.assertEqual([(r, [h.split(":")[0] for h in hits]) for r, hits in refusals],
                                          [("singleton", ["Env.swift"])])
+
+    def test_a_user_grep_config_does_not_hide_the_type_declarations(self):
+        # The type scan reads `git grep -z` hits as `<rev>:<path>` NUL `<line>`. A user's grep.lineNumber or
+        # grep.column adds fields to each hit and color.grep=always adds escape codes; the declarations, and so
+        # the refusals that read them, must be the same.
+        for key, value in (("grep.lineNumber", "true"), ("grep.column", "true"), ("grep.fullName", "true"),
+                           ("color.grep", "always"), ("color.ui", "always")):
+            self.git("config", key, value)
+        self.rebase_on({f"{KIT}/AppModel.swift": "final class AppModel {}\n",
+                        f"{KIT}/NotificationService.swift": "final class NotificationService {}\n",
+                        f"{KIT}/DaemonClient.swift": "public struct DaemonClient {}\n",
+                        f"{KIT}/Env.swift": "enum Env {\n    static let live = DaemonClient()\n}\n"}, "declarations")
+        start = self.base
+        for path, text in ((f"{KIT}/Added.swift", "extension AppModel {\n    static let current = AppModel()\n}\n"),
+                           (f"{KIT}/Added.swift", "enum Deps {\n    static let live = NotificationService()\n}\n"),
+                           (f"{KIT}/DaemonClient.swift", "public final class DaemonClient {}\n")):
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(path, text)
+                self.commit("named static")
+                refusals, warnings = self.check()
+                self.assertEqual([r.id for r, _ in refusals], ["singleton"], warnings)
+
+    def test_a_type_scan_hit_in_another_format_stops_the_check(self):
+        # A grep output the scan cannot read (a git that adds a field) is an error the hook warns about (fail
+        # open, visibly), never a scan that silently finds no declarations.
+        index = guardrails.TypeIndex(self.repo, "HEAD")
+        numbered = subprocess.CompletedProcess([], 0, f"HEAD:{KIT}/Old.swift\x001\x00final class Old {{\n".encode(), b"")
+        with mock.patch.object(guardrails.git_batch, "run", return_value=numbered):
+            with self.assertRaises(guardrails.git_batch.GitError):
+                index.at_head()
 
     def test_short_notification_names_in_a_name_extension_are_refused(self):
         for decl in ('Self("pagesChanged")', '.init("pagesChanged")'):
@@ -464,6 +504,30 @@ class RuleTests(Fixture):
         finally:
             os.environ.update(saved)
         self.assertEqual(len(markers), 2, markers)
+
+    def test_a_user_inter_hunk_context_does_not_shift_the_line_numbers(self):
+        # diff.interHunkContext joins nearby -U0 hunks with the unchanged lines between them; those must count,
+        # or every line after them is misnumbered (the rules then fail open, the conflict markers move).
+        self.git("config", "diff.interHunkContext", "3")
+        self.rebase_on({f"{KIT}/E.swift": "enum E {\n    static let a = 1\n    static let b = 1\n}\n",
+                        f"{KIT}/Conflict.swift": "let a = 1\nlet b = 1\n"}, "constants")
+        self.write(f"{KIT}/E.swift", "enum E {\n    static let a = 2\n    static let b = 1\n"
+                                     "    static let shared = Box()\n}\n")
+        self.write(f"{KIT}/Conflict.swift", "<<<<<<< HEAD\nlet a = 1\n=======\nlet a = 2\n>>>>>>> topic\nlet b = 1\n")
+        self.commit("an edit and a singleton two lines apart, and a conflict")
+        refusals, warnings = self.check()
+        self.assertEqual([(r.id, [(h.number, h.text.strip()) for h in hits]) for r, hits in refusals],
+                         [("singleton", [(4, "static let shared = Box()")])], warnings)
+        self.assertEqual([w for w in warnings if w[0] == "guardrails"], [])
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            markers = gate.conflict_markers(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(markers, [f"{KIT}/Conflict.swift:1: <<<<<<< HEAD", f"{KIT}/Conflict.swift:5: >>>>>>> topic"])
 
     def test_lines_brought_in_from_feat_cmux_next_never_count(self):
         self.git("checkout", "--quiet", "-b", "topic")
@@ -1156,6 +1220,30 @@ class WarningTests(Fixture):
         self.assertEqual(refusals, [])
         self.assertEqual(len(greps), 1, greps)
 
+
+    def test_an_unrelated_edit_next_to_an_old_named_static_reads_no_type_declarations(self):
+        # A struct's `static let standard = Style()` is judged by Style's kind, read with the ~1 s type grep. An
+        # edit of another line of that struct changes neither the static, its opener nor Style, so it reads none.
+        self.rebase_on({f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n",
+                        f"{KIT}/Theme.swift": "struct Theme {\n    static let standard = Style()\n    var a = 1\n}\n"},
+                       "declarations")
+        self.write(f"{KIT}/Theme.swift", "struct Theme {\n    static let standard = Style()\n    var a = 2\n}\n")
+        self.commit("an unrelated edit")
+        greps = []
+
+        def run(args, *rest, **kwargs):
+            if "grep" in args:
+                greps.append(args)
+            return subprocess.run(args, *rest, **kwargs)
+
+        stand_in = types.SimpleNamespace(run=run, Popen=subprocess.Popen, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        guardrails.subprocess = guardrails.git_batch.subprocess = stand_in
+        try:
+            refusals, _ = self.check()
+        finally:
+            guardrails.subprocess = guardrails.git_batch.subprocess = subprocess
+        self.assertEqual(refusals, [])
+        self.assertEqual(greps, [])
 
 class SharedRuleTests(Fixture):
     """A rule another check owns is judged by that check's own definition, never by a second copy here."""
