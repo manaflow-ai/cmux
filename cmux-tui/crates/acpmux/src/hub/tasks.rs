@@ -150,7 +150,7 @@ impl Hub {
         }
         let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default().to_owned();
         let Ok(giver) = self.resolve(to) else {
-            self.result_undelivered(&id, "the chat that gave it is gone");
+            self.result_undelivered(&id, &row["result"]["at"], "the chat that gave it is gone");
             return;
         };
         let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -169,21 +169,27 @@ impl Hub {
             provenance: Some(provenance),
             ..PromptOptions::default()
         };
+        let at = result["at"].clone();
         let blocks = vec![json!({"type": "text", "text": card_text(row, result, &lane_name)})];
         let hub = self.clone();
         // Off the report's path: the call returns, and the giver's turn runs.
         tokio::spawn(async move {
             if let Err(e) = hub.prompt_with(&giver, blocks, "acpmux", true, opts).await {
                 tracing::warn!(session = %giver.id, "task result: {}", e.message);
-                hub.result_undelivered(&id, &e.message);
+                hub.result_undelivered(&id, &at, &e.message);
             }
         });
     }
 
-    /// Records on task `id` that its result's card did not reach the chat that gave it, and
-    /// why: the result stays in the ledger, and `acpmux task ls` shows it was not delivered.
-    fn result_undelivered(&self, id: &str, why: &str) {
-        self.briefs.update(id, |r| r["result"]["undelivered"] = json!(why));
+    /// Records on task `id` that the card of its result made `at` did not reach the chat that
+    /// gave it, and why: the result stays in the ledger, and `acpmux task ls` shows it was not
+    /// delivered. Nothing when the task has a newer result since.
+    fn result_undelivered(&self, id: &str, at: &Value, why: &str) {
+        self.briefs.update(id, |r| {
+            if &r["result"]["at"] == at {
+                r["result"]["undelivered"] = json!(why);
+            }
+        });
     }
 }
 

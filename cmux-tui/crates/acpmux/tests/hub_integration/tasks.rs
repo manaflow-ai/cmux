@@ -285,7 +285,8 @@ async fn two_reports_at_once_send_one_card_and_a_card_not_delivered_is_kept_and_
         from_gone.call("_acpmux/task_new", json!({"sessionId": lane, "title": "Orphan"})).await;
     let id = given["task"]["taskId"].as_str().unwrap().to_owned();
     person.call("session/delete", json!({"sessionId": gone})).await;
-    let done = json!({"briefId": id, "status": "done", "summary": "Done anyway"});
+    let done = json!({"briefId": id, "status": "done", "summary": "Done anyway",
+                      "idempotencyKey": "orphan-done"});
     a.call("_acpmux/report", done.clone()).await;
     let row = |listed: &Value| {
         listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str()).cloned()
@@ -294,6 +295,7 @@ async fn two_reports_at_once_send_one_card_and_a_card_not_delivered_is_kept_and_
     let task = row(&listed).expect("the task");
     assert_eq!(task["result"]["summary"], "Done anyway", "{task}");
     assert!(task["result"]["undelivered"].is_string(), "{task}");
+    // The same call again, with the same idempotency key, is a retry, not a replay.
     let again = a.call("_acpmux/report", done).await;
     assert!(again.get("replayed").is_none(), "{again}");
 }

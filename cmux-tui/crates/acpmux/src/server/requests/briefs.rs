@@ -112,7 +112,10 @@ pub(super) async fn report(
         .get("idempotencyKey")
         .or_else(|| params.get("idempotency_key"))
         .and_then(Value::as_str);
-    if key.is_some_and(|key| row.get("lastReportKey").and_then(Value::as_str) == Some(key)) {
+    // A task's card not yet delivered is not replayed: the retry sends it again (below).
+    if key.is_some_and(|key| row.get("lastReportKey").and_then(Value::as_str) == Some(key))
+        && row["result"].get("undelivered").is_none()
+    {
         return Ok(
             json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
         );
