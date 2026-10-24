@@ -46,11 +46,18 @@ for name in (try? fm.contentsOfDirectory(atPath: frameworks)) ?? [] {
 guard !binaries.isEmpty else { print("runtime-symbols: no binaries in \(app)"); exit(2) }
 
 let os = ProcessInfo.processInfo.operatingSystemVersion
+#if arch(arm64)
+let arch = "arm64"
+#else
+let arch = "x86_64"
+#endif
 var missing: [String] = []
 var checked = 0
 var libraries = 0
 for binary in binaries {
-    guard let dependents = run(["-dependents", binary]), let imports = run(["-imports", binary]) else {
+    // The guest's own slice only: a universal framework's x86_64 slice imports symbols (`_stat$INODE64`,
+    // `_objc_msgSend_stret`) that arm64 never binds.
+    guard let dependents = run(["-arch", arch, "-dependents", binary]), let imports = run(["-arch", arch, "-imports", binary]) else {
         print("runtime-symbols: dyld_info could not read \(binary)"); exit(2)
     }
     if binary == binaries.first {
