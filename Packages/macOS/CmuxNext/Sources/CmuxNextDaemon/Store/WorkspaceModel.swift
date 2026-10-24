@@ -89,10 +89,12 @@ public final class WorkspaceModel: Identifiable {
     /// after an ack; it serves only a workspace whose tree is not mirrored.
     public var unreadCount: Int {
         guard !screens.isEmpty else { return daemonUnreadCount ?? 0 }
-        return screens.reduce(0) { total, screen in
-            total + screen.panes.reduce(0) { $0 + $1.tabs.filter(\.hasUnread).count }
-        }
+        return unreadTabCount
     }
+
+    /// Tabs of this workspace with an unread notification, as the store's ``UnreadTabLedger``
+    /// counts them while it indexes them (no walk of the tabs per read).
+    public internal(set) var unreadTabCount = 0
 
     init(_ s: WorkspaceSnapshot) {
         id = Self.identity(s)

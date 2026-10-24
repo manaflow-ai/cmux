@@ -19,7 +19,7 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalIncarnation: TerminalIncarnation?
     /// Public terminal id (`term_…`) used by `attach-identity-v1`.
     public internal(set) var terminalResourceID: ResourceID?
-    public internal(set) var kind: TabKind
+    public internal(set) var kind: TabKind { didSet { unreadLedger?.tabChanged(self) } }
     public internal(set) var name: String?
     /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
     /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
@@ -38,7 +38,7 @@ public final class TabModel: Identifiable {
     /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
     /// Quit's End Sessions, Keep Layout and this launch restarts it.
     public internal(set) var relaunch: TabRelaunch?
-    public internal(set) var notification: TabNotification?
+    public internal(set) var notification: TabNotification? { didSet { unreadLedger?.tabChanged(self) } }
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
     /// The page a pinned browser tab was pinned on (Back to Pinned Page).
@@ -136,7 +136,7 @@ public final class TabModel: Identifiable {
     public internal(set) var remote: RemoteTerminalRef?
     /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
     /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
-    public internal(set) var conversation: ConversationTabRef?
+    public internal(set) var conversation: ConversationTabRef? { didSet { unreadLedger?.tabChanged(self) } }
     /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
     public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -158,7 +158,9 @@ public final class TabModel: Identifiable {
 
     /// The notification this client acknowledged that the tree still shows
     /// unread (the ack's round trip). A newer notification is not covered.
-    public private(set) var readingNotification: NotificationID?
+    public private(set) var readingNotification: NotificationID? { didSet { unreadLedger?.tabChanged(self) } }
+    /// The ledger that counts this tab while the store indexes it (``UnreadTabLedger``).
+    @ObservationIgnored weak var unreadLedger: UnreadTabLedger?
 
     /// Shows the tab's unread notification read now, before the daemon's
     /// `ack-tab-notifications` answers. The tree's echo settles it.

@@ -67,17 +67,10 @@ extension NotificationCenterService {
             return total + (count == 0 && workspace.markedUnread ? 1 : count)
         }
         guard !homeUnread.isEmpty else { return tabs }
-        var counted = Set<String>()
-        for workspace in workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs where tab.hasUnread {
-                        if let id = tab.snapshot.conversation?.conversation, tab.kind == .conversation { counted.insert(id) }
-                    }
-                }
-            }
-        }
-        return tabs + Set(homeUnread).subtracting(counted).count
+        // The store keeps the unread conversation tabs (`DaemonStore.unreadConversationIDs`): no
+        // walk of every workspace's tabs per read (sweep 2026-10-23: 53 ms on one STRESS Close Pane).
+        let counted = store?.unreadConversationIDs
+        return tabs + Set(homeUnread).filter { counted?.contains($0) != true }.count
     }
 
     /// The badge count now: the store's unread tabs and Home's unread conversations.
