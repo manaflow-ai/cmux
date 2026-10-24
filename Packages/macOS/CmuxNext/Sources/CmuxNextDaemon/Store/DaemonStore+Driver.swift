@@ -129,6 +129,12 @@ final class EventInbox: Sendable {
         case .notification:
             // Its text is not in the snapshot either (`outlivesSnapshot`).
             state.append(envelope)
+        case .terminalForegroundChanged(let foreground):
+            // Not in the snapshot; the newest per surface is its whole state.
+            state.removeAll {
+                if case .terminalForegroundChanged(let held) = $0.event { held.surface == foreground.surface } else { false }
+            }
+            state.append(envelope)
         case .agentPresenceChanged(let presence):
             state.removeAll {
                 if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
@@ -318,6 +324,12 @@ extension DaemonStore {
                 advanceAppliedSequence(to: barrier)
                 resyncPacer.reset()
                 if seedAgents { apply(agents: try await driver.connection.agents()) }
+                if seedAgents, supports(DaemonCapabilities.terminalForeground) {
+                    let epoch = connectionEpoch
+                    let list = try await driver.connection.request(ListTerminalForegroundsRequest()).foregrounds
+                    // A list read on a connection that has since changed belongs to no connection.
+                    if epoch == connectionEpoch { foregrounds.seed(list, epoch: epoch) }
+                }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
                 failed = true

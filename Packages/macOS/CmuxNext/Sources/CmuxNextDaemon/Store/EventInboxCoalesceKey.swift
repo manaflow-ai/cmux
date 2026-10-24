@@ -6,6 +6,7 @@ enum CoalesceKey: Hashable {
     case scroll(SurfaceID)
     case agent(SurfaceID)
     case presence(SurfaceID)
+    case foreground(SurfaceID)
 
     init?(_ event: DaemonEvent) {
         switch event {
@@ -14,6 +15,7 @@ enum CoalesceKey: Hashable {
         case .scrollChanged(let surface, _, _): self = .scroll(surface)
         case .agentChanged(let status): self = .agent(status.surface)
         case .agentPresenceChanged(let presence): self = .presence(presence.surface)
+        case .terminalForegroundChanged(let foreground): self = .foreground(foreground.surface)
         default: return nil
         }
     }

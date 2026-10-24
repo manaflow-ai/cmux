@@ -225,6 +225,7 @@ extension DaemonStore {
             }
             return .none
         case .tabClosed(let delta):
+            foregrounds.forget(delta.surface)
             guard let tab = panesByHandle[delta.pane]?.removeTab(surface: delta.surface) else { return .none }
             index.remove(tab)
             return .none
@@ -298,6 +299,9 @@ extension DaemonStore {
             return .none
         case .agentPresenceChanged(let presence):
             tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
+            return .none
+        case .terminalForegroundChanged(let foreground):
+            foregrounds.apply(foreground)
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none

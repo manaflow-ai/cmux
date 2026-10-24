@@ -7,6 +7,8 @@ enum DaemonConnectionChange {
 
     func apply(to store: DaemonStore) -> DaemonStore.Followup {
         store.connectionEpoch += 1
+        // Foreground programs are known per connection: the next seed fills them again.
+        store.foregrounds.reset()
         switch self {
         case .connected(let identity, let envelope):
             store.sideEvents.noteControl(envelope)
