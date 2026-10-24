@@ -212,7 +212,8 @@ impl Mux {
                 }
             }
             if !evicted.is_empty() {
-                let mut posts = self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut posts =
+                    self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
                 for id in &evicted {
                     posts.remove(id);
                 }
@@ -258,7 +259,11 @@ impl Mux {
         &self,
         notification: &NotificationPublicId,
     ) -> Option<NotificationPost> {
-        self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner).get(notification).cloned()
+        self.notification_posts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(notification)
+            .cloned()
     }
 
     /// Client ids that acknowledged `notification`, sorted and unique.
