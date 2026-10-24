@@ -13,6 +13,17 @@ What it guards, with the page on screen in one launch:
               shown page at all (cmux20, macOS 27: 120 fps after the switch to near60).
   full-again  Low Power Mode switched off again with the page on screen: back to the display's rate.
 
+Then the agent chat (`cmux.agent`, a new chat with seeded rows, its transcript `.acpmux-scroll`):
+
+  agent-full        Low Power Mode off: the chat renders at the display's rate, and its rate is the
+                    one it was made with: `debug.agent_pane {action: full_rate, enabled: false}` is
+                    refused and `render_rate` stays `full`. Before, that call (and the page's
+                    adaptive policy after a settled scroll on a loaded machine) wrote the near-60
+                    preference live and hid the page for 33 ms under a snapshot; the cadence did
+                    not change, and the stale preference applied at the next tab switch.
+  agent-low-power   Low Power Mode on with the chat on screen: WebKit halves it by itself.
+  agent-full-again  Low Power Mode off again: the display's rate.
+
 Then the same on a WebKit browser tab (the engine path, WebKitEngine.prepare), read through the tab's
 own requestAnimationFrame intervals (`browser.page.eval`):
 
@@ -49,7 +60,7 @@ STRESS session (perf-stress-session.py, `--stress`) has its real Chromium pages;
 bench refuses it. Light and STRESS are separate launches:
 
   cmux-ci run --class exclusive --label measure --script scripts/measure/page-cadence.sh --ref SHA [--arg=--stress]
-  scripts/cmux-next/bench-page-cadence.py --app "/path/cmux DEV <tag>.app" --no-low-power [--stress] [--runs 3] [--json out.json]
+  scripts/cmux-next/bench-page-cadence.py --app "/path/cmux DEV <tag>.app" --no-low-power [--stress] [--no-agent] [--runs 3] [--json out.json]
 
 Prints one `PAGE-CADENCE {json}` line per leg and run, with host, macOS, display_fps and, for
 STRESS, the `STRESS-SESSION` shape. Exit 0 when every leg of every run passed; 1 when one did not
@@ -79,6 +90,10 @@ WINDOW_MS = 1000
 
 # Each leg: (label, Low Power Mode, the divisor of the display rate WebKit renders the page at).
 LEGS = [("full", False, 1), ("low-power", True, 2), ("full-again", False, 1)]
+# The agent chat's legs, the same shape, on its transcript.
+AGENT_PAGE = "cmux.agent"
+AGENT_SELECTOR = ".acpmux-scroll"
+AGENT_LEGS = [("agent-full", False, 1), ("agent-low-power", True, 2), ("agent-full-again", False, 1)]
 # The browser tab's legs: (label, Low Power Mode, divisor, open a new tab first). The tab is made in
 # Low Power Mode (the creation-time rate) and then Low Power Mode goes off with it on screen.
 TAB_LEGS = [("tab-low-power", True, 2, True), ("tab-full", False, 1, False)]
@@ -172,8 +187,8 @@ def frames_window(app, params):
     return reply
 
 
-def measure(app, opts, selector, low_power, divisor):
-    params = {"page": opts.page, "action": "frames", "window_ms": WINDOW_MS, "scroll_px": opts.scroll_px}
+def measure(app, opts, page, selector, low_power, divisor):
+    params = {"page": page, "action": "frames", "window_ms": WINDOW_MS, "scroll_px": opts.scroll_px}
     if selector:
         params["selector"] = selector
     # The first window holds the switch (WebKit adjusts the page's rate on its next activity), not
@@ -284,6 +299,59 @@ def judge(intervals, display, divisor, scrolled, render_rate):
     }
 
 
+def agent_pane(app, action, timeout=30, **params):
+    return app.rpc("debug.agent_pane", dict(params, action=action), timeout=timeout) or {}
+
+
+def open_agent_chat(app):
+    """Opens a new agent chat in WebKit with a long transcript to scroll."""
+    reply = app.rpc("action.run", {"action": "palette.newAgentChat", "focus": True, "origin": "script"}, timeout=30)
+    error = reply.get("error") if isinstance(reply, dict) else None
+    # The socket answers after about 2 s; an action still running then goes on, so wait for the page.
+    if error and not (isinstance(error, dict) and (error.get("data") or {}).get("state") == "in_progress"):
+        raise Unmeasurable(f"palette.newAgentChat: {error}")
+    shown = wait_for(lambda: (lambda s: s if isinstance(s, dict) and s.get("painted") else None)(
+        app.rpc("debug.page", {"page": AGENT_PAGE})), 30)
+    if not shown:
+        raise Unmeasurable(f"{AGENT_PAGE} never painted (the chat is not on the page host, or not WebKit)")
+    seeded = agent_pane(app, "seed_rows", count=2000, timeout=60)
+    if isinstance(seeded, dict) and seeded.get("error"):
+        raise Unmeasurable(f"debug.agent_pane seed_rows: {seeded['error']}")
+    time.sleep(2.0)  # bench: the seeded transcript lays out before the windows
+
+
+def fixed_rate_check(app):
+    """None when the chat's rate is fixed (a live change is refused and the page stays full);
+    else what changed. The old live switch accepted the call and wrote near60."""
+    asked = agent_pane(app, "full_rate", enabled=False)
+    state = app.rpc("debug.page", {"page": AGENT_PAGE}) or {}
+    if not (isinstance(asked, dict) and asked.get("error")):
+        return f"the chat's rate changed live (full_rate {asked.get('full_rate')}, render_rate {state.get('render_rate')})"
+    if state.get("render_rate") != "full":
+        return f"the chat renders at {state.get('render_rate')}, not full"
+    return None
+
+
+def agent_legs(app, opts, index, facts, session):
+    """The agent chat's legs on a new chat (AGENT_LEGS)."""
+    rows = []
+    open_agent_chat(app)
+    legs = AGENT_LEGS[:1] if opts.no_low_power else AGENT_LEGS
+    for label, low_power, divisor in legs:
+        row = {"leg": label, "run": index, **facts, **session, "page": AGENT_PAGE}
+        error = switch_low_power(app, low_power)
+        if error:
+            row.update(error=error)
+        else:
+            changed = fixed_rate_check(app) if label == "agent-full" else None
+            row.update(measure(app, opts, AGENT_PAGE, AGENT_SELECTOR, low_power, divisor))
+            if changed:
+                row.update(passed=False, fixed_rate=changed)
+        rows.append(row)
+        print(f"PAGE-CADENCE {json.dumps(row)}", flush=True)
+    return rows
+
+
 def switch_low_power(app, low_power):
     """Switches macOS Low Power Mode and waits until the app hears it; an error text when it could not."""
     if low_power != system_low_power() and not set_system_low_power(low_power):
@@ -325,10 +393,12 @@ def one_run(opts, index, facts):
             if error:
                 row.update(error=error)
             else:
-                row.update(measure(app, opts, selector, low_power, divisor))
+                row.update(measure(app, opts, opts.page, selector, low_power, divisor))
                 display = row["display_fps"]
             results.append(row)
             print(f"PAGE-CADENCE {json.dumps(row)}", flush=True)
+        if not opts.no_agent:
+            results.extend(agent_legs(app, opts, index, facts, session))
         # The browser tab, on the display the page legs read (the same window).
         pages = load_stress().Pages()
         for label, low_power, divisor, opens in (TAB_LEGS_FULL_ONLY if opts.no_low_power else TAB_LEGS):
@@ -359,6 +429,7 @@ def main():
     parser.add_argument("--selector", help="the scroller's CSS selector (default: the page's known scroller, else the document's)")
     parser.add_argument("--scroll-px", type=float, default=4)
     parser.add_argument("--windows", type=int, default=5)
+    parser.add_argument("--no-agent", action="store_true", help="skip the agent chat's legs")
     parser.add_argument("--no-low-power", action="store_true",
                         help="measure the full-rate legs only: no Low Power Mode switch, so no exclusive host needed")
     parser.add_argument("--json")

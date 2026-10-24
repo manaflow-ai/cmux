@@ -36,8 +36,8 @@ import WebKit
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
-/// `full_rate` (`enabled` turns full-rate rendering on or off on the live
-/// page; returns whether it is on), or `inspector` (`open` sets its visibility;
+/// `full_rate` (whether the page renders at full rate; the rate is fixed when the page is made, so an
+/// `enabled` that differs from it is an error), or `inspector` (`open` sets its visibility;
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
@@ -143,8 +143,12 @@ enum DebugAgentPane {
         }
         #endif
         if action == "full_rate" {
-            if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
-            return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
+            let full = view.rendersAtFullRate
+            if let enabled = params["enabled"]?.boolValue, enabled != full {
+                return .object(["error": .string("the agent page's rate is fixed when it is made (full_rate \(full)); "
+                    + "launch with CMUX_NEXT_AGENT_PANE_FULL_RATE=0 for the capped rate")])
+            }
+            return .object(["pane": .string(pane), "full_rate": .bool(full)])
         }
         if action == "snapshot" {
             // The page as its engine draws it (`AgentPaneView.pageSnapshot`), PNG at `path`: a window
