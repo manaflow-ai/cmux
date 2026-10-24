@@ -90,6 +90,9 @@ public struct MobilePlansView: View {
                     value: BillingPlanCopy(planID: account.currentPlan.planID).name
                 )
                 .accessibilityIdentifier("BillingCurrentPlan")
+                if let trial = account.currentPlan.trial {
+                    MobileTrialStatusRow(trial: trial, planID: account.currentPlan.planID)
+                }
             } footer: {
                 if let sourceText = sourceText(account.currentPlan.source) {
                     Text(sourceText)
@@ -263,79 +266,15 @@ public struct MobilePlansView: View {
     }
 
     private var resultMessage: String? {
-        switch billing.restore {
-        case .restoring:
-            return L10n.string("mobile.billing.restoring", defaultValue: "Restoring purchases")
-        case .completed(let count):
-            return count > 0
-                ? L10n.string("mobile.billing.restored", defaultValue: "Your purchases were restored.")
-                : L10n.string("mobile.billing.restoredNone", defaultValue: "No active App Store subscription was found.")
-        case .failed(let failure):
-            return BillingFailureCopy(failure: failure).message
-        case .idle:
-            break
-        }
-        switch billing.purchase {
-        case .idle:
-            return nil
-        case .purchasing:
-            return L10n.string("mobile.billing.purchasing", defaultValue: "Completing your purchase")
-        case .pending:
-            return L10n.string(
-                "mobile.billing.pending",
-                defaultValue: "Your purchase is waiting for approval. Your plan updates when it is approved."
-            )
-        case .completed(let planID):
-            return String(
-                format: L10n.string("mobile.billing.completed", defaultValue: "You're on %@ now."),
-                BillingPlanCopy(planID: planID).name
-            )
-        case .awaitingServer:
-            return L10n.string(
-                "mobile.billing.awaitingServer",
-                defaultValue: "Purchase complete. Your plan updates as soon as cmux confirms it. You don't need to buy again."
-            )
-        case .failed(let failure):
-            return BillingFailureCopy(failure: failure).message
-        }
+        BillingStatusCopy(purchase: billing.purchase, restore: billing.restore).resultMessage
     }
 
     private func sourceText(_ source: BillingPlanSource) -> String? {
-        switch source {
-        case .apple:
-            L10n.string("mobile.billing.source.apple", defaultValue: "Billed through the App Store.")
-        case .stripe:
-            L10n.string("mobile.billing.source.web", defaultValue: "Billed on the web.")
-        case .none, .other:
-            nil
-        }
+        source.displayText
     }
 
     private func ineligibleText(_ reason: BillingIneligibilityReason?) -> String {
-        switch reason {
-        case .stripeSubscriptionActive:
-            // Plain text on purpose: the App Store build must not link to web
-            // billing (App Review Guideline 3.1.1).
-            L10n.string(
-                "mobile.billing.ineligible.web",
-                defaultValue: "You subscribe on the web."
-            )
-        case .teamBilling:
-            L10n.string(
-                "mobile.billing.ineligible.team",
-                defaultValue: "Your team admin manages billing for this account."
-            )
-        case .purchasesUnavailable:
-            L10n.string(
-                "mobile.billing.ineligible.unavailable",
-                defaultValue: "Plans can't be bought in this version of the app."
-            )
-        case .other, .none:
-            L10n.string(
-                "mobile.billing.ineligible.other",
-                defaultValue: "Plans can't be bought in the app for this account."
-            )
-        }
+        BillingIneligibilityCopy(reason: reason).message
     }
 }
 

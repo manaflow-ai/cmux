@@ -36,7 +36,7 @@ public enum BillingFailure: Error, Sendable, Equatable {
             case .transport: self = .network
             case .rejected(let status): self = .server(statusCode: status)
             case .accountMismatch: self = .accountMismatch
-            case .invalidURL, .invalidResponse: self = .invalidResponse
+            case .invalidURL, .invalidResponse, .attestKeyUnknown: self = .invalidResponse
             }
         case let store as StoreKitClientError:
             switch store {
