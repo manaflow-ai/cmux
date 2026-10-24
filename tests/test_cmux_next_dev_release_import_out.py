@@ -58,15 +58,20 @@ class DevReleaseImportOutTests(unittest.TestCase):
         run = self.dev_step()["run"]
         compile_at = run.index("scripts/cmux-next/check-cmux-scheme-compile.sh")
         readers_at = run.index("scripts/ci/check-password-import-readers.sh")
-        archive_at = run.index("/usr/bin/ditto")
+        absent_at = run.index('scripts/ci/check-browser-data-import-absent.sh "$proof/$(basename "$app")"')
+        archive_at = run.index("/usr/bin/ditto -c -k")
         self.assertLess(compile_at, readers_at)
-        self.assertLess(readers_at, archive_at, "an unproven app would be archived")
+        self.assertLess(compile_at, absent_at)
+        self.assertLess(max(readers_at, absent_at), archive_at, "an unproven app would be archived")
         self.assertIn("set -euo pipefail", run)
-        self.assertTrue((ROOT / "scripts/ci/check-password-import-readers.sh").exists())
-        # nightly-next runs the browser-data-absent proof only in its notary
-        # test; the bundled cmux CLI names the browsers in every build
-        # (run 40133576073 failed on Contents/Resources/bin/cmux).
-        self.assertNotIn("check-browser-data-import-absent.sh", run)
+        for verifier in ("check-password-import-readers.sh", "check-browser-data-import-absent.sh"):
+            self.assertTrue((ROOT / "scripts/ci" / verifier).exists(), verifier)
+        # nightly.yml scans before it bundles the cmux CLI (cmux-tui), which
+        # names the browsers; the DEV scan reads a clone without only that
+        # file, never the archived app itself (run 40133576073).
+        drop_at = run.index('rm -f "$proof/$(basename "$app")/Contents/Resources/bin/cmux"')
+        self.assertLess(drop_at, absent_at)
+        self.assertNotIn('rm -f "$app/', run)
 
     def test_the_script_uses_nightlys_exact_mechanism(self):
         # nightly.yml's decide step and its compile step.

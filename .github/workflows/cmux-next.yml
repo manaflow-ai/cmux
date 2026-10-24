@@ -4270,12 +4270,19 @@ jobs:
           app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
           test -d "$app"
           scripts/cmux-next/check-app-personalities.sh "$app"
-          # Prove it as nightly.yml proves every nightly-next build. Its
-          # browser-data-absent proof runs only for the cx-f58x notary test:
-          # the bundled cmux CLI (cmux-tui) names the browsers and is notarized
-          # in every nightly-next build, so that proof fails this app too.
+          # Prove it as nightly.yml proves every nightly-next build. nightly.yml
+          # scans the app before "Bundle the cmux-tui client" adds the cmux CLI,
+          # which names the browsers and is notarized in every nightly-next
+          # build; here the scheme compile already bundled it, so the scan reads
+          # a clone of the app without that one file (run 40133576073).
           executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/$executable"
+          proof="$RUNNER_TEMP/cmux-next-dev-browser-data-proof"
+          rm -rf "$proof" && mkdir -p "$proof"
+          cp -cR "$app" "$proof/" 2>/dev/null || ditto "$app" "$proof/$(basename "$app")"
+          rm -f "$proof/$(basename "$app")/Contents/Resources/bin/cmux"
+          scripts/ci/check-browser-data-import-absent.sh "$proof/$(basename "$app")"
+          rm -rf "$proof"
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
           /usr/bin/ditto -c -k --keepParent "$app" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
