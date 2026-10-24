@@ -2672,7 +2672,7 @@
           "type": "string"
         },
         "depth": {
-          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "description": "Its lineage depth (`parent`): 0 for a root session, 1 for the sessions\nits agent started, and so on.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -2804,6 +2804,14 @@
         "name": {
           "type": "string"
         },
+        "parent": {
+          "default": null,
+          "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "parentId": {
           "type": [
             "string",
@@ -2862,6 +2870,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "root": {
+          "default": "",
+          "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
+          "type": "string"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -2883,8 +2896,16 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
+        "spawnToolCallId": {
+          "default": null,
+          "description": "The parent's tool call that started it, when acpmux could tell.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "spawnedBy": {
-          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
             "string",
             "null"
@@ -3109,7 +3130,7 @@
           "type": "string"
         },
         "depth": {
-          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "description": "Its lineage depth (`parent`): 0 for a root session, 1 for the sessions\nits agent started, and so on.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -3237,6 +3258,14 @@
         "name": {
           "type": "string"
         },
+        "parent": {
+          "default": null,
+          "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "parentId": {
           "type": [
             "string",
@@ -3290,6 +3319,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "root": {
+          "default": "",
+          "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
+          "type": "string"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -3308,8 +3342,16 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
+        "spawnToolCallId": {
+          "default": null,
+          "description": "The parent's tool call that started it, when acpmux could tell.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "spawnedBy": {
-          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
             "string",
             "null"

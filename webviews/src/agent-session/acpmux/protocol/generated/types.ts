@@ -464,7 +464,10 @@ export type SessionDetail = {
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
-  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  /**
+   * Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+   * its agent started, and so on.
+   */
   depth: number;
   enforcement: Enforcement;
   eventCount: number;
@@ -501,6 +504,13 @@ export type SessionDetail = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * The session whose agent started this one (`acpmux new` in its shell, or its
+   * `start_session` tool), recorded at creation from the proven caller; null for a
+   * session a person or the app started. Not the fork parent (`parentId`). Absent
+   * from a peer on an older acpmux.
+   */
+  parent?: (string | null);
   parentId?: (string | null);
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
@@ -518,6 +528,11 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The root of its lineage tree: the first ancestor no agent started; its own
+   * id for a root. Absent from a peer on an older acpmux.
+   */
+  root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -527,9 +542,12 @@ export type SessionDetail = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /** The parent's tool call that started it, when acpmux could tell. */
+  spawnToolCallId?: (string | null);
   /**
-   * The session whose agent started this one (its `spawnedBy` tag), kept
-   * only while that parent is listed; one level.
+   * The session whose agent started this one, kept only while that parent
+   * is listed and is a root itself: one level, for lists that fold one level.
+   * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
   spawnedBy?: (string | null);
   /**
@@ -622,7 +640,10 @@ export type SessionSummary = {
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
-  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  /**
+   * Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+   * its agent started, and so on.
+   */
   depth: number;
   enforcement: Enforcement;
   eventCount: number;
@@ -656,6 +677,13 @@ export type SessionSummary = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * The session whose agent started this one (`acpmux new` in its shell, or its
+   * `start_session` tool), recorded at creation from the proven caller; null for a
+   * session a person or the app started. Not the fork parent (`parentId`). Absent
+   * from a peer on an older acpmux.
+   */
+  parent?: (string | null);
   parentId?: (string | null);
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
@@ -671,6 +699,11 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The root of its lineage tree: the first ancestor no agent started; its own
+   * id for a root. Absent from a peer on an older acpmux.
+   */
+  root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
@@ -678,9 +711,12 @@ export type SessionSummary = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /** The parent's tool call that started it, when acpmux could tell. */
+  spawnToolCallId?: (string | null);
   /**
-   * The session whose agent started this one (its `spawnedBy` tag), kept
-   * only while that parent is listed; one level.
+   * The session whose agent started this one, kept only while that parent
+   * is listed and is a root itself: one level, for lists that fold one level.
+   * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
   spawnedBy?: (string | null);
   /**

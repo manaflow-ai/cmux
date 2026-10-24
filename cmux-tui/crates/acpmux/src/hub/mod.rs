@@ -34,6 +34,7 @@ mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
+pub mod lineage;
 mod live_models;
 pub mod media_handles;
 pub mod media_read;
@@ -781,6 +782,7 @@ impl Hub {
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         })
     }
