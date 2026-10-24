@@ -15,6 +15,7 @@
 //! and refuses every other call, from a script too.
 
 mod action_tools;
+mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
@@ -147,6 +148,23 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One harness-agnostic agent dispatch request. The acpmux daemon owns
+    /// target selection, brief persistence and sender attribution; this
+    /// surface deliberately carries no shell command or remote path.
+    fn acpmux(
+        &self,
+        _method: &str,
+        _params: Value,
+        _timeout: Duration,
+        _idempotency_key: Option<&str>,
+        _mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "acpmux.unavailable",
+            "this server cannot reach the acpmux dispatch surface",
+        ))
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with
@@ -241,6 +259,17 @@ impl Backend for LiveBackend {
         mutation: bool,
     ) -> Result<Value, CallFailure> {
         transport::browser_host(request.method, request.params, request.timeout, mutation)
+    }
+
+    fn acpmux(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        idempotency_key: Option<&str>,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        agent_dispatch_tools::acpmux_request(method, params, timeout, idempotency_key, mutation)
     }
 
     fn chat(
@@ -553,6 +582,7 @@ impl<B: Backend> Server<B> {
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
+        tools.extend(agent_dispatch_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
@@ -746,6 +776,9 @@ impl<B: Backend> Server<B> {
             });
         }
         if let Some(tool) = agent_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(tool) = agent_dispatch_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if name == agent_wait_tool::NAME {

@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -355,11 +355,41 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ deleted: { devices: gone.length } })
   }
 
-  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify))?$/)
+  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|mailbox)(?:\/([^/]+))?)?$/)
   if (dev) {
     const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
+    const itemId = dev[3] === undefined ? undefined : decodeURIComponent(dev[3]).toLowerCase()
+    if (itemId !== undefined && sub !== "mailbox") return fail(404, "not_found", "not found")
+    if (sub === "mailbox") {
+      // PROTOCOL.md "Reply mailbox": a phone's sealed reply for its own Mac. The Worker never opens it.
+      const mac = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      if (!mac) throw new HttpError(404, "not_found", "no such device")
+      if (mac.ownerUserId !== me || mac.kind !== "mac") throw new HttpError(403, "not_owner", "replies go to your own Mac")
+      if (itemId !== undefined && method === "GET") {
+        if (!UUID.test(itemId)) throw new HttpError(400, "bad_request", "the item id must be a UUID")
+        const state = await userHub(env, caller).mailboxState(me, deviceId, itemId)
+        if (!state) throw new HttpError(404, "not_found", "no such item")
+        return json(state)
+      }
+      if (itemId !== undefined || method !== "POST") return fail(405, "method_not_allowed", "method not allowed")
+      const b = await readJson(req)
+      const id = typeof b.id === "string" ? b.id.toLowerCase() : ""
+      const from = typeof b.from === "string" ? b.from.toLowerCase() : ""
+      if (!UUID.test(id)) throw new HttpError(400, "bad_request", "id must be a UUID")
+      if (!UUID.test(from)) throw new HttpError(400, "bad_request", "from must be your phone's device id")
+      if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
+      const phone = await withStore(env, ctx, (s) => s.getDevice(from))
+      if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
+      await limit(env.MAILBOX_LIMIT, me, "replies")
+      const r = await userHub(env, caller).mailboxPost(me, { id, mac: deviceId, from, sealed: b.sealed })
+      if ("error" in r) {
+        if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
+        throw new HttpError(409, "conflict", "another reply already has this id")
+      }
+      return json(r)
+    }
     if (!sub && method === "DELETE") {
       const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
       if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
