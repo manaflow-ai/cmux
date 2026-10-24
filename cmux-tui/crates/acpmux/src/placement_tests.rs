@@ -88,6 +88,12 @@ fn a_full_swap_or_an_over_budget_verdict_refuses_a_host() {
     assert!(host(&v, "desk")["refused"].as_str().unwrap().starts_with("swap 29/30 GB"), "{v:#}");
     assert!(host(&v, "small")["refused"].as_str().unwrap().contains("memory pressure"), "{v:#}");
     assert!(v["why"].as_str().unwrap().starts_with("no host has room"), "{v:#}");
+
+    // A host whose entry sets no swap limit is never refused for a full swap.
+    let mut full = health(30.0, 15, 1.0, 300.0, 0);
+    full["swap"] = json!({"usedBytes": (8.0 * GB) as u64, "totalBytes": (8.0 * GB) as u64});
+    let v = place(&[c("big", full)], Some(&registry()), Work::Agent);
+    assert_eq!(v["pick"], "big", "{v:#}");
 }
 
 #[test]

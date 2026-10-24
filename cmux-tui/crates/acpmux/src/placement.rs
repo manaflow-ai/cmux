@@ -15,7 +15,9 @@
 //! The smallest of the four is its room. The most room wins, then the
 //! registry's `rank`, then fewer live agents. A host is refused when its room
 //! is under one lane, its budget verdict is over, its swap is fuller than
-//! `max_swap_used_fraction`, or its role forbids the work. Builds go only to
+//! the `max_swap_used_fraction` its entry sets (none by default: a Linux host
+//! often keeps a small swap full with plenty of RAM free, which is not
+//! pressure), or its role forbids the work. Builds go only to
 //! `lanes.build: true`; `"fallback"` takes a build only when no `true` host
 //! has room. Hosts, sizes and roles come from fleet-registry.json's
 //! `lanes` entries (no name here); a host with none is not a lane host. A
@@ -55,7 +57,7 @@ struct Lanes {
     disk_per_lane_gb: f64,
     cores_per_lane: f64,
     max_lanes: Option<f64>,
-    max_swap_used_fraction: f64,
+    max_swap_used_fraction: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,7 +78,7 @@ impl Default for Lanes {
             disk_per_lane_gb: 3.0,
             cores_per_lane: 1.0,
             max_lanes: None,
-            max_swap_used_fraction: 0.9,
+            max_swap_used_fraction: None,
         }
     }
 }
@@ -99,7 +101,10 @@ impl Lanes {
             disk_per_lane_gb: num("disk_per_lane_gb", d.disk_per_lane_gb).max(0.1),
             cores_per_lane: num("cores_per_lane", d.cores_per_lane).max(0.1),
             max_lanes: v.get("max_lanes").and_then(Value::as_f64),
-            max_swap_used_fraction: num("max_swap_used_fraction", d.max_swap_used_fraction),
+            max_swap_used_fraction: v
+                .get("max_swap_used_fraction")
+                .and_then(Value::as_f64)
+                .filter(|f| *f > 0.0),
         }
     }
 }
@@ -219,14 +224,15 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
             .filter_map(Value::as_str)
             .collect();
         w.refused = Some(format!("over its budget ({})", over.join(", ")));
-    } else if let (Some(used), Some(total)) = swap
-        && used / total >= lanes.max_swap_used_fraction
+    } else if let (Some(used), Some(total), Some(max)) =
+        (swap.0, swap.1, lanes.max_swap_used_fraction)
+        && used / total >= max
     {
         w.refused = Some(format!(
             "swap {:.0}/{:.0} GB used, at or over {:.0}%",
             used / GB,
             total / GB,
-            lanes.max_swap_used_fraction * 100.0
+            max * 100.0
         ));
     } else if let (Some((what, _)), Some(r)) = (tightest, room)
         && r < 1.0
