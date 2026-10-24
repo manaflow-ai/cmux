@@ -27,8 +27,10 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Throws: When Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage
     /// Freezes this host's started pages while they stay hidden (the app's hibernation, with its
-    /// grace); nil: a hidden page is never frozen. Read at each hide, wake and show.
-    var freezePolicy: (any PageFreezePolicy)? { get }
+    /// grace). Required, and handed to the host when it is made: a host that got its policy later
+    /// (or never) kept every hidden page running and said nothing. `browser.freezeHiddenTabs: off`
+    /// is the policy's own answer, not a missing policy. Each page takes it when it starts.
+    var freezePolicy: any PageFreezePolicy { get }
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol

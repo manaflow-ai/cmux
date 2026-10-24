@@ -20,14 +20,27 @@ extension AppServices {
         let agentPages = AgentPageHibernation(services: self)
         hibernation.agentPages = agentPages
         // cmux's own pages in Chromium (Home, Settings, Diff, Files, chats...) freeze while nobody
-        // sees them, by the browser tabs' freeze plan; a chat whose turn runs stays awake.
-        let cmuxPages = PageFreezing.hibernation()
+        // sees them, by the browser tabs' freeze plan; a chat whose turn runs stays awake. The
+        // policy is the one the Chromium page host was made with (``makeChromiumPageHost()``),
+        // whichever of the two starts first.
+        let cmuxPages = cmuxPageFreezing
         cmuxPages.exemption = { [weak agentPages] page in agentPages?.freezeExemption(for: page)?.rawValue }
         agentPages.turnsChanged = { [weak cmuxPages] in cmuxPages?.replan() }
         hibernation.cmuxPages = cmuxPages
-        (PageWebView.chromiumHosting as? ChromiumPageHost)?.freezePolicy = cmuxPages
         hibernation.follow(settings)
         hibernation.start()
+    }
+
+    /// The app's one host of cmux pages in Chromium, made with ``cmuxPageFreezing`` (the policy
+    /// the hibernation drives), so every page it starts freezes while nobody sees it.
+    func makeChromiumPageHost() -> ChromiumPageHost {
+        ChromiumPageHost(
+            cef: cache.cef,
+            preference: { [weak self] in
+                self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
+            },
+            keyRouter: keyRouter,
+            freezePolicy: cmuxPageFreezing)
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
