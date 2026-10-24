@@ -78,7 +78,7 @@ pub(super) fn spawn_attach_notification_stream(
             if events.overflowed() {
                 lifecycle.mark_overflow();
             }
-            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+            report_attach_overflow(&writer, &lifecycle, &outbound_stream);
         })
         .map(|_| ())
 }
@@ -324,7 +324,7 @@ pub(super) fn commit_client_attach_and_start_worker(
 
 pub(super) fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
     let _lifecycle = mux.lock_client_sizing_lifecycle();
-    let detached = mux.control_clients.detach_surface(client, surface, stream);
+    let detached = mux.control_clients.detach_failed_surface(client, surface, stream);
     if detached.final_stream {
         mux.remove_surface_size_client(surface, client);
     } else if let Some(replacement) = detached.geometry_replacement {
@@ -341,7 +341,7 @@ pub(super) fn rollback_failed_attach(
 ) {
     let detached = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
-        mux.control_clients.detach_surface(client, surface, stream)
+        mux.control_clients.detach_failed_surface(client, surface, stream)
     };
     if detached.final_stream {
         // A failed first attach is one transaction: restore the geometry that

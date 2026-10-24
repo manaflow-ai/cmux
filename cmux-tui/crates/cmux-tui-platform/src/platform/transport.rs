@@ -21,6 +21,18 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
         None
     }
+    /// Writes all of `bytes` with `descriptor` passed (`SCM_RIGHTS`) on its
+    /// first byte, so the peer receives the descriptor together with these
+    /// bytes, in stream order (a local Unix socket only; the cmux attach
+    /// output ring, server/attach_frames.rs). Other streams cannot pass one.
+    #[cfg(unix)]
+    fn write_with_descriptor(
+        &mut self,
+        _bytes: &[u8],
+        _descriptor: std::os::fd::RawFd,
+    ) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "this stream cannot pass a descriptor"))
+    }
 }
 
 pub struct Listener {
@@ -120,6 +132,54 @@ mod imp {
 
         fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
             cmux_link::app_caller::peer_token(std::os::fd::AsRawFd::as_raw_fd(self))
+        }
+
+        fn write_with_descriptor(
+            &mut self,
+            bytes: &[u8],
+            descriptor: std::os::fd::RawFd,
+        ) -> io::Result<()> {
+            use std::io::Write as _;
+            let fd = std::os::fd::AsRawFd::as_raw_fd(self);
+            let mut iov =
+                libc::iovec { iov_base: bytes.as_ptr() as *mut libc::c_void, iov_len: bytes.len() };
+            // SAFETY: CMSG_SPACE computes a size from a length.
+            let space =
+                unsafe { libc::CMSG_SPACE(size_of::<std::os::fd::RawFd>() as u32) } as usize;
+            let mut control = vec![0_u8; space];
+            // SAFETY: a zeroed msghdr is a valid empty header.
+            let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            msg.msg_control = control.as_mut_ptr().cast();
+            msg.msg_controllen = space as _;
+            // SAFETY: the control buffer holds one cmsg of CMSG_SPACE(one fd) bytes.
+            unsafe {
+                let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                if cmsg.is_null() {
+                    return Err(io::Error::other("no room for the descriptor"));
+                }
+                (*cmsg).cmsg_level = libc::SOL_SOCKET;
+                (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+                (*cmsg).cmsg_len = libc::CMSG_LEN(size_of::<std::os::fd::RawFd>() as u32) as _;
+                std::ptr::write_unaligned(
+                    libc::CMSG_DATA(cmsg).cast::<std::os::fd::RawFd>(),
+                    descriptor,
+                );
+            }
+            let sent = loop {
+                // SAFETY: msg points at live buffers for the call.
+                let sent = unsafe { libc::sendmsg(fd, &msg, 0) };
+                if sent >= 0 {
+                    break sent as usize;
+                }
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            };
+            // The descriptor went with the first byte; the rest is plain bytes.
+            self.write_all(bytes.get(sent..).unwrap_or_default())
         }
     }
 }

@@ -365,6 +365,12 @@ fn handle_websocket_connection_with_permit(
             while let Some(item) = writer_outbound.recv() {
                 let result = match item {
                     OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    // Never granted on WebSocket (attach-frames-v1 is refused
+                    // there); a frame here is a daemon bug, so the connection ends.
+                    OutboundItem::Frame(_) => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "binary attach frames are not served on WebSocket",
+                    )),
                     OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
                         let _ = flushed.send(());
                     }),
