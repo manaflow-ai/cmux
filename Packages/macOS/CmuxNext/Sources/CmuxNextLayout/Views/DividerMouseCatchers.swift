@@ -18,6 +18,8 @@ public import AppKit
 public final class DividerMouseCatchers {
     private unowned let window: NSWindow
     private var panels: [String: DividerMousePanel] = [:]
+    /// Parked panels: transparent child windows that let the mouse through (`park`).
+    private var spare: [DividerMousePanel] = []
     /// Called with (divider id, hovered) for the divider's hover line.
     public var onHover: ((String, Bool) -> Void)?
     /// Panel frame changes since launch (`debug.layers`): each is a window server move (a new
@@ -45,11 +47,12 @@ public final class DividerMouseCatchers {
     }
 
     /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window is visible).
+    /// is false (no page window is visible, or a dialog blocks the window). A panel
+    /// no area needs is parked, not removed (`park`).
     ///
     /// - Parameters:
     ///   - areas: The hit areas to cover, in window coordinates.
-    ///   - active: False hides every panel (no page window is visible).
+    ///   - active: False parks every panel (no page window is visible, or a dialog blocks the window).
     ///   - passThrough: Ids of areas whose panels stay where they are but let the mouse through to
     ///     what is under them: a layout spring moved their dividers away, and the panels follow
     ///     only when it lands.
@@ -57,13 +60,12 @@ public final class DividerMouseCatchers {
         let wanted = active && window.isVisible ? areas : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
-            if panel.parent === window { window.removeChildWindow(panel) }
-            panel.orderOut(nil)
-            windowOrderings += 2
+            park(panel)
             panels[id] = nil
         }
         for area in wanted {
-            let panel = panels[area.id] ?? makePanel(id: area.id)
+            let panel = panels[area.id] ?? spare.popLast() ?? makePanel(id: area.id)
+            panel.areaID = area.id
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns
             // A window server property, set when a spring starts and when it lands, never per frame.
@@ -81,14 +83,33 @@ public final class DividerMouseCatchers {
         }
     }
 
+    /// Takes the catchers out of the window for good (the window closes).
     public func teardown() {
-        update([], active: false)
+        for panel in Array(panels.values) + spare {
+            if panel.parent === window { window.removeChildWindow(panel) }
+            panel.orderOut(nil)
+        }
+        panels.removeAll()
+        spare.removeAll()
+    }
+
+    /// A panel no area needs now stays a child window where it is and lets the mouse through, for
+    /// the next area to take: ordering a window out and back in, or making one, is a window server
+    /// round trip (85 to 100 ms in STRESS under a dialog or a workspace switch, every-action sweep).
+    private func park(_ panel: DividerMousePanel) {
+        panel.areaID = nil
+        if !panel.ignoresMouseEvents { panel.ignoresMouseEvents = true }
+        spare.append(panel)
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
         let panel = DividerMousePanel()
         panelsMade += 1
-        panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
+        panel.areaID = id
+        panel.catcher.onHover = { [weak self, weak panel] hovered in
+            guard let id = panel?.areaID else { return }
+            self?.onHover?(id, hovered)
+        }
         return panel
     }
 }
@@ -96,6 +117,8 @@ public final class DividerMouseCatchers {
 /// A transparent panel that takes the mouse over a divider's hit area.
 final class DividerMousePanel: NSPanel {
     let catcher = DividerMouseCatcherView()
+    /// The area this panel covers now; nil while parked.
+    var areaID: String?
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
