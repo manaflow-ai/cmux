@@ -295,10 +295,10 @@ impl LinkBreak {
 /// The holder state.
 pub struct Holder {
     listener: UnixListener,
-    /// The last accept failed for a want of the holder's (a descriptor,
-    /// kernel memory) and left its connection queued: the listener stays
-    /// out of the poll set, and each turn ends with another accept
-    /// ([`Self::accept`]).
+    /// The last accept failed because the holder lacked a resource (a
+    /// descriptor, kernel memory), which may leave its connection queued:
+    /// the listener stays out of the poll set, and each turn ends with
+    /// another accept ([`Self::accept`]).
     accept_stalled: bool,
     /// The socket file, removed when the holder exits.
     socket: Option<PathBuf>,
@@ -629,9 +629,9 @@ impl Holder {
     /// Take new connections. They wait in `pending` until they authenticate;
     /// the attached daemon keeps its link meanwhile.
     ///
-    /// An accept that fails for a want of the holder's (no descriptor left:
-    /// EMFILE, ENFILE; no kernel memory) leaves its connection queued on
-    /// Linux, so the listener would report it again at once and the loop
+    /// An accept that fails because the holder lacks a resource (no
+    /// descriptor left: EMFILE, ENFILE; no kernel memory) leaves its
+    /// connection queued on Linux, so the listener would report it again at once and the loop
     /// would spin for as long as the holder is full. The holder then stops
     /// polling the listener ([`Self::accept_stalled`]) and tries again at
     /// the end of each turn: a descriptor of its own frees only in a turn
@@ -925,11 +925,10 @@ impl Holder {
 
     /// A starting terminal's child reported ([`pty::Start::poll`]): once
     /// its program runs, the hang-up of a CLOSE that came meanwhile, and
-    /// SPAWNED with the custody descriptors to the link that asked; when it could
-    /// not start, ERROR SPAWN_FAILED with what it
-    /// could not do, and the terminal is forgotten (the child exits 127, or
-    /// is killed when its report could not be read, and is reaped like any
-    /// other). The error also goes to a link that attached the terminal
+    /// SPAWNED with the custody descriptors to the link that asked; when it
+    /// could not start, ERROR SPAWN_FAILED with what it could not do, and
+    /// the terminal is forgotten (the child exits 127, or is killed when its
+    /// report could not be read, and is reaped like any other). The error also goes to a link that attached the terminal
     /// meanwhile (a daemon that reconnected while it started), so its
     /// stream ends instead of waiting for ever.
     fn finish_start(&mut self, chan: u32) {
