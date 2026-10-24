@@ -275,22 +275,23 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    private func observeIconFamily() {
-        func apply() {
-            let family = AgentPaneTunables.documentAttributes["icon-family"] ?? ""
-            if let page {
-                page.setDocumentAttribute("icon-family", family)
-            } else {
-                // The old host has no PageWebView live-attribute bridge; update its document
-                // directly so Debug Settings changes reach already-open chats too.
-                evaluateScript("document.documentElement?.setAttribute('data-icon-family', '\(family)');")
-            }
+    private func applyIconFamily() {
+        let family = AgentPaneTunables.documentAttributes["icon-family"] ?? ""
+        if let page {
+            page.setDocumentAttribute("icon-family", family)
+        } else {
+            // The old host has no PageWebView live-attribute bridge; update its document
+            // directly so Debug Settings changes reach already-open chats too.
+            evaluateScript("document.documentElement?.setAttribute('data-icon-family', '\(family)');")
         }
-        apply()
+    }
+
+    private func observeIconFamily() {
+        applyIconFamily()
         iconFamilyObservation = Task { [weak self] in
             for await _ in ObservationStream({ IconFamily.tunable.value }) {
                 guard let self else { return }
-                apply()
+                self.applyIconFamily()
             }
         }
     }
@@ -387,6 +388,8 @@ public final class AgentPaneView: NSView {
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
+        iconFamilyObservation?.cancel()
+        iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
