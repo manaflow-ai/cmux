@@ -894,6 +894,31 @@ class HarnessRowWithoutRelaunchTests(unittest.TestCase):
         self.assertEqual([r["after_harness"] for r in sweep.rows], ["the session is intact; no relaunch"] * 2)
 
 
+class FixtureTests(unittest.TestCase):
+    """Preconditions the sweep generates: argument values the action accepts, directional moves from a pane with a
+    neighbor, and refusals that are the action's correct answer (the wrong-or-error rows of the macOS 27 sweep)."""
+
+    def test_browser_fit_gets_an_aspect_ratio_and_history_open_a_real_entry(self):
+        fit = {"id": "browserFit", "arguments": [{"name": "fit", "kind": "string", "required": True}]}
+        self.assertEqual(sweep_mod.argument_values(fit, {}), ({"fit": "16:9"}, None))
+        entry = {"id": "history.open", "arguments": [{"name": "id", "kind": "string", "required": True}]}
+        with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": [{"id": "h_42"}]}):
+            self.assertEqual(sweep_mod.argument_values(entry, {}), ({"id": "h_42"}, None))
+        with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": []}):
+            self.assertEqual(sweep_mod.argument_values(entry, {}), (None, "the history is empty"))
+
+    def test_swaps_start_from_a_pane_with_a_neighbor(self):
+        for ident in ("swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown"):
+            self.assertIn(ident, sweep_mod.DIRECTIONS)
+
+    def test_a_policy_refusal_is_expected_and_another_error_is_not(self):
+        self.assertTrue(sweep_mod.expected_refusal(
+            "palette.disableBrowser",
+            "daemon_error: browser.enabled can be changed only by you, in Settings (agents, scripts and pages cannot change it)"))
+        self.assertFalse(sweep_mod.expected_refusal("palette.disableBrowser", "daemon_error: timed out"))
+        self.assertFalse(sweep_mod.expected_refusal("history.open", "daemon_error: That history entry is gone"))
+
+
 class FailedSessionTests(unittest.TestCase):
     def test_a_session_that_fails_fails_the_run_and_the_report_says_so(self):
         class App:
