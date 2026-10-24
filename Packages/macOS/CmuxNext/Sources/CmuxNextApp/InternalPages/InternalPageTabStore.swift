@@ -209,7 +209,9 @@ final class InternalPageTabStore {
         let route = daemon.supports(DaemonCapabilities.pageTabRoute) ? provider.route(for: key) : nil
         snapshot.conversation = ConversationTabRef(page: page.rawValue, route: route)
         track(provisional.id, key: key, in: store, window: window)
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window))
+        // The bar after the view: the provider makes its bar from the page it just made (the Markdown omnibar).
+        let content = provider.makeView(for: key, in: window)
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         views[key] = view
         store.onPageTabCreated = { [weak self] provisional, tab in
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
