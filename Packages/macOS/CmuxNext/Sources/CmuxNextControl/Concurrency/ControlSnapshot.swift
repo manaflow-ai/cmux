@@ -76,8 +76,9 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
-    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame):
-    /// ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
+    /// Main-actor state changed since the last build of it and nothing has built it yet (a control work-queue frame):
+    /// ``fresh()`` builds it first. Set on the main actor, cleared only by a publish that covers main-actor state
+    /// (``publish(coversMainActorState:_:)``), read by connection tasks.
     private let stale = Atomic<Bool>(false)
     /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
     private let refresher = Mutex<(@Sendable () async -> Void)?>(nil)
@@ -87,7 +88,7 @@ public final class ControlSnapshotStore: Sendable {
     /// The latest published snapshot.
     public var current: ControlSnapshot { state.withLock { $0.snapshot } }
 
-    /// Whether main-actor state changed since the last publish and has not been built yet.
+    /// Whether main-actor state changed since the last build of it and has not been built yet.
     public var isStale: Bool { stale.load(ordering: .acquiring) }
 
     /// Main-actor state changed: the next ``fresh()`` builds the snapshot first (a lazy publish: nothing is built
@@ -97,7 +98,7 @@ public final class ControlSnapshotStore: Sendable {
     /// Sets the closure that builds and publishes a stale snapshot on the main actor.
     public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
 
-    /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
+    /// The latest snapshot, built first when main-actor state changed since the last build of it (``markStale()``):
     /// what a control call reads, so it covers the writes of the calls before it.
     public func fresh() async -> ControlSnapshot {
         if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
@@ -111,11 +112,19 @@ public final class ControlSnapshotStore: Sendable {
     /// Applies `update` to a copy of the current snapshot and publishes the
     /// result. Build expensive values before calling: the lock is held for
     /// the closure's duration.
+    ///
+    /// - Parameters:
+    ///   - coversMainActorState: `update` writes a build of the main actor's state as of now (the App publisher's
+    ///     topology build, on the main actor): it clears the stale mark (``markStale()``). Every other publish (the
+    ///     catalog, the context mask, settings, the daemon sequences) leaves it, so the next ``fresh()`` still builds
+    ///     the main-actor writes it did not cover.
+    ///   - update: The change to the snapshot.
+    /// - Returns: The new generation.
     @discardableResult
-    public func publish(_ update: (inout ControlSnapshot) -> Void) -> UInt64 {
+    public func publish(coversMainActorState: Bool = false, _ update: (inout ControlSnapshot) -> Void) -> UInt64 {
         let (generation, snapshot, ready) = state.withLock { state -> (UInt64, ControlSnapshot, [Waiter]) in
             update(&state.snapshot)
-            stale.store(false, ordering: .releasing)
+            if coversMainActorState { stale.store(false, ordering: .releasing) }
             state.snapshot.generation &+= 1
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }
