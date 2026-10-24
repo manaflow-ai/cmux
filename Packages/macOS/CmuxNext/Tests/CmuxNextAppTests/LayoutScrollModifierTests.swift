@@ -14,7 +14,46 @@ import Testing
 @MainActor
 struct LayoutScrollModifierTests {
     final class Panes: LayoutPaneContentProvider {
-        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+        /// Each pane's content view, as the layout asked for it.
+        var views: [PaneID: NSView] = [:]
+        func makeContentView(for pane: PaneID) -> NSView {
+            let view = NSView()
+            views[pane] = view
+            return view
+        }
+    }
+
+    /// Three 60% columns, so the strip overflows on a root 1000 pt or less wide; the first column
+    /// holds three 750-unit rows (`top`, `middle`, `bottom`), so its rows overflow too.
+    static func columnsModel(modifier: LayoutScrollModifier?, focusFollowsMouse: Bool = false) -> LayoutModel {
+        let rows = [LayoutRow(id: "r1", height: 750, root: .leaf("top")),
+                    LayoutRow(id: "r2", height: 750, root: .leaf("middle")),
+                    LayoutRow(id: "r3", height: 750, root: .leaf("bottom"))]
+        let tree: SplitNode = .split("lower", axis: .vertical, ratio: 0.5,
+                                     a: .split("upper", axis: .vertical, ratio: 0.5, a: .leaf("top"), b: .leaf("middle")),
+                                     b: .leaf("bottom"))
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
+            LayoutColumn(id: "c1", width: 0.6, root: tree, rows: rows),
+            LayoutColumn(id: "c2", width: 0.6, root: .leaf("p2")),
+            LayoutColumn(id: "c3", width: 0.6, root: .leaf("p3")),
+        ]))], activeScreenID: "s", focusedPane: "top")
+        model.followsDesignMetrics = false
+        model.rowsEnabledOverride = true
+        model.scrollModifierOverride = modifier
+        model.focusFollowsMouseOverride = focusFollowsMouse
+        return model
+    }
+
+    /// One scroll event at `point`, as a layout's monitor sees it. True: `root` took it.
+    @discardableResult
+    static func scroll(_ root: LayoutRootView, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
+                       momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
+        let cg = CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)!
+        if units == .pixel { cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1) }
+        if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
+        cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue))
+        if command { cg.flags = .maskCommand }
+        return root.handleScroll(NSEvent(cgEvent: cg)!, locationInWindow: point)
     }
 
     final class Window {
@@ -27,21 +66,7 @@ struct LayoutScrollModifierTests {
         /// Three 60% columns on a 1000 pt window, so the strip overflows; the first column holds three
         /// 750-unit rows (`top`, `middle`, `bottom`), so its rows overflow too.
         init(modifier: LayoutScrollModifier?, focusFollowsMouse: Bool = false) {
-            let rows = [LayoutRow(id: "r1", height: 750, root: .leaf("top")),
-                        LayoutRow(id: "r2", height: 750, root: .leaf("middle")),
-                        LayoutRow(id: "r3", height: 750, root: .leaf("bottom"))]
-            let tree: SplitNode = .split("lower", axis: .vertical, ratio: 0.5,
-                                         a: .split("upper", axis: .vertical, ratio: 0.5, a: .leaf("top"), b: .leaf("middle")),
-                                         b: .leaf("bottom"))
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
-                LayoutColumn(id: "c1", width: 0.6, root: tree, rows: rows),
-                LayoutColumn(id: "c2", width: 0.6, root: .leaf("p2")),
-                LayoutColumn(id: "c3", width: 0.6, root: .leaf("p3")),
-            ]))], activeScreenID: "s", focusedPane: "top")
-            model.followsDesignMetrics = false
-            model.rowsEnabledOverride = true
-            model.scrollModifierOverride = modifier
-            model.focusFollowsMouseOverride = focusFollowsMouse
+            model = LayoutScrollModifierTests.columnsModel(modifier: modifier, focusFollowsMouse: focusFollowsMouse)
             var signals = ScrollFocusSignals()
             signals.secondsSinceKeyDown = { 60 }
             signals.windowIsKey = { _ in true }
@@ -71,12 +96,7 @@ struct LayoutScrollModifierTests {
         @discardableResult
         func scroll(at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
                     momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
-            let cg = CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)!
-            if units == .pixel { cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1) }
-            if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
-            cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue))
-            if command { cg.flags = .maskCommand }
-            return root.handleScroll(NSEvent(cgEvent: cg)!, locationInWindow: point)
+            LayoutScrollModifierTests.scroll(root, at: point, dx: dx, dy: dy, phase: phase, momentum: momentum, units: units, command: command)
         }
 
         /// A trackpad gesture: began, three changes, ended, then a coast of momentum. `commandAt`
@@ -267,6 +287,203 @@ struct LayoutScrollModifierTests {
         #expect(scroll(.changed, dx: -20, command: true))
         #expect(scroll(.ended, dx: 0, command: true))
         #expect(try #require(root.frame(of: "a")).minX < frame.minX, "the canvas panned")
+    }
+
+    // MARK: one owner decision (review 1 of pl-scroll)
+
+    /// Command held at the touch and released before the gesture begins: the layout owns the
+    /// gesture from the touch, says so to the content inside it (the Chromium swipe asks this, not
+    /// the modifier keys), keeps every event, its zero-delta start included, and gets its end.
+    @Test func aCommandTouchOwnsTheWholeGestureAndTellsThePaneContent() throws {
+        let w = Window(modifier: .command)
+        let top = try w.center("top")
+        let content = try #require(w.provider.views["top"])
+        #expect(content.isDescendant(of: w.root))
+        let before = try #require(w.root.frame(of: "p2"))
+        #expect(w.scroll(at: top, phase: .mayBegin, command: true), "the pane never sees the touch of the layout's gesture")
+        #expect(content.isScrollGestureTakenByEnclosingView, "decided at the touch")
+        #expect(w.scroll(at: top, phase: .began), "nor its zero-delta start")
+        for _ in 0..<3 { #expect(w.scroll(at: top, dx: -20, phase: .changed)) }
+        #expect(content.isScrollGestureTakenByEnclosingView)
+        let strip = try #require(w.root.screenViews["s"])
+        #expect(strip.isUserScrolling)
+        #expect(w.scroll(at: top, phase: .ended), "the layout gets the end")
+        #expect(!strip.isUserScrolling, "the strip left its user scroll")
+        #expect(!content.isScrollGestureTakenByEnclosingView, "between gestures nobody owns one")
+        w.settle()
+        #expect(try #require(w.root.frame(of: "p2")).minX < before.minX - 30, "the strip panned")
+    }
+
+    @Test func aPlainGestureOverAPaneIsNotTakenFromItsContent() throws {
+        let w = Window(modifier: .command)
+        let top = try w.center("top")
+        let content = try #require(w.provider.views["top"])
+        #expect(!w.scroll(at: top, phase: .mayBegin))
+        #expect(!w.scroll(at: top, dx: -20, phase: .began))
+        #expect(!content.isScrollGestureTakenByEnclosingView, "a Chromium page may swipe Back or Forward")
+        #expect(!w.scroll(at: top, phase: .ended))
+    }
+
+    /// One column whose rows overflow and a strip that fits: Command + a sideways swipe has nothing
+    /// to move that way, but it began where the layout scrolls, so it stays the layout's (the pane
+    /// never saw its start, and a web page must not go Back or Forward on it).
+    @Test func aCommandSwipeWithNothingToMoveItsWayStaysTheLayoutsAndMovesNothing() throws {
+        let rows = [LayoutRow(id: "r1", height: 750, root: .leaf("top")),
+                    LayoutRow(id: "r2", height: 750, root: .leaf("bottom"))]
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
+            LayoutColumn(id: "c1", width: 1, root: .split("x", axis: .vertical, ratio: 0.5, a: .leaf("top"), b: .leaf("bottom")),
+                         rows: rows),
+        ]))], activeScreenID: "s", focusedPane: "top")
+        model.followsDesignMetrics = false
+        model.rowsEnabledOverride = true
+        model.scrollModifierOverride = .command
+        let provider = Panes()
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        let frame = try #require(root.frame(of: "top"))
+        let point = root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        #expect(Self.scroll(root, at: point, dx: -20, phase: .began, command: true))
+        #expect(root.ownsCurrentScrollGesture)
+        for _ in 0..<3 { #expect(Self.scroll(root, at: point, dx: -20, phase: .changed)) }
+        #expect(Self.scroll(root, at: point, phase: .ended))
+        #expect(Self.scroll(root, at: point, dx: -10, momentum: .begin), "nor its coast")
+        #expect(Self.scroll(root, at: point, momentum: .end))
+        #expect(!root.ownsCurrentScrollGesture)
+        #expect(root.frame(of: "top") == frame, "nothing moved")
+    }
+
+    /// Nothing to scroll at all (one column, no rows): Command + scroll is the pane's, so a web
+    /// page goes Back or Forward on it, Chromium and WebKit alike.
+    @Test func aCommandSwipeWhereTheLayoutHasNothingToScrollIsThePanes() throws {
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
+            LayoutColumn(id: "c1", width: 1, root: .leaf("a")),
+        ]))], activeScreenID: "s", focusedPane: "a")
+        model.followsDesignMetrics = false
+        model.scrollModifierOverride = .command
+        let provider = Panes()
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        let frame = try #require(root.frame(of: "a"))
+        let point = root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        #expect(!Self.scroll(root, at: point, phase: .mayBegin, command: true))
+        #expect(!Self.scroll(root, at: point, dx: -20, phase: .began, command: true))
+        #expect(!root.ownsCurrentScrollGesture)
+        #expect(!Self.scroll(root, at: point, dx: -20, phase: .changed, command: true))
+        #expect(!Self.scroll(root, at: point, phase: .ended, command: true))
+    }
+
+    /// Multi-view: two layouts in one window, each with its own monitor. Both see a touch; the one
+    /// under the pointer takes the gesture and its end, so the other never sees them. The other's
+    /// next gesture without a touch (a Magic Mouse) must still decide its owner.
+    @Test func aTouchOverAnotherLayoutInTheWindowDoesNotStopThisOnesNextGestureDeciding() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
+        window.contentView = container
+        let providers = [Panes(), Panes()]
+        let roots = providers.map { LayoutRootView(model: Self.columnsModel(modifier: .command), contentProvider: $0) }
+        for (index, root) in roots.enumerated() {
+            root.frame = NSRect(x: CGFloat(index) * 500, y: 0, width: 500, height: 800)
+            root.context.reduceMotionOverride = false
+            container.addSubview(root)
+            root.layoutSubtreeIfNeeded()
+            root.driver.isManual = true
+        }
+        let (a, b) = (roots[0], roots[1])
+        // A plain vertical gesture over the gap between A's rows: A's chrome, so A takes it.
+        let top = try #require(a.frame(of: "top")), middle = try #require(a.frame(of: "middle"))
+        let gap = a.convert(CGPoint(x: top.midX, y: (top.maxY + middle.minY) / 2), to: nil)
+        #expect(!Self.scroll(a, at: gap, phase: .mayBegin), "a plain touch goes on")
+        #expect(!Self.scroll(b, at: gap, phase: .mayBegin), "B sees the touch too; it is not B's")
+        #expect(Self.scroll(a, at: gap, dy: -30, phase: .began), "A takes the gesture: B never sees the rest")
+        #expect(Self.scroll(a, at: gap, dy: -30, phase: .changed))
+        #expect(Self.scroll(a, at: gap, phase: .ended))
+        // Then a Command swipe over B with no touch first.
+        let paneB = try #require(b.frame(of: "top"))
+        let overB = b.convert(CGPoint(x: paneB.midX, y: paneB.midY), to: nil)
+        #expect(b.bounds.contains(b.convert(overB, from: nil)))
+        #expect(Self.scroll(b, at: overB, dx: -20, phase: .began, command: true), "B's own gesture decides at its began")
+        #expect(Self.scroll(b, at: overB, dx: -20, phase: .changed))
+        #expect(Self.scroll(b, at: overB, phase: .ended))
+    }
+
+    // MARK: page windows (scrollOrigin)
+
+    /// The routing of a monitored scroll by the window it came from: this window's own point; a
+    /// page window over a pane (a non-panel child) under `command`, its point converted; never a
+    /// page window under `none`, a panel (a remote browser popup), or another window's page.
+    @Test func aScrollFromAPageWindowCountsOnlyForItsOwnWindowUnderCommand() throws {
+        func window(_ rect: NSRect) -> NSWindow {
+            let window = NSWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            return window
+        }
+        let shell = window(NSRect(x: 0, y: 0, width: 1000, height: 800))
+        let other = window(NSRect(x: 1200, y: 0, width: 600, height: 600))
+        let page = window(NSRect(x: 100, y: 150, width: 400, height: 300))
+        let otherPage = window(NSRect(x: 1300, y: 100, width: 200, height: 200))
+        let popup = ContentChildPanel()
+        popup.setFrame(NSRect(x: 120, y: 160, width: 100, height: 100), display: false)
+        let panel = NSPanel(contentRect: NSRect(x: 130, y: 170, width: 100, height: 100), styleMask: [.borderless],
+                            backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        shell.addChildWindow(page, ordered: .above)
+        shell.addChildWindow(popup, ordered: .above)
+        shell.addChildWindow(panel, ordered: .above)
+        other.addChildWindow(otherPage, ordered: .above)
+        defer {
+            for child in [page, popup, panel] { shell.removeChildWindow(child) }
+            other.removeChildWindow(otherPage)
+            for each in [shell, other, page, otherPage, popup, panel] { each.close() }
+        }
+        let point = NSPoint(x: 10, y: 20)
+        typealias Origin = LayoutRootView.ScrollOrigin
+        #expect(LayoutRootView.scrollOrigin(of: shell, at: point, in: shell, modifier: .command)
+                == Origin(locationInWindow: point, isPageWindow: false))
+        #expect(LayoutRootView.scrollOrigin(of: shell, at: point, in: shell, modifier: .noModifier)
+                == Origin(locationInWindow: point, isPageWindow: false))
+        let converted = NSPoint(x: page.frame.minX - shell.frame.minX + 10, y: page.frame.minY - shell.frame.minY + 20)
+        #expect(converted != point, "the page sits at an offset in the shell")
+        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: shell, modifier: .command)
+                == Origin(locationInWindow: converted, isPageWindow: true), "a page window's point, in the shell window")
+        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: shell, modifier: .noModifier) == nil, "none: the page keeps its scrolls")
+        #expect(LayoutRootView.scrollOrigin(of: otherPage, at: point, in: shell, modifier: .command) == nil, "another window's page")
+        #expect(LayoutRootView.scrollOrigin(of: other, at: point, in: shell, modifier: .command) == nil, "another window")
+        #expect(LayoutRootView.scrollOrigin(of: popup, at: point, in: shell, modifier: .command) == nil, "a remote browser popup scrolls its list")
+        #expect(LayoutRootView.scrollOrigin(of: panel, at: point, in: shell, modifier: .command) == nil, "an overlay panel")
+        #expect(LayoutRootView.scrollOrigin(of: nil, at: point, in: shell, modifier: .command) == nil)
+        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: nil, modifier: .command) == nil)
+    }
+
+    /// From a page window only Command + scroll is the layout's: a plain scroll there is the
+    /// page's even where the layout's own point would be chrome.
+    @Test func aPlainScrollFromAPageWindowIsThePagesEvenOverChrome() throws {
+        let w = Window(modifier: .command)
+        let gap = try w.rowGap()
+        func event(_ phase: CGScrollPhase, dy: Int32 = 0, command: Bool = false) -> NSEvent {
+            let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: 0, wheel3: 0)!
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+            if command { cg.flags = .maskCommand }
+            return NSEvent(cgEvent: cg)!
+        }
+        /// A began, a change and an end from one origin; true: the layout took all three.
+        func gesture(fromPageWindow: Bool, command: Bool) -> [Bool] {
+            [event(.began, dy: -30, command: command), event(.changed, dy: -30), event(.ended)].map {
+                w.root.handleScrollEvent($0, at: gap, fromPageWindow: fromPageWindow) == nil
+            }
+        }
+        #expect(gesture(fromPageWindow: true, command: false) == [false, false, false], "a plain scroll from a page is the page's")
+        #expect(gesture(fromPageWindow: false, command: false) == [true, true, true], "the same point in the layout's window is chrome")
+        #expect(gesture(fromPageWindow: true, command: true) == [true, true, true], "Command + scroll from a page is the layout's")
     }
 
     // MARK: none (the rule before)
