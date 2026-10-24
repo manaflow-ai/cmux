@@ -1,24 +1,26 @@
 //! A holder out of descriptors (holder-core review): it refuses what it
-//! cannot pass and keeps serving what it has. The holder runs under a low
+//! cannot take and keeps serving what it has. The holder runs under a low
 //! `RLIMIT_NOFILE`, set to leave it an exact number of free descriptors, so
 //! each step fails at the point the test names:
 //!
-//! - a HELLO whose listing cannot dup every terminal's master and ring
-//!   segment is refused with `NO_DESCRIPTORS`, and the attached daemon keeps
-//!   its link (before: a LISTED without the master it lists);
-//! - a SPAWN whose custody dups cannot be made fails with `SPAWN_FAILED`,
-//!   its child is killed and reaped, and nothing it opened stays open
-//!   (before: a SPAWNED without the ring segment);
+//! - a HELLO is answered with every terminal and its descriptors however
+//!   few are free: a listing passes the holder's own descriptors and makes
+//!   none (before: two dups per terminal, so a full holder refused it);
+//! - a SPAWN whose PTY cannot be opened fails before it forks, and nothing
+//!   it opened stays open;
 //! - a daemon frame whose descriptors the holder cannot take ends the link
 //!   with an ERROR `NO_DESCRIPTORS`, and is no strike against the terminals
-//!   the link streamed (before: a silent close, counted as a daemon crash).
+//!   the link streamed (before: a silent close, counted as a daemon crash);
+//! - a connection the holder cannot accept waits without spinning the
+//!   holder, and is served once a descriptor frees.
 //!
 //! The free count comes from the holder's own descriptor table, read at
 //! points where it is idle (after a PONG): a probe holder with one daemon
 //! link and no terminal gives the base, and each terminal holds two (its
 //! master and its ring segment). A SPAWN takes four at its peak before the
-//! fork (the PTY pair and the start-report pipe), drops two after it, then
-//! takes the ring segment and the two custody dups.
+//! fork (the PTY pair, then the start-report pipe), drops the slave and the
+//! pipe's write end after it, makes its ring segment, and drops the pipe's
+//! read end once the child runs.
 
 #![cfg(unix)]
 
@@ -257,54 +259,64 @@ fn spawn_shells(client: &mut HolderClient, count: u32) -> BTreeSet<i32> {
     pids
 }
 
+/// Holder-core deep review: a holder out of descriptors still lists every
+/// terminal to a new daemon, with its master and ring segment, because a
+/// listing passes the holder's own descriptors (shared until the frame is
+/// written) and makes none. Before, it dup'd two per terminal for the
+/// listing, so a holder short of descriptors refused every HELLO with
+/// `NO_DESCRIPTORS`: the daemon that reconnected after a descriptor fault
+/// could never get back in. A SPAWN the holder cannot open fails before it
+/// forks, and leaves nothing open.
 #[test]
-fn a_holder_out_of_descriptors_refuses_a_hello_and_a_spawn_and_keeps_its_link() {
+fn a_holder_out_of_descriptors_lists_every_terminal_and_fails_only_the_spawn_it_cannot_open() {
     const TERMINALS: u32 = 4;
     let dir = temp_dir();
     let base = base_descriptors(&dir);
-    // Four free with the terminals running: a listing needs eight, a SPAWN
-    // runs out at its last custody dup.
-    let limit = base + 2 * TERMINALS as usize + 4;
+    // Two free with the terminals running (the last SPAWN's peak of four
+    // fits): a new daemon's connection takes one. Once the superseded link
+    // closed, a SPAWN's PTY pair fits in the two and its start-report pipe
+    // does not.
+    let limit = base + 2 * TERMINALS as usize + 2;
     let socket = dir.join("h.sock");
     let holder = launch_limited(&socket, limit as u64);
     let holder_pid = holder.id() as i32;
-    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
-    let shells = spawn_shells(&mut client, TERMINALS);
-    settle(&mut client, 1);
+    let (mut first, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let shells = spawn_shells(&mut first, TERMINALS);
+    settle(&mut first, 1);
     let used = open_fds(holder_pid);
     assert_eq!(used, base + 2 * TERMINALS as usize, "each terminal holds its master and ring");
 
-    // A new daemon's HELLO: its connection takes one, the listing would
-    // take eight. It is refused, and the attached daemon keeps its link.
-    let refused = HolderClient::connect(&socket, &TOKEN)
-        .err()
-        .expect("a holder out of descriptors listed its terminals");
-    let code = format!("code {}", error_code::NO_DESCRIPTORS);
-    assert!(refused.to_string().contains(&code), "refused for another reason: {refused}");
-    client.write(1, b"still-linked\n").unwrap();
-    wait_output(&mut client, 1, "still-linked");
+    // A new daemon's HELLO: its connection takes one of the two, and the
+    // listing takes none (before: eight dups). It lists every terminal with
+    // its descriptors.
+    let (mut client, listed) = HolderClient::connect(&socket, &TOKEN)
+        .expect("a holder out of descriptors refused a HELLO it can list for free");
+    assert_eq!(listed.len(), TERMINALS as usize, "a terminal is missing from the listing");
+    for entry in &listed {
+        assert!(entry.master.is_some(), "terminal {} listed without its master", entry.chan);
+        assert!(entry.ring.is_some(), "terminal {} listed without its ring", entry.chan);
+    }
+    drop(first);
     settle(&mut client, 2);
-    assert_eq!(open_fds(holder_pid), used, "the refused HELLO left descriptors open");
+    // The new link took the superseded one's place.
+    assert_eq!(open_fds(holder_pid), used, "the listing left descriptors open");
+    for entry in &listed {
+        client.attach(entry.chan, entry.end).unwrap();
+    }
+    client.write(1, b"still-served\n").unwrap();
+    wait_output(&mut client, 1, "still-served");
 
-    // A SPAWN with four free: its PTY and start pipe fit, then its ring
-    // segment and the master's custody dup; the ring's custody dup does not.
-    let failed = client.spawn(TERMINALS + 1, &shell(TERMINALS + 1)).err().expect(
-        "a SPAWN whose custody dups the holder cannot make succeeded (without its ring segment)",
-    );
+    // A SPAWN with two free: its PTY pair fits, its start-report pipe does
+    // not, so it fails before it forks and closes the pair.
+    let failed = client
+        .spawn(TERMINALS + 1, &shell(TERMINALS + 1))
+        .err()
+        .expect("a SPAWN started with no descriptor for its start report");
     let message = failed.to_string();
-    assert!(message.contains("dup the terminal's descriptors"), "failed elsewhere: {message}");
+    assert!(message.contains(&format!("os error {}", libc::EMFILE)), "failed elsewhere: {message}");
     settle(&mut client, 3);
     assert_eq!(open_fds(holder_pid), used, "the failed SPAWN left descriptors open");
-    // Its child was killed; the holder reaps it like any other.
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while children(holder_pid) != shells {
-        assert!(
-            Instant::now() < deadline,
-            "the failed SPAWN's child was not reaped: {:?} besides {shells:?}",
-            children(holder_pid)
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    assert_eq!(children(holder_pid), shells, "the failed SPAWN forked a child");
     client.write(2, b"after-spawn\n").unwrap();
     wait_output(&mut client, 2, "after-spawn");
 
