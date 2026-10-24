@@ -38,6 +38,39 @@ import Testing
         #expect(Self.cover(over: page) == nil)
     }
 
+    /// The cover had no pixels in the swap's own frame: it decoded its picture again on a detached
+    /// task (10 to 30 ms for a full page) and set none until then, so for the first frames after the
+    /// placeholder went the bare web view (the theme color, nothing painted) showed. The cover now
+    /// takes the pixels the placeholder already shows: it has them in the turn of the swap, and
+    /// keeps them as the pane moves the new page's view into the window.
+    @Test func theCoverHasItsPictureInTheSwapsOwnTurn() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.standInClock = ManualClock()
+        let picture = try #require(Self.picture())
+        rig.hibernation.capture = { _ in picture }
+        let key = try await rig.hide(rig.page("swap", body: Self.slowPaint))
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        let asleep = try #require(rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)
+        rig.window.contentView = asleep.contentView
+        try await rig.until("the placeholder shows its picture") { asleep.shownPicture != nil }
+
+        var atSwap: (swapped: Bool, inWindow: Bool)?
+        let previous = rig.services.cache.onBrowserReady
+        rig.services.cache.onBrowserReady = { [weak cache = rig.services.cache, weak window = rig.window] ready in
+            previous?(ready)
+            guard ready == key, atSwap == nil, let page = cache?.browsers[ready]?.tab as? WebKitTab else { return }
+            let swapped = Self.cover(over: page) != nil
+            // The pane puts the new page's view in the window in the same turn.
+            window?.contentView = page.contentView
+            atSwap = (swapped, Self.cover(over: page) != nil)
+        }
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the page was recreated") { atSwap != nil }
+        #expect(atSwap?.swapped == true, "the cover had no picture when the new page took the pane")
+        #expect(atSwap?.inWindow == true, "the cover dropped its picture when it moved into the window")
+    }
+
     /// A page that paints later than the cap shows itself loading rather than a frozen picture.
     @Test func thePictureGoesAtTheCapWhenThePageHasNotPainted() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
