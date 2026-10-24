@@ -125,4 +125,53 @@ import Testing
         #expect(held.isEmpty, "\(resync): a held frame was still up over the live surface")
         #expect(Self.shown(session.surfaceView.presentedFrame) == .text, "\(resync): the live surface did not draw the content")
     }
+
+    /// #22282: Copilot sends OSC 11 while a restored surface is still in a background
+    /// workspace. The first display after that off-window parse must still present the
+    /// terminal, rather than leaving only the host backdrop visible.
+    @Test func aBackgroundCreatedTerminalWithOsc11ShowsTextOnItsFirstDisplay() async throws {
+        _ = NSApplication.shared
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        defer { io.finish() }
+
+        let line = String(repeating: "C", count: 40)
+        let screen = "\u{1b}]11;#0D1117\u{7}\u{1b}[?25l\u{1b}[2J\u{1b}[H"
+            + Array(repeating: line, count: 8).joined(separator: "\r\n")
+        io.send(.output(Data(screen.utf8)))
+
+        // Ensure the OSC action was handled while the surface had never joined a window.
+        let actionBy = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.surfaceView.model.backgroundOverride == nil, ContinuousClock.now < actionBy {
+            await Task.yield()
+        }
+        try #require(session.surfaceView.model.backgroundOverride != nil, "OSC 11 was not handled before reveal")
+        #expect(session.surfaceView.window == nil, "the regression setup must parse off-window")
+
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        window.contentView = host
+        session.view.frame = host.bounds
+        host.addSubview(session.view)
+        window.orderFrontRegardless()
+        session.view.layoutSubtreeIfNeeded()
+
+        var samples: [Shown] = []
+        let until = ContinuousClock.now.advanced(by: .milliseconds(700))
+        while ContinuousClock.now < until {
+            samples.append(Self.onScreen(session))
+            try await Task.sleep(for: .milliseconds(4))
+        }
+        let first = samples.firstIndex(of: .text)
+        #expect(first == 0 && !samples.contains(where: { $0 != .text }), "OSC 11 reveal showed \(samples)")
+        #expect(session.surfaceView.presentedFrame != nil, "OSC 11 reveal never presented an IOSurface")
+    }
 }
