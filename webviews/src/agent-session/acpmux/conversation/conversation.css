@@ -1794,6 +1794,7 @@ pre.cv-math-source {
    fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
    "Thought I am here" read weird). */
 .cv-thought {
+  display: flex;
   align-items: flex-start;
   gap: 6px;
   padding-block: 3px;
@@ -2014,6 +2015,7 @@ pre.cv-math-source {
 }
 /* "+K more" lines up with the calls' text, past their glyphs. */
 .cv-tool-group.is-flat .cv-tool-group__more {
+  display: flex;
   padding-left: 22.5px;
 }
 .cv-tool__counts {

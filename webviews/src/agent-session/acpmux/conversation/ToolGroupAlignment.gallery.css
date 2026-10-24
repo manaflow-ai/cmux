@@ -1,7 +1,14 @@
 .tool-group-align-gallery {
+  --tg-space-8: 8px;
+  --tg-space-12: 12px;
+  --tg-space-14: 14px;
+  --tg-space-16: 16px;
+  --tg-space-22: 22px;
+  --tg-text-caption: var(--text-caption, 11px);
+  --tg-text-detail: var(--text-detail, 12px);
   box-sizing: border-box;
   min-height: 100%;
-  padding: 22px;
+  padding: var(--tg-space-22);
   color: var(--cv-text, #222);
   background: var(--cv-page, #f4f5f7);
   font-family: var(--cv-font, -apple-system, BlinkMacSystemFont, sans-serif);
@@ -20,26 +27,26 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--tg-space-16);
   margin-bottom: 16px;
   color: var(--cv-text);
-  font-size: 16px;
-  font-weight: 650;
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
 }
 .tool-group-align-gallery__header p {
   margin: 0;
   color: var(--cv-text-muted, #707681);
-  font-size: 12px;
+  font-size: var(--tg-text-detail);
   font-weight: 400;
 }
 .tool-group-align-gallery__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: var(--tg-space-14);
 }
 .tool-group-align-gallery__cell {
   min-width: 0;
-  padding: 12px 12px 14px;
+  padding: var(--tg-space-12) var(--tg-space-12) var(--tg-space-14);
   border: 1px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--cv-text) 4%, transparent);
@@ -49,9 +56,9 @@
 }
 .tool-group-align-gallery__label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: var(--tg-space-8);
   color: var(--cv-text-muted, #707681);
-  font-size: 11px;
+  font-size: var(--tg-text-caption);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
