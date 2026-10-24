@@ -1464,6 +1464,7 @@ export function ContextRing({
         interactive
         ariaLabel={t("context.title")}
         popupRef={card}
+        hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
         // On the card's outer element, so its padding counts as inside the card.
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
