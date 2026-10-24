@@ -144,6 +144,18 @@ pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
 }
 
+/// What `from` says in [`named_sender`]: the sender named itself and is no address here.
+pub const NAMED_SENDER: &str = "fromAgent";
+
+/// The provenance of a prompt whose sender named itself (`_meta.acpmux.fromAgent`) with no
+/// provenance and no caller proof here: `acpmux send --from NAME`, `ACPMUX_FROM`, a peer daemon
+/// forwarding a prompt its own session sent (`server/peer_forward.rs`; `cli/sender.rs`). An
+/// agent's message, never the person's own: the transcript draws its sender's
+/// chip, found by name (`from` opens no chat, as a person at a shell's `cli` does not).
+pub fn named_sender(name: &str, to: &str) -> Value {
+    json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to})
+}
+
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).
 pub fn marked(mut record: Value, provenance: Option<&Value>) -> Value {
     if let (Some(p), Some(fields)) = (provenance, record.as_object_mut()) {

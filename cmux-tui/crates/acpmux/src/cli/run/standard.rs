@@ -550,7 +550,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
-            prompt_id.from_agent = from;
+            prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.

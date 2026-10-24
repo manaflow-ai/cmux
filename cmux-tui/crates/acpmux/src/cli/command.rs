@@ -180,7 +180,7 @@ pub enum Command {
         prompt_id: Option<String>,
         /// Send it as this agent's message: messages from agents that wait for a busy session go
         /// in together as one turn, after the person's own. An agent running in acpmux is
-        /// named without it.
+        /// named without it; elsewhere `ACPMUX_FROM` names it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
         /// Replace your prompt still queued under KEY: a correction is never read after the
