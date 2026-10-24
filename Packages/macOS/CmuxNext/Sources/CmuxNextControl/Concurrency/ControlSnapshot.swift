@@ -69,15 +69,49 @@ public final class ControlSnapshotStore: Sendable {
         let continuation: CheckedContinuation<ControlSnapshot?, Never>
     }
 
+    /// What starting a wait found: an answer now, or a waiter added and the streams to tell.
+    private enum WaitStart {
+        case resume(ControlSnapshot?)
+        case waiting([AsyncStream<Void>.Continuation])
+    }
+
     private struct State {
         var snapshot = ControlSnapshot()
         var waiters: [Waiter] = []
         var nextWaiter: UInt64 = 0
+        /// The continuations of ``waiterAdditions()``'s streams, by subscription.
+        var waiterStreams: [UInt64: AsyncStream<Void>.Continuation] = [:]
+        var nextWaiterStream: UInt64 = 0
     }
 
+    // Lock carve-out: publish and the snapshot reads are synchronous calls from the main actor
+    // and connection tasks, held only for a struct copy; an actor would add a hop to every read.
     private let state = Mutex(State())
 
     public init() {}
+
+    /// Yields each time a reader starts waiting for a snapshot the current one does not
+    /// satisfy. The publisher iterates it on the main actor to publish a held update at once
+    /// instead of at its next deadline (a compat read waiting on its write barrier).
+    ///
+    /// Each call is its own subscription; it ends when the iterating task is cancelled.
+    /// Additions that arrive faster than they are read coalesce into one element.
+    ///
+    /// ```swift
+    /// for await _ in store.waiterAdditions() { pacer.readerWaits() }
+    /// ```
+    public func waiterAdditions() -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let id = state.withLock { state -> UInt64 in
+            state.nextWaiterStream &+= 1
+            state.waiterStreams[state.nextWaiterStream] = continuation
+            return state.nextWaiterStream
+        }
+        continuation.onTermination = { [weak self] _ in
+            _ = self?.state.withLock { $0.waiterStreams.removeValue(forKey: id) }
+        }
+        return stream
+    }
 
     /// The latest published snapshot.
     public var current: ControlSnapshot { state.withLock { $0.snapshot } }
@@ -139,14 +173,20 @@ public final class ControlSnapshotStore: Sendable {
             await withCheckedContinuation { continuation in
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
-                let now = state.withLock { state -> ControlSnapshot?? in
-                    if isReady(state.snapshot) { return .some(state.snapshot) }
+                let now = state.withLock { state -> WaitStart in
+                    if isReady(state.snapshot) { return .resume(state.snapshot) }
                     // The timer may have fired before this waiter existed (a deadline already past).
-                    if Task.isCancelled || ContinuousClock.now >= deadline { return .some(nil) }
+                    if Task.isCancelled || ContinuousClock.now >= deadline { return .resume(nil) }
                     state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
-                    return .none
+                    return .waiting(Array(state.waiterStreams.values))
                 }
-                if case .some(let result) = now { continuation.resume(returning: result) }
+                switch now {
+                case .resume(let result):
+                    continuation.resume(returning: result)
+                case .waiting(let streams):
+                    // Yielded outside the lock: a stream's consumer may read the store at once.
+                    for stream in streams { stream.yield() }
+                }
             }
         } onCancel: {
             resolve(id, with: nil)
