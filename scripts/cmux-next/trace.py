@@ -2513,9 +2513,23 @@ TP_XML = """<?xml version="1.0"?><trace-query-result><node xpath="x"><schema nam
 </node></trace-query-result>"""
 
 
-def build_fixture(out):
-    """Raw files of a small recording in `out` (hand-written shapes), then `build(out)`: its summary."""
-    open(os.path.join(out, "signposts.ndjson"), "w").write(signposts_lib.SAMPLE.replace('"processID":1', '"processID":42'))
+def build_fixture(out, slept_us=None):
+    """Raw files of a small recording in `out` (hand-written shapes), then `build(out)`: its summary. With
+    `slept_us`, the host slept that long since boot: the signposts' machTimestamps are mach_continuous_time
+    (that much ahead of CLOCK_UPTIME_RAW, as `log` writes them, with the clock line SignpostStream writes) and
+    an xctrace os-signpost table holds the same begin events (the xctrace clock is aligned to them)."""
+    sample = signposts_lib.SAMPLE.replace('"processID":1', '"processID":42')
+    if slept_us is not None:
+        sample = re.sub(r'"machTimestamp":(\d+)', lambda m: f'"machTimestamp":{int(int(m.group(1)) + slept_us * 1000)}',
+                        sample)
+        sample = sample.replace("#timebase 1/1\n", f"#timebase 1/1\n#continuous-minus-uptime-us {slept_us}\n", 1)
+        # xctrace time 0 is uptime 0 here: its begin events at the signposts' uptimes.
+        rows = "".join(f'<row><time>{t}</time><event-type fmt="Begin"/><name fmt="{name}"/><subsystem fmt="{SUBSYSTEM}"/></row>'
+                       for t, name in ((1_000_000_000, "action.commit"), (1_000_000_000, "action.perform"),
+                                       (2_000_000_000, "action.commit")))
+        open(os.path.join(out, "xctrace-os-signpost.xml"), "w").write(
+            f'<?xml version="1.0"?><trace-query-result><node><schema name="os-signpost"/>{rows}</node></trace-query-result>')
+    open(os.path.join(out, "signposts.ndjson"), "w").write(sample)
     write_json(os.path.join(out, "meta.json"), {"app_pid": 42, "window_start_us": 900000.0, "window_end_us": 9e6,
                                                  "scenario": "self-test"})
     write_json(os.path.join(out, "hangs.json"), {"records": [
@@ -2581,6 +2595,45 @@ def check_parsers_and_merge():
         assert summary["top_stalls"][0]["chromium_main_thread"][0]["event"].startswith("ThreadControllerImpl::RunTask (OnFrame)"), summary
         task = next(e for e in trace["traceEvents"] if e.get("name") == "ThreadControllerImpl::RunTask")
         assert task["tid"] == 259, task
+        assert {"frame": "mid", "samples": 2} in summary["top_stalls"][0]["sampled_frames"], summary["top_stalls"]
+        summary_text(summary)
+
+
+# A host's sleep since boot as one fleet mini had it (mac26, 2026-10-24: `log` machTimestamp minus the watchdog's
+# CLOCK_UPTIME_RAW stall ends, 20 stalls, all within 0.1 ms of this).
+SLEPT_US = 259183.7023e6
+
+
+def check_signpost_clock():
+    """`log` stamps machTimestamp with mach_continuous_time, which counts the host's sleep; every other source
+    is on CLOCK_UPTIME_RAW. On a host that slept since boot the signposts (and the xctrace samples aligned to
+    them) must still land on the stall, key and Chromium events they happened with."""
+    with tempfile.TemporaryDirectory() as out:
+        sample = signposts_lib.SAMPLE.replace('"processID":1', '"processID":42')
+        sample = re.sub(r'"machTimestamp":(\d+)', lambda m: f'"machTimestamp":{int(int(m.group(1)) + SLEPT_US * 1000)}',
+                        sample)
+        sample = sample.replace("#timebase 1/1\n", f"#timebase 1/1\n#continuous-minus-uptime-us {SLEPT_US}\n", 1)
+        open(os.path.join(out, "signposts.ndjson"), "w").write(sample)
+        parsed = read_signposts(os.path.join(out, "signposts.ndjson"))
+        begin = min(i["start_us"] for i in parsed["intervals"])
+        assert begin == 1_000_000.0, begin
+        assert parsed["clock"]["warning"] is None, parsed["clock"]
+        # Without the clock line the times cannot be put on CLOCK_UPTIME_RAW: say so.
+        open(os.path.join(out, "signposts.ndjson"), "w").write(sample.replace(f"#continuous-minus-uptime-us {SLEPT_US}\n", ""))
+        assert "mach_continuous_time" in (read_signposts(os.path.join(out, "signposts.ndjson"))["clock"]["warning"] or "")
+        # A sleep during the recording (the end line differs): say so.
+        open(os.path.join(out, "signposts.ndjson"), "w").write(sample + f"#continuous-minus-uptime-us-end {SLEPT_US + 5e6}\n")
+        assert "slept" in (read_signposts(os.path.join(out, "signposts.ndjson"))["clock"]["warning"] or "")
+    with tempfile.TemporaryDirectory() as out:
+        summary = build_fixture(out, slept_us=SLEPT_US)
+        with gzip.open(os.path.join(out, "trace.json.gz"), "rt") as f:
+            trace = json.load(f)
+        commit = next(e for e in trace["traceEvents"] if e.get("name") == "action.commit tab.new")
+        stall = next(e for e in trace["traceEvents"] if str(e.get("name")).startswith("stall 40 ms"))
+        assert commit["ts"] == stall["ts"] == 1_000_000.0, (commit, stall)
+        assert "action.commit tab.new (6.0 ms)" in summary["top_stalls"][0]["actions"], summary["top_stalls"]
+        assert summary["sources"]["signpost_clock"]["warning"] is None, summary["sources"]
+        # The xctrace samples are aligned to the signposts: still inside the stall.
         assert {"frame": "mid", "samples": 2} in summary["top_stalls"][0]["sampled_frames"], summary["top_stalls"]
         summary_text(summary)
 
@@ -3095,7 +3148,7 @@ SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors, c
               check_wrapped_group_ends,
               check_export_part_files, check_xctrace_clock, check_cef_validity, check_bound_inside_a_swallowing_wait,
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
-              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle]
+              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock]
 
 
 def self_test():
