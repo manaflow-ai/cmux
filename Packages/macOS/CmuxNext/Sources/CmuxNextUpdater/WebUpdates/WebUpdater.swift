@@ -77,6 +77,9 @@ public final class WebUpdater {
     /// The folder the app serves now; it is never pruned, even after a newer update or a roll
     /// back, until the next safe point swaps it out (``pruneUnused()``).
     @ObservationIgnored public var served: () -> URL? = { nil }
+    /// Whether cmux is in the front: checks come every ``interval`` there and every
+    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
+    @ObservationIgnored public var foreground = true
 
     let store: WebUpdateStore
     public let app: App
@@ -84,9 +87,12 @@ public final class WebUpdater {
     let base: URL
     let fetch: Fetch
     let download: Download
-    /// Between scheduled checks; the pointer is a small cached file, the archive is fetched only
-    /// for a new update.
+    /// Between scheduled checks while cmux is in the front; the pointer is a small cached file
+    /// read with its ETag (a 304 while unchanged), the archive is fetched only for a new update.
     let interval: Duration
+    /// Between scheduled checks while cmux is behind other apps (a swap waits for it to come back
+    /// anyway, and an idle app should not wake every minute).
+    let backgroundInterval: Duration
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
@@ -102,7 +108,8 @@ public final class WebUpdater {
     public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
     public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
-                interval: Duration = .seconds(600), clock: any Clock<Duration> = ContinuousClock(),
+                interval: Duration = .seconds(60), backgroundInterval: Duration = .seconds(600),
+                clock: any Clock<Duration> = ContinuousClock(),
                 fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
@@ -110,6 +117,7 @@ public final class WebUpdater {
         self.keys = keys
         self.base = base
         self.interval = interval
+        self.backgroundInterval = backgroundInterval
         self.fetch = fetch
         self.download = download
         nextCheck = DemandTimer(owner: "web-updates.check", clock: clock)
@@ -168,10 +176,18 @@ public final class WebUpdater {
         nextCheck.schedule(after: .zero) { @MainActor [weak self] in await self?.check() }
     }
 
-    /// The app came to the front: checks again when the last check is older than `stale`.
-    public func noteActivation(stale: TimeInterval = 120) {
-        guard channel != .off, phase != .checking, phase != .downloading,
-              Date().timeIntervalSince(lastCheck ?? .distantPast) > stale else { return }
+    /// The app came to the front: checks again when the last check is older than `stale`, else
+    /// books the next one at ``interval`` after the last (a check booked from the background
+    /// waited ``backgroundInterval``).
+    public func noteActivation(stale: TimeInterval = 60) {
+        foreground = true
+        guard channel != .off, phase != .checking, phase != .downloading else { return }
+        let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
+        guard since > stale else {
+            let left = max(0, WebSwapGate.seconds(interval) - since)
+            nextCheck.schedule(after: .milliseconds(Int(left * 1000))) { @MainActor [weak self] in await self?.check() }
+            return
+        }
         // task-owner: one check; it ends by itself
         Task { await check() }
     }
@@ -188,7 +204,8 @@ public final class WebUpdater {
         // channel changed during the check reads its own pointer at once.
         defer {
             if self.channel != .off {
-                nextCheck.schedule(after: self.channel == channel ? interval : .zero) { @MainActor [weak self] in await self?.check() }
+                let next = foreground ? interval : backgroundInterval
+                nextCheck.schedule(after: self.channel == channel ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
         }
         do {

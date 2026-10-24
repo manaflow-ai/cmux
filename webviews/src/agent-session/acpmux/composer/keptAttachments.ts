@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
 /// the chat, restoring it from the archive or relaunching after a crash brings them back with the
@@ -43,6 +44,11 @@ export function useKeptAttachments(
   carry.current = carrying;
   /// A chat was read on this page before: the page's first chat keeps what it was opened with.
   const readOne = useRef(false);
+  /// Writes sent and not answered yet.
+  const inFlight = useRef(0);
+  /// What a web update's reload would bring back (pages/shared/webSwap.ts).
+  const shown = useRef({ sessionId, attachments, readFor, store });
+  shown.current = { sessionId, attachments, readFor, store };
 
   const send = (sessionId: string, chips: ComposerAttachment[]) => {
     if (!store) return;
@@ -52,7 +58,9 @@ export function useKeptAttachments(
     written.current = { sessionId, ids: signature(chips), stored };
     const sent = chips.map((chip) => (chip.data && stored.has(chip.id) ? { ...chip, data: undefined } : chip));
     const write = ++sequence.current;
+    inFlight.current += 1;
     const settle = (held: Set<string>, failed = false) => {
+      inFlight.current -= 1;
       if (write !== sequence.current || written.current.sessionId !== sessionId) return;
       written.current.stored = held;
       // A refused write holds nothing: the same chips coming back go again.
@@ -122,6 +130,25 @@ export function useKeptAttachments(
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- send is this render's; the timer sends what this render held.
   }, [sessionId, store, readFor, attachments]);
+
+  // WEB-SWAP: a web update reloads the page only once the host holds every chip as shown, with
+  // its contents: a chip still resting, in flight, refused or not read back yet waits for it.
+  useEffect(
+    () =>
+      holdWebSwap(() => {
+        const { sessionId, attachments, readFor, store } = shown.current;
+        if (attachments.some((chip) => chip.shellRun)) return "composer.shell-run";
+        const chips = keptChips(attachments);
+        if (!chips.length) return null;
+        if (!sessionId || !store || readFor !== sessionId) return "composer.attachments-unkept";
+        if (pending.current || inFlight.current) return "composer.attachments-unsaved";
+        const kept = written.current;
+        if (kept.sessionId !== sessionId || kept.ids !== signature(chips)) return "composer.attachments-unsaved";
+        if (chips.some((chip) => chip.data && !kept.stored.has(chip.id))) return "composer.attachments-unsaved";
+        return null;
+      }),
+    [],
+  );
 
   // A page closing or going away (its tab closed, the chat archived) with a write still resting
   // sends it now: the web page may be gone before React unmounts anything.

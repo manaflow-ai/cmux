@@ -444,6 +444,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -3248,7 +3249,21 @@ export function VirtualTranscript({
     anchorDeferred.current = false;
     reportedAnchor.current = undefined;
   }, [sessionId]);
+  const onAnchorRef = useRef(onAnchor);
+  onAnchorRef.current = onAnchor;
+  // WEB-SWAP: the transcript reopens at the place it reported (`chat.scrollAnchor`), so a web
+  // update's reload waits only for a report still due (pages/shared/webSwap.ts).
+  useEffect(
+    () =>
+      holdWebSwap(() =>
+        onAnchorRef.current && (anchorTimer.current !== undefined || anchorDeferred.current)
+          ? "transcript.place-unsaved"
+          : null,
+      ),
+    [],
+  );
   const reportAnchor = () => {
+    anchorTimer.current = undefined;
     const node = ref.current;
     // Before the chat opens its offset is not the reader's: the kept place stays.
     if (!node || !onAnchor || !didOpenAtLatest.current) return;
@@ -3619,6 +3634,8 @@ export function VirtualTranscript({
         ref={ref}
         className="acpmux-scroll"
         role="feed"
+        // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
+        {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
         aria-label={t("transcript.label")}
         onScroll={onScroll}
         onWheel={onWheel}
