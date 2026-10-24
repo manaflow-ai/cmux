@@ -238,9 +238,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const delivered = new Set(taken.attachments.map((attachment) => attachment.id));
     const refused = shown.map((chip) => chip.id).filter((id) => !delivered.has(id));
     if (refused.length) current.releaseInline?.(refused);
-    // Keep pending ids visible to `removeInlineAttachment` until refused marks are removed.
-    read();
+    // Resolve while pending ids are still in the field's inline list; then remove their placeholders.
+    // This ordering also stays correct on hosts that do not batch promise callbacks.
     setAttachments((staged) => insertResolvedAttachments(staged, taken.attachments, insertionIndex, now.inlineIndex));
+    read();
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
