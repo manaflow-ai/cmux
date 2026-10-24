@@ -2,6 +2,22 @@ import Foundation
 
 /// Builds shell-free restore and fork invocations from structured persisted records.
 public struct AgentRestorePlanner: Sendable {
+    /// The prepared argv as a restore plan, or `nil`. Prepared argv is not
+    /// independent provenance: a legacy or deferred Codex record can carry
+    /// Subrouter config (including a dead localhost data-plane URL) without
+    /// the trusted marker and launch-bound argv that rebuild `sr codex
+    /// resume`. Replaying it directly would silently change transport after
+    /// quit/reopen, so every prepared fallback for Codex fails closed on it.
+    static func preparedFallback(kind: String, preparedArguments: [String]?) -> ([String], Bool)? {
+        guard let preparedArguments else { return nil }
+        if kind == "codex",
+           SubrouterCodexResumeRouting().removingPrivateRoutingArguments(from: preparedArguments)
+               != preparedArguments {
+            return nil
+        }
+        return (preparedArguments, false)
+    }
+
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
@@ -378,8 +394,8 @@ public struct AgentRestorePlanner: Sendable {
             // typed restore plan. Use it before launcher or built-in synthesis
             // when the captured argv is empty, so a rejected capture cannot be
             // replaced by a guessed command for the provider kind.
-            if (launch?.arguments.isEmpty ?? true), let preparedArguments {
-                return (preparedArguments, false)
+            if (launch?.arguments.isEmpty ?? true), preparedArguments != nil {
+                return Self.preparedFallback(kind: kind, preparedArguments: preparedArguments)
             }
             switch AgentResumeArgv().launcherResolution(
                 launcher: launch?.launcher,
@@ -392,7 +408,9 @@ public struct AgentRestorePlanner: Sendable {
                 if let arguments {
                     return (arguments, true)
                 }
-                return preparedArguments.map { ($0, false) }
+                return Self.preparedFallback(kind: kind, preparedArguments: preparedArguments)
+            case .rejected:
+                return nil
             case .passthrough:
                 if let arguments = AgentResumeArgv().builtInKind(
                     kind: kind,
@@ -403,7 +421,7 @@ public struct AgentRestorePlanner: Sendable {
                 ) {
                     return (arguments, true)
                 }
-                return preparedArguments.map { ($0, false) }
+                return Self.preparedFallback(kind: kind, preparedArguments: preparedArguments)
             }
         case .forkAgent:
             if let preparedArguments {
