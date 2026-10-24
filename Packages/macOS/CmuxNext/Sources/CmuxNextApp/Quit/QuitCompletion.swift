@@ -32,28 +32,31 @@ struct QuitSteps {
     var stopBrowserEngines: @MainActor () async -> Void
     /// The error journal's quit harvest and write (`ErrorJournalService.stop`): what frameworks
     /// (and cmux sites still on `Logger`) logged in this run, which no later launch can read. Best
-    /// effort: it runs beside the other steps, off the main thread, and the quit awaits it only
-    /// after the engines began to stop, under the quit's deadline (`QuitDeadline`), so it never
-    /// holds up the quit.
+    /// effort: it runs beside the other steps, its log read off the main thread, and is cancelled
+    /// when ``stopBrowserEngines`` returns. It must then end promptly, keeping and writing what it
+    /// read (`ErrorJournal.harvest`), so AppKit's reply never waits for a log read whose cost
+    /// grows with the length of the run.
     var harvestErrors: @MainActor () async -> Void = {}
 }
 
 enum QuitCompletion {
     @MainActor
     static func run(_ choice: QuitSessionsChoice, remember: Bool, _ steps: QuitSteps) async {
-        // An OSLogStore read (seconds after a long run): beside the steps, awaited only under the
-        // deadline that stopBrowserEngines arms, so it never delays the engines or the reply.
+        // An OSLogStore read whose cost grows with the run: beside the steps, and cancelled once
+        // the engines stopped (it keeps what it read), so it never delays the engines or the reply.
         let harvestErrors = steps.harvestErrors
-        async let harvested: Void = harvestErrors()
-        if remember { await steps.remember(QuitPolicy.remembered(choice)) }
-        await steps.prepareWindows()
-        if choice.ends {
-            var failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
-            while !failures.isEmpty, await steps.confirmFailures(failures) == .retry {
-                failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await harvestErrors() }
+            if remember { await steps.remember(QuitPolicy.remembered(choice)) }
+            await steps.prepareWindows()
+            if choice.ends {
+                var failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
+                while !failures.isEmpty, await steps.confirmFailures(failures) == .retry {
+                    failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
+                }
             }
+            await steps.stopBrowserEngines()
+            group.cancelAll()
         }
-        await steps.stopBrowserEngines()
-        await harvested
     }
 }
