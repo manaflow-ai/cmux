@@ -1,4 +1,3 @@
-import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
@@ -226,7 +225,7 @@ extension HomeService {
             return chief.displayName.isEmpty ? HomeStrings.chiefName : chief.displayName
         }
         // A cloud Chief renamed since the list was read: the directory keeps the rename.
-        if let id, let name = chiefNames[ConversationID(id)] { return name }
+        if let id, let name = chiefNames.first(where: { $0.key.rawValue == id })?.value { return name }
         let title = conversations.first { $0.id == id }?.title ?? ""
         return title.isEmpty ? HomeStrings.title : title
     }
