@@ -34,8 +34,7 @@ const STREAM_REASON: &str =
     "Opens a stream; MCP tools are request and response. Read the state with a list or get tool.";
 const CONNECTION_REASON: &str =
     "Connection control: it applies to one socket connection, which ends with the tool call.";
-const AGENT_REPORT_REASON: &str =
-    "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
+const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
 
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
