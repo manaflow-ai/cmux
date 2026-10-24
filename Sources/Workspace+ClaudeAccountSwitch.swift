@@ -34,6 +34,40 @@ extension Workspace {
             .account(forEnvironment: snapshot.launchCommand?.environment)
     }
 
+    /// The agent lifecycle key Claude Code reports its running state under.
+    static let claudeAgentLifecycleKey = "claude_code"
+
+    /// Whether the pane's Claude is mid-response. A switch replaces the pane's process and stops
+    /// that response, so callers confirm before switching such a pane.
+    @MainActor
+    func isClaudeResponseRunning(panelId: UUID) -> Bool {
+        hasRunningAgentLifecycle(key: Self.claudeAgentLifecycleKey, panelId: panelId)
+    }
+
+    /// Whether the pane has a Claude agent. Reads cached agent state only and never loads the
+    /// account registry, so it is cheap enough for every command palette refresh.
+    @MainActor
+    func hasClaudeAgent(panelId: UUID) -> Bool {
+        cachedClaudeAgentSnapshot(panelId: panelId) != nil
+    }
+
+    /// The Switch Claude Account rows for the pane, shared by the terminal context menu and the
+    /// command palette. `nil` hides both: the pane has no Claude agent, runs on another machine,
+    /// or has fewer than two registered accounts.
+    @MainActor
+    func claudeAccountSwitchMenuModel(panelId: UUID) -> ClaudeAccountSwitchMenuModel? {
+        // Checked before the registry load, so panes without Claude never touch the disk.
+        guard let snapshot = cachedClaudeAgentSnapshot(panelId: panelId),
+              !terminalRunsOnAnotherMachine(panelId) else {
+            return nil
+        }
+        let registry = claudeAccountRegistry(forPanelId: panelId)
+        return ClaudeAccountSwitchMenuModel(
+            registry: registry,
+            current: registry.account(forEnvironment: snapshot.launchCommand?.environment)
+        )
+    }
+
     /// Moves the pane's Claude session to another registered account and resumes it there.
     ///
     /// The transcript is copied into the target account first; if that fails the pane is left

@@ -7609,6 +7609,7 @@ struct ContentView: View {
                     allowsAgentContinuation: allowsAgentContinuation
                 )
             )
+            snapshot.setBool(CommandPaletteContextKeys.panelHasClaudeAgent, panelIsTerminal && workspace.hasClaudeAgent(panelId: panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
@@ -8799,6 +8800,7 @@ struct ContentView: View {
                 }
             )
         )
+        contributions.append(contentsOf: claudeAccountSwitchCommandContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
@@ -9718,6 +9720,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
             forkFocusedAgentConversationToNewWorkspace()
         }
+        registerClaudeAccountSwitchHandlers(&registry)
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
