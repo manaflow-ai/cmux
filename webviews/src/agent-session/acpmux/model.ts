@@ -1016,6 +1016,20 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
     .join("");
 }
 
+/// The prepared text cache is per row, so its key is the text revision (and the font that measured
+/// it). Keep enough entries for the current blocks plus a bounded tail of older streaming revisions.
+const PREPARED_CACHE_MIN = 64;
+const PREPARED_CACHE_PER_BLOCK = 4;
+
+function trimPreparedCache(prepared: Map<string, PreparedText | null>, blockCount: number): void {
+  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount);
+  while (prepared.size > limit) {
+    const oldest = prepared.keys().next().value;
+    if (oldest === undefined) break;
+    prepared.delete(oldest);
+  }
+}
+
 function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
   const { measureFont, lineHeight } = metrics();
   // Keyed by font too: a new chat font measures the text again.
@@ -1027,8 +1041,11 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
     } catch {
       measured = null;
     }
-    prepared.set(key, measured);
   }
+  // Refresh the entry's recency on every hit. This keeps the live block revisions in the cache while
+  // allowing older streaming tails to be evicted by trimPreparedCache.
+  prepared.delete(key);
+  prepared.set(key, measured);
   if (measured) return layout(measured, width, lineHeight).height;
   const perLine = Math.max(24, Math.floor(width / FALLBACK_CHAR_WIDTH));
   return (
@@ -1164,8 +1181,6 @@ function measuredRowHeight(
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
-    // A streaming row prepares a new last block on every version; keep the cache bounded.
-    if (entry.prepared.size > 64) entry.prepared.clear();
   }
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
   let contentHeight: number;
@@ -1184,6 +1199,9 @@ function measuredRowHeight(
     contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
     for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
   }
+  // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
+  // trim stale revisions once per row, never once per token or across the transcript.
+  trimPreparedCache(entry.prepared, entry.blocks.length);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
