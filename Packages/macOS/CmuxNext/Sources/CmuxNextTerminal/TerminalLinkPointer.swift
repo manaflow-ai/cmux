@@ -11,14 +11,14 @@ import GhosttyNextKit
 ///   modifier change, a link filter answer (``TerminalLinkFilter``) and a
 ///   Cmd-press send the pointer again after an off-grid position that clears
 ///   Ghostty's last cell, so the first cell the pointer reached shows and opens
-///   its link. An app-wide watcher sends a modifier change to the terminal under
-///   the pointer, focused or not.
+///   its link. While the pointer is over this terminal, a modifier watcher
+///   (``TerminalModifierMonitor``) reaches it focused or not.
 /// - A URL the program broke onto several rows (``TerminalWrappedLink``): every
 ///   piece is underlined, the pointer is the hand and either row opens the whole
 ///   URL; Ghostty never sees that press.
 
 @MainActor final class TerminalLinkPointer {
-    private unowned let view: TerminalSurfaceView
+    private weak var view: TerminalSurfaceView?
     /// A Cmd-press on a wrapped link: Ghostty never sees it, the release opens it.
     private var wrappedPress: TerminalWrappedLink?
     /// The wrapped link under the pointer, underlined.
@@ -34,9 +34,11 @@ import GhosttyNextKit
     var testPointer: NSPoint?
     #endif
 
+    /// Installed while the pointer is over the view.
+    private lazy var modifierMonitor = TerminalModifierMonitor { [weak self] flags in self?.modifiersChanged(flags) }
+
     init(view: TerminalSurfaceView) {
         self.view = view
-        Self.installModifierMonitor()
     }
 
     // MARK: Modifiers
@@ -51,7 +53,7 @@ import GhosttyNextKit
     /// off-grid move as a drag), except for the press Ghostty has not seen yet.
     func refresh(_ flags: NSEvent.ModifierFlags = NSEvent.modifierFlags, at pressPoint: NSPoint? = nil) {
         guard pressPoint != nil || !buttonsDown, NSEvent.pressedMouseButtons & ~1 == 0 else { return }
-        guard let surface = view.surface, let point = pressPoint ?? pointerLocation, view.bounds.contains(point) else { return }
+        guard let view, let surface = view.surface, let point = pressPoint ?? pointerLocation, view.bounds.contains(point) else { return }
         let mods = GhosttyInput.mods(view.pointerFlags(flags))
         // Off the grid first: Ghostty forgets its last cell (no report: nothing is pressed).
         ghostty_surface_mouse_pos(surface, -1, -1, mods)
@@ -74,16 +76,19 @@ import GhosttyNextKit
         #if DEBUG
         if let testPointer { return testPointer }
         #endif
+        guard let view else { return nil }
         return view.window.map { view.convert($0.mouseLocationOutsideOfEventStream, from: nil) }
     }
 
     /// After a move went to Ghostty.
     func moved(to point: NSPoint, flags: NSEvent.ModifierFlags) {
+        modifierMonitor.install()
         guard !buttonsDown else { return }
         hoverWrapped(at: point, flags: flags, force: false)
     }
 
     func exited() {
+        modifierMonitor.remove()
         clearWrapped()
     }
 
@@ -91,7 +96,7 @@ import GhosttyNextKit
     func mouseDown(_ event: NSEvent) -> Bool {
         wrappedPress = nil
         isPressing = true
-        guard Self.isLinkChord(event.modifierFlags) else { return false }
+        guard Self.isLinkChord(event.modifierFlags), let view else { return false }
         let point = view.convert(event.locationInWindow, from: nil)
         refresh(event.modifierFlags, at: point)
         let hovered = view.session?.model.hoveredLink
@@ -107,6 +112,7 @@ import GhosttyNextKit
         defer { isPressing = false }
         guard let pressed = wrappedPress else { return false }
         wrappedPress = nil
+        guard let view else { return true }
         let point = view.convert(event.locationInWindow, from: nil)
         // Released off the link: a cancelled click, as for any link.
         guard let cell = cell(at: point),
@@ -122,7 +128,7 @@ import GhosttyNextKit
         if !force, let last = wrappedCell, last == cell { return }
         wrappedCell = cell
         guard let link = wrappedLink(at: point) else { return clearWrapped(keepCell: true) }
-        guard link != wrapped else { return }
+        guard link != wrapped, let view else { return }
         wrapped = link
         showUnderlines(link)
         if cursorBeforeWrapped == nil { cursorBeforeWrapped = view.cursor }
@@ -135,7 +141,7 @@ import GhosttyNextKit
         wrapped = nil
         for underline in underlines { underline.removeFromSuperview() }
         underlines.removeAll()
-        if let cursor = cursorBeforeWrapped, view.cursor == .pointingHand, view.session?.model.hoveredLink == nil {
+        if let view, let cursor = cursorBeforeWrapped, view.cursor == .pointingHand, view.session?.model.hoveredLink == nil {
             view.setCursor(cursor)
         }
         cursorBeforeWrapped = nil
@@ -144,7 +150,7 @@ import GhosttyNextKit
     private func showUnderlines(_ link: TerminalWrappedLink) {
         for underline in underlines { underline.removeFromSuperview() }
         underlines.removeAll()
-        guard let frame = cellFrame() else { return }
+        guard let view, let frame = cellFrame() else { return }
         let thickness = max(1, (frame.cellHeight / 16).rounded())
         let color = GhosttyRuntime.shared.copyCursorColor.cgColor
         for segment in link.segments {
@@ -159,7 +165,7 @@ import GhosttyNextKit
 
     /// The wrapped link at `point`, read from the viewport rows around it.
     func wrappedLink(at point: NSPoint) -> TerminalWrappedLink? {
-        guard let surface = view.surface, let cell = cell(at: point) else { return nil }
+        guard let surface = view?.surface, let cell = cell(at: point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
         let first = max(0, cell.row - TerminalWrappedLink.reach)
@@ -171,7 +177,7 @@ import GhosttyNextKit
 
     /// The viewport cell under `point` (view coordinates), or nil off the grid.
     func cell(at point: NSPoint) -> (column: Int, row: Int)? {
-        guard let surface = view.surface else { return nil }
+        guard let view, let surface = view.surface else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cell_width > 0, metrics.cell_height > 0 else { return nil }
         let x = point.x - metrics.padding_left, y = view.bounds.height - point.y - metrics.padding_top
@@ -182,7 +188,7 @@ import GhosttyNextKit
     }
 
     private func cellFrame() -> CopyModeCursorFrame? {
-        guard let surface = view.surface else { return nil }
+        guard let view, let surface = view.surface else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
         return CopyModeCursorFrame(cellWidth: metrics.cell_width, cellHeight: metrics.cell_height,
@@ -203,31 +209,4 @@ import GhosttyNextKit
         guard let pointer = text.text, text.text_len > 0 else { return "" }
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
-
-    // MARK: Modifier monitor
-
-    private static var monitor: Any?
-
-    /// One app-wide watcher: a modifier change goes to the terminal under the pointer,
-    /// which may not have focus (and so gets no key event).
-    private static func installModifierMonitor() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
-            // main-proof: local event monitors run on the main thread
-            MainActor.assumeIsolated { terminalUnderPointer()?.linkPointer.modifiersChanged(event.modifierFlags) }
-            return event
-        }
-    }
-
-    private static func terminalUnderPointer() -> TerminalSurfaceView? {
-        let location = NSEvent.mouseLocation
-        let number = NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0)
-        guard let window = NSApp.window(withWindowNumber: number), let content = window.contentView else { return nil }
-        let point = content.superview?.convert(window.convertPoint(fromScreen: location), from: nil)
-            ?? window.convertPoint(fromScreen: location)
-        var hit = content.hitTest(point)
-        while let view = hit, !(view is TerminalSurfaceView) { hit = view.superview }
-        return hit as? TerminalSurfaceView
-    }
 }
-

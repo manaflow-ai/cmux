@@ -174,6 +174,8 @@ public final class TerminalSurfaceView: NSView {
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         observeWindow(false)
+        // Leaving its window gets no mouseExited: the modifier watcher and underlines go here.
+        if newWindow == nil { linkPointer.exited() }
     }
 
     public override func viewDidMoveToWindow() {
