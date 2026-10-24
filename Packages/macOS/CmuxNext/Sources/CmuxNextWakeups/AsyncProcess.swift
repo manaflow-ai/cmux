@@ -5,6 +5,9 @@ import Dispatch
 
 /// Runs a child process and awaits its end without blocking any thread.
 ///
+/// `run(_:)` may be called from any actor, the main actor included: the caller only registers the run;
+/// the spawn, the reads and the exit all happen on the run's own serial queue.
+///
 /// `process.waitUntilExit()` and `readDataToEndOfFile()` park a thread until the child ends; inside a
 /// `Task` that thread is one of the cooperative pool's (one per core), so a few slow `git` or `gh` runs
 /// stall every task in the app. Here nothing waits: the child's output arrives through read sources on

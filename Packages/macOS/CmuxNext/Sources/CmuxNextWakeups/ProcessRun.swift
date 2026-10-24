@@ -43,6 +43,15 @@ final class ProcessRun: Sendable {
             return nil
         }
         if let early { return continuation.resume(with: early) }
+        // The spawn (fork and exec) can take hundreds of ms under memory pressure: it runs on this run's
+        // own serial queue (a GCD thread at the caller's QoS), never on the caller's actor (often main)
+        // and never on the cooperative pool.
+        queue.async { [self] in launchChild() }
+    }
+
+    /// Configures and spawns the child, on `queue`. A run stopped before this point spawns nothing.
+    private func launchChild() {
+        guard !state.withLock({ $0.resolved }) else { return }
         let process = Process()
         process.executableURL = request.executable
         process.arguments = request.arguments
