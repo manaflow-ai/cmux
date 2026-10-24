@@ -968,6 +968,51 @@ class AppSizeTests(Fixture):
         self.commit("an old type renamed in place")
         self.assertEqual([h.text for h in self.hits()], [], "a rename in place adds no new code")
 
+    def test_root_lines_moved_into_other_app_files_count_against_the_root_budget(self):
+        # Lead decision (b), item 2: wiring that leaves the root for another App file still grows the App's wiring
+        # (P1: objects are built in the composition root); only a move into a package is the wanted direction.
+        services = swift_body(200, "services").splitlines(keepends=True)
+        moved = services[40:64]  # 21 source lines of existing root code
+        self.assertEqual(code(moved), 21)
+        # New wiring with no generic line (`}`, `return 0`): the root's own removed generic lines then all stay
+        # available to the moved block, so this test checks the rule, not the cross-root run count.
+        wire = "".join(f"    let wire{i} = makeWire({i})\n" for i in range(11))
+        kept = "".join(services[:40] + services[64:])
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.write(f"{APP}/Workspace/WorkspaceWiring.swift", "extension AppServices {\n" + "".join(moved) + "}\n")
+        self.commit("21 root lines moved into a feature file, 11 new root lines")
+        found = self.assertRefused("the composition root grows +32 source lines",
+                                   "21 moved from the root into other App files", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found if h.bucket == "root"], [("root", 2)])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(moved))
+        self.commit("the same lines appended to an existing feature file")
+        self.assertEqual([(h.bucket, h.excess) for h in self.hits() if h.bucket == "root"], [("root", 2)])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.write(f"{KIT}/Workspace/WorkspaceWiring.swift", "".join(moved))
+        self.commit("control: the same lines moved into a package")
+        self.assertEqual([h.text for h in self.hits()], [], "a move from the root into a package stays exempt")
+
+    def test_new_wiring_split_between_the_root_and_a_feature_file_is_not_a_move_out_of_the_root(self):
+        # Case 2 of the review: 41 new wiring lines, 29 in the root and 12 in a feature file. None of them was in
+        # the root, so nothing moved out of it: the feature file's +12 is App growth (a warning, as agreed), and
+        # the root is within its budget. Lead (2026-10-23): no lines out of the root is not an evasion; it passes.
+        wire = swift_body(33, "wire")
+        self.assertEqual(code(wire), 29)
+        self.append(f"{APP}/AppServices.swift", wire)
+        self.write(f"{APP}/Workspace/WorkspaceWiring.swift", "extension AppServices {\n" + swift_body(11, "split") + "}\n")
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:250]))  # an unrelated deletion
+        self.commit("29 new root lines and 12 new lines in an AppServices extension in a feature folder")
+        found = self.hits()
+        self.assertEqual([h.bucket for h in found if h.bucket == "root"], [], "no root refusal")
+        self.reset()
+        self.append(f"{APP}/AppServices.swift", wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(13, "split"))
+        self.commit("the same 12 lines in an existing feature file")
+        self.assertWarned("outside the root grows +12 source lines")
+
     def test_one_host_conformance_file_of_forwards_per_push(self):
         self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
         self.commit("a 25-line Host conformance, unpaid")
