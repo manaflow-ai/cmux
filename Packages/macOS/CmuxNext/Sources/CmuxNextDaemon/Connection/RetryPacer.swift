@@ -45,6 +45,9 @@ public struct RetryPacer: Sendable {
     /// Failed attempts since the last reset that a socket change woke.
     public private(set) var socketFailures = 0
     private var wokeBySocket = false
+    /// The socket whose refusals spent the timed retries
+    /// (``waitForPeerAfterFailure(wake:clock:)``); nil until one refused.
+    private var budgetSocket: RetryWake.Identity?
 
     public init(_ policy: RetryPolicy) {
         self.policy = policy
@@ -61,6 +64,7 @@ public struct RetryPacer: Sendable {
         failures = 0
         socketFailures = 0
         wokeBySocket = false
+        budgetSocket = nil
         backoff.reset()
     }
 
@@ -80,6 +84,30 @@ public struct RetryPacer: Sendable {
     public mutating func failedWhileMissing() {
         if wokeBySocket { socketFailures += 1 }
         wokeBySocket = false
+    }
+
+    /// Notes a failure while the socket `socket` exists (it refused, or its
+    /// daemon answered with an error) and returns the spacing before the next
+    /// attempt, or nil when the budget is spent.
+    ///
+    /// The timed retries belong to one socket. A socket other than the one
+    /// that spent them (its daemon was restarted) gets timed retries of its
+    /// own, because its change can come while an attempt runs, before the
+    /// rebaseline that follows it, and then wakes nothing: the new daemon was
+    /// binding, or answered while it started. Each such renewal counts as a
+    /// failure a socket change brought, so a daemon that keeps replacing its
+    /// socket gets at most `socketRetries` renewals until a success resets
+    /// the pacer.
+    public mutating func failed(at socket: RetryWake.Identity) -> Duration? {
+        if budgetSocket == nil {
+            budgetSocket = socket
+        } else if budgetSocket != socket, wakesOnSocket {
+            budgetSocket = socket
+            failures = 0
+            backoff.reset()
+            wokeBySocket = true
+        }
+        return failed()
     }
 
     /// Notes what woke the wait before the next attempt.
@@ -107,15 +135,19 @@ extension RetryPacer {
     /// succeed, so the wait arms no timer and ends only when the socket
     /// appears or an explicit event fires. The timed budget is kept for a
     /// socket that exists but refuses (a crashed daemon's stale socket, a
-    /// handoff). A path that cannot be watched (no descriptor left) falls back
-    /// to the timed wait. Returns false when cancelled.
+    /// handoff), and renewed for a socket that replaced it
+    /// (``failed(at:)``). A path that cannot be watched (no descriptor left, a
+    /// folder on the way that does not open) falls back to the timed wait.
+    /// Returns false when cancelled.
     public mutating func waitForPeerAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
         let delay: Duration?
         switch wake.rebaseline() {
         case .missing:
             failedWhileMissing()
             delay = nil
-        case .present, .unwatched:
+        case let .present(socket):
+            delay = failed(at: socket)
+        case .unwatched:
             delay = failed()
         }
         let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)

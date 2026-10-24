@@ -26,9 +26,11 @@ final class FeedService {
     /// A report reply uses it as is: the reply path resolves nothing (no executable or signature
     /// check on the main thread).
     let acpmuxEnvironment: AcpmuxEnvironment?
-    /// Wakes the reports reader's retry wait: its socket's changes, and app activation or wake.
-    private let reportsWake = RetryWake(owner: "feed.reports.retry")
-    private var reportsTask: Task<Void, Never>?
+    /// The reports reader; a page of a reader that a reset stopped is dropped.
+    private let reports = AcpmuxMailboxSubscription()
+    /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
+    /// never touches the next one's watch): its socket's changes, and app activation or wake.
+    private var reportsWake: RetryWake?
     private var reportRows: [String: FeedReport] = [:]
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
@@ -85,7 +87,7 @@ final class FeedService {
             source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
             // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
-            if forced != false { reportsWake.fire() }
+            if forced != false { reportsWake?.fire() }
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
             MainActorObservation(name, center: center) { update(forced) }
@@ -195,8 +197,8 @@ final class FeedService {
     }
 
     private func resetReports() {
-        reportsTask?.cancel()
-        reportsTask = nil
+        reports.stop()
+        reportsWake = nil
         reportRows.removeAll()
         model.replaceReports([])
     }
@@ -207,12 +209,13 @@ final class FeedService {
     /// retries on the shared daemon-client path (`AcpmuxMailboxReader`): a
     /// missing socket waits for its file-system event, a refusing one is paced.
     private func startReportsIfNeeded() {
-        guard auth.isSignedIn, reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath,
+        guard auth.isSignedIn, !reports.isRunning, let socketPath = acpmuxEnvironment?.socketPath,
               let reportsRecipient else { return }
-        let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: reportsWake)
-        let deliver: @MainActor @Sendable (AcpmuxMailboxPage) -> Void = { [weak self] page in self?.applyReports(page) }
-        // task-owner: FeedService.reportsTask: the reports reader; cancelled by resetReports (sign-out, stop).
-        reportsTask = Task { await reader.run(deliver: deliver) }
+        let wake = RetryWake(owner: "feed.reports.retry")
+        reportsWake = wake
+        let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: wake)
+        // Stopped by resetReports (sign-out, another account, stop); a page already on its way is dropped.
+        reports.start(reader) { [weak self] page in self?.applyReports(page) }
     }
 
     private func applyReports(_ page: AcpmuxMailboxPage) {

@@ -10,12 +10,17 @@ public import CmuxNextDaemon
 /// not exist yet) or for ``RetryWake/fire()``, and arms no timer. While the
 /// socket exists but refuses (a crashed acpmux's stale socket, a handoff) it
 /// retries a bounded number of times spaced by the backoff, then waits for the
-/// socket to be replaced or an event. A page resets the pacing.
+/// socket to be replaced or an event; a socket that replaced it gets timed
+/// retries of its own (``RetryPacer/failed(at:)``). A page resets the pacing.
+/// The socket is watched only while a failed wait is retried: a reader that
+/// reads, or that ended, keeps no watch.
+///
+/// A main-actor owner runs it through ``AcpmuxMailboxSubscription``, which
+/// drops a page that arrives after the reader was replaced or stopped:
 ///
 /// ```swift
 /// let reader = AcpmuxMailboxReader(socketPath: environment.socketPath, recipient: "reports:\(person)", wake: wake)
-/// let deliver: @MainActor @Sendable (AcpmuxMailboxPage) -> Void = { [weak self] page in self?.apply(page) }
-/// reportsTask = Task { await reader.run(deliver: deliver) }
+/// reports.start(reader) { [weak self] page in self?.apply(page) }
 /// ```
 public nonisolated struct AcpmuxMailboxReader: Sendable {
     /// One mailbox wait for the rows after a cursor.
@@ -57,7 +62,7 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
     /// - Parameter deliver: Gets each page on the main actor.
     @concurrent
     public func run(deliver: @MainActor @Sendable (AcpmuxMailboxPage) -> Void) async {
-        wake.watch(file: socketPath)
+        defer { wake.unwatch() }
         var pacer = RetryPacer(policy)
         var cursor: UInt64 = 0
         // wakeup-allow: each pass is one event-driven mailbox wait (acpmux answers on new mail or its 30 s wait end); a failure waits in RetryPacer
@@ -65,11 +70,16 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
             do {
                 let page = try await mailboxWait(cursor)
                 pacer.reset()
+                // A reader that reads keeps no watch: the next failure arms it again.
+                wake.unwatch()
                 cursor = Self.cursor(after: page, from: cursor)
+                guard !Task.isCancelled else { return }
                 await deliver(page)
             } catch is CancellationError {
                 return
             } catch {
+                // Armed only while retrying; the rebaseline below takes the socket as it is now.
+                wake.watch(file: socketPath)
                 // concurrency-allow: an async wait for the socket to change or the paced retry, not a blocking wait
                 guard await pacer.waitForPeerAfterFailure(wake: wake, clock: clock) else { return }
             }

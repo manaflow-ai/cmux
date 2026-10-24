@@ -28,13 +28,21 @@ public final class RetryWake: Sendable {
 
     /// What ``rebaseline()`` found at the watched file.
     public enum WatchedFile: Sendable, Equatable {
-        /// The file exists.
-        case present
+        /// The file exists, with this identity (a replaced file has another one).
+        case present(Identity)
         /// The file is missing and the folders toward it are watched: its creation wakes the wait.
         case missing
-        /// No file is watched, or no folder on its path opens (no descriptor left): only the
+        /// No file is watched, or no event can tell its creation: no folder on its path opens
+        /// (no descriptor left), or a folder on the way to it exists but does not open (no read
+        /// permission, a privacy-protected folder), so changes inside it reach no watch. Only the
         /// timer and explicit events wake the wait.
         case unwatched
+    }
+
+    /// A file's identity (device and inode): a file replaced at the same path has another one.
+    public struct Identity: Sendable, Equatable {
+        var device: dev_t
+        var inode: ino_t
     }
 
     public let owner: String
@@ -42,11 +50,6 @@ public final class RetryWake: Sendable {
     private let probe: RetryWakeProbe
     private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake")
     private let state = Mutex<State>(State())
-
-    private struct Identity: Equatable {
-        var device: dev_t
-        var inode: ino_t
-    }
 
     /// The folder the vnode watch is on.
     private struct WatchedFolder {
@@ -117,23 +120,42 @@ public final class RetryWake: Sendable {
         if changed { arm() }
     }
 
+    /// Ends the watch: the vnode source is cancelled and no file is watched
+    /// until the next ``watch(file:companions:)``. A pending ``fire()`` stays.
+    /// A reader that is healthy, or that ended, keeps no watch (each entry
+    /// change in the watched folder would wake the process).
+    public func unwatch() {
+        state.withLock { state in
+            state.source?.cancel()
+            state.source = nil
+            state.folder = nil
+            state.file = nil
+            state.companions = []
+            state.baseline = []
+        }
+    }
+
     /// Records the watched file's current identity and drops a pending
     /// event: call after a failed attempt, so only later changes wake. A watch
-    /// that could not be armed before (no descriptor left) is tried again.
+    /// that could not be armed before (no descriptor left), or that stopped
+    /// above a folder that did not open (it may open now), is tried again.
     ///
-    /// - Returns: Whether the file is there, missing (and watched), or not watched.
+    /// - Returns: Whether the file is there (and its identity), missing (and watched), or not watched.
     @discardableResult
     public func rebaseline() -> WatchedFile {
         let needsArm = state.withLock { state -> Bool in
             state.latched = nil
             state.baseline = state.file.map { Self.identities(of: [$0] + state.companions) } ?? []
-            return state.file != nil && state.source == nil
+            return state.file != nil && (state.source == nil || state.folder?.blocked != nil)
         }
         if needsArm { arm() }
         return state.withLock { state -> WatchedFile in
             guard state.file != nil else { return .unwatched }
-            if (state.baseline.first ?? nil) != nil { return .present }
-            return state.source == nil ? .unwatched : .missing
+            if let identity = state.baseline.first ?? nil { return .present(identity) }
+            // A folder below the watch that did not open: the file can be made in it, and work
+            // (connect needs only search permission), with no event at the watched folder.
+            guard state.source != nil, state.folder?.blocked == nil else { return .unwatched }
+            return .missing
         }
     }
 

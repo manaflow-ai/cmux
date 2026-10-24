@@ -102,6 +102,45 @@ import Testing
         #expect(FileManager.default.createFile(atPath: socket, contents: Data()))
         let cause = await wake.awaitWake(delay: .seconds(10), clock: ContinuousClock())
         #expect(cause == .socket)
-        #expect(wake.rebaseline() == .present)
+        guard case .present = wake.rebaseline() else {
+            Issue.record("the socket that woke the wait is not present")
+            return
+        }
+    }
+
+    /// A folder on the way that exists but does not open (no read permission: mode 0311, still
+    /// searchable, so connect works in it): its entries reach no watch above it, so the file is not
+    /// "missing and watched" and the wait keeps its timer. Once the folder opens (same identity, a
+    /// chmod), the next rebaseline watches it. Before, the watch stayed above it and parked the wait
+    /// with no timer, and the socket made in it woke nothing.
+    @Test func aFolderOnTheWayThatDoesNotOpenIsNotWatchedThrough() async throws {
+        let root = try scratch()
+        let blocked = root.appendingPathComponent("blocked", isDirectory: true)
+        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o311], ofItemAtPath: blocked.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blocked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let socket = blocked.appendingPathComponent("acpmux.sock").path
+        let wake = RetryWake(owner: "RetryWakeFolderTests")
+        wake.watch(file: socket)
+        #expect(wake.rebaseline() == .unwatched, "a socket behind a folder that does not open counted as watched")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blocked.path)
+        #expect(wake.rebaseline() == .missing, "the folder that opens now was not watched")
+        #expect(FileManager.default.createFile(atPath: socket, contents: Data()))
+        let cause = await wake.awaitWake(delay: .seconds(10), clock: ContinuousClock())
+        #expect(cause == .socket, "the socket made in the folder that opened did not wake the wait")
+    }
+
+    /// ``RetryWake/unwatch()`` ends the watch: nothing is watched until the next watch.
+    @Test func unwatchEndsTheWatch() throws {
+        let root = try scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wake = RetryWake(owner: "RetryWakeFolderTests")
+        wake.watch(file: root.appendingPathComponent("acpmux.sock").path)
+        #expect(wake.rebaseline() == .missing)
+        wake.unwatch()
+        #expect(wake.rebaseline() == .unwatched)
     }
 }
