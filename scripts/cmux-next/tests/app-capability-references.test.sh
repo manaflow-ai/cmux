@@ -144,4 +144,33 @@ if out="$(run)"; then fail "a capability constant in an extension passed: $out";
 [[ "$out" == *"orphan-extension-v1"* ]] || fail "the failure does not name the extension constant: $out"
 rm "$sources/CmuxNextApp/DaemonCapability+Orphan.swift"
 
+# A computed String static in an extension, used at a gate, is in no list and the resolver never
+# followed it (`supports(DaemonCapability.orphanExt)` counted as no reference at all).
+cat > "$sources/CmuxNextApp/DaemonCapability+Computed.swift" <<'SWIFT'
+extension DaemonCapability {
+    static var orphanExt: String { "orphan-ext-v1" }
+}
+struct Gate {
+    func run(d: DaemonService) { _ = d.supports(DaemonCapability.orphanExt) }
+}
+SWIFT
+if out="$(run)"; then fail "a computed String static in an extension passed: $out"; fi
+[[ "$out" == *"orphanExt"* ]] || fail "the failure does not name the computed extension static: $out"
+rm "$sources/CmuxNextApp/DaemonCapability+Computed.swift"
+
+# The same declared in the catalog itself.
+python3 - "$sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+open(path, "w", encoding="utf-8").write(text.replace(
+    "    public enum Tier: Sendable {",
+    '    public static var orphanComputed: String { "orphan-computed-v1" }\n\n    public enum Tier: Sendable {', 1))
+PY
+grep -q orphanComputed "$sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift" || fail "the fixture lacks the computed static"
+if out="$(run)"; then fail "a computed String static in the catalog passed: $out"; fi
+[[ "$out" == *"orphanComputed"* ]] || fail "the failure does not name the computed catalog static: $out"
+write_endpoint ".tabDrag, .attachIdentity, .cloudConversations, .terminalResources"
+out="$(run)" || fail "the tree failed after the computed statics were removed: $out"
+
 echo "app-capability-references.test.sh: ok"
