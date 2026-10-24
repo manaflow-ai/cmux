@@ -514,6 +514,12 @@
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
    one, as the page's other rows do. A chat's state reads in the theme's amber (input) or red. */
+.nt-extras{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 4px 8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:18px}
+.nt-extra-warm{flex:1 0 100%;color:var(--agent-soft)}
+.nt-extra-clock,.nt-extra-timer{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nt-extra-quote{flex:1 0 100%;margin:0;color:var(--agent-soft)}
+.nt-extra-quote blockquote{margin:0;font:inherit}
+.nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail)}
 .nt-widgets{display:flex;flex-direction:column;gap:10px;margin-top:8px}
 .nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
 .nt-widget-row{display:flex;align-items:center;gap:12px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;cursor:default}

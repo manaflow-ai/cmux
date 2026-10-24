@@ -66,6 +66,7 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
+        "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",

@@ -165734,6 +165734,661 @@
           }
         }
       }
+    },
+    "settings.tabs.commandDigits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 to 9 Select"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد Command-1 إلى 9"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 do 9 biraju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 til 9 vælger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl-1 bis 9 wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando-1 a 9 seleccionan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande-1 à 9 sélectionnent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando-1 a 9 selezionano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1〜9 で選択"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 ដល់ 9 ជ្រើសរើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1~9 선택 대상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommando-1 til 9 velger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 do 9 wybiera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 a 9 selecionam"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1…9 выбирают"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 ถึง 9 เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 ile 9 arası seçer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1…9 вибирають"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 đến 9 chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 至 9 选择"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 至 9 選擇"
+          }
+        }
+      }
+    },
+    "settings.tabs.commandDigits.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل: ينتقل Command-1 إلى 9 إلى عناصر الشريط الجانبي وControl-1 إلى 9 إلى علامات التبويب. علامات التبويب: ينتقل Command-1 إلى 9 إلى علامات تبويب اللوحة المحددة وControl-1 إلى 9 إلى مساحات العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostori: Command-1 do 9 otvaraju stavke bočne trake, a Control-1 do 9 kartice. Kartice: Command-1 do 9 otvaraju kartice fokusiranog panela, a Control-1 do 9 radne prostore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområder: Command-1 til 9 går til elementer i sidepanelet og Control-1 til 9 til faner. Faner: Command-1 til 9 går til fanerne i den fokuserede rude og Control-1 til 9 til arbejdsområder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche: Befehl-1 bis 9 öffnen Einträge der Seitenleiste und Control-1 bis 9 Tabs. Tabs: Befehl-1 bis 9 öffnen die Tabs des fokussierten Bereichs und Control-1 bis 9 Arbeitsbereiche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacios de trabajo: Comando-1 a 9 van a los elementos de la barra lateral y Control-1 a 9 a las pestañas. Pestañas: Comando-1 a 9 van a las pestañas del panel enfocado y Control-1 a 9 a los espacios de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaces de travail : Commande-1 à 9 ouvrent les éléments de la barre latérale et Contrôle-1 à 9 les onglets. Onglets : Commande-1 à 9 ouvrent les onglets du volet actif et Contrôle-1 à 9 les espaces de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazi di lavoro: Comando-1 a 9 aprono gli elementi della barra laterale e Control-1 a 9 le schede. Schede: Comando-1 a 9 aprono le schede del riquadro attivo e Control-1 a 9 gli spazi di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース: Command-1〜9 でサイドバーの項目、Control-1〜9 でタブに移動します。タブ: Command-1〜9 でフォーカス中のペインのタブ、Control-1〜9 でワークスペースに移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ៖ Command-1 ដល់ 9 ទៅធាតុរបារចំហៀង ហើយ Control-1 ដល់ 9 ទៅផ្ទាំង។ ផ្ទាំង៖ Command-1 ដល់ 9 ទៅផ្ទាំងនៃផ្ទាំងដែលបានផ្តោត ហើយ Control-1 ដល់ 9 ទៅកន្លែងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간: Command-1~9는 사이드바 항목으로, Control-1~9는 탭으로 이동합니다. 탭: Command-1~9는 포커스된 패널의 탭으로, Control-1~9는 작업 공간으로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområder: Kommando-1 til 9 går til elementer i sidepanelet og Control-1 til 9 til faner. Faner: Kommando-1 til 9 går til fanene i den aktive ruten og Control-1 til 9 til arbeidsområder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszary robocze: Command-1 do 9 przechodzą do elementów paska bocznego, a Control-1 do 9 do kart. Karty: Command-1 do 9 przechodzą do kart aktywnego panelu, a Control-1 do 9 do obszarów roboczych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaços de trabalho: Command-1 a 9 vão para os itens da barra lateral e Control-1 a 9 para as abas. Abas: Command-1 a 9 vão para as abas do painel em foco e Control-1 a 9 para os espaços de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие пространства: Command-1…9 открывают элементы боковой панели, а Control-1…9 вкладки. Вкладки: Command-1…9 открывают вкладки активной панели, а Control-1…9 рабочие пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน: Command-1 ถึง 9 ไปยังรายการในแถบด้านข้าง และ Control-1 ถึง 9 ไปยังแท็บ แท็บ: Command-1 ถึง 9 ไปยังแท็บของบานที่โฟกัส และ Control-1 ถึง 9 ไปยังพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanları: Command-1 ile 9 arası kenar çubuğu öğelerine, Control-1 ile 9 arası sekmelere gider. Sekmeler: Command-1 ile 9 arası odaklı bölmenin sekmelerine, Control-1 ile 9 arası çalışma alanlarına gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі простори: Command-1…9 відкривають елементи бічної панелі, а Control-1…9 вкладки. Вкладки: Command-1…9 відкривають вкладки активної панелі, а Control-1…9 робочі простори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc: Command-1 đến 9 chuyển đến các mục thanh bên và Control-1 đến 9 chuyển đến thẻ. Thẻ: Command-1 đến 9 chuyển đến các thẻ của ô đang chọn và Control-1 đến 9 chuyển đến không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区：Command-1 至 9 前往边栏项目，Control-1 至 9 前往标签页。标签页：Command-1 至 9 前往聚焦窗格的标签页，Control-1 至 9 前往工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區：Command-1 至 9 前往側邊欄項目，Control-1 至 9 前往標籤頁。標籤頁：Command-1 至 9 前往聚焦窗格的標籤頁，Control-1 至 9 前往工作區。"
+          }
+        }
+      }
+    },
+    "settings.tabs.commandDigits.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces or tabs on Command-1 to 9"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل أو علامات التبويب على Command-1 إلى 9"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostori ili kartice na Command-1 do 9"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområder eller faner på Command-1 til 9"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche oder Tabs auf Befehl-1 bis 9"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacios de trabajo o pestañas en Comando-1 a 9"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaces de travail ou onglets sur Commande-1 à 9"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazi di lavoro o schede su Comando-1 a 9"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1〜9 でワークスペースかタブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ ឬផ្ទាំងនៅលើ Command-1 ដល់ 9"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1~9에 작업 공간 또는 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområder eller faner på Kommando-1 til 9"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszary robocze lub karty pod Command-1 do 9"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaços de trabalho ou abas em Command-1 a 9"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие пространства или вкладки на Command-1…9"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานหรือแท็บบน Command-1 ถึง 9"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 ile 9 arasında çalışma alanları veya sekmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі простори або вкладки на Command-1…9"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc hoặc thẻ trên Command-1 đến 9"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 至 9 切换工作区或标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-1 至 9 切換工作區或標籤頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.commandDigits.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區"
+          }
+        }
+      }
+    },
+    "settings.tabs.commandDigits.tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -184,6 +184,21 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
 
+## `tabs.commandDigits`
+
+What Cmd-1 to Cmd-9 select.
+
+```json
+{
+  "tabs": { "commandDigits": "tabs" }
+}
+```
+
+- `"workspaces"` (default): Cmd-1…9 go to sidebar items (`sidebar.numbering` decides which count) and Ctrl-1…9 go to the focused pane's tabs.
+- `"tabs"`: the two trade keys. Cmd-1…9 go to the focused pane's tabs (Cmd-9 is the last tab) and Ctrl-1…9 go to sidebar items.
+
+A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
+
 ## Tab bar (removed: `tabs.tabBar`)
 
 Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
