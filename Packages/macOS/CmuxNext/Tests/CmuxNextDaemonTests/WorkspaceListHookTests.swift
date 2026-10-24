@@ -66,4 +66,23 @@ struct WorkspaceListHookTests {
                                          groups: [WorkspaceGroupSnapshot(id: Self.group, name: "A")]))
         #expect(runs() == 3)
     }
+
+    /// A record closed and added again under its id in one batch is a new record: the set revision
+    /// moves, so an observer that holds one record per workspace (the finished status run follower)
+    /// follows the new one; the membership hook, which follows the set of ids, does not run.
+    @Test func aRecordReplacedUnderItsIdInOneBatchMovesTheSetRevisionOnly() throws {
+        let (store, runs) = Self.loaded()
+        let before = store.workspaceSetRevision
+        let old = try #require(store.workspace(key: WorkspaceKey(rawValue: "ws-1")))
+        store.apply(batch: [
+            DaemonEventEnvelope(sequence: 1, event: .workspaceClosed(WorkspaceDelta(workspace: WorkspaceHandle(rawValue: 1), index: nil,
+                                                                                     entity: Self.workspace(1), workspaceRevision: 11))),
+            DaemonEventEnvelope(sequence: 2, event: .workspaceAdded(WorkspaceDelta(workspace: WorkspaceHandle(rawValue: 1), index: 0,
+                                                                                    entity: Self.workspace(1), workspaceRevision: 12))),
+        ])
+        let new = try #require(store.workspace(key: WorkspaceKey(rawValue: "ws-1")))
+        #expect(new !== old, "the batch did not replace the record")
+        #expect(store.workspaceSetRevision == before + 1, "a replaced record left the set revision as it was")
+        #expect(runs() == 0, "the id-keyed membership hook ran for a record replaced under its id")
+    }
 }
