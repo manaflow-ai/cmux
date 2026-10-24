@@ -891,6 +891,15 @@ pub enum PeerCmd {
         /// Only this peer.
         name: Option<String>,
     },
+    /// Where new work should go: this machine and each peer weighed by its
+    /// room (RAM, cores less load, disk, lane cap) and its role in
+    /// fleet-registry.json, from the readings the links already keep. The
+    /// pick `new --host auto` and `dispatch --host auto` make, with why.
+    Place {
+        /// For a build or test suite: only build hosts.
+        #[arg(long)]
+        build: bool,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
@@ -1019,6 +1028,7 @@ pub struct NewArgs {
     #[arg(long, short)]
     pub preset: Option<String>,
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
     #[arg(long)]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
