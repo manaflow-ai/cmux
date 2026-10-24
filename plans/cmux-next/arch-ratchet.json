@@ -503,6 +503,7 @@
     "unplaced": []
   },
   "exceptions": [
+    {"date": "2026-10-24", "row": "global_mutable_statics", "allow": 1, "why": "MessagesLab GlassKeyFix.decoded: a once-per-process decode of six immutable CGImages from compile-time constant maps (vendored code; no mutable state, the value never changes); the alternative is threading one Task through HostView and FieldChrome in the vendored tree"},
     {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
