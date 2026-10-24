@@ -11,8 +11,12 @@ import WebKit
 /// Low Power Mode at 30 fps on a 120 Hz display, and its live switch (write the preference, then
 /// hide and re-show the tab under a snapshot) did not reach a shown page's cadence: on cmux20
 /// (macOS 27, 120 Hz) a page switched to near60 that way still rendered at 120 fps. These read the
-/// WebKit preference; the cadence, in and out of Low Power Mode, is
-/// `scripts/cmux-next/bench-page-cadence.py`.
+/// WebKit preference with Low Power Mode as the host has it, so on a host not in Low Power Mode
+/// they pass on the engine before row 23 too (it read `LowPowerMode.system`). The Low Power Mode
+/// guard for tabs is the runtime one: `scripts/cmux-next/bench-page-cadence.py`'s `tab-low-power`
+/// (a tab made in Low Power Mode renders at half the display's rate, not a quarter) and `tab-full`
+/// (Low Power Mode off again with that tab shown: the display's rate), on an exclusive 120 Hz worker
+/// (`scripts/measure/page-cadence.sh`).
 @MainActor @Suite(.serialized)
 struct WebKitTabRenderRateTests {
     /// Whether `tab` keeps WebKit's near-60 fps rate; fails when this WebKit has no such feature.
