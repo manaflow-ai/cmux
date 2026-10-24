@@ -50,7 +50,8 @@ struct AppEnvironment: Sendable {
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
     /// The saved files the launch draws or keeps, being read off the main thread since `main`
-    /// (`LaunchFiles`): only the real app process sets it; without it each owner reads its own.
+    /// (`LaunchFiles`): only the real app process sets it; without it `AppServices` makes its own
+    /// from this environment (``AppServices/launchFiles``), so every owner takes from one path.
     var launchFiles: LaunchFiles?
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).

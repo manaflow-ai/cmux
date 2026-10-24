@@ -109,19 +109,16 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         // The launch's files were read off the main thread since `main` (LaunchFiles, #17587): here
-        // they are only taken. Without a launch read (tests) each is read here as before.
-        let launch = services.environment.launchFiles?.agent
+        // they are only taken.
+        let launch = services.launchFiles.agent
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.launchImages = launch.map { AgentPaneLaunchImages(frames: $0.pageImages) }
-            ?? AgentPaneLaunchImages(directory: state.map(AgentPaneLaunchImages.directory(beside:)))
-        let draftsFile = AgentUnsentDrafts.file(in: state)
-        tabs.unsentDrafts = AgentUnsentDrafts(file: draftsFile, drafts: launch?.unsentDrafts.take() ?? AgentUnsentDrafts.read(draftsFile))
+        tabs.launchImages = AgentPaneLaunchImages(frames: launch.pageImages)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: AgentUnsentDrafts.file(in: state), drafts: launch.unsentDrafts.take())
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
         // Taken where first used (a chat page made after the first window frame, or the quit), not here.
-        tabs.launchWakes = launch?.wakeStates
-        if launch == nil { tabs.wakeStates = tabs.relaunchWake.take() }
+        tabs.launchWakes = launch.wakeStates
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }

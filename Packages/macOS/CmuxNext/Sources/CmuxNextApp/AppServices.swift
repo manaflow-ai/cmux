@@ -52,6 +52,8 @@ final class AppServices {
     let launchReveal: LaunchReveal
     /// The first window frame (AppDelegate opens it): launch work no first frame shows waits for it.
     let firstFrame: FirstFrameGate
+    /// The saved files the launch draws or keeps (the environment's, read since `main`, else made here).
+    let launchFiles: LaunchFiles
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
@@ -392,6 +394,7 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
         self.firstFrame = firstFrame
+        launchFiles = environment.launchFiles ?? LaunchFiles(environment: environment)
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus

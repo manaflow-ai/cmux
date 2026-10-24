@@ -42,9 +42,8 @@ public struct CmuxNextApp {
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         // What the launch draws or keeps (the panes' last frames, the chats' drafts and composer states,
         // the Home caches) is read and decoded off the main thread while AppKit starts (#17587).
-        environment.launchFiles = environment.sidebarSnapshotFile.map {
-            LaunchFiles(state: $0.url.deletingLastPathComponent(), chiefHome: ChiefHome.resolve(tag: environment.tag))
-        }
+        let launchFiles = LaunchFiles(environment: environment)
+        environment.launchFiles = launchFiles
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
@@ -57,10 +56,8 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.prestart")
         // The panes the first windows show decode their last frames first: the launch snapshot names
         // them, so its read orders the frame decodes as soon as it ends (both off the main thread).
-        if let launchFiles = environment.launchFiles {
-            prestart?.launchSnapshot.whenRead { found in
-                if case .read(let snapshot) = found { launchFiles.prioritize(snapshot.shownTabKeys) }
-            }
+        prestart?.launchSnapshot.whenRead { found in
+            if case .read(let snapshot) = found { launchFiles.prioritize(snapshot.shownTabKeys) }
         }
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()

@@ -11,14 +11,13 @@ import CmuxNextLaunch
 /// The files are listed and decoded off the main thread by a ``SavedFrameDirectory`` started at
 /// the top of `main` (the app's `LaunchFiles` makes the launch's store there, #17587), so a pane
 /// build only takes a decoded frame; one not decoded yet is drawn when it is, unless the terminal's
-/// live content drew first. Nothing here reads a file or waits on the main thread.
+/// live content drew first. Nothing here reads a file or waits on the main thread. One store per
+/// launch, made once and passed to the pane builds and the quit's save by the app's services (no
+/// registry): the save and the takes always use the same instance.
 @MainActor
 public final class TerminalLaunchFrames {
     /// A larger file is not read.
     public nonisolated static let maximumBytes = 16 * 1024 * 1024
-    /// One store per state directory, so a frame taken at launch is not handed out again and the
-    /// launch's store (made in `main`) is the one the pane builds and the quit use.
-    private static var stores: [URL: TerminalLaunchFrames] = [:]
 
     private let frames: SavedFrameDirectory
     /// Hears each frame shown after its pane was built (the decode came later than the pane), for
@@ -30,24 +29,15 @@ public final class TerminalLaunchFrames {
         self.frames = frames
     }
 
-    /// The frames in `directory`, listed and decoded from now on; nil keeps none.
-    convenience init(directory: URL?) {
+    /// The frames in `directory` (``directory(beside:)``), listed and decoded from now on; nil keeps
+    /// none (a services graph built outside the app's launch).
+    public convenience init(directory: URL?) {
         self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes, name: "terminal_frames"))
     }
 
     /// The frames' directory in `state`, the app's state directory (beside its sidebar snapshot).
     public nonisolated static func directory(beside state: URL) -> URL {
         state.appending(path: "terminal-launch-frames", directoryHint: .isDirectory)
-    }
-
-    /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); one
-    /// store per directory. The first call starts reading the frames: `main` makes the launch's.
-    public static func beside(_ state: URL?) -> TerminalLaunchFrames {
-        guard let state else { return TerminalLaunchFrames(directory: nil) }
-        if let store = stores[state] { return store }
-        let store = TerminalLaunchFrames(directory: directory(beside: state))
-        stores[state] = store
-        return store
     }
 
     /// Decodes the frames of `keys` (the tabs the first windows show, front window first) first.
@@ -129,14 +119,5 @@ public final class TerminalLaunchFrames {
                 NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
             }, to: directory)
         }.value
-    }
-}
-
-extension TerminalSession {
-    /// Shows `key`'s frame from the last quit, kept in `state` (``TerminalLaunchFrames/beside(_:)``),
-    /// over this terminal in `content`, the pane content held for launch; whether it showed one now
-    /// (a frame decoded later shows when it is).
-    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView) -> Bool {
-        TerminalLaunchFrames.beside(state).show(key, on: self, in: content)
     }
 }

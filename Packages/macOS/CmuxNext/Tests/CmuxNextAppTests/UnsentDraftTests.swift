@@ -41,8 +41,9 @@ struct UnsentDraftTests {
     }
 
     /// #17587: the launch reads the drafts off the main thread from the top of `main`
-    /// (`LaunchFiles.unsentDrafts`, a `LaunchRead`); the tab store, made on the main thread in
-    /// `applicationDidFinishLaunching`, only takes them and reads no file.
+    /// (`LaunchFiles`, a `LaunchRead`); the tab store, made on the main thread in
+    /// `applicationDidFinishLaunching`, only takes them and reads no file. Through the services' own
+    /// wiring (`AgentTabStore.wired`), the one path every launch takes.
     @Test func theTabStoreTakesTheDraftsTheLaunchReadOffTheMainThread() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -50,12 +51,13 @@ struct UnsentDraftTests {
         let file = try #require(AgentUnsentDrafts.file(in: directory))
         try JSONEncoder().encode(["tab-1": "kept text"]).write(to: file)
 
-        let read = await Task.detached { AgentUnsentDrafts.read(file) }.value
-        #expect(read == ["tab-1": "kept text"])
+        var environment = AppEnvironment.current([:])
+        environment.sidebarSnapshotFile = SidebarSnapshotFile(url: directory.appending(path: SidebarSnapshotFile.fileName))
+        let services = AppServices(environment: environment)
+        await services.launchFiles.agent.unsentDrafts.backgroundReadFinished()
         // The file is gone before the store is made: the store holds what the launch read.
         try FileManager.default.removeItem(at: file)
-        let drafts = AgentUnsentDrafts(file: file, drafts: read)
-        let seed = try #require(drafts.seed(for: "tab-1", session: nil))
+        let seed = try #require(services.agentTabs.unsentDrafts.seed(for: "tab-1", session: nil))
         #expect(await seed.take()?.draft == "kept text")
     }
 }
