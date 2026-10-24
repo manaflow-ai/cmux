@@ -66,6 +66,13 @@ struct Fresh {
     }
 }
 """
+NEW_WITH_UNOWNED = """import Foundation
+final class Owner {}
+final class Fresh {
+    unowned let owner: Owner
+    init(owner: Owner) { self.owner = owner }
+}
+"""
 NEW_CLEAN = """import Foundation
 struct Fresh {
     func load(_ url: URL) async throws -> Data {
@@ -322,6 +329,56 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # Crash-allow-OK (lead 2026-10-24): the hook runs the installed crash data, so a reviewed allowlist entry needs
+    # the commit trailer; only that commit's own additions are read from the push.
+    def add_allow_entry(self, path, count=1):
+        import json
+        allowlist = self.repo / "scripts/cmux-next/crash-allowlist.json"
+        data = json.loads(allowlist.read_text())
+        data["allow"].append({"path": path, "class": "swift.unowned", "count": count, "reason": "fixture",
+                              "reviewer": "fixture review"})
+        allowlist.write_text(json.dumps(data, indent=1) + "\n")
+
+    def test_a_crash_allowlist_entry_without_the_trailer_is_refused(self):
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_UNOWNED)
+        self.add_allow_entry(f"{PKG}/Sources/CmuxNextKit/Fresh.swift")
+        self.commit("adds an unowned reference and its allowlist entry, no trailer")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Crash allowlist review", output)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_a_crash_allowlist_entry_with_the_trailer_passes_and_is_named(self):
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_UNOWNED)
+        self.add_allow_entry(f"{PKG}/Sources/CmuxNextKit/Fresh.swift")
+        self.commit("adds an unowned reference and its allowlist entry\n\nCrash-allow-OK: review 4 of PL-blocking")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("reviewed raises of the pushed crash data", output)
+        self.assertIn("allow swift.unowned in Packages/macOS/CmuxNext/Sources/CmuxNextKit/Fresh.swift", output)
+
+    def test_a_trailer_covers_only_its_own_commit(self):
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_UNOWNED)
+        self.add_allow_entry(f"{PKG}/Sources/CmuxNextKit/Fresh.swift")
+        self.commit("adds an unowned reference and its allowlist entry, no trailer")
+        self.write(f"{PKG}/Sources/CmuxNextKit/Other.swift", NEW_CLEAN.replace("Fresh", "Other"))
+        self.commit("other work\n\nCrash-allow-OK: someone")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertNotIn("reviewed raises of the pushed crash data", output)
+        self.assertEqual(self.remote_head(), before)
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))

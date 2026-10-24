@@ -168,8 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.openPanel.warmWhenIdle(after: launchSettle.whenSettled)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
-        services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in
-            let event = router?.syntheticKeyEvent ?? NSApp.currentEvent
+        services.palette.openingEventTimestamp = { [inputDispatch = services.inputDispatch] in
+            let event = inputDispatch.event
             return event?.type == .keyDown ? event?.timestamp : nil
         }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }

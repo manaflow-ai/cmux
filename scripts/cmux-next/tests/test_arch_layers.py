@@ -34,6 +34,19 @@ final class Watcher {
 }
 """
 
+# The wrapper (CmuxNextCompat's shape): a use of it counts by what its init does; its own body does not.
+WRAPPER = """import Foundation
+public final class MainActorObservation {
+    private let token: any NSObjectProtocol
+    public init(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
+                _ handler: @escaping @MainActor () -> Void) {
+        token = center.addObserver(forName: name, object: object, queue: .main) { _ in
+            MainActor.assumeIsolated { handler() }
+        }
+    }
+}
+"""
+
 
 def load_script():
     spec = importlib.util.spec_from_file_location("cmux_next_arch_layers_for_test", SCRIPT)
@@ -96,13 +109,15 @@ class ArchLayersTests(unittest.TestCase):
 
 
     def test_counts_observers_are_the_arch_ratchets_observer_sites(self):
-        # `--counts` nc_observers is arch_counts' observer_sites (the ratchet's row), not a third regex: the wrapper
-        # counts, a multi-line call counts, a commented-out one does not.
+        # `--counts` nc_observers is arch_counts' observer_sites (the ratchet's row), not a third regex: each use of
+        # the wrapper counts (its own body does not), a multi-line call counts, a commented-out one does not.
         script = load_script()
         with tempfile.TemporaryDirectory() as tmp:
             sources = Path(tmp)
             (sources / "CmuxNextKit").mkdir()
             (sources / "CmuxNextKit" / "Watcher.swift").write_text(OBSERVERS)
+            (sources / "CmuxNextCompat").mkdir()
+            (sources / "CmuxNextCompat" / "MainActorObservation.swift").write_text(WRAPPER)
             script.SOURCES = sources
             self.assertEqual(script.grep_counts()["nc_observers"], 3)
 

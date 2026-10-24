@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
@@ -46,7 +47,7 @@ public final class HomeNativeTranscriptView: NSView {
     var intake: Task<Void, Never>?
     /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
     let drop = HomeDropState()
-    private var stopped = false
+    private(set) var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
     /// False while the owner is unreachable (H17: offline Send is off; the
@@ -119,7 +120,8 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
-    private var observers: [any NSObjectProtocol] = []
+    /// The window's key and occlusion observers; each token removes itself when released (on any thread).
+    private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
@@ -183,13 +185,6 @@ public final class HomeNativeTranscriptView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for o in observers { NotificationCenter.default.removeObserver(o) }
-        }
-    }
 
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?
@@ -440,7 +435,6 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
@@ -449,12 +443,9 @@ public final class HomeNativeTranscriptView: NSView {
         }
         guard let window else { return }
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
-        let nc = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification] {
-            observers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
-            })
+        observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didChangeOcclusionStateNotification].map { name in
+            MainActorObservation(name, object: window) { [weak self] in self?.windowStateChanged() }
         }
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).

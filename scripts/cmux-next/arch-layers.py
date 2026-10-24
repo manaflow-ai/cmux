@@ -15,7 +15,8 @@ target's layer from plans/cmux-next/architecture-layers.json, then prints:
 This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates).
 The inventory of singletons, broadcasts and DEBUG-only code is PL-guardrails'
 plans/cmux-next/codebase-health.md; `--counts` prints the grep counts the design doc used, except observers: those
-are arch_counts.py's observer_sites (the ratchet's row; `MainActorObservation(` wrapper sites count).
+are arch_counts.py's observer_sites (the ratchet's row: registrations counted through wrappers such as
+`MainActorObservation(`, at each use a caller configures).
 
 Targets are the regular, executable and binary ones (arch_counts.py's MAPPED_KINDS, the same set the ratchet
 and the gate read); test targets are left out.
@@ -86,15 +87,19 @@ COUNTS = {
 
 def grep_counts() -> dict[str, int]:
     """The `--counts` numbers over the Swift under SOURCES. nc_observers is arch_counts.py's observer_sites
-    (`observer_calls`, the arch ratchet's row: the `MainActorObservation(` wrapper counts, comments do not),
-    never a regex of its own, so the ratchet, codebase-health.md and this report count one set."""
+    (`observer_registrations`, the arch ratchet's row: registrations through wrappers such as
+    `MainActorObservation(` count at each use, comments do not), never a regex of its own, so the ratchet,
+    codebase-health.md and this report count one set."""
     counts = load_counts()
     totals = {**dict.fromkeys(COUNTS, 0), "nc_observers": 0}
+    texts: dict[str, str] = {}
     for path in SOURCES.rglob("*.swift"):
         text = path.read_text(errors="ignore")
         for name, pattern in COUNTS.items():
             totals[name] += len(pattern.findall(text))
-        totals["nc_observers"] += len(counts.observer_calls(counts.strip(text)))
+        # Keyed like the repository path, so a file's Swift module (its package directory) is the same.
+        texts[f"{counts.SOURCES}/{path.relative_to(SOURCES).as_posix()}"] = text
+    totals["nc_observers"] = counts.observer_registrations(texts).total()
     return totals
 
 

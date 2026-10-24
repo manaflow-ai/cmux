@@ -252,7 +252,9 @@ public final class ControlRouter: Sendable {
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
             return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
-        var snapshot = snapshots.current
+        // The snapshot as of now: built first when a work-queue frame changed main-actor state since the last
+        // publish (a lazy publish: frames with no reader build nothing).
+        var snapshot = await snapshots.fresh()
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
