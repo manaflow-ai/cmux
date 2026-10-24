@@ -66,7 +66,9 @@ function WorkflowControls() {
   const [state, setState] = useState<WorkflowState>("Running");
   return (
     <div className="workflow-gallery__controls" data-workflow-state={state.toLowerCase()}>
-      <span className="workflow-gallery__state">{state}</span>
+      <span className="workflow-gallery__state" aria-live="polite">
+        {state}
+      </span>
       <button type="button" onClick={() => setState("Paused")} aria-label="Pause workflow">
         Pause
       </button>
@@ -110,7 +112,14 @@ function WorkflowSummary({ compact = false }: { compact?: boolean }) {
         </div>
         <ProgressSparkline />
       </div>
-      <div className="workflow-gallery__progress" aria-label={`${WORKFLOW.done} of ${WORKFLOW.total} agents done`}>
+      <div
+        className="workflow-gallery__progress"
+        role="progressbar"
+        aria-label="Workflow agents done"
+        aria-valuenow={WORKFLOW.done}
+        aria-valuemin={0}
+        aria-valuemax={WORKFLOW.total}
+      >
         <span style={{ width: `${(WORKFLOW.done / WORKFLOW.total) * 100}%` }} />
       </div>
       <div className="workflow-gallery__phase-counts">
@@ -119,7 +128,7 @@ function WorkflowSummary({ compact = false }: { compact?: boolean }) {
             <b>
               {phase.done}/{phase.total}
             </b>{" "}
-            {phase.name}
+            {phase.name} · {phase.model}
           </span>
         ))}
       </div>
@@ -149,13 +158,25 @@ function InlineLatest() {
 function PinnedSummary() {
   return (
     <div className="workflow-gallery__surface" data-workflow-surface="pinned-summary">
-      <div className="workflow-gallery__pin-line">
-        <span className="workflow-gallery__pin-dot" aria-hidden="true" />
-        <span>Pinned workflow</span>
-        <span className="workflow-gallery__pin-rule" />
-        <span>stays visible while the transcript scrolls</span>
+      <div className="workflow-gallery__pinned-stage">
+        <div className="workflow-gallery__pinned-scroll" data-pinned-transcript>
+          <div className="workflow-gallery__pinned-summary" data-pinned-summary>
+            <div className="workflow-gallery__pin-line">
+              <span className="workflow-gallery__pin-dot" aria-hidden="true" />
+              <span>Pinned workflow</span>
+              <span className="workflow-gallery__pin-rule" />
+              <span>sticky while the transcript scrolls</span>
+            </div>
+            <WorkflowSummary />
+          </div>
+          <div className="workflow-gallery__pinned-copy">
+            <span className="workflow-gallery__kicker">Agent chat transcript</span>
+            <p>37 agents finished their pass. The pinned summary remains in view as this transcript grows.</p>
+            <p>Review is waiting on the remaining Implement agents before Integrate can begin.</p>
+            <p>Keep chatting below while the workflow continues in the background.</p>
+          </div>
+        </div>
       </div>
-      <WorkflowSummary />
       <div className="workflow-gallery__pinned-footer">
         Select the workflow for phase detail or keep chatting below.
       </div>
