@@ -3465,6 +3465,7 @@
 		BB406674610D41C58244647A /* SidebarBonsplitTabWorkspaceDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AF802DEBFA433C9B779F5F /* SidebarBonsplitTabWorkspaceDropView.swift */; };
 		FE9F9435374CB344628420AB /* SidebarBoundedDisplayStringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */; };
 		C41EF68A04924DBF39AD725F /* SidebarChiefHomeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF8C791616B599CE1CDD7 /* SidebarChiefHomeRow.swift */; };
+		3F8565087571CD93F91AC518 /* SidebarClaudeAccountRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B759FA688CDB1CBC4EB7FC /* SidebarClaudeAccountRowTests.swift */; };
 		4C537C8FEE6305828A74F1A6 /* SidebarCloudButtonAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A986CE6A5E2D281B2CE3C7E1 /* SidebarCloudButtonAction.swift */; };
 		9A720A7DE3190737E7D77170 /* SidebarCloudButtonActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8ACF56AB5811EEC9D0203F /* SidebarCloudButtonActionTests.swift */; };
 		9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CA5C526315D4C2B88B1CA55 /* SidebarCloudWorkspaceBadgeTests.swift */; };
@@ -3629,6 +3630,7 @@
 		C9A57505C9A57505C9A57505 /* SidebarWorkspaceScrollLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */; };
 		A6AC73040000000000000001 /* SidebarWorkspaceSnapshotAgentActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73040000000000000002 /* SidebarWorkspaceSnapshotAgentActivityTests.swift */; };
 		F7216005000000000000001 /* SidebarWorkspaceSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216005000000000000002 /* SidebarWorkspaceSnapshotBuilder.swift */; };
+		A751D614B88F8171A29E32FB /* SidebarWorkspaceSnapshotFactory+ClaudeAccountRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50253D3AD024BDD8A4EE792B /* SidebarWorkspaceSnapshotFactory+ClaudeAccountRow.swift */; };
 		6707F0016707F0016707F001 /* SidebarWorkspaceSnapshotFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0026707F0026707F002 /* SidebarWorkspaceSnapshotFactory.swift */; };
 		6707F0156707F0156707F015 /* SidebarWorkspaceSnapshotRefreshCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0166707F0166707F016 /* SidebarWorkspaceSnapshotRefreshCoalescer.swift */; };
 		0E38C9BB97F2DCAA360A08FE /* SidebarWorkspaceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */; };
@@ -8130,6 +8132,7 @@
 		C4AF802DEBFA433C9B779F5F /* SidebarBonsplitTabWorkspaceDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropView.swift; sourceTree = "<group>"; };
 		C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarBoundedDisplayStringTests.swift"; sourceTree = "<group>"; };
 		C41EF8C791616B599CE1CDD7 /* SidebarChiefHomeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarChiefHomeRow.swift; sourceTree = "<group>"; };
+		05B759FA688CDB1CBC4EB7FC /* SidebarClaudeAccountRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarClaudeAccountRowTests.swift"; sourceTree = "<group>"; };
 		A986CE6A5E2D281B2CE3C7E1 /* SidebarCloudButtonAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCloudButtonAction.swift; sourceTree = "<group>"; };
 		2B8ACF56AB5811EEC9D0203F /* SidebarCloudButtonActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCloudButtonActionTests.swift"; sourceTree = "<group>"; };
 		9CA5C526315D4C2B88B1CA55 /* SidebarCloudWorkspaceBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCloudWorkspaceBadgeTests.swift"; sourceTree = "<group>"; };
@@ -8293,6 +8296,7 @@
 		C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceScrollLayoutTests.swift; sourceTree = "<group>"; };
 		A6AC73040000000000000002 /* SidebarWorkspaceSnapshotAgentActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceSnapshotAgentActivityTests.swift; sourceTree = "<group>"; };
 		F7216005000000000000002 /* SidebarWorkspaceSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceSnapshotBuilder.swift; sourceTree = "<group>"; };
+		50253D3AD024BDD8A4EE792B /* SidebarWorkspaceSnapshotFactory+ClaudeAccountRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceSnapshotFactory+ClaudeAccountRow.swift"; sourceTree = "<group>"; };
 		6707F0026707F0026707F002 /* SidebarWorkspaceSnapshotFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceSnapshotFactory.swift; sourceTree = "<group>"; };
 		6707F0166707F0166707F016 /* SidebarWorkspaceSnapshotRefreshCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceSnapshotRefreshCoalescer.swift; sourceTree = "<group>"; };
 		745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceSnapshotTests.swift"; sourceTree = "<group>"; };
@@ -12650,6 +12654,7 @@
 				E26CFDA49C9D24045C7D6485 /* ClaudeAccountSwitchTrigger.swift */,
 				F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */,
 				BD29DB9857422B23B0ED2231 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift */,
+				50253D3AD024BDD8A4EE792B /* SidebarWorkspaceSnapshotFactory+ClaudeAccountRow.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14287,6 +14292,7 @@
 				EDE056AD2BDB2A4453B54981 /* ClaudeAccountSwitchResumeInputTests.swift */,
 				430167DD6946C2D1BC964156 /* ClaudeAccountSwitchSurfaceEnvironmentTests.swift */,
 				7B2001FDAFB15CF23EB15AD2 /* WorkspaceClaudeAccountSwitchTests.swift */,
+				05B759FA688CDB1CBC4EB7FC /* SidebarClaudeAccountRowTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17090,6 +17096,7 @@
 				B804A02A000000000000002A /* SidebarWorkspaceRowTodoViews.swift in Sources */,
 				6707F00B6707F00B6707F00B /* SidebarWorkspaceRowView.swift in Sources */,
 				F7216005000000000000001 /* SidebarWorkspaceSnapshotBuilder.swift in Sources */,
+				A751D614B88F8171A29E32FB /* SidebarWorkspaceSnapshotFactory+ClaudeAccountRow.swift in Sources */,
 				6707F0016707F0016707F001 /* SidebarWorkspaceSnapshotFactory.swift in Sources */,
 				6707F0156707F0156707F015 /* SidebarWorkspaceSnapshotRefreshCoalescer.swift in Sources */,
 				4F80E2D0A6377A1D8A97D411 /* SidebarWorkspaceStatusPopover.swift in Sources */,
@@ -19347,6 +19354,7 @@
 				A4C6D5D1089BA194936B5100 /* SidebarAgentWorkStateTests.swift in Sources */,
 				B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */,
 				FE9F9435374CB344628420AB /* SidebarBoundedDisplayStringTests.swift in Sources */,
+				3F8565087571CD93F91AC518 /* SidebarClaudeAccountRowTests.swift in Sources */,
 				9A720A7DE3190737E7D77170 /* SidebarCloudButtonActionTests.swift in Sources */,
 				9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */,
 				5EB96EEB7197F4186489176F /* SidebarCompactAgentStatusTests.swift in Sources */,
