@@ -4,8 +4,11 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`) or
-the comment that escaped them (a deleted or reworded `// <rule>-allow:` line).
+line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`), the
+kind of a type they store or extend (`struct DaemonClient` -> `final class DaemonClient` in another file makes
+an unchanged `static let live = DaemonClient()` a stored instance), or the comment that escaped them (a
+deleted or reworded `// <rule>-allow:` line). Each such line is judged on both sides, so only one that is
+debt at head and was not at base is new.
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
@@ -176,7 +179,8 @@ class Version:
     changed: set[int]
     touched: set[int] = field(default_factory=set)
     memo: dict = field(default_factory=dict)
-    kinds: Callable[[str], str | None] = lambda name: None  # TypeIndex.kind at this side's rev
+    kinds: Callable[[str], str | None] = lambda name: None  # a type's kind at this side's rev (RangeKinds)
+    changed_kinds: Callable[[], frozenset] = frozenset  # the type names whose kind the range changes (RangeKinds)
 
 
 @dataclass
@@ -190,18 +194,23 @@ class FileChange:
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
-    head_kinds: Callable[[str], str | None] = lambda name: None
-    base_kinds: Callable[[str], str | None] = lambda name: None
+    kinds: "RangeKinds | None" = None  # the range's type kinds (check() sets it)
 
     @property
     def head(self) -> Version:
         changed = {a.number for a in self.added}
-        return Version(self.path, self.head_lines, changed, changed | self.touched, kinds=self.head_kinds)
+        if self.kinds is None:
+            return Version(self.path, self.head_lines, changed, changed | self.touched)
+        return Version(self.path, self.head_lines, changed, changed | self.touched, kinds=self.kinds.head,
+                       changed_kinds=self.kinds.changed)
 
     @property
     def base(self) -> Version:
         changed = {r.number for r in self.removed}
-        return Version(self.path, self.base_lines, changed, changed | self.base_touched, kinds=self.base_kinds)
+        if self.kinds is None:
+            return Version(self.path, self.base_lines, changed, changed | self.base_touched)
+        return Version(self.path, self.base_lines, changed, changed | self.base_touched, kinds=self.kinds.base,
+                       changed_kinds=self.kinds.changed)
 
 
 # A type declaration at the start of a line: `public final class Name`, `actor Name`, `enum Name`. TYPE_DECL
@@ -233,47 +242,106 @@ def classify(keywords: set[str]) -> str | None:
     return None
 
 
+# What the type scan also collects: the named statics (the singleton rule's SINGLETON_NAMED) and the extensions
+# of each file, so a push that changes a type's kind finds the unchanged files whose statics depend on it.
+NAMED_STATIC_GREP = r"static[[:space:]]+(let|var)[[:space:]]+(`default`|standard|current|live)([^A-Za-z0-9_]|$)"
+EXTENSION_DECL = re.compile(r"^\s*(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|private|fileprivate|nonisolated)"
+                            r"\s+)*extension\s+(?:\w+\.)*(\w+)")
+EXTENSION_GREP = (r"^[[:space:]]*((@[[:alnum:]_]+(\([^)]*\))?|public|package|internal|private|fileprivate|"
+                  r"nonisolated)[[:space:]]+)*extension[[:space:]]+[A-Za-z_]")
+
+
 class TypeIndex:
     """Whether a name is declared as a reference type (class, actor) or a value type in the Swift sources.
 
     One `git grep` of HEAD's Sources (about 1 s on the whole tree: git inflates every blob, whatever the
-    pattern), read only when a rule asks (a named static outside a class or actor), so a push that adds no such
-    line pays nothing. Another rev's declarations are HEAD's with that rev's diff to HEAD undone (its added
-    declaration lines out, its removed ones back), so every range of one push (check_push checks two for a
-    merged branch) shares the one grep.
+    pattern), read only when a rule asks (a named static outside a class or actor, or a push that changes a
+    type's kind), so a push that adds no such line pays nothing. Another rev's declarations are HEAD's with
+    that rev's diff to HEAD undone (its added declaration lines out, its removed ones back, RangeKinds), so
+    every range of one push (check_push checks two for a merged branch) shares the one grep. The same grep
+    collects each file's named statics and extended types.
     """
 
     def __init__(self, repo: Path, head: str):
         self.repo = repo
         self.head = head
-        self.found: collections.Counter | None = None
+        self.declared: dict[str, collections.Counter] | None = None
+        self.statics: dict[str, list[str]] = collections.defaultdict(list)  # path -> named static lines (code)
+        self.extensions: dict[str, set[str]] = collections.defaultdict(set)  # path -> extended type names
 
     def at_head(self) -> dict[str, collections.Counter]:
-        if self.found is None:
-            result = git_batch.run(self.repo, ["grep", "-h", "-I", "-E", TYPE_DECL_GREP, self.head, "--",
-                                               SWIFT_SOURCES], env=git_env())
+        if self.declared is None:
+            result = git_batch.run(self.repo, ["grep", "-z", "-I", "-E", "-e", TYPE_DECL_GREP, "-e", NAMED_STATIC_GREP,
+                                               "-e", EXTENSION_GREP, self.head, "--", SWIFT_SOURCES], env=git_env())
             if result.returncode not in (0, 1):  # 1: no match
                 raise git_batch.GitError(f"git grep of type declarations at {self.head} failed: "
                                          f"{result.stderr.decode('utf-8', 'replace').strip()}")
-            self.found = declarations(result.stdout.decode("utf-8", "replace").split("\n"))
-        return self.found
+            lines = []
+            for hit in result.stdout.decode("utf-8", "replace").split("\n"):
+                where, _, text = hit.partition("\0")  # `<rev>:<path>` NUL `<line>`
+                path = where[len(self.head) + 1:]
+                lines.append(text)
+                if (extended := EXTENSION_DECL.match(text)) is not None:
+                    self.extensions[path].add(extended.group(1))
+                elif SINGLETON_NAMED.search(code := code_of(text)):
+                    self.statics[path].append(code)
+            self.declared = declarations(lines)
+        return self.declared
 
-    def sides(self, changes: list[FileChange]) -> tuple[Callable[[str], str | None], Callable[[str], str | None]]:
-        """(kind at HEAD, kind at the base of CHANGES), CHANGES being one range's diff to HEAD (TypeIndex)."""
-        swift = [c for c in changes if c.path.startswith(SOURCES) and c.path.endswith(".swift")]
-        added = declarations(a.text for c in swift for a in c.added)
-        removed = declarations(r.text for c in swift for r in c.removed)
+
+@dataclass
+class RangeKinds:
+    """The type kinds of one range (BASE..the index's HEAD), from INDEX and the range's diff CHANGES.
+
+    `changed()` names the types whose kind the range changes (a struct that became a class, in any file), and
+    `context_files()` the unchanged files whose named statics store or extend one: the singleton rule judges
+    those statics again, as it does a static whose opener the push changed. Both are read only when asked.
+    """
+    index: TypeIndex
+    changes: dict[str, "FileChange"]
+    added: dict[str, collections.Counter] = field(default_factory=dict)
+    removed: dict[str, collections.Counter] = field(default_factory=dict)
+    changed_names: frozenset | None = None
+    context: list | None = None
+
+    def __post_init__(self) -> None:
+        swift = [c for c in self.changes.values() if c.path.startswith(SOURCES) and c.path.endswith(".swift")]
+        self.added = declarations(a.text for c in swift for a in c.added)
+        self.removed = declarations(r.text for c in swift for r in c.removed)
+
+    def head(self, name: str) -> str | None:
+        return classify(set(+self.index.at_head().get(name, collections.Counter())))
+
+    def base(self, name: str) -> str | None:
         empty = collections.Counter()
+        # Counter arithmetic keeps positive counts only: what HEAD declares, less what the range added, plus what
+        # it removed.
+        return classify(set(self.index.at_head().get(name, empty) - self.added.get(name, empty)
+                            + self.removed.get(name, empty)))
 
-        def head_kind(name: str) -> str | None:
-            return classify(set(+self.at_head().get(name, empty)))
+    def changed(self) -> frozenset:
+        """The names whose kind differs between base and head. Only a name whose removed declarations have
+        another kind than its added ones can change (a move or an edit that keeps `struct` cannot), so a push
+        without such a line reads nothing."""
+        if self.changed_names is None:
+            empty = collections.Counter()
+            candidates = [name for name, kinds in self.removed.items()
+                          if classify(set(kinds)) != classify(set(self.added.get(name, empty)))]
+            self.changed_names = frozenset(name for name in candidates if self.head(name) != self.base(name))
+        return self.changed_names
 
-        def base_kind(name: str) -> str | None:
-            # Counter arithmetic keeps positive counts only: what HEAD declares, less what the range added, plus
-            # what it removed.
-            return classify(set(self.at_head().get(name, empty) - added.get(name, empty) + removed.get(name, empty)))
-
-        return head_kind, base_kind
+    def context_files(self) -> list["FileChange"]:
+        """The Sources files the range does not change that have a named static storing a type of changed(), or
+        one inside an extension of such a type, read at HEAD (unchanged: the same text at the base)."""
+        if self.context is None:
+            names = self.changed()
+            paths = sorted(path for path, statics in self.index.statics.items() if path not in self.changes
+                           and (self.index.extensions.get(path, set()) & names
+                                or any(stored_names(code) & names for code in statics))) if names else []
+            texts = blobs(self.index.repo, [(self.index.head, p) for p in paths])
+            self.context = [FileChange(p, texts[(self.index.head, p)].split("\n"),
+                                       base_lines=texts[(self.index.head, p)].split("\n"), kinds=self) for p in paths]
+        return self.context
 
 
 @dataclass
@@ -299,6 +367,9 @@ class Matcher:
     keep: Keep | None = None  # context: a static of a class, a store in a row, a generic class without a deinit
     code: Callable[[str], str] = code_of  # the code PATTERN reads (comments dropped, string contents blanked)
     window: Callable[[list[str], int], list[int]] = escape_window  # the lines whose comment can carry ESCAPE
+    # the type names whose kind KEEP reads for a line (a stored type, an extended type): the line is judged again
+    # when the range changes one's kind (RangeKinds.changed)
+    types: Callable[[Version, int], set[str]] | None = None
 
 
 def escape_neighbours(lines: list[str], touched: set[int]) -> set[int]:
@@ -328,7 +399,8 @@ def rejudged(version: Version, matcher: Matcher) -> set[int]:
     """0-based unchanged lines of VERSION that match MATCHER and whose debt the push may have changed: the escape
     window holds a touched line (the push deleted or reworded the `// <rule>-allow:` comment, or put a line
     between it and the code), or, for a context rule, an opener that KEEP reads is a changed line (`struct` ->
-    `final class` around an old static, a view renamed to `...Row` around an old store reference)."""
+    `final class` around an old static, a view renamed to `...Row` around an old store reference) or a type
+    whose kind KEEP reads changed kind anywhere in the range (TYPES, RangeKinds.changed)."""
     lines = version.lines
 
     def matches(index: int) -> bool:
@@ -342,6 +414,9 @@ def rejudged(version: Version, matcher: Matcher) -> set[int]:
     if matcher.keep is not None and version.changed:
         found.update(index for index in range(len(lines)) if index not in found and matches(index)
                      and any(o in version.changed for o in is_debt(version, index, matcher)[1]))
+    if matcher.types is not None and (renamed := version.changed_kinds()):
+        found.update(index for index in range(len(lines)) if index not in found and matches(index)
+                     and matcher.types(version, index) & renamed)
     return found
 
 
@@ -486,33 +561,78 @@ SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern)
 STATEFUL = re.compile(r"\bstatic\s+var\b|=\s*(Mutex|NSHashTable|NSMapTable|OSAllocatedUnfairLock)\b")
 TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b")
 CONTAINER = re.compile(r"\b(class|actor|struct|enum|protocol)\s+(\w+)|\bextension\s+(?:\w+\.)*(\w+)")
-# The type a named static's value is built from: `= Name(...)`, `= Name<T>.init(...)`, `= Self()`, `: Name = .init()`.
-CONSTRUCTED = re.compile(r"\bstatic\s+(?:let|var)\s+(?:`default`|standard|current|live)\s*"
-                         r"(?::\s*(?:any\s+)?(?:\w+\.)*(?P<annotated>[A-Z]\w*)(?:<[^>]*>)?\s*)?=\s*(?:\.init\s*\("
-                         r"|(?:try\s+)?(?:await\s+)?(?:\w+\.)*(?P<called>[A-Z]\w*)(?:<[^>]*>)?(?:\.init)?\s*\()")
+# The type a named static is declared as (`static let live: DaemonClient = ...`, `: any Clock`, `: Style?`) and
+# the type its value is built from (`= Name(...)`, `= Name<T>.init(...)`, `= try await Name(...)`, `= Self()`).
+ANNOTATED = re.compile(r"\bstatic\s+(?:let|var)\s+(?:`default`|standard|current|live)\s*:\s*(?:any\s+|some\s+)?"
+                       r"(?:\w+\.)*(?P<name>[A-Z]\w*)")
+CONSTRUCTED = re.compile(r"\bstatic\s+(?:let|var)\s+(?:`default`|standard|current|live)\s*(?::[^={]*)?=\s*"
+                         r"(?:try\s+)?(?:await\s+)?(?:\w+\.)*(?P<called>[A-Z]\w*)(?:<[^>]*>)?(?:\.init)?\s*\(")
 SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
+
+
+def stored_types(code: str) -> tuple[str | None, str | None]:
+    """(the declared type, the constructed type) of a named static's CODE; None where it names none."""
+    annotated, built = ANNOTATED.search(code), CONSTRUCTED.search(code)
+    return (annotated.group("name") if annotated else None), (built.group("called") if built else None)
+
+
+def stored_names(code: str) -> set[str]:
+    """The type names a named static's CODE stores (declared or constructed), `Self` left out."""
+    return {name for name in stored_types(code) if name is not None and name != "Self"}
+
+
+def stores_reference(version: Version, code: str, container: str) -> bool:
+    """Whether the named static's CODE stores an instance of a class or actor (VERSION's kinds).
+
+    The declared type decides when VERSION knows its kind, whatever the value (`DaemonClient.make()`, a closure,
+    `.init()`); with no annotation, or one VERSION does not know (a protocol, a type outside Sources), the
+    constructed type does. A struct or enum's own type (CONTAINER, `Self`) is a value constant.
+    """
+    annotated, called = stored_types(code)
+    if annotated is not None and (kind := version.kinds(annotated)) is not None:
+        return kind == "reference"
+    return called is not None and called not in ("Self", container) and version.kinds(called) == "reference"
+
+
+def static_container(version: Version, index: int) -> tuple[str, str, int] | None:
+    """(keyword, type name, 1-based opener line) of the type that declares line INDEX; None outside a type."""
+    openers = enclosing_openers(version.lines, index, TYPE_OPENER)
+    if not openers:
+        return None
+    opener, number = openers[-1]
+    container = CONTAINER.search(opener)
+    if container is None:
+        return "", "", number
+    if container.group(1):
+        return container.group(1), container.group(2), number
+    return "extension", container.group(3), number
 
 
 def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
     code = code_of(version.lines[index])
     if SINGLETON.search(code) or STATEFUL.search(code):
         return True, []
-    openers = enclosing_openers(version.lines, index, TYPE_OPENER)
-    if not openers:
+    found = static_container(version, index)
+    if found is None:
         return False, []
-    opener, number = openers[-1]
-    container = CONTAINER.search(opener)
-    if container is None:
+    keyword, name, number = found
+    if not keyword:
         return False, [number]
-    keyword, name = (container.group(1), container.group(2)) if container.group(1) else ("extension", container.group(3))
     if keyword in ("class", "actor") or (keyword == "extension" and version.kinds(name) == "reference"):
         return True, [number]
-    built = CONSTRUCTED.search(code)
-    if built is not None:
-        made = built.group("called") or built.group("annotated")
-        if made not in ("Self", name) and version.kinds(made) == "reference":
-            return True, [number]
-    return False, [number]
+    return stores_reference(version, code, name), [number]
+
+
+def singleton_types(version: Version, index: int) -> set[str]:
+    """The type names whose kind decides holds_state for line INDEX: what it stores, and the extended type."""
+    code = code_of(version.lines[index])
+    if SINGLETON.search(code) or STATEFUL.search(code):
+        return set()
+    found = static_container(version, index)
+    if found is None or found[0] in ("", "class", "actor"):
+        return set()
+    keyword, name, _ = found
+    return (stored_names(code) - {name}) | ({name} if keyword == "extension" else set())
 
 
 # Creating a name: `Notification.Name("x")`, `.Name(rawValue:)`, `x: Notification.Name = .init("x")`. A typed
@@ -946,7 +1066,15 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, []
 
 
-singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
+SINGLETON_MATCHER = Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state, types=singleton_types)
+
+
+def singleton(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """The singleton rule over CHANGES plus the unchanged files whose named statics store or extend a type the
+    range changes the kind of (RangeKinds.context_files): `struct DaemonClient` -> `final class DaemonClient`
+    makes another file's `static let live = DaemonClient()` a stored instance, like an opener change does."""
+    kinds = next((c.kinds for c in changes if c.kinds is not None), None)
+    return matcher_rule(SINGLETON_MATCHER)(changes + (kinds.context_files() if kinds is not None else []), moved)
 broadcast_name = matcher_rule(Matcher(BROADCAST_ANY, BROADCAST_ALLOW, declares_name))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
@@ -1346,9 +1474,9 @@ def check(repo: Path, base: str, head: str, types: TypeIndex | None = None
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
-    head_kinds, base_kinds = (types or TypeIndex(repo, head)).sides(list(changes.values()))
+    kinds = RangeKinds(types or TypeIndex(repo, head), changes)
     for change in changes.values():
-        change.head_kinds, change.base_kinds = head_kinds, base_kinds
+        change.kinds = kinds
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
