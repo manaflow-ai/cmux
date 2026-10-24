@@ -9347,7 +9347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             guard let remote = workspace.remoteConfiguration else { return false }
-            return remote.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
+            return remote.persistentDaemonSlot == ManagedCloudVMConstants.persistentDaemonSlot &&
                 remote.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         }
     }

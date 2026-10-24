@@ -262,14 +262,59 @@ struct NewMachineModelTests {
             mode: .newMachine,
             plan: Self.proPlan,
             memoryOptionsMb: [8192, 16384],
-            vcpusByMemoryMb: ["8192": 6],
+            vcpusByMemoryMb: ["8192": 6, "16384": 8],
+            diskByMemoryMb: ["8192": 32768, "16384": 65536],
             submit: { _ in true }
         )
         #expect(served.sizeOption(memoryMb: 8192)?.menuTitle == "6 vCPU · 8 GB RAM · 32 GB disk")
-        // A size the server left out, and an older server, fall back to the ladder table.
         #expect(served.sizeOption(memoryMb: 16384)?.vcpus == 8)
         let legacy = NewMachineModel(mode: .newMachine, plan: Self.proPlan, memoryOptionsMb: [8192], submit: { _ in true })
         #expect(legacy.selectedSize?.vcpus == 4)
+    }
+
+    @Test func serverMapsKeepUnknownMemoryWithoutLegacyLadderValues() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: Self.proPlan,
+            // 8 GiB is a legacy ladder row, but it is intentionally absent
+            // from both server maps. The row must use neutral/server-safe
+            // values instead of silently resurrecting either old switch.
+            memoryOptionsMb: [8_192],
+            vcpusByMemoryMb: ["4096": 2],
+            diskByMemoryMb: ["4096": 16_384],
+            maxDiskMb: 131_072,
+            submit: { _ in true }
+        )
+        #expect(model.memoryOptions == [8_192])
+        #expect(model.sizeOption(memoryMb: 8_192)?.vcpus == 0)
+        #expect(model.sizeOption(memoryMb: 8_192)?.diskMb == 131_072)
+    }
+
+    @Test func advertisedMemoryWithoutDiskMetadataRemainsSelectable() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: Self.proPlan,
+            memoryOptionsMb: [20_480],
+            vcpusByMemoryMb: ["20480": 10],
+            diskByMemoryMb: ["8192": 32_768],
+            maxDiskMb: 131_072,
+            submit: { _ in true }
+        )
+        #expect(model.memoryOptions == [20_480])
+        #expect(model.sizeOption(memoryMb: 20_480)?.diskMb == 131_072)
+        #expect(model.sizeOption(memoryMb: 20_480)?.vcpus == 10)
+    }
+
+    @Test func explicitlyInvalidDiskMetadataRemovesOnlyThatSize() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: Self.proPlan,
+            memoryOptionsMb: [8_192, 20_480],
+            diskByMemoryMb: ["8192": 0],
+            maxDiskMb: 131_072,
+            submit: { _ in true }
+        )
+        #expect(model.memoryOptions == [20_480])
     }
 
     /// The shared pool explains a size that does not fit what is free, memory

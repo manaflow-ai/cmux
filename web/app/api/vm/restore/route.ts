@@ -1,6 +1,7 @@
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { vmRuntimeMetadataFor } from "../../../../services/vms/images/resolver";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
@@ -138,6 +139,7 @@ export async function POST(request: Request): Promise<Response> {
         provider: restored.provider,
         image: restored.image,
         imageVersion: restored.imageVersion,
+        ...vmRuntimeMetadataFor(restored.provider, restored.image),
         status: restored.status,
         createdAt: restored.createdAt,
         capabilities: vmCapabilitiesFor(restored.provider),

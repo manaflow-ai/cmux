@@ -8225,12 +8225,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               configuration.skipDaemonBootstrap else {
             return nil
         }
-        if configuration.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
+        if configuration.persistentDaemonSlot == ManagedCloudVMConstants.persistentDaemonSlot,
            let vmID = configuration.managedCloudVMID {
             return vmID
         }
         let destination = configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        let suffix = "+cmux@vm-ssh.freestyle.sh"
+        let suffix = ManagedCloudVMConstants.legacySSHDestinationSuffix
         guard destination.hasSuffix(suffix) else {
             return nil
         }

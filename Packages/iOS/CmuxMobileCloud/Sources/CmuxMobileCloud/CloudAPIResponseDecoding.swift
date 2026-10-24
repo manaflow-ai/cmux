@@ -59,9 +59,12 @@ public struct CloudAPIResponseDecoding: Sendable {
                 activeMachineCount: Self.int(limits["activeVmCount"]),
                 planID: limits["planId"] as? String,
                 memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
+                maxDiskMb: Self.positiveInt(limits["maxDiskMb"]),
                 lockedMemoryOptionsMb: Self.optionalIntArray(limits["lockedMemoryOptionsMb"]),
                 memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,
                 memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String],
+                diskByMemoryMb: Self.intMap(limits["diskByMemoryMb"]),
+                vcpusByMemoryMb: Self.positiveIntMap(limits["vcpusByMemoryMb"]),
                 resourcePool: Self.resourcePool(limits)
             )
         } else {
@@ -214,8 +217,32 @@ public struct CloudAPIResponseDecoding: Sendable {
         return values.compactMap(int).filter { $0 > 0 }
     }
 
+    private static func positiveInt(_ value: Any?) -> Int? {
+        guard let value = int(value), value > 0 else { return nil }
+        return value
+    }
+
     private static func optionalIntArray(_ value: Any?) -> [Int]? {
         guard let value, !(value is NSNull) else { return nil }
         return intArray(value)
+    }
+
+    /// `limits.diskByMemoryMb: {"8192": 32768}`; invalid entries are skipped,
+    /// while explicit nonpositive values remain so callers can distinguish an
+    /// unavailable advertised size from a size the server did not mention.
+    private static func intMap(_ value: Any?) -> [String: Int]? {
+        guard let object = value as? [String: Any] else { return nil }
+        let decoded = object.compactMapValues(int)
+        return decoded.isEmpty ? nil : decoded
+    }
+
+    /// Maps such as vcpusByMemoryMb use only positive values.
+    private static func positiveIntMap(_ value: Any?) -> [String: Int]? {
+        guard let object = value as? [String: Any] else { return nil }
+        let decoded = object.compactMapValues { raw -> Int? in
+            guard let value = int(raw), value > 0 else { return nil }
+            return value
+        }
+        return decoded.isEmpty ? nil : decoded
     }
 }
