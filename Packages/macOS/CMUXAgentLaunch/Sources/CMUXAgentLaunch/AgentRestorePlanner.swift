@@ -559,6 +559,31 @@ public struct AgentRestorePlanner: Sendable {
         }
     }
 
+    /// The `sr` prefix a routed Codex resume starts with: the bound marker's
+    /// command, the stable launcher for a config-proven capture, or, for an
+    /// older capture whose argv names Subrouter without the marker, the fixed
+    /// `sr codex resume` that `AgentResumeArgv` reroutes it to. Either way the
+    /// Subrouter child has to run through cmux's wrapper.
+    private func subrouterCodexRoutedPrefix(request: AgentRestoreRequest, checkpointID: String) -> [String]? {
+        let routing = SubrouterCodexResumeRouting()
+        let launcher = request.launchCommand?.launcher
+        let launchArguments = request.launchCommand?.arguments ?? []
+        if let prefix = routing.resumeArguments(
+            launcher: launcher,
+            sessionID: checkpointID,
+            launchArguments: launchArguments,
+            environment: request.launchCommand?.environment
+        ) {
+            return prefix
+        }
+        let normalizedLauncher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedLauncher == nil || normalizedLauncher == "codex",
+              routing.providerEvidence(in: launchArguments, launcher: "codex") == .provider("subrouter") else {
+            return nil
+        }
+        return ["sr", "codex", "resume", checkpointID]
+    }
+
     private func routeManagedWrapper(
         arguments: [String],
         request: AgentRestoreRequest,
@@ -574,12 +599,7 @@ public struct AgentRestorePlanner: Sendable {
 
         if kind == "codex",
            let checkpointID = normalized(request.checkpointID),
-           let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
-               launcher: request.launchCommand?.launcher,
-               sessionID: checkpointID,
-               launchArguments: request.launchCommand?.arguments ?? [],
-               environment: request.launchCommand?.environment
-           ),
+           let routedPrefix = subrouterCodexRoutedPrefix(request: request, checkpointID: checkpointID),
            arguments.starts(with: routedPrefix),
            let wrapperShim = normalized(environment[restoreLaunch.wrapperShimEnvironmentKey]),
            isExecutableFile(wrapperShim) {
