@@ -4,6 +4,7 @@ import CmuxNextActions
 import Testing
 import WebKit
 import CmuxNextScreenshots
+import CmuxNextHome
 
 /// An agent's `cmux window|pane|tab screenshot` (Leo 2026-10-21: "cmux only lets a person run the
 /// window screenshot action. doesnt seem right"). The app's capture cannot reproduce the browser
@@ -35,7 +36,7 @@ import CmuxNextScreenshots
 
     @Test func theAppsOwnPageViewIsNotMasked() throws {
         let content = WKWebView(frame: .zero)
-        let page = InternalPageView(key: "settings", page: .settings, content: content)
+        let page = InternalPageView(key: "settings", page: .settings, content: content, presence: PanePresence(isPresented: true))
         page.frame = NSRect(x: 0, y: 0, width: 200, height: 200)
         content.frame = page.bounds
         let window = window([page])

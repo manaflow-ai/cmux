@@ -120,14 +120,18 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
-    /// Whether the host presents the transcript on screen now: for a conversation tab, a pane the
-    /// layout reports on screen shows the tab (the content cache's rendering set, which follows the
-    /// pane's presence: not scrolled out of the strip, not under a docked column, not in a parked
-    /// workspace, the pane's selected tab). True for a host with no such model (the new-message
-    /// composer): its hidden flags and window decide alone. Reads are reported only while it holds.
-    public var isPresented = true {
-        didSet { if isPresented != oldValue { followWindow() } }
-    }
+    /// Whether the pane tab around the transcript is presented now: the ``PanePresence`` of its
+    /// nearest ``PanePresenceHost`` ancestor (a conversation tab's view, a page tab's view such as
+    /// `home.tab`, the docked Home or the New Message page inside them, or a window's top page),
+    /// which the tab's owner sets from the content cache's rendering set (a pane the layout reports
+    /// on screen shows the tab: not scrolled out of the strip, not under a docked column, not in a
+    /// parked workspace, the pane's selected tab). Only a window's top page, which no pane holds, is
+    /// always presented. False with no host ancestor (fail closed). Reads are reported only while
+    /// it holds.
+    public var isPresented: Bool { presence?.isPresented ?? false }
+    /// The presence of the nearest host ancestor, found when the transcript moves into a window or
+    /// to another superview (a tab's content keeps its host when its pane or window changes).
+    var presence: PanePresence?
     /// Its window's key and occlusion notices, heard only while the transcript shows there.
     var windowObservers: [MainActorObservation] = []
     /// The window `windowObservers` hear.
@@ -449,6 +453,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        followPresenceHost()
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
         if let linkPreviews {

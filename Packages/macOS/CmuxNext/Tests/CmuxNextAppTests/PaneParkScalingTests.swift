@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextHome
 
 /// pane-tab-switch-fast (u2327 "switching tabs in a pane is still very laggy"): a pane kept at most 8
 /// hidden views (`parkLimit`). Cycling through more tabs than that (Ctrl-Tab, Cmd-Shift-] over 10 or 30
@@ -32,7 +33,7 @@ import Testing
         window.orderFrontRegardless()
         let probes = (0..<count).map { _ in WindowMoves() }
         let pages = probes.enumerated().map { index, probe in
-            InternalPageView(key: "local-page:markdown:\(index)", page: InternalPageID(rawValue: "markdown"), content: probe)
+            InternalPageView(key: "local-page:markdown:\(index)", page: InternalPageID(rawValue: "markdown"), content: probe, presence: PanePresence(isPresented: true))
         }
         // First visits: each page enters the window once (a cold tab).
         for page in pages {

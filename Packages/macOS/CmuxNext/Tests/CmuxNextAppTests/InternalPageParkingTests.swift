@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 import WebKit
+import CmuxNextHome
 
 /// tab-switch-fast: a Markdown or file viewer tab (an `InternalPageView` around a WKWebView) left the
 /// window on every switch away and came back on every switch back. A WKWebView that re-enters a
@@ -34,8 +35,8 @@ import WebKit
         let probe = WindowMoves()
         let web = WKWebView(frame: .zero)
         probe.addSubview(web)
-        let page = InternalPageView(key: "local-page:markdown:1", page: InternalPageID(rawValue: "markdown"), content: probe)
-        let other = InternalPageView(key: "local-page:markdown:2", page: InternalPageID(rawValue: "markdown"), content: NSView())
+        let page = InternalPageView(key: "local-page:markdown:1", page: InternalPageID(rawValue: "markdown"), content: probe, presence: PanePresence(isPresented: true))
+        let other = InternalPageView(key: "local-page:markdown:2", page: InternalPageID(rawValue: "markdown"), content: NSView(), presence: PanePresence(isPresented: true))
         pane.show(page)
         pane.layoutSubtreeIfNeeded()
         #expect(page.window === window)

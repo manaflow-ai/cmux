@@ -5,6 +5,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 import WebKit
+import CmuxNextHome
 
 /// pane-tab-switch-fast (u2327): held Ctrl-Tab over 2, 10 and 30 warm pages (each a WKWebView with a
 /// running web process) in one pane, each switch timed with the rest of its turn (layout, display, the
@@ -76,7 +77,7 @@ struct TabSwitchCycleBench {
             web.autoresizingMask = [.width, .height]
             probe.addSubview(web)
             probes.append(probe)
-            pages.append(InternalPageView(key: "local-page:markdown:cycle\(index)", page: InternalPageID(rawValue: "markdown"), content: probe))
+            pages.append(InternalPageView(key: "local-page:markdown:cycle\(index)", page: InternalPageID(rawValue: "markdown"), content: probe, presence: PanePresence(isPresented: true)))
         }
         for page in pages { pane.show(page); finishTurn(pane, window) }
         let entered = probes.map(\.moves)

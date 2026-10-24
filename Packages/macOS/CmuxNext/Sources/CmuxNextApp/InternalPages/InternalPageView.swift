@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextPages
 
 /// A native page's content whose keyboard goes to a view inside it (a Mac
@@ -14,11 +15,17 @@ protocol InternalPageFocusing: NSView {
 /// the Markdown omnibar), or above it with `browser.toolbarPosition` bottom. `content` is always the provider's view, so code
 /// that looks for the page (`content as? PageWebView`) finds it with or without
 /// a bar. The pane focuses `focusTarget` when the tab gets the keyboard; a
-/// click inside the page moves the responder within it as usual.
-final class InternalPageView: NSView {
+/// click inside the page moves the responder within it as usual. It stands for
+/// its tab (``PanePresenceHost``): every Home transcript in its content follows
+/// `presence`, which ``InternalPageTabStore`` sets from the content cache (a
+/// window's top page: always presented, ``TopPageHost``).
+final class InternalPageView: NSView, PanePresenceHost {
     let key: String
     let page: InternalPageID
     let content: NSView
+    /// Whether a pane on screen presents the tab (or the window shows the top page).
+    let presence: PanePresence
+    var panePresence: PanePresence? { presence }
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
     let topBar: NSView?
     /// The edge `topBar` sits on (`browser.toolbarPosition`); the pane sets it.
@@ -32,10 +39,13 @@ final class InternalPageView: NSView {
     /// The constraints that put `topBar` above or below the content; one set is active.
     private let barEdge = ToolbarEdgeConstraints()
 
-    init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
+    /// - Parameter presence: the tab's presence, required so no page view can count as seen by
+    ///   default: the tab store's from the content cache, a top page's always presented.
+    init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil, presence: PanePresence) {
         self.key = key
         self.page = page
         self.content = content
+        self.presence = presence
         self.topBar = topBar
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false

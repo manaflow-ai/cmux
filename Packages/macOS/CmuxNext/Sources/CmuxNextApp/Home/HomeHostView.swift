@@ -17,13 +17,12 @@ import CmuxNextWakeups
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: NSView, PanePresentedContent {
+final class HomeHostView: NSView, PanePresenceHost {
     let transcript: HomeNativeTranscriptView
-    /// A conversation tab's view: its transcript is presented exactly while its tab is.
-    var isTabPresented: Bool {
-        get { transcript.isPresented }
-        set { transcript.isPresented = newValue }
-    }
+    /// A conversation tab's presence (``HomeService/tabView(for:)`` sets it from the content cache);
+    /// nil when this view is only the conversation column of another tab's Home (`home.tab`, the
+    /// docked Home, a window's top page, the New Message page): its transcript then follows that tab.
+    let panePresence: PanePresence?
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a popover under the header's name pill, which
@@ -57,7 +56,10 @@ final class HomeHostView: NSView, PanePresentedContent {
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
-    init(services: AppServices, conversation: String) {
+    /// - Parameter presence: the presence of the conversation tab this view is; nil (the default)
+    ///   inside another tab's Home, whose presence the transcript takes.
+    init(services: AppServices, conversation: String, presence: PanePresence? = nil) {
+        panePresence = presence
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,

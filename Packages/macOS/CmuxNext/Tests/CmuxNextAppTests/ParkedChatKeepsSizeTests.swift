@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextHome
 
 /// Leo (2026-10-21): "THIS WHOLE THING CAUSES A LAYOUT SHIFT WHEN I SIMPLY SWITCH TO IT FROM ANOTHER
 /// TAB." A chat shares the pane's tab row, so it fills the whole pane; a terminal or browser sits under
@@ -33,7 +34,7 @@ import Testing
     /// `retire` keeps sized with the pane, as it does an `AgentPaneView`) whose content draws tools in
     /// the row. Every size the pane gives it is recorded.
     @MainActor final class Chat {
-        let view = InternalPageView(key: "parked-chat-test", page: InternalPageID(rawValue: "chat"), content: RowTools())
+        let view = InternalPageView(key: "parked-chat-test", page: InternalPageID(rawValue: "chat"), content: RowTools(), presence: PanePresence(isPresented: true))
         private(set) var sizes: [CGSize] = []
         private var last: CGSize = .zero
 

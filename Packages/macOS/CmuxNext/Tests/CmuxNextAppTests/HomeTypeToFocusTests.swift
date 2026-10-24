@@ -93,12 +93,12 @@ import Testing
         case .dock:
             let dock = HomeDockView(services: services, mode: .messages)
             dock.messages?.show(conversation)
-            content = .page(InternalPageView(key: "type-to-focus-dock", page: .homeDock, content: dock))
+            content = .page(InternalPageView(key: "type-to-focus-dock", page: .homeDock, content: dock, presence: PanePresence(isPresented: true)))
             host = { dock.messages?.host }
         case .homeTab:
             let page = TopHomePageView(services: services, windowKey: { "type-to-focus" })
             page.show(conversation)
-            content = .page(InternalPageView(key: "type-to-focus-tab", page: .homeTab, content: page))
+            content = .page(InternalPageView(key: "type-to-focus-tab", page: .homeTab, content: page, presence: PanePresence(isPresented: true)))
             host = { page.host }
         case .conversationTab:
             let view = HomeHostView(services: services, conversation: conversation.rawValue)

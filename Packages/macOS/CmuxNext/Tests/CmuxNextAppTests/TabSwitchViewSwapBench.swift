@@ -6,6 +6,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 import WebKit
+import CmuxNextHome
 
 /// tab-switch-fast: the main-thread cost of a warm tab switch's view swap (`PaneContentView.show`
 /// plus the layout and display of that frame) for content with a live web process, in a real
@@ -96,7 +97,7 @@ struct TabSwitchViewSwapBench {
         let plain = NSView()
         print("TAB-SWITCH-SWAP window visible=\(window.occlusionState.contains(.visible)) screen=\(window.screen != nil)")
 
-        let parked = InternalPageView(key: "local-page:markdown:bench", page: InternalPageID(rawValue: "markdown"), content: await loadedWebView())
+        let parked = InternalPageView(key: "local-page:markdown:bench", page: InternalPageID(rawValue: "markdown"), content: await loadedWebView(), presence: PanePresence(isPresented: true))
         let unparked = wrap(await loadedWebView(), in: Unparked(frame: pane.contentHost.bounds))
         let browserTab = WebKitEngine().makeWebKitTab()
         defer { browserTab.close() }

@@ -507,6 +507,7 @@ final class AppServices {
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
+        pages.followPresence(in: cache)  // every page tab's Home transcript reports reads only while a pane on screen shows it
         cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
             guard let self else { return }
             let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }

@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextHome
 
 /// `browser.toolbarPosition` bottom in a pane (user, 2026-10-20: "move my OmniBar tabs to the
 /// bottom side"): the pane hands the setting to its browser, and with the tab bar on the same edge
@@ -100,7 +101,7 @@ import Testing
         pane.toolbarPosition = .bottom
         pane.frame = window.contentLayoutRect
         window.contentView = pane
-        let view = InternalPageView(key: "md", page: .homeTab, content: content, topBar: bar)
+        let view = InternalPageView(key: "md", page: .homeTab, content: content, topBar: bar, presence: PanePresence(isPresented: true))
         pane.show(view)
         pane.layoutSubtreeIfNeeded()
         let barRect = bar.convert(bar.bounds, to: nil), contentRect = content.convert(content.bounds, to: nil)

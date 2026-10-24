@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHome
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -13,7 +14,13 @@ import Observation
 final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
+    /// The panes each app-only tab is filed in (the reverse of `tabsByPane`), so a tab's presence
+    /// reads its own entry, not every pane's list.
+    @ObservationIgnored private var localTabPanes: [String: Set<String>] = [:]
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
+    /// Whether the content cache renders a tab (a pane on screen presents it); set by
+    /// ``followPresence(in:)``. Until then no page tab counts as presented (fail closed).
+    @ObservationIgnored private var isRendering: @MainActor (String) -> Bool = { _ in false }
     /// The main window each tab opened in, for its provider's theme scope.
     @ObservationIgnored private var windows: [String: WindowController] = [:]
     /// The daemon tree each pane with page tabs belongs to; watched so the
@@ -37,8 +44,8 @@ final class InternalPageTabStore {
         return (created, await connection.eventSequence())
     }
     /// Store page tabs: each store (or provisional) tab id and the provider
-    /// key its view and state live under.
-    @ObservationIgnored private var storeKeys: [String: String] = [:]
+    /// key its view and state live under, with the reverse (the store tabs of a provider key).
+    @ObservationIgnored private var storeKeys = ManyToOneIndex<String, String>()
     /// The daemon tree each store page tab belongs to.
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
@@ -74,6 +81,7 @@ final class InternalPageTabStore {
             tabs.append(key)
         }
         tabsByPane[paneKey] = tabs.isEmpty ? nil : tabs
+        localTabPanes[key, default: []].insert(paneKey)
         windows[key] = window
         paneStores[paneKey] = store
         watch(store)
@@ -95,7 +103,7 @@ final class InternalPageTabStore {
 
     /// Every open tab of `page`, by the key its provider knows it by.
     func keys(of page: InternalPageID) -> [String] {
-        (tabsByPane.entries.flatMap(\.value) + Set(storeKeys.values).sorted()).filter { LocalPageTab.page(of: $0) == page }
+        (tabsByPane.entries.flatMap(\.value) + storeKeys.values.sorted()).filter { LocalPageTab.page(of: $0) == page }
     }
 
     /// The strip id of `pane`'s tab whose provider key is `key`: the key
@@ -127,13 +135,46 @@ final class InternalPageTabStore {
     /// The tab's view, made on first show.
     func view(for key: String) -> InternalPageView? {
         if let view = views[key] { return view }
-        guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
+        guard localTabPanes[key] != nil, let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
+        return makeView(key, page: page, provider: provider, window: windows[key])
+    }
+
+    /// The view of the tab(s) filed under provider key `key`, with their presence: the one place a
+    /// page tab's view is made (app-only, restored and opened store tabs), after its tabs are filed.
+    private func makeView(_ key: String, page: InternalPageID, provider: any InternalPageProvider,
+                          window: WindowController?) -> InternalPageView {
+        let presence = PanePresence(isPresented: tabs(showing: key).contains { isRendering($0) })
+        let content = provider.makeView(for: key, in: window)
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key), presence: presence)
         view.navigate = navigate
         views[key] = view
         return view
+    }
+
+    /// Every page tab view's ``PanePresence`` follows the content cache: presented exactly while a
+    /// pane the layout reports on screen presents one of its tabs (not scrolled out of the strip,
+    /// not under a docked column, not in a parked workspace, its pane's selected tab), so every Home
+    /// transcript in a page tab (`home.tab`, the docked Home) reports reads only then. One
+    /// subscription for every page tab; O(the changed tabs and the tabs of their provider keys) per
+    /// change, and one pass over the made views for a change that names no tabs.
+    func followPresence(in cache: TabContentCache) {
+        isRendering = { [weak cache] in cache?.isRendering($0) == true }
+        cache.presentationChanges.subscribe("page-tab-presence") { [weak self, weak cache] in
+            guard let self, let cache else { return }
+            guard let changed = cache.presentationChanges.changedKeys else {
+                for (key, view) in views { updatePresence(of: view, key: key) }
+                return
+            }
+            for tab in changed {
+                let key = storeKeys[tab] ?? tab
+                if let view = views[key] { updatePresence(of: view, key: key) }
+            }
+        }
+    }
+
+    private func updatePresence(of view: InternalPageView, key: String) {
+        view.presence.isPresented = tabs(showing: key).contains { isRendering($0) }
     }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
@@ -144,14 +185,10 @@ final class InternalPageTabStore {
 
     /// The tab ids (the content cache's keys) that show provider key `key`: the key itself for an
     /// app-only tab, else each store tab filed under it (a provisional tab and the store's tab
-    /// that replaced it). Filed before the provider makes the tab's view.
+    /// that replaced it). Filed before the provider makes the tab's view. O(the tabs returned).
     func tabs(showing key: String) -> [String] {
-        let local = tabsByPane.entries.contains { $0.value.contains(key) } ? [key] : []
-        return local + storeKeys.compactMap { $0.value == key ? $0.key : nil }
+        (localTabPanes[key] == nil ? [] : [key]) + storeKeys.keys(for: key)
     }
-
-    /// Every page tab view made so far (a presence change about every tab reads them).
-    var madeViews: some Collection<InternalPageView> { views.values }
 
     /// The page an app-only or store page tab shows.
     func page(ofTab tab: String) -> InternalPageID? {
@@ -190,11 +227,7 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
-        view.navigate = navigate
-        views[key] = view
-        return view
+        return makeView(key, page: page, provider: provider, window: windows[key])
     }
 
     /// Opens `page` as a store tab after `pane`'s selected tab. The tab and
@@ -220,8 +253,7 @@ final class InternalPageTabStore {
         let route = daemon.supports(DaemonCapabilities.pageTabRoute) ? provider.route(for: key) : nil
         snapshot.conversation = ConversationTabRef(page: page.rawValue, route: route)
         track(provisional.id, key: key, in: store, window: window)
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window), topBar: provider.makeTopBar(for: key))
-        views[key] = view
+        let view = makeView(key, page: page, provider: provider, window: window)
         store.onPageTabCreated = { [weak self] provisional, tab in
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
@@ -276,7 +308,7 @@ final class InternalPageTabStore {
         storeTabStores[id] = nil
         seenLive.remove(id)
         guard let pane else {
-            if !storeKeys.values.contains(key) { forget(key) }
+            if !storeKeys.contains(value: key) { forget(key) }
             return
         }
         let selected = pane.stripModel.selectedID?.rawValue == id
@@ -295,7 +327,7 @@ final class InternalPageTabStore {
             } else if seenLive.contains(id) {
                 seenLive.remove(id)
                 storeTabStores[id] = nil
-                if let key = storeKeys.removeValue(forKey: id), !storeKeys.values.contains(key) { forget(key) }
+                if let key = storeKeys.removeValue(forKey: id), !storeKeys.contains(value: key) { forget(key) }
             }
         }
         forgetUnusedStores()
@@ -310,8 +342,8 @@ final class InternalPageTabStore {
 
     /// The tab closed: drop its view and tell its provider.
     func close(_ key: String) {
-        for (pane, tabs) in tabsByPane.entries where tabs.contains(key) {
-            let rest = tabs.filter { $0 != key }
+        for pane in localTabPanes.removeValue(forKey: key) ?? [] {
+            let rest = (tabsByPane[pane] ?? []).filter { $0 != key }
             tabsByPane[pane] = rest.isEmpty ? nil : rest
         }
         forget(key)
@@ -320,7 +352,11 @@ final class InternalPageTabStore {
 
     /// The pane closed: close every page tab it listed.
     func closePane(_ paneKey: String) {
-        for key in tabsByPane.removeValue(forKey: paneKey) ?? [] { forget(key) }
+        for key in tabsByPane.removeValue(forKey: paneKey) ?? [] {
+            localTabPanes[key]?.remove(paneKey)
+            if localTabPanes[key]?.isEmpty == true { localTabPanes[key] = nil }
+            forget(key)
+        }
         forgetUnusedStores()
     }
 

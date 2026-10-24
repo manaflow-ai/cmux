@@ -3,6 +3,7 @@ import AppKit
 import CmuxHomeCore
 @testable import MessagesLabHome
 import Testing
+import CmuxNextHome
 
 /// Lawrence 2026-10-20: "Make sure that pasting in general into the chat area works. I'm using
 /// Wispr Flow right now and I did a paste while I was talking. I stopped talking but I was not
@@ -78,12 +79,12 @@ import Testing
         case .dock:
             let dock = HomeDockView(services: services, mode: .messages)
             dock.messages?.show(conversation)
-            content = .page(InternalPageView(key: "paste-anywhere-dock", page: .homeDock, content: dock))
+            content = .page(InternalPageView(key: "paste-anywhere-dock", page: .homeDock, content: dock, presence: PanePresence(isPresented: true)))
             host = { dock.messages?.host }
         case .homeTab:
             let page = TopHomePageView(services: services, windowKey: { "paste-anywhere" })
             page.show(conversation)
-            content = .page(InternalPageView(key: "paste-anywhere-tab", page: .homeTab, content: page))
+            content = .page(InternalPageView(key: "paste-anywhere-tab", page: .homeTab, content: page, presence: PanePresence(isPresented: true)))
             host = { page.host }
         case .conversationTab:
             let view = HomeHostView(services: services, conversation: conversation.rawValue)

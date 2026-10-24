@@ -4,9 +4,9 @@ import CmuxNextDesign
 
 extension HomeNativeTranscriptView {
     /// Whether a person can see the transcript now, which is when it reports reads
-    /// (`isVisibleToUser`): its host presents it on screen (``isPresented``: for a conversation tab,
-    /// a pane the layout reports on screen shows the tab), it shows (no hidden flag of its own or
-    /// an ancestor's), and its window is key and on screen.
+    /// (`isVisibleToUser`): the pane tab around it is presented (``isPresented``: a pane the layout
+    /// reports on screen shows the tab), it shows (no hidden flag of its own or an ancestor's), and
+    /// its window is key and on screen.
     ///
     /// No geometry: a view's `visibleRect` is what its ancestors show in its own coordinates, so it
     /// is not empty for a pane moved out of the strip when no ancestor clips (the default since the
@@ -38,6 +38,29 @@ extension HomeNativeTranscriptView {
             } ?? []
         }
         windowStateChanged()
+    }
+
+    /// Follows the ``PanePresence`` of the nearest ``PanePresenceHost`` ancestor that has one; in
+    /// no window, none (it is not seen there, and a tab it no longer shows in never calls it).
+    /// O(ancestors), on a window or superview move only.
+    func followPresenceHost() {
+        var found: PanePresence?
+        var ancestor = window == nil ? nil : superview
+        while let view = ancestor, found == nil {
+            found = (view as? any PanePresenceHost)?.panePresence
+            ancestor = view.superview
+        }
+        guard found !== presence else { return }
+        presence?.remove(self)
+        presence = found
+        found?.add(self)
+    }
+
+    /// Moved under another container in the same window (no window move): its host may differ.
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        followPresenceHost()
+        followWindow()
     }
 
     public override func viewDidHide() {

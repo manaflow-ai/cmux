@@ -13,8 +13,9 @@ import Testing
 /// key and on screen: a chat tab that is not selected, a parked workspace's chat and a pane scrolled
 /// out of the strip all reported reads nobody saw, and every one of them answered each key and
 /// occlusion notice of its window. Seen now means shown (no hidden flag of its own or an
-/// ancestor's), presented by a pane the layout reports on screen (a conversation tab), in a window
-/// a person can see; a hidden transcript hears no window notice.
+/// ancestor's), inside a pane tab a pane the layout reports on screen presents (the ``PanePresence``
+/// of its nearest ``PanePresenceHost`` ancestor; none: not seen), in a window a person can see; a
+/// hidden transcript hears no window notice.
 ///
 /// Geometry cannot say "on screen": a view's `visibleRect` is what its ancestors show in its own
 /// coordinates, never empty for a pane moved out of the strip (no ancestor clips by default since
@@ -28,11 +29,17 @@ import Testing
 @MainActor @Suite(.serialized) struct HomeTranscriptVisibilityTests {
     private struct Fixture {
         let window: NSWindow
-        let pane: NSView
+        let pane: PresenceHost
         let view: HomeNativeTranscriptView
     }
 
-    /// A transcript in a pane (`pane`) of a window a person sees.
+    /// The view that stands for a tab, as a page tab's or conversation tab's view does.
+    private final class PresenceHost: NSView, PanePresenceHost {
+        let presence = PanePresence(isPresented: true)
+        var panePresence: PanePresence? { presence }
+    }
+
+    /// A transcript in a presented pane tab (`pane`) of a window a person sees.
     private static func fixture() -> Fixture {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(HomeTunables.all)
@@ -43,10 +50,12 @@ import Testing
         window.isReleasedWhenClosed = false
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 500))
         window.contentView = container
-        let pane = NSView(frame: container.bounds)
+        let pane = PresenceHost(frame: container.bounds)
         container.addSubview(pane)
-        view.frame = pane.bounds
-        pane.addSubview(view)
+        let column = NSView(frame: pane.bounds) // a container between the tab and the transcript
+        pane.addSubview(column)
+        view.frame = column.bounds
+        column.addSubview(view)
         return Fixture(window: window, pane: pane, view: view)
     }
 
@@ -81,12 +90,30 @@ import Testing
         defer { fixture.window.close() }
         let seen = { fixture.view.transcript.isVisibleToUser }
         let observing = { fixture.view.isObservingWindow }
-        fixture.view.isPresented = false // its pane scrolled out of the strip, under a docked column
+        fixture.pane.presence.isPresented = false // its pane scrolled out of the strip, under a docked column
         #expect(!seen(), "a transcript off screen reports reads")
         #expect(!observing(), "a transcript off screen hears its window's notices")
-        fixture.view.isPresented = true
+        fixture.pane.presence.isPresented = true
         #expect(seen())
         #expect(observing())
+    }
+
+    /// No pane tab around it, no presence: a transcript a new container forgot to put in a tab is
+    /// not seen, never seen by default.
+    @Test func aTranscriptWithNoTabAroundItIsNotSeen() {
+        let fixture = Self.fixture()
+        defer { fixture.window.close() }
+        let seen = { fixture.view.transcript.isVisibleToUser }
+        let observing = { fixture.view.isObservingWindow }
+        let loose = NSView(frame: fixture.pane.bounds)
+        fixture.window.contentView?.addSubview(loose)
+        loose.addSubview(fixture.view) // out of the tab, same window
+        #expect(!seen(), "a transcript in no pane tab reports reads")
+        #expect(!observing())
+        fixture.pane.addSubview(fixture.view) // back into the tab
+        #expect(seen())
+        fixture.pane.presence.isPresented = false
+        #expect(!seen())
     }
 
     @MainActor final class Pane: SurfacePresenter {
@@ -136,17 +163,55 @@ import Testing
         #expect(!seen(), "a conversation tab its pane no longer shows reports reads")
     }
 
-    /// The native Home as a pane tab (`home.tab`, `HomePageTab`) holds a transcript too: the
-    /// conversation it shows, and the New Message page's message box, report reads only while a
-    /// pane on screen presents the tab, by the same presence path as a conversation tab.
-    @Test func aHomePaneTabIsSeenOnlyWhileAPaneOnScreenPresentsIt() throws {
+    /// The three ways a Home lives in a pane tab, each made by the path the app takes.
+    enum HomeTab: String, CaseIterable, Sendable {
+        /// An app-only `home.tab` (``InternalPageTabStore/open(_:in:of:after:window:key:)`` then
+        /// ``InternalPageTabStore/view(for:)``): the tab id is the provider key.
+        case appOnly
+        /// A store `home.tab` (``InternalPageTabStore/view(forStoreTab:page:in:local:window:)``) whose
+        /// provisional tab the store's tab replaces (``InternalPageTabStore/storeTabCreated(_:as:surface:)``).
+        case storeTab
+        /// The docked Home (``HomeDockTab``, `HomeDock.page`) as a store tab.
+        case dock
+    }
+
+    /// A Home as a pane tab (`home.tab` app-only or from the store, the docked Home) holds a
+    /// transcript too: the conversation it shows, and the New Message page's message box, report
+    /// reads only while a pane on screen presents the tab: not at keep-alive or hidden presence, not
+    /// once withdrawn, also across the store's tab replacing its provisional one.
+    @Test(arguments: HomeTab.allCases)
+    func aHomePaneTabIsSeenOnlyWhileAPaneOnScreenPresentsIt(_ kind: HomeTab) throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        services.pages.register(HomePageTab(services: services))
-        let key = services.pages.open(.homeTab, in: "pane-home-seen", of: services.daemon.store)
-        let madePage = services.pages.view(for: key)
-        let page = try #require(madePage)
-        let content = page.content as? TopHomePageView
+        let pages = services.pages
+        let page: InternalPageView
+        var key: String
+        var replaced: (provisional: String, real: String)?
+        switch kind {
+        case .appOnly:
+            pages.register(HomePageTab(services: services))
+            key = pages.open(.homeTab, in: "pane-home-seen", of: services.daemon.store)
+            let made = pages.view(for: key)
+            page = try #require(made)
+        case .storeTab, .dock:
+            let id: InternalPageID
+            if kind == .dock {
+                pages.register(HomeDockTab(services: services))
+                id = .homeDock
+            } else {
+                pages.register(HomePageTab(services: services))
+                id = .homeTab
+            }
+            var snapshot = TabSnapshot(surface: 7, tabResourceID: ResourceID(rawValue: "provisional-home-seen"),
+                                       kind: .conversation, title: "Home")
+            snapshot.conversation = ConversationTabRef(page: id.rawValue)
+            let tab = TabModel(snapshot)
+            key = tab.id
+            let made = pages.view(forStoreTab: tab, in: services.daemon.store, window: nil)
+            page = try #require(made)
+            if kind == .storeTab { replaced = (tab.id, "home-seen-real") }
+        }
+        let content = (page.content as? HomeDockView)?.messages ?? page.content as? TopHomePageView
         let home = try #require(content)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -169,6 +234,14 @@ import Testing
         let pane = Pane()
         services.cache.present(key, by: pane, presence: .visible)
         #expect(seen(), "a Home tab a pane on screen presents reports no reads")
+        if let replaced {
+            // The store's tab replaces the provisional one: the pane presents the real id, then lets the provisional go.
+            pages.storeTabCreated(replaced.provisional, as: replaced.real, surface: 8)
+            services.cache.present(replaced.real, by: pane, presence: .visible)
+            services.cache.withdraw(replaced.provisional, by: pane)
+            key = replaced.real
+            #expect(seen(), "a Home tab its store tab replaced is no longer seen")
+        }
         services.cache.setPresence(.keepAlive, presenter: pane) // scrolled out of the strip, under a docked column
         #expect(!seen(), "a Home tab in a pane off screen reports reads")
         #expect(!observing(), "a Home tab in a pane off screen hears its window's notices")
@@ -187,6 +260,7 @@ import Testing
         #expect(composerPresented() == true)
         services.cache.withdraw(key, by: pane) // another tab of the pane selected
         #expect(!otherPresented(), "a Home tab its pane no longer shows reports reads")
+        #expect(composerPresented() == false)
     }
 
     @Test func aTranscriptInAWindowNobodySeesIsNotSeen() {

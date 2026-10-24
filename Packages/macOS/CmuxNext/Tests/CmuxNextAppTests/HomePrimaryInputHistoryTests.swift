@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxHomeCore
 import Testing
+import CmuxNextHome
 
 /// Lawrence 2026-10-19: "Up arrow. You need to do work properly. We need to handle unfocus as well
 /// so that, like it is history, this is for the iMessage, chief ui stuff".
@@ -41,13 +42,13 @@ import Testing
         case .dock:
             let dock = HomeDockView(services: services, mode: .messages)
             dock.messages?.show(conversation)
-            content = .page(InternalPageView(key: "history-dock", page: .homeDock, content: dock))
+            content = .page(InternalPageView(key: "history-dock", page: .homeDock, content: dock, presence: PanePresence(isPresented: true)))
             host = { dock.messages?.host }
             list = dock.messages?.list
         case .homeTab:
             let page = TopHomePageView(services: services, windowKey: { "history-keys" })
             page.show(conversation)
-            content = .page(InternalPageView(key: "history-tab", page: .homeTab, content: page))
+            content = .page(InternalPageView(key: "history-tab", page: .homeTab, content: page, presence: PanePresence(isPresented: true)))
             host = { page.host }
             list = page.list
         case .conversationTab:

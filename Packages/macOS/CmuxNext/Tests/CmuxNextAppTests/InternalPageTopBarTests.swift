@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import Testing
+import CmuxNextHome
 
 /// A page tab may carry a native bar above its page (the Markdown omnibar, design section 2): the
 /// bar sits at the top at its own height, the page fills the rest, and `content` stays the page so
@@ -11,7 +12,7 @@ import Testing
         let bar = NSView()
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        let view = InternalPageView(key: "k", page: InternalPageID(rawValue: "cmux.markdown"), content: content, topBar: bar)
+        let view = InternalPageView(key: "k", page: InternalPageID(rawValue: "cmux.markdown"), content: content, topBar: bar, presence: PanePresence(isPresented: true))
         view.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         view.layoutSubtreeIfNeeded()
         #expect(view.content === content)
@@ -25,7 +26,7 @@ import Testing
 
     @Test func withoutABarTheContentFillsTheTab() {
         let content = NSView()
-        let view = InternalPageView(key: "k", page: InternalPageID(rawValue: "cmux.markdown"), content: content)
+        let view = InternalPageView(key: "k", page: InternalPageID(rawValue: "cmux.markdown"), content: content, presence: PanePresence(isPresented: true))
         view.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         view.layoutSubtreeIfNeeded()
         #expect(view.topBar == nil)

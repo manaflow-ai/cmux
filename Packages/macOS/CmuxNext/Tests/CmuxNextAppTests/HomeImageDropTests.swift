@@ -204,13 +204,13 @@ import UniformTypeIdentifiers
         case .dock:
             let dock = HomeDockView(services: services, mode: .messages)
             dock.messages?.show(conversation)
-            content = .page(InternalPageView(key: "image-drop-dock", page: .homeDock, content: dock))
+            content = .page(InternalPageView(key: "image-drop-dock", page: .homeDock, content: dock, presence: PanePresence(isPresented: true)))
             host = { dock.messages?.host }
             list = dock.messages?.list
         case .homeTab:
             let page = TopHomePageView(services: services, windowKey: { "image-drop" })
             page.show(conversation)
-            content = .page(InternalPageView(key: "image-drop-tab", page: .homeTab, content: page))
+            content = .page(InternalPageView(key: "image-drop-tab", page: .homeTab, content: page, presence: PanePresence(isPresented: true)))
             host = { page.host }
             list = page.list
         case .conversationTab:

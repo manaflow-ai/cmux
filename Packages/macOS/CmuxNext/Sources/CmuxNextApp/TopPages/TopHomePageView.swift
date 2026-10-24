@@ -16,18 +16,12 @@ import Observation
 /// The store's home workspace and its chief tab stay as they are (other
 /// clients read them); this page reads the same store.
 @MainActor
-final class TopHomePageView: NSView, PanePresentedContent {
+final class TopHomePageView: NSView, PanePresenceHost {
     private weak var services: AppServices?
-    /// Whether a pane on screen presents this Home (a `home.tab` or docked Home pane tab:
-    /// ``HomeService/followTabPresence()``); the shown conversation's transcript and the New
-    /// Message page follow it, each one made later too. The Home top page has no pane: true.
-    var isTabPresented = true {
-        didSet {
-            guard isTabPresented != oldValue else { return }
-            host?.isTabPresented = isTabPresented
-            newMessage?.isTabPresented = isTabPresented
-        }
-    }
+    /// A window's top page Home (``TopPageHost``) is presented whenever it shows (its hidden flag and
+    /// window decide); nil in a pane tab (`home.tab`, the docked Home), whose page view's presence
+    /// every transcript inside takes.
+    let panePresence: PanePresence?
     let list = HomeSidebarView()
     /// The sidebar's data (pins, search, the Messages-style model).
     let sidebar: HomeSidebarSource
@@ -53,8 +47,11 @@ final class TopHomePageView: NSView, PanePresentedContent {
     private var requestsObservation: Task<Void, Never>?
     private var unreadColorObservation: Task<Void, Never>?
 
-    init(services: AppServices, windowKey: @escaping () -> String) {
+    /// - Parameter presence: a window's top page passes its own (always presented); a Home inside
+    ///   a pane tab passes nil and follows the tab.
+    init(services: AppServices, windowKey: @escaping () -> String, presence: PanePresence? = nil) {
         self.services = services
+        panePresence = presence
         sidebar = services.home.makeSidebarSource()
         split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
         super.init(frame: .zero)
@@ -328,7 +325,6 @@ final class TopHomePageView: NSView, PanePresentedContent {
         shown = id
         host?.removeFromSuperview()
         let view = HomeHostView(services: services, conversation: id.rawValue)
-        view.isTabPresented = isTabPresented
         view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
         view.autoresizingMask = [.width, .height]
@@ -400,7 +396,6 @@ final class TopHomePageView: NSView, PanePresentedContent {
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
         let page = HomeNewMessageView(services: services)
-        page.isTabPresented = isTabPresented
         // The first send made the conversation: the draft ends and the page shows it.
         page.onSent = { [weak self] id in
             // task-owner: one hop out of the draft store's send before the page goes
