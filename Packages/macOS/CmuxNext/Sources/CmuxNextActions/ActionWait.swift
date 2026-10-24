@@ -9,4 +9,6 @@ public nonisolated enum ActionWait: String, Sendable, Hashable, CaseIterable {
     case network
     /// Another process decides the result (an installer, an editor, a system service).
     case externalProcess
+    /// A folder read off the main actor decides the result (the newest file in a folder).
+    case fileSystem
 }
