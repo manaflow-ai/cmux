@@ -299,7 +299,8 @@ class Run:
         self.record(act="still-idle", seconds=seconds)
         time.sleep(seconds)
         self.record(act="still-idle-end", reconnecting=self.reconnecting())
-        self.scroll(True)
+        if self.a.plan != "shown":
+            self.scroll(True)
 
     def tap_link(self):
         before = self.sig()
@@ -378,6 +379,8 @@ class Run:
         end = time.time() + seconds
         ops = [lambda: self.scroll(True), lambda: self.scroll(True), lambda: self.scroll(False), self.tap_link,
                lambda: self.history("back"), lambda: self.history("forward"), self.search]
+        if self.a.plan == "shown":
+            ops = [lambda: self.scroll(True), lambda: self.scroll(True), lambda: self.scroll(False), self.tap_link]
         while time.time() < end:
             try:
                 if not self.on_tab():
@@ -443,6 +446,10 @@ class Run:
         # The new row on the phone's list (its label is the page's, not the Mac's name):
         # remember its id to come back to this tab, then return to it.
         row_id = None
+        if self.a.plan == "shown":
+            # One tab for the whole run: stay on it (the list round trip below goes through the
+            # page toolbar, whose Back is the page's history and leaves a blank start page).
+            return self.record(act="open", name=name, url=url, load_s=load_s, key=key, mac_ws=renamed)
         try:
             self.to_list()
             new = [e for e in self.list_rows() if (e.ident or e.label) not in rows_before]
@@ -515,6 +522,13 @@ class Run:
     def plan(self):
         a = self.a
         u = a.url
+        if a.plan == "shown":
+            # One tab shown and streaming the whole run: scroll/tap stretches between still
+            # stretches of 70 s (each spans at least one 40 s media kill).
+            p = [("open_tab", "A", u[0])]
+            for _ in range(6):
+                p += [("interact", 35), ("still_idle", 70)]
+            return p
         p = [("open_tab", "A", u[0]), ("interact", 70), ("long_scroll", 12), ("interact", 60),
              ("open_tab", "B", u[1]), ("interact", 60),
              # No tab shown for > 30 s: the WebRTC media session lingers out; the next shown
@@ -683,6 +697,8 @@ def main():
     ap.add_argument("--url", nargs=3, default=["https://en.wikipedia.org/wiki/Cat", "https://news.ycombinator.com",
                                                "https://duckduckgo.com"])
     ap.add_argument("--env", action="append", default=[], help="K=V launch variable for the phone app (repeatable)")
+    ap.add_argument("--plan", default="tabs", choices=["tabs", "shown"],
+                    help="tabs: three tabs, switches, list idles; shown: one tab shown the whole run, still stretches")
     ap.add_argument("--minutes", type=float, default=0, help="stop the plan after this many minutes (0: whole plan)")
     ap.add_argument("--phone-log", default="info,cmux_mobile_link=debug,cmux_mobile_link_ffi=debug")
     ap.add_argument("--page-y0", type=float, default=130)
