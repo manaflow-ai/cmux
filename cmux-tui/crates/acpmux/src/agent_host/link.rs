@@ -58,6 +58,10 @@ pub async fn spawn_within(
     if let Some(dir) = std::env::var_os(super::host::HELLO_STALL_DIR_ENV) {
         cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
     }
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
+        cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
