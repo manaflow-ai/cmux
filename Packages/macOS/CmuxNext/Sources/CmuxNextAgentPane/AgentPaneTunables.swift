@@ -437,6 +437,7 @@ public nonisolated struct AgentPaneTunables {
             turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
             agentLinks.descriptor,
+            pointerInspector.descriptor,
         ]
     }
 }

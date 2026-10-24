@@ -7,6 +7,13 @@ import PackageDescription
 let package = Package(
     name: "UiLayerHost",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "cmux-ui-layer", targets: ["UiLayerHost"])],
-    targets: [.executableTarget(name: "UiLayerHost", path: "Sources/UiLayerHost")]
+    products: [
+        .executable(name: "cmux-ui-layer", targets: ["UiLayerHost"]),
+        .executable(name: "cmux-ui-layer-watch", targets: ["UiLayerSourceWatcher"]),
+    ],
+    targets: [
+        .executableTarget(name: "UiLayerHost", path: "Sources/UiLayerHost"),
+        .executableTarget(name: "UiLayerSourceWatcher", path: "Sources/UiLayerSourceWatcher"),
+        .testTarget(name: "UiLayerHostTests", dependencies: ["UiLayerHost"]),
+    ]
 )

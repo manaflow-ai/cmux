@@ -33,6 +33,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var replay = "hello\r\n$ "
     /// Live output right after the attach reply (nil: none).
     var afterAttach: String? = "\u{1B}[?1049hTUI"
+    /// `send` is recorded but never answered (its reply lost on the way).
+    var unansweredSends = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -49,6 +51,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
+        case "send" where lock.withLock({ unansweredSends }):
+            return []
         case "identify" where initialSize || sizeLease:
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])])]
         case "resolve-terminal":
@@ -175,6 +179,137 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) }?.count }.reduce(0, +) == typed
         }
         #expect(sent.allSatisfy { $0 == UInt8(ascii: "x") })
+    }
+
+    /// TUI fast scroll: input does not wait for the last `send`'s reply.
+    /// One small request at a time stalled a flick for the link's whole
+    /// retransmission timeout (1 s, then 2 s) whenever a segment was lost
+    /// over TURN; with the next batch already behind it, TCP repairs the loss
+    /// from the duplicate ACKs within a few segments.
+    @Test func inputDoesNotWaitForTheLastReply() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } } }
+        session.send(Data("a".utf8))
+        try await waitUntil { sends().count == 1 }
+        session.send(Data("b".utf8))
+        try await waitUntil { sends().count == 2 }
+        session.send(Data("c".utf8))
+        try await waitUntil { sends().count == 3 }
+        // In order, each once.
+        #expect(sends() == ["a", "b", "c"].map { Data($0.utf8) })
+    }
+
+    /// Review of the pipelined input: a `send` that was written and then
+    /// lost its channel may already have been typed on the Mac. It is never
+    /// sent again (a doubled Return runs a command twice), neither are the
+    /// keys typed after it, and the screen is told.
+    @Test func aWrittenSendIsNeverSentTwiceAfterTheChannelFails() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
+        session.send(Data("ls\r".utf8))
+        try await waitUntil { sends() == 1 }
+        session.send(Data("pwd".utf8))
+        try await waitUntil { sends() == 2 }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { events.contains(.inputNotSent(bytes: 6)) }
+        daemon.unansweredSends = false
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        session.send(Data("x".utf8))
+        try await waitUntil { sends() == 3 }
+        let last = daemon.recorded.last { $0["cmd"] as? String == "send" }
+        #expect(last?["bytes"] as? String == Data("x".utf8).base64EncodedString())
+    }
+
+    /// A `send` whose write failed never reached the Mac: it goes again, in
+    /// order, before keys typed after it.
+    @Test func aSendWhoseWriteFailedIsSentAgainInOrder() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let gate = WriteGate()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: GatedChannel(try await link.openChannel(service: "daemon", args: [:]), gate: gate))
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        gate.failSends = 1
+        session.send(Data("a".utf8))
+        try await waitUntil { !session.isAttached }
+        session.send(Data("b".utf8))
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let typed = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } }
+            .reduce(into: Data()) { $0.append($1) } }
+        try await waitUntil { typed() == Data("ab".utf8) }
+        #expect(!events.contains { if case .inputNotSent = $0 { true } else { false } })
+    }
+
+    /// A failed attach channel is closed, so its other unanswered sends
+    /// settle and input after the reattach is not stuck behind them.
+    @Test func inputIsNotStuckAfterASendFailsBehindAnUnansweredOne() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let gate = WriteGate()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: GatedChannel(try await link.openChannel(service: "daemon", args: [:]), gate: gate))
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        session.send(Data("a".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        gate.failSends = 1
+        session.send(Data("b".utf8))
+        // "a" was written and is dropped with "b" (it may have been typed).
+        try await waitUntil { events.contains(.inputNotSent(bytes: 2)) }
+        daemon.unansweredSends = false
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        session.send(Data("c".utf8))
+        try await waitUntil {
+            daemon.recorded.last { $0["cmd"] as? String == "send" }?["bytes"] as? String == Data("c".utf8).base64EncodedString()
+        }
+    }
+
+    /// TUI fast scroll: what one main-queue turn queues (a scroll frame's
+    /// wheel reports, which Ghostty writes one by one) is one `send`.
+    @Test func oneTurnsInputIsOneSend() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let report = Data("\u{1B}[<64;4;6M".utf8)
+        for _ in 0..<5 { session.send(report) }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } } }
+        try await waitUntil { !sends().isEmpty }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(sends() == [Array(repeating: report, count: 5).reduce(Data(), +)])
     }
 
     /// The screen shows "Connecting to <Mac>…" until the attach succeeds,
@@ -594,6 +729,44 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         }
         #expect(condition())
     }
+}
+
+/// Makes the next `failSends` writes of `send` requests fail, as a channel
+/// whose write died; other writes pass.
+final class WriteGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var failing = 0
+    var failSends: Int {
+        get { lock.withLock { failing } }
+        set { lock.withLock { failing = newValue } }
+    }
+    func shouldFail(_ data: Data) -> Bool {
+        guard String(decoding: data, as: UTF8.self).contains("\"cmd\":\"send\"") else { return false }
+        return lock.withLock {
+            guard failing > 0 else { return false }
+            failing -= 1
+            return true
+        }
+    }
+}
+
+final class GatedChannel: LinkChannel, @unchecked Sendable {
+    private let inner: any LinkChannel
+    private let gate: WriteGate
+    init(_ inner: any LinkChannel, gate: WriteGate) {
+        self.inner = inner
+        self.gate = gate
+    }
+    var id: UInt32 { inner.id }
+    func send(_ data: Data) async throws {
+        if gate.shouldFail(data) {
+            await inner.close(code: "link_closed", reason: "write failed")
+            throw LinkError(code: "link_closed", message: "write failed")
+        }
+        try await inner.send(data)
+    }
+    func receive() async throws -> Data? { try await inner.receive() }
+    func close(code: String, reason: String) async { await inner.close(code: code, reason: reason) }
 }
 
 final class ChannelLog: @unchecked Sendable {

@@ -2,6 +2,7 @@
 import "../../pages/shared/desktop";
 // The shared icon+label button (cx-s6zvc); the pane does not load the rest of ui.css.
 import "../../ui/ghost.css";
+import "./composerFooterShared.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp } from "./App";
@@ -17,6 +18,11 @@ import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
 import { installRevealSettle } from "../shared/pageReveal";
+
+// The native own-window picker runs in the page's inspector runtime. Keep its report on the
+// normal host protocol so the shared page host and the legacy WKWebView use the same validation.
+(globalThis as typeof globalThis & { __cmuxUiPointerPost?: (params: Record<string, unknown>) => void }).__cmuxUiPointerPost =
+  (params) => { void postNative("uiPointer.report", params); };
 
 // One transcript snapshot per display frame, however many deltas land in it.
 AcpmuxDirectClient.scheduleFrame = nextFrame;
