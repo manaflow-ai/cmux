@@ -21,7 +21,7 @@ struct FeedRoot: View {
 struct FeedView: View {
     let model: FeedModel
     let layout: FeedLayout
-    let onReportsReply: (@MainActor (String, String) -> Bool)? = nil
+    var onReportsReply: (@MainActor (String, String) -> Bool)? = nil
     @Environment(\.feedColors) private var colors
 
     var body: some View {
