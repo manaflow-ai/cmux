@@ -6,7 +6,8 @@ public struct NoScrollFrameTiming: ScrollFrameTiming {
     public init() {}
 
     /// Records nothing.
-    ///
-    /// - Returns: An end that does nothing.
-    public func begin(phase: ScrollFramePhase, eventTimestamp: TimeInterval) -> @MainActor (ScrollFrameTarget) -> Void { { _ in } }
+    public func begin(phase: ScrollFramePhase, eventTimestamp: TimeInterval) {}
+
+    /// Records nothing.
+    public func end(target: ScrollFrameTarget) {}
 }

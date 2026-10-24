@@ -20,11 +20,20 @@ struct ScrollFrameTimingTests {
         }
 
         var rows: [Row] = []
+        /// The rows begun and not ended, innermost last.
+        private var open: [Int] = []
 
-        func begin(phase: ScrollFramePhase, eventTimestamp: TimeInterval) -> @MainActor (ScrollFrameTarget) -> Void {
-            let index = rows.count
+        func begin(phase: ScrollFramePhase, eventTimestamp: TimeInterval) {
+            open.append(rows.count)
             rows.append(Row(phase: phase, timestamp: eventTimestamp, target: nil))
-            return { [weak self] target in self?.rows[index].target = target }
+        }
+
+        func end(target: ScrollFrameTarget) {
+            guard let index = open.popLast() else {
+                Issue.record("an end with no timing open")
+                return
+            }
+            rows[index].target = target
         }
     }
 
@@ -117,6 +126,20 @@ struct ScrollFrameTimingTests {
         let w = Window()
         try w.scroll(at: try w.center("p2"), phase: .mayBegin, command: true)
         #expect(w.recorder.rows.map(\.phase) == [.touch])
+    }
+
+    @Test func aScrollDispatchedInsideAnotherEndsBeforeIt() throws {
+        let w = Window()
+        let p2 = try w.center("p2")
+        let outer = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: 0, wheel2: -1, wheel3: 0))
+        outer.flags = .maskCommand
+        let event = try #require(NSEvent(cgEvent: outer))
+        try w.context.dispatching(event) {
+            _ = w.root.handleScroll(event, locationInWindow: p2)
+            // A synthetic notch with no Command, sent from inside the outer dispatch (`debug.mouse` from a handler).
+            try w.scroll(at: p2, dx: -1, units: .line)
+        }
+        #expect(w.recorder.rows.map(\.target) == [.layout, .content], "each end closed its own dispatch's timing")
     }
 
     @Test func aDispatchThatIsNotAScrollIsNotTimed() throws {

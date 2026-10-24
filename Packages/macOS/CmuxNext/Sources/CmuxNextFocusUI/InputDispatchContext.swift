@@ -19,9 +19,10 @@ public import CmuxNextSignposts
 /// ```
 @MainActor
 public final class InputDispatchContext {
-    /// One dispatch in progress: its event, and whether the layout took it (a scroll only).
+    /// One dispatch in progress: its event, whether it is a timed scroll, and whether the layout took it.
     private struct Dispatch {
         let event: NSEvent
+        let isScroll: Bool
         var layoutTook = false
     }
 
@@ -59,12 +60,12 @@ public final class InputDispatchContext {
     /// - Returns: What `body` returns.
     /// - Throws: What `body` throws.
     public func dispatching<T>(_ event: NSEvent, _ body: () throws -> T) rethrows -> T {
-        let endScrollFrame = event.type == .scrollWheel
-            ? scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp) : nil
-        stack.append(Dispatch(event: event))
+        let isScroll = event.type == .scrollWheel
+        if isScroll { scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp) }
+        stack.append(Dispatch(event: event, isScroll: isScroll))
         defer {
             let dispatch = stack.removeLast()
-            endScrollFrame?(dispatch.layoutTook ? .layout : .content)
+            if dispatch.isScroll { scrollFrames.end(target: dispatch.layoutTook ? .layout : .content) }
         }
         return try body()
     }

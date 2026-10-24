@@ -87,6 +87,25 @@ public nonisolated struct Signposter: Sendable {
         return SignpostInterval(state: state, metricKitID: mirror.begin(name))
     }
 
+    /// Begins a ``SignpostName/scrollToFrame`` interval with a scroll event's fields, formatted by the log system
+    /// only when something reads them (`phase=<phase> age_ms=<age, 2 decimals>`): it runs on every scroll event
+    /// (about 120 a second on a trackpad, plus momentum), so no `String` is built per call.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - scrollPhase: Which part of a scroll the event is.
+    ///   - ageMilliseconds: The event's age when its dispatch began, or -1 without a timestamp.
+    /// - Returns: The state to pass to ``end(_:_:_:scrollTarget:)``.
+    public func begin(_ name: SignpostName, scrollPhase: ScrollFramePhase, ageMilliseconds: Double) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            name.staticName, id: id,
+            "phase=\(scrollPhase.rawValue, privacy: .public) age_ms=\(ageMilliseconds, format: .fixed(precision: 2), privacy: .public)"
+        )
+        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
     /// Begins an interval named `name` for one scheduled main-thread task (``SignpostName/stallMainTask``),
     /// with its class and owner formatted by the log system only when something reads them
     /// (`class=<class> owner=<owner>`): the scheduler opens one per task, so no `String` is built per call.
@@ -124,21 +143,23 @@ public nonisolated struct Signposter: Sendable {
         }
     }
 
-    /// ``end(_:_:_:)`` with a public end message (fields known only after the begin, such as who took an
-    /// input event): `message` on a committed end, `commit=missed <message>` on a missed one.
+    /// ``end(_:_:_:)`` for a ``SignpostName/scrollToFrame`` interval, with who took the event, formatted by the log
+    /// system only when something reads it: `target=<target>` on a committed end, `commit=missed target=<target>` on a
+    /// missed one.
     ///
     /// - Parameters:
     ///   - name: The name the interval began with.
-    ///   - interval: The state ``begin(_:_:)`` returned.
+    ///   - interval: The state ``begin(_:scrollPhase:ageMilliseconds:)`` returned.
     ///   - outcome: How the ``CommitBoundary`` fired.
-    ///   - message: Public text (ids and kinds, never user content).
-    public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome, message: String) {
+    ///   - scrollTarget: Who took the scroll event.
+    public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome,
+                    scrollTarget: ScrollFrameTarget) {
         switch outcome {
         case .committed:
-            signposter.endInterval(name.staticName, interval.state, "\(message, privacy: .public)")
+            signposter.endInterval(name.staticName, interval.state, "target=\(scrollTarget.rawValue, privacy: .public)")
             if let id = interval.metricKitID { mirror.end(name, id: id) }
         case .missed:
-            signposter.endInterval(name.staticName, interval.state, "commit=missed \(message, privacy: .public)")
+            signposter.endInterval(name.staticName, interval.state, "commit=missed target=\(scrollTarget.rawValue, privacy: .public)")
         }
     }
 
