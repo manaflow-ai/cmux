@@ -6,8 +6,9 @@ A finding counts against the PR only when it is in a file the PR changed
 names, or when the PR changes the lint's code. A package manifest the lint
 reads (--manifests) counts as its code unless every line the PR changes in it
 is a comment or sits inside a `dependencies: [...]` list, and names no
-`.target(`, `.executableTarget(` or `swiftSettings`; a manifest diff this
-cannot read counts as code. A finding anywhere else is
+target call (`.target(`, `.executableTarget(`, `.testTarget(`, `.macro(`),
+`swiftSettings` or `defaultIsolation`; a manifest diff this cannot read counts
+as code. A finding anywhere else is
 already on the base branch: it is reported as a warning, and the gate passes.
 Base pushes keep the whole-tree verdict.
 
@@ -45,10 +46,13 @@ if len(parents) != 2:
     sys.exit(1)
 changed = set(git('diff', '--name-only', '--no-renames', parents[0], 'HEAD').splitlines())
 
-# A manifest line the lint can read whatever list it sits in: check-concurrency.sh
-# matches `.target(name:` / `.executableTarget(name:` up to the next `swiftSettings:`
-# in the raw manifest, comments included. Block comments can hide or expose code.
-MANIFEST_ANCHOR = re.compile(r'\.(?:target|executableTarget)\s*\(|swiftSettings|/\*|\*/')
+# A manifest line that counts as the lint's code whatever list it sits in. check-concurrency.sh
+# reads each target call (`.target(`, `.executableTarget(`, `.testTarget(`, `.macro(`) by balanced
+# parentheses and its swiftSettings (uiSwiftSettings, `.defaultIsolation(...)`) inside that call
+# (swift_scope.package_targets): a line that opens a call can change which call the lines after it
+# belong to. Block comments can hide or expose code.
+MANIFEST_ANCHOR = re.compile(r'\.(?:target|executableTarget|testTarget|macro)\s*\(|swiftSettings|defaultIsolation'
+                             r'|/\*|\*/')
 HUNK = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
 
 
