@@ -167,6 +167,44 @@ struct LayoutScrollModifierTests {
         #expect(try #require(w.root.frame(of: "p2")).minX < before.minX - 100)
     }
 
+    /// A trackpad touch sends `mayBegin` before `began`: the touch decides, so Command pressed or
+    /// released between them changes nothing (PL-motion-core review 2026-10-24).
+    @Test func commandAtTheTouchDecidesEvenWhenReleasedBeforeTheGestureBegins() throws {
+        let w = Window(modifier: .command)
+        let p2 = try w.center("p2")
+        let before = try #require(w.root.frame(of: "p2"))
+        w.scroll(at: p2, phase: .mayBegin, command: true)
+        #expect(w.scroll(at: p2, dx: -20, phase: .began), "Command at the touch gave the gesture to the layout")
+        for _ in 0..<3 { #expect(w.scroll(at: p2, dx: -20, phase: .changed)) }
+        #expect(w.scroll(at: p2, phase: .ended))
+        w.settle()
+        #expect(try #require(w.root.frame(of: "p2")).minX < before.minX - 30, "the strip panned")
+    }
+
+    @Test func commandPressedAfterTheTouchDoesNotTakeThePanesGesture() throws {
+        let w = Window(modifier: .command)
+        let p2 = try w.center("p2")
+        let before = try #require(w.root.frame(of: "p2"))
+        w.scroll(at: p2, phase: .mayBegin)
+        #expect(w.scroll(at: p2, dx: -20, phase: .began, command: true) == false, "the touch gave the gesture to the pane")
+        for _ in 0..<3 { #expect(w.scroll(at: p2, dx: -20, phase: .changed, command: true) == false) }
+        #expect(w.scroll(at: p2, phase: .ended, command: true) == false)
+        w.settle()
+        #expect(w.root.frame(of: "p2") == before)
+    }
+
+    /// Command + scroll always means the layout: a vertical trackpad gesture over a column whose
+    /// rows do not overflow pans the strip, as a Command vertical wheel notch does.
+    @Test func aCommandVerticalSwipeOverAColumnWithoutRowsPansTheStrip() throws {
+        let w = Window(modifier: .command)
+        let before = try #require(w.root.frame(of: "p2"))
+        #expect(w.gesture(at: try w.center("p2"), dy: -20, commandAt: Set(0...7)) == 8, "the layout takes the gesture and its coast")
+        w.settle()
+        let after = try #require(w.root.frame(of: "p2"))
+        #expect(after.minX < before.minX - 100, "the strip panned: \(before) -> \(after)")
+        #expect(after.minY == before.minY)
+    }
+
     @Test func aWheelNotchDecidesPerNotch() throws {
         let w = Window(modifier: .command)
         let p2 = try w.center("p2")
