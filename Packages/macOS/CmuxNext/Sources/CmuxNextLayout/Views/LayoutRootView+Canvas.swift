@@ -30,7 +30,8 @@ extension LayoutRootView {
 
     /// Routes one scroll event over a canvas. True: consumed; false: the
     /// event goes on to the pane; nil: not a canvas event, the strip rules apply.
-    func handleCanvasScroll(_ event: NSEvent, at locationInWindow: NSPoint) -> Bool? {
+    /// `decides`: this event decides its gesture's owner (`decidesGestureOwner`).
+    func handleCanvasScroll(_ event: NSEvent, at locationInWindow: NSPoint, decides: Bool) -> Bool? {
         let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
         if !event.momentumPhase.isEmpty {
             guard case let .canvas(view) = scrollLock else { return nil }
@@ -54,7 +55,7 @@ extension LayoutRootView {
             updateVisibility()
             return true
         }
-        if phase.contains(.mayBegin) || phase.contains(.began) {
+        if decides {
             guard let view = activeCanvasView(at: locationInWindow) else { return nil }
             let overPane = view.pane(at: view.convert(locationInWindow, from: nil)) != nil
             switch model.scrollModifier {
