@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The crash ratchet's CI step (.github/workflows/cmux-next-guards.yml, job crash-ratchet):
 # scripts/ci/crash_ratchet_compare.py on the checked-out change and on its base's exported tree.
+# It also judges the change's crash-safety-baseline.json against the base's copy (the baseline
+# may only go down; a recorded waiver is annotated).
 #
 #   EVENT_NAME  the GitHub event (pull_request, or push)
 #   BEFORE      a push's previous tip (github.event.before); unused for pull requests

@@ -267,6 +267,9 @@ jobs:
   # #20223 added 3 unwraps unchecked (2026-10-13). The change's own ratchet script and baseline run
   # on its tree and on the base tree (a pull request's merge-commit first parent; a push's previous
   # tip); the job is red when the change turns the ratchet red, or makes an already red base worse.
+  # The change's baseline is also judged against the base's copy, so it may only go down: a raised
+  # counted row is red (a hit that moved to another module carries its row), and a recorded waiver
+  # (a raised waived row) is a warning annotation.
   crash-ratchet:
     name: cmux-next crash ratchet
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.

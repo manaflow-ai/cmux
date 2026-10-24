@@ -2,7 +2,9 @@
 
 A fake ratchet stands in for scripts/cmux-next/crash_ratchet.py: it prints the text in
 <repo>/ratchet.out and exits with the code in <repo>/ratchet.rc, so each case states exactly what
-the real ratchet would print for the head and for the base.
+the real ratchet would print for the head and for the base. Its baseline judgment
+(--baseline-against) prints <repo>/baseline.out and exits with <repo>/baseline.rc (default: the
+`baseline ok` line, exit 0).
 """
 import json
 import os
@@ -20,7 +22,16 @@ FAKE = textwrap.dedent("""\
     p = argparse.ArgumentParser()
     p.add_argument("--repo")
     p.add_argument("--exported-tree", action="store_true")
+    p.add_argument("--baseline-against")
     o = p.parse_args()
+    if o.baseline_against:
+        if os.path.basename(o.baseline_against) != "base" or os.path.basename(o.repo) != "head":
+            print("the head's baseline must be judged against the base tree"); sys.exit(9)
+        path = os.path.join(o.repo, "baseline.out")
+        if not os.path.exists(path):
+            print("crash-ratchet: baseline ok"); sys.exit(0)
+        print(open(path).read(), end="")
+        sys.exit(int(open(os.path.join(o.repo, "baseline.rc")).read()))
     if os.path.basename(o.repo) == "base" and not o.exported_tree:
         print("the base must be scanned as an exported tree"); sys.exit(9)
     print(open(os.path.join(o.repo, "ratchet.out")).read(), end="")
@@ -34,7 +45,7 @@ TWO = UNWRAP_3 + "crash-ratchet: swift CmuxNextApp: unchecked 5 -> 6\n"
 
 
 class CrashRatchetCompare(unittest.TestCase):
-    def run_case(self, head, base):
+    def run_case(self, head, base, baseline=None):
         with tempfile.TemporaryDirectory() as tmp:
             fake = os.path.join(tmp, "crash_ratchet.py")
             with open(fake, "w") as f:
@@ -45,6 +56,12 @@ class CrashRatchetCompare(unittest.TestCase):
                     f.write(text)
                 with open(os.path.join(tmp, name, "ratchet.rc"), "w") as f:
                     f.write(str(rc))
+            if baseline is not None:
+                text, rc = baseline
+                with open(os.path.join(tmp, "head", "baseline.out"), "w") as f:
+                    f.write(text)
+                with open(os.path.join(tmp, "head", "baseline.rc"), "w") as f:
+                    f.write(str(rc))
             out = subprocess.run([sys.executable, COMPARE, "--script", fake, "--head", os.path.join(tmp, "head"),
                                   "--base", os.path.join(tmp, "base")], capture_output=True, text=True)
             return out.returncode, out.stdout + out.stderr
@@ -52,6 +69,25 @@ class CrashRatchetCompare(unittest.TestCase):
     def test_green_head_passes(self):
         rc, out = self.run_case((OK, 0), ("garbage", 1))
         self.assertEqual(rc, 0, out)
+
+    def test_a_raised_baseline_is_red_even_when_the_head_is_green(self):
+        raised = "crash-ratchet: baseline raised: swift M: dynamic_dispatch base 1, head 2\n"
+        rc, out = self.run_case((OK, 0), (OK, 0), baseline=(raised, 1))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("::error::crash-safety-baseline.json may only go down: swift M: dynamic_dispatch base 1, head 2", out)
+        self.assertIn("crash-ratchet: ok on the head", out)
+
+    def test_a_recorded_waiver_is_a_warning(self):
+        waiver = "crash-ratchet: waiver recorded: swift M: unchecked.waived base 0, head 1\ncrash-ratchet: baseline ok\n"
+        rc, out = self.run_case((OK, 0), (OK, 0), baseline=(waiver, 0))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::warning::a reviewed crash-allow waiver is recorded in the baseline: swift M: unchecked.waived", out)
+
+    def test_a_failed_baseline_judgment_is_red(self):
+        for text, code in (("Traceback: broke\n", 1), ("nothing\n", 0), ("crash-ratchet: baseline ok\n", 2)):
+            rc, out = self.run_case((OK, 0), (OK, 0), baseline=(text, code))
+            self.assertEqual(rc, 1, out)
+            self.assertIn("could not be judged", out)
 
     def test_head_red_on_green_base_fails_with_both_counts(self):
         rc, out = self.run_case((UNWRAP_3, 1), (OK, 0))
@@ -470,6 +506,24 @@ class CrashRatchetCIStepTests(FixtureRepo, unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("::warning::", out)
         self.assertIn("swift M: dynamic_dispatch.waived base 0, head 1", out)
+
+    def test_a_base_without_a_waived_section_records_it_for_the_first_time(self):
+        # The base predates waived counting: its waivers are recorded once, as one note.
+        self.write(self.SOURCE, SELECTOR.format(name="run") + "let t = NSSelectorFromString(\"stop\") // crash-allow: old\n")
+        rc, out = self.run_ratchet("--update-baseline")
+        self.assertEqual(rc, 0, out)
+        data = self.baseline()
+        del data["waived"]
+        with open(self.baseline_path, "w") as f:
+            json.dump(data, f)
+        before = self.commit("a base from before waived counting")
+        rc, out = self.run_ratchet("--record-waivers")
+        self.assertEqual(rc, 0, out)
+        self.commit("records the waived section")
+        rc, out = self.step("push", before)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("records it for the first time (1 rows, 1 waived hits)", out)
+        self.assertNotIn("::warning::", out)
 
     def test_a_push_that_moves_a_hit_to_another_module_carries_its_row(self):
         green = self.green_base()
