@@ -177,64 +177,48 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   });
   expect(caps()).toEqual(["⇧", "⌘"]);
 
-  // Keys another action has: no warning while they go down; the save names it.
+  // Free keys: a release saves them, with no question and no warning.
   await act(async () => {
-    provider.press("cmd+shift+p");
+    provider.press("cmd+shift+o");
     await Promise.resolve();
   });
-  expect(caps()).toEqual(["⇧", "⌘", "P"]);
+  expect(caps()).toEqual(["⇧", "⌘", "O"]);
   expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeNull();
   const conflict = () => recorder()?.querySelector(".keys-recorder-conflict")?.textContent;
-  expect(conflict()).toBeUndefined();
   await act(async () => {
     provider.release();
     await Promise.resolve();
   });
   await act(async () => store.reload());
-  expect(recorder()?.querySelector(".keys-recorder-conflict-label")?.textContent).toBe(
-    strings.t("keybindings.page.recorder.conflictsWith"),
-  );
-  expect(recorder()?.querySelector(".keys-recorder-conflict-list")?.textContent).toContain("Open Command Palette");
+  expect(conflict()).toBeUndefined();
   // The row shows the keys as they go down too, not only the recorder.
-  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
-
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘O");
   expect(lastSet()).toEqual({
     command: "palette.files",
-    key: "cmd+shift+p",
+    key: "cmd+shift+o",
     when: null,
     replaces: { key: "cmd+p", when: null },
     idempotency_key: "key",
   });
 
-  // A click on the keys starts over (the saved keys show, the warning goes); Close (as Return)
-  // saves the keys recorded.
+  // A click on the keys starts over (the saved keys show); Close (as Return) saves the keys recorded.
   await click(recorderKeys());
   expect(provider.recording).toBe(true);
-  expect(recorderKeys()?.textContent).toBe("⇧⌘P");
+  expect(recorderKeys()?.textContent).toBe("⇧⌘O");
   await act(async () => {
-    provider.press("cmd+y");
+    provider.press("cmd+u");
     await Promise.resolve();
   });
-  expect(conflict()).toBeUndefined();
   await click(close());
   await act(async () => store.reload());
   expect(provider.recording).toBe(false);
   expect(recorder()).toBeNull();
-  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+y", replaces: { key: "cmd+shift+p" } });
-
-  // Opened again on keys another action has: no warning until a save in this recorder.
-  await click(row("Go to File")?.querySelector(".keys-key-button"));
-  expect(row("Go to File")?.querySelector(".keys-conflict")).toBeTruthy();
-  expect(conflict()).toBeUndefined();
-  await act(async () => {
-    provider.cancel();
-    await Promise.resolve();
-  });
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+u", replaces: { key: "cmd+shift+o" } });
 
   // Return in the app's recorder saves too.
   await click(row("Go to File")?.querySelector(".keys-key-button"));
   await record("cmd+j");
-  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+y" } });
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+u" } });
 
   // Every key up saves at once, the recorder stays open and its light confirms; the next key
   // starts a new shortcut that replaces it; a chord is typed with a modifier held between its
@@ -271,14 +255,12 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+s", replaces: { key: "cmd+k" } });
   await act(async () => {
     provider.press("cmd+k");
-    provider.press("cmd+s");
+    provider.press("cmd+u");
     await Promise.resolve();
   });
   await releaseKeys();
-  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k cmd+s", replaces: { key: "cmd+s" } });
-  // The saved keys' conflicts show in the recorder, and the row shows the saved keys.
-  expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Keyboard Shortcuts");
-  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘S");
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k cmd+u", replaces: { key: "cmd+s" } });
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘U");
   const saved = writes();
   await act(async () => {
     provider.cancel();
@@ -286,7 +268,7 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   });
   expect(recorder()).toBeNull();
   expect(writes()).toBe(saved);
-  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘S");
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘U");
 
   // A press anywhere else closes the recorder and saves keys not saved yet.
   await click(row("Go to File")?.querySelector(".keys-key-button"));
@@ -364,4 +346,112 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     (candidate) => candidate.querySelector(".keys-command-title")?.textContent === "Open Command Palette",
   );
   expect(palette.map((candidate) => candidate.querySelector(".keys-col-key")?.textContent)).toEqual(["⇧⌘O"]);
+});
+
+test("keys another action has: the recorder asks Overwrite, Ignore or Cancel before it saves", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { KeybindingsPage } = await import("../src/pages/keybindings/KeybindingsPage");
+  const { MockKeybindingsProvider } = await import("../src/pages/keybindings/mockProvider");
+  const { KeybindingsStore } = await import("../src/pages/keybindings/store");
+  const { KeybindingOps } = await import("../src/pages/keybindings/types");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/keybindings/generated/strings.json")).default;
+  const strings = createStrings(table);
+  act(() => root?.unmount());
+  const provider = new MockKeybindingsProvider();
+  const store = new KeybindingsStore(provider, { newKey: () => "key" });
+  root = createRoot(host);
+  act(() => root!.render(<KeybindingsPage store={store} strings={strings} />));
+  await act(async () => store.reload());
+
+  const doc = host.ownerDocument;
+  const row = (title: string) =>
+    [...host.querySelectorAll<HTMLElement>(".keys-row:not(.removed)")].find(
+      (candidate) => candidate.querySelector(".keys-command-title")?.textContent === title,
+    );
+  const click = async (element: Element | null | undefined) => {
+    expect(element).toBeTruthy();
+    const MouseEvent = doc.defaultView!.MouseEvent;
+    await act(async () => {
+      element!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+  };
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) await act(async () => Promise.resolve());
+    await act(async () => store.reload());
+  };
+  const keys = async (...pressed: string[]) => {
+    await act(async () => {
+      for (const stroke of pressed) provider.press(stroke);
+      provider.release();
+      await Promise.resolve();
+    });
+    await settle();
+  };
+  const recorder = () => doc.querySelector<HTMLElement>(".keys-recorder");
+  const choices = () => recorder()?.querySelector<HTMLElement>(".keys-recorder-choices");
+  const conflict = () => recorder()?.querySelector(".keys-recorder-conflict")?.textContent;
+  const sets = () => provider.calls.filter(({ op }) => op === KeybindingOps.set);
+
+  // Only real conflicts count: Show History's ⇧⌘P runs in the browser only, so the palette's
+  // ⇧⌘P still runs everywhere else, and neither shows a conflict.
+  expect(row("Open Command Palette")?.querySelector(".keys-conflict")).toBeNull();
+  expect(row("Show History")?.querySelector(".keys-conflict")).toBeNull();
+
+  // Keys that would take the palette's and History's: nothing is saved, the recorder asks.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await keys("cmd+shift+p");
+  expect(sets()).toHaveLength(0);
+  expect(choices()).toBeTruthy();
+  expect(conflict()).toContain("Open Command Palette");
+  expect(conflict()).toContain("Show History");
+
+  // Escape cancels: no write, the recorder stays open on the row's own keys.
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets()).toHaveLength(0);
+  expect(provider.recording).toBe(true);
+  expect(choices()).toBeFalsy();
+  expect(recorder()?.querySelector(".keys-recorder-keys")?.textContent).toBe("⌘P");
+
+  // Ignore saves them and leaves the palette its keys; the saved keys' conflicts show.
+  await keys("cmd+shift+p");
+  await click(choices()?.querySelectorAll("button")[1]);
+  await settle();
+  expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+p" });
+  expect(row("Open Command Palette")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
+  expect(choices()).toBeFalsy();
+  expect(conflict()).toContain("Open Command Palette");
+
+  // Closed and opened again: no warning until this recorder saves.
+  await click(recorder()?.querySelector(".keys-recorder-button"));
+  expect(recorder()).toBeNull();
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  expect(row("Go to File")?.querySelector(".keys-conflict")).toBeTruthy();
+  expect(conflict()).toBeUndefined();
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+
+  // Return overwrites: New Tab takes ⌘W and Close Tab keeps no keys.
+  await click(row("New Tab")?.querySelector(".keys-key-button"));
+  await keys("cmd+w");
+  expect(choices()).toBeTruthy();
+  expect(conflict()).toContain("Close Tab");
+  await act(async () => {
+    provider.press("return");
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets().at(-1)?.params).toMatchObject({ command: "tab.new", key: "cmd+w", replaces: { key: "cmd+t" } });
+  const removals = provider.calls.filter(({ op }) => op === KeybindingOps.remove).map(({ params }) => params);
+  expect(removals).toContainEqual({ command: "tab.close", key: "cmd+w", when: null, idempotency_key: "key" });
+  expect(row("Close Tab")?.querySelector(".keys-key-button")?.textContent).toBe(strings.t("keybindings.page.notSet"));
+  expect(provider.recording).toBe(true);
+  expect(choices()).toBeFalsy();
 });

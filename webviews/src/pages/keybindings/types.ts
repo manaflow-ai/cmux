@@ -90,6 +90,9 @@ export const KeybindingOps = {
   list: "cmux.keybindings.list",
   set: "cmux.keybindings.set",
   remove: "cmux.keybindings.remove",
+  /** `{command, key, when?}`: the entries new keys for `command` would take from other actions
+   *  (`{bindings}`): each one's `when` holding means the new entry's holds, and it comes later. */
+  conflicts: "cmux.keybindings.conflicts",
   reset: "cmux.keybindings.reset",
   recordStart: "cmux.keybindings.record.start",
   recordStop: "cmux.keybindings.record.stop",

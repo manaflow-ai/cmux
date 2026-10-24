@@ -619,6 +619,17 @@
   white-space: nowrap;
 }
 
+.keys-recorder-choices {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
+
+.keys-recorder-overwrite {
+  color: var(--ui-fg);
+  background: var(--ui-selected);
+}
+
 .keys-recorder-button:hover {
   background: var(--ui-hover);
   color: var(--ui-fg);

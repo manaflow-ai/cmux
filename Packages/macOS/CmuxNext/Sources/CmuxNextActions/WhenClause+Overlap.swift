@@ -14,6 +14,16 @@ extension WhenClause {
         return true
     }
 
+    /// Whether `lhs` holding means `rhs` holds: no `rhs`, or every `&&` term of `rhs` is one of
+    /// `lhs`'s. A binding on `lhs` never runs when a later binding on the same keys has `rhs`
+    /// (the later entry wins), so the two conflict; a later binding on a narrower clause only
+    /// takes the keys in its own context.
+    public static func implies(_ lhs: WhenClause?, _ rhs: WhenClause?) -> Bool {
+        guard let rhs else { return true }
+        let terms = lhs?.conjuncts ?? []
+        return rhs.conjuncts.allSatisfy { $0 == .constant(true) || terms.contains($0) }
+    }
+
     /// The `&&` terms of this clause (itself when it is not an `&&`).
     nonisolated var conjuncts: [WhenClause] {
         if case .and(let clauses) = self { return clauses.flatMap(\.conjuncts) }

@@ -122,6 +122,8 @@ export class MockKeybindingsProvider implements PageClient {
       case KeybindingOps.reset:
         this.write(() => this.reset(params as ResetParams));
         return {} as R;
+      case KeybindingOps.conflicts:
+        return this.conflicts(params as { command: string; key: string; when?: string | null }) as R;
       case KeybindingOps.recordStart:
         this.startRecording();
         return {} as R;
@@ -312,6 +314,7 @@ export class MockKeybindingsProvider implements PageClient {
       conflicts: [],
       ...(!row.removed && this.heldElsewhere.has(row.command) ? { heldElsewhere: true } : {}),
     }));
+    // As the app: the later entry wins, and a pair conflicts when the earlier one never runs.
     for (const a of bindings) {
       if (a.removed || a.unset) continue;
       a.conflicts = bindings
@@ -321,11 +324,26 @@ export class MockKeybindingsProvider implements PageClient {
             !b.removed &&
             !b.unset &&
             normalized(b.key) === normalized(a.key) &&
-            (a.when === null || b.when === null || a.when === b.when),
+            (b.id > a.id ? whenImplies(a.when, b.when) : whenImplies(b.when, a.when)),
         )
         .map((b) => b.id);
     }
     return { bindings };
+  }
+
+  /** `cmux.keybindings.conflicts`: the active entries of other commands new keys would take. */
+  private conflicts(params: { command: string; key: string; when?: string | null }): BindingListResult {
+    const { bindings } = this.list();
+    return {
+      bindings: bindings.filter(
+        (b) =>
+          !b.removed &&
+          !b.unset &&
+          b.command !== params.command &&
+          normalized(b.key) === normalized(params.key) &&
+          whenImplies(b.when, params.when ?? null),
+      ),
+    };
   }
 
   private row(entry: MockEntry): Omit<Binding, "id" | "conflicts" | "source"> {
@@ -339,6 +357,13 @@ export class MockKeybindingsProvider implements PageClient {
     if (entry.args) row.args = entry.args;
     return row;
   }
+}
+
+/** Whether `a` holding means `b` holds, read over `&&` terms (the app's `WhenClause.implies`). */
+function whenImplies(a: string | null, b: string | null): boolean {
+  if (b === null) return true;
+  const terms = new Set((a ?? "").split("&&").map((term) => term.trim()));
+  return b.split("&&").every((term) => terms.has(term.trim()));
 }
 
 /** The held modifiers of a key event as glyphs (⌃⌥⇧⌘), for the dev loop's stand-in dispatcher. */

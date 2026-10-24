@@ -3,42 +3,67 @@ import CmuxNextActions
 import CmuxNextSettings
 import Testing
 
-/// A conflict badge on the Keyboard Shortcuts page counts only bindings that can compete
-/// (dogfood run 7, cx-gesnr). The keyboard has one focused surface: a terminal, a browser page,
-/// an agent chat, or one internal page (markdown, the diff viewer, the code editor), so their
-/// focus keys never hold together (`KeyRouter.keyContext`). The address bar is inside the browser:
-/// `omnibarFocused` holds with `browserFocused`. Cmd-0's Actual Size in the browser showed six
-/// conflicts, four of them focus keys it never holds with.
+/// A conflict badge on the Keyboard Shortcuts page counts only bindings where one never runs
+/// because of the other (dogfood run 7, cx-gesnr; Lucas 2026-10-24). The later entry wins, so
+/// the pair conflicts when the earlier one's `when` holding means the later one's holds. Cmd-0 is
+/// Actual Size in each surface (the browser, an agent chat, markdown, the code editor, the
+/// canvas) and the terminal's font size: every one still runs in its own context, so none of
+/// them conflicts. A user's Cmd-0 with no condition takes the key from every one of them.
 @MainActor @Suite struct KeybindingsFocusConflictTests {
-    @Test func browserActualSizeConflictsOnlyWithBindingsThatCanHoldWithBrowserFocus() {
-        guard case .object(let page) = KeybindingReports.pageList([:], registry: ActionRegistry.standard()),
-              case .array(let rows)? = page["bindings"] else {
-            Issue.record("no bindings")
-            return
-        }
-        func field(_ row: JSONValue, _ key: String) -> JSONValue? {
-            guard case .object(let object) = row else { return nil }
-            return object[key]
-        }
+    static func rows(_ registry: ActionRegistry) -> [JSONValue] {
+        guard case .object(let page) = KeybindingReports.pageList([:], registry: registry),
+              case .array(let rows)? = page["bindings"] else { return [] }
+        return rows
+    }
+
+    static func field(_ row: JSONValue, _ key: String) -> JSONValue? {
+        guard case .object(let object) = row else { return nil }
+        return object[key]
+    }
+
+    /// The commands of `command`'s row's conflicts.
+    static func conflicts(of command: String, in rows: [JSONValue]) -> Set<String>? {
         let commands = Dictionary(rows.compactMap { row -> (Int, String)? in
             guard case .number(let id)? = field(row, "id"), let command = field(row, "command")?.stringValue else { return nil }
             return (Int(id), command)
         }, uniquingKeysWith: { first, _ in first })
-        guard let browser = rows.first(where: { field($0, "command")?.stringValue == "browserZoomReset" }),
-              case .array(let ids)? = field(browser, "conflicts") else {
-            Issue.record("browserZoomReset is not listed")
-            return
-        }
-        let conflicts = Set(ids.compactMap { id -> String? in
+        guard let row = rows.first(where: { field($0, "command")?.stringValue == command }),
+              case .array(let ids)? = field(row, "conflicts") else { return nil }
+        return Set(ids.compactMap { id -> String? in
             guard case .number(let value) = id else { return nil }
             return commands[Int(value)]
         })
-        // Other focused surfaces: never at the same time as the browser.
-        for other in ["agentPaneZoomReset", "markdownZoomReset", "fileEditorZoomReset", "terminal.resetFontSize"] {
-            #expect(!conflicts.contains(other), "\(other) counted as a conflict of the browser's Actual Size")
+    }
+
+    static let actualSizes = ["browserZoomReset", "agentPaneZoomReset", "markdownZoomReset", "fileEditorZoomReset",
+                              "canvasZoomReset", "terminal.resetFontSize", "resetWorkspaceTerminalFontSize"]
+
+    @Test func cmdZeroInEachSurfaceConflictsWithNothing() {
+        let rows = Self.rows(ActionRegistry.standard())
+        for command in Self.actualSizes {
+            #expect(Self.conflicts(of: command, in: rows) == [], "\(command) counted conflicts")
         }
-        // A binding with no focus key, and the canvas layout (not a focus), can hold with it.
-        #expect(conflicts.contains("resetWorkspaceTerminalFontSize"))
-        #expect(conflicts.contains("canvasZoomReset"))
+    }
+
+    @Test func aUsersCmdZeroWithNoConditionTakesItFromEverySurface() {
+        let registry = ActionRegistry.standard()
+        registry.setShortcutOverride(Shortcut("0", modifiers: .command), for: "newWindow")
+        let rows = Self.rows(registry)
+        #expect(Self.conflicts(of: "newWindow", in: rows)?.isSuperset(of: Self.actualSizes) == true)
+        #expect(Self.conflicts(of: "browserZoomReset", in: rows) == ["newWindow"])
+        // Asked before the save: the same answer from `cmux.keybindings.conflicts`.
+        let before = ActionRegistry.standard()
+        guard case .array(let taken)? = Self.field(
+            KeybindingReports.conflicts(["command": "newWindow", "key": "cmd+0"], registry: before), "bindings") else {
+            Issue.record("no conflicts reply")
+            return
+        }
+        #expect(Set(taken.compactMap { Self.field($0, "command")?.stringValue }).isSuperset(of: Self.actualSizes))
+        guard case .array(let none)? = Self.field(KeybindingReports.conflicts(
+            ["command": "browserZoomReset", "key": "cmd+0", "when": "browserFocused"], registry: before), "bindings") else {
+            Issue.record("no conflicts reply")
+            return
+        }
+        #expect(none.isEmpty, "Actual Size in the browser takes Cmd-0 from \(none)")
     }
 }

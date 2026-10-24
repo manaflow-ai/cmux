@@ -99,6 +99,30 @@ enum KeybindingReports {
         return .object(object)
     }
 
+    /// `cmux.keybindings.conflicts` `{command, key, when?}`: the entries new
+    /// keys for `command` would take from other actions before they are
+    /// saved. A new user entry comes after every listed one, so it takes the
+    /// keys from each entry whose `when` holding means its own `when` holds.
+    static func conflicts(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+        let command = registry.canonicalID(for: ActionID(rawValue: params["command"]?.stringValue ?? ""))
+        guard let keys = keys(from: params["key"]?.stringValue ?? "") else { return ["bindings": []] }
+        let when = params["when"]?.stringValue.flatMap { try? WhenClause.parse($0) }
+        let entries = RegistryKeyBindings(registry).table.entries
+        // A binding the table holds twice (the Chrome tab keys) is one row, as on the page.
+        var seen: Set<KeyBinding> = []
+        let rows = entries.indices.filter { index in
+            let entry = entries[index]
+            return entry.keys == keys && entry.command != command && entry.source != .ghosttyFallback
+                && WhenClause.implies(entry.when, when) && seen.insert(entry).inserted
+        }.map { index -> JSONValue in
+            guard case .object(var object) = json(entries[index], registry: registry) else { return .null }
+            object["id"] = JSONValue(index)
+            object["conflicts"] = []
+            return .object(object)
+        }
+        return ["bindings": .array(rows)]
+    }
+
     /// Rows of the actions cmux.json unbinds (`shortcuts.bindings.<id>: null`)
     /// that have no other entry: no keys, the action's own `when`, source `user`
     /// (Reset gives the default back).
@@ -133,7 +157,10 @@ enum KeybindingReports {
     /// wins), optionally filtered by `query` (title, command id or key text,
     /// case-insensitive), `command` and `source`. Each entry has an `id`
     /// (its position in the table) and `conflicts`: the ids of the other
-    /// entries on the same keys whose `when` can hold at the same time.
+    /// entries on the same keys where one never runs because of the other
+    /// (the later entry wins, and the earlier one's `when` holding means the
+    /// later one's holds). Bindings in separate contexts (a focused browser,
+    /// the code editor) or a later, narrower one never conflict.
     /// `shows` leaves entries out by their position (``pageList(_:registry:)``).
     static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (Int) -> Bool = { _ in true }) -> JSONValue {
         let query = params["query"]?.stringValue?.lowercased() ?? ""
@@ -154,8 +181,11 @@ enum KeybindingReports {
             let entry = entries[index]
             guard case .object(var object) = json(entry, registry: registry) else { return .null }
             object["id"] = JSONValue(index)
-            let conflicts = (byKeys[entry.keys] ?? []).filter {
-                $0 != index && shows($0) && WhenClause.canOverlap(entries[$0].when, entry.when)
+            let conflicts = (byKeys[entry.keys] ?? []).filter { other in
+                guard other != index, shows(other) else { return false }
+                // The later entry wins; the pair conflicts when the earlier one can never run.
+                let (winner, loser) = other > index ? (entries[other], entry) : (entry, entries[other])
+                return WhenClause.implies(loser.when, winner.when)
             }
             object["conflicts"] = .array(conflicts.map { JSONValue($0) })
             return .object(object)

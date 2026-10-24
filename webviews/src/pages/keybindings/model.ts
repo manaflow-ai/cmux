@@ -36,48 +36,6 @@ export function canEditWhen(binding: Pick<Binding, "source" | "removed" | "unset
   return !isReadOnly(binding) && binding.unset !== true;
 }
 
-/** The other actions' active rows a recording on `binding` would share `key` with: the same keys and a `when`
- *  that can hold with its own (no condition on either side, or the same one). The provider's
- *  conflict facts come after a write; this is the recorder's warning before it. */
-export function sameKeys(bindings: readonly Binding[], binding: Binding, key: string): Binding[] {
-  if (!strokes(key).length) return [];
-  return bindings.filter(
-    (other) =>
-      !other.removed &&
-      !other.unset &&
-      other.command !== binding.command &&
-      keyMatches(other.key, { key, exact: true }) &&
-      whenCanOverlap(other.when, binding.when),
-  );
-}
-
-type WhenTerm = { key: string; op: "has" | "not" | "==" | "!="; value?: string };
-
-/** One `&&` term of a `when` text, or undefined for one this reading does not know. */
-function whenTerm(text: string): WhenTerm | undefined {
-  const term = text.trim();
-  const compare = /^([\w.]+)\s*(==|!=)\s*'?([^']*)'?$/.exec(term);
-  if (compare) return { key: compare[1], op: compare[2] as "==" | "!=", value: compare[3] };
-  const flag = /^(!?)([\w.]+)$/.exec(term);
-  return flag ? { key: flag[2], op: flag[1] ? "not" : "has" } : undefined;
-}
-
-/** Whether two `when` texts can hold at once: the app's `WhenClause.canOverlap` over the `&&`
- *  terms (a key and its negation, two values of one key). Anything it does not read (`||`,
- *  parentheses) can overlap, so the warning errs toward showing. */
-export function whenCanOverlap(a: string | null, b: string | null): boolean {
-  if (a === null || b === null || a === b) return true;
-  if (/[|()]/.test(a + b)) return true;
-  const left = a.split("&&").map(whenTerm);
-  const right = b.split("&&").map(whenTerm);
-  const excludes = (x: WhenTerm, y: WhenTerm) =>
-    x.key === y.key &&
-    ((x.op === "has" && y.op === "not") ||
-      (x.op === "==" && y.op === "==" && x.value !== y.value) ||
-      (x.op === "==" && y.op === "!=" && x.value === y.value));
-  return !left.some((x) => x && right.some((y) => y && (excludes(x, y) || excludes(y, x))));
-}
-
 /** One keycap per modifier and one for the key ("⌃⌥↑" -> ⌃ ⌥ ↑), for the recorder's large caps. */
 export function strokeCaps(stroke: string): string[] {
   const mods = stroke.match(/^[⌃⌥⇧⌘]*/)?.[0] ?? "";

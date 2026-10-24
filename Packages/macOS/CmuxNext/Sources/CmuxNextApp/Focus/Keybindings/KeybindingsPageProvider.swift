@@ -35,6 +35,8 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.list":
             return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry,
                                              heldElsewhere: services.globalHotKeys.conflicts)
+        case "cmux.keybindings.conflicts":
+            return KeybindingReports.conflicts(params.objectValue ?? [:], registry: services.registry)
         case "cmux.keybindings.record.start":
             startRecording()
             return .object([:])

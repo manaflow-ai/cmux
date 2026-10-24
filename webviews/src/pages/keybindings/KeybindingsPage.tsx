@@ -11,7 +11,6 @@ import {
   isReadOnly,
   keyMatches,
   moveSelection,
-  sameKeys,
   sourceLabel,
   strokeCaps,
 } from "./model";
@@ -338,7 +337,14 @@ function Recorder({
     recording.confirmed > 0 &&
     !recording.held &&
     (!recording.key || keyMatches(recording.key, { key: binding.key, exact: true }));
-  const others = showsSaved ? sameKeys(bindings, binding, binding.key) : [];
+  // The app's conflicts of the saved row (`conflicts`: one of the two never runs).
+  const saved = showsSaved
+    ? binding.conflicts.flatMap((id) => bindings.filter((other) => other.id === id && !other.removed))
+    : [];
+  const prompt = recording.prompt;
+  // Asking: the actions the new keys would take; after a save: the saved keys' conflicts.
+  const others = prompt ? prompt.conflicts : saved;
+  const titles = [...new Set(others.map((other) => other.title))];
   return (
     <Popover
       open
@@ -348,6 +354,7 @@ function Recorder({
       initialFocus={false}
       finalFocus={false}
       // A press anywhere else closes it as Close does (new keys are saved); Escape drops them.
+      // While it asks, a press elsewhere saves nothing (closeRecording drops the question).
       onOpenChange={(open, details) => {
         if (open) return;
         if (details?.escape) store.stopRecording();
@@ -358,7 +365,7 @@ function Recorder({
         // The confirm light: a green glow along the glass's top edge, once per save.
         <span key={recording.confirmed} className="keys-recorder-light" aria-hidden="true" />
       )}
-      {!binding.unset && (
+      {!binding.unset && !prompt && (
         <div className="keys-recorder-hint">{withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}</div>
       )}
       <button
@@ -386,29 +393,62 @@ function Recorder({
           <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
         )}
       </button>
-      <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>
-      {others.length > 0 && (
+      {!prompt && <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>}
+      {titles.length > 0 && (
         <output className="keys-recorder-conflict">
           <span className="keys-recorder-conflict-label">
             <Icon name="info" />
             {t("keybindings.page.recorder.conflictsWith")}
           </span>
-          <span className="keys-recorder-conflict-list">{others.map((other) => other.title).join(", ")}</span>
+          <span className="keys-recorder-conflict-list">{titles.join(", ")}</span>
         </output>
       )}
       <div className="keys-recorder-actions">
         <span className="keys-recorder-command" title={binding.title}>
           {binding.title}
         </span>
-        <button
-          type="button"
-          className="keys-recorder-button"
-          aria-keyshortcuts="Escape Enter"
-          onMouseDown={keepFocus}
-          onClick={() => store.closeRecording()}
-        >
-          {withKeys(t("keybindings.page.recorder.close"), ["esc", "↩"])}
-        </button>
+        {prompt ? (
+          // The app's recorder answers Escape (Cancel) and Return (Overwrite); a new shortcut
+          // drops the question.
+          <span className="keys-recorder-choices">
+            <button
+              type="button"
+              className="keys-recorder-button"
+              aria-keyshortcuts="Escape"
+              onMouseDown={keepFocus}
+              onClick={() => void store.resolveConflict("cancel")}
+            >
+              {withKeys(t("keybindings.page.recorder.cancel"), ["esc"])}
+            </button>
+            <button
+              type="button"
+              className="keys-recorder-button"
+              onMouseDown={keepFocus}
+              onClick={() => void store.resolveConflict("ignore")}
+            >
+              {t("keybindings.page.recorder.ignore")}
+            </button>
+            <button
+              type="button"
+              className="keys-recorder-button keys-recorder-overwrite"
+              aria-keyshortcuts="Enter"
+              onMouseDown={keepFocus}
+              onClick={() => void store.resolveConflict("overwrite")}
+            >
+              {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="keys-recorder-button"
+            aria-keyshortcuts="Escape Enter"
+            onMouseDown={keepFocus}
+            onClick={() => store.closeRecording()}
+          >
+            {withKeys(t("keybindings.page.recorder.close"), ["esc", "↩"])}
+          </button>
+        )}
       </div>
     </Popover>
   );
