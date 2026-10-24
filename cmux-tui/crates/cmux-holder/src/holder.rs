@@ -291,6 +291,11 @@ impl LinkBreak {
 /// The holder state.
 pub struct Holder {
     listener: UnixListener,
+    /// The last accept failed for a want of the holder's (a descriptor,
+    /// kernel memory) and left its connection queued: the listener stays
+    /// out of the poll set, and each turn ends with another accept
+    /// ([`Self::accept`]).
+    accept_stalled: bool,
     /// The socket file, removed when the holder exits.
     socket: Option<PathBuf>,
     token: [u8; 32],
@@ -396,6 +401,7 @@ impl Holder {
         let sigchld = unsafe { std::os::fd::FromRawFd::from_raw_fd(fds[0]) };
         Ok(Self {
             listener,
+            accept_stalled: false,
             socket,
             token,
             link: None,
@@ -449,8 +455,9 @@ impl Holder {
 
     /// One `poll` and the work it reports.
     fn turn(&mut self) -> io::Result<()> {
+        let listening = if self.accept_stalled { 0 } else { libc::POLLIN };
         let mut fds = vec![
-            pollfd(self.listener.as_raw_fd(), libc::POLLIN),
+            pollfd(self.listener.as_raw_fd(), listening),
             pollfd(self.sigchld.as_raw_fd(), libc::POLLIN),
         ];
         let link_at = self.link.as_ref().map(|link| {
@@ -562,6 +569,11 @@ impl Holder {
         self.pump();
         self.retire_closed();
         self.end_orphans(now);
+        // Last: only a turn frees a descriptor of the holder's, and this
+        // turn's work is done.
+        if self.accept_stalled {
+            self.accept();
+        }
         let idle = self.terminals.is_empty() && self.link.is_none();
         self.idle_since = if idle { Some(self.idle_since.unwrap_or(now)) } else { None };
         Ok(())
@@ -612,8 +624,30 @@ impl Holder {
 
     /// Take new connections. They wait in `pending` until they authenticate;
     /// the attached daemon keeps its link meanwhile.
+    ///
+    /// An accept that fails for a want of the holder's (no descriptor left:
+    /// EMFILE, ENFILE; no kernel memory) leaves its connection queued on
+    /// Linux, so the listener would report it again at once and the loop
+    /// would spin for as long as the holder is full. The holder then stops
+    /// polling the listener ([`Self::accept_stalled`]) and tries again at
+    /// the end of each turn: a descriptor of its own frees only in a turn
+    /// (a terminal forgotten, a link, pending connection or retiring link
+    /// dropped), so it takes the connection on the first turn after one
+    /// did, with no timer and no wakeup of its own.
     fn accept(&mut self) {
-        while let Ok((stream, _)) = self.listener.accept() {
+        self.accept_stalled = false;
+        loop {
+            let stream = match self.listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(error) => match error.kind() {
+                    io::ErrorKind::WouldBlock => return,
+                    io::ErrorKind::Interrupted | io::ErrorKind::ConnectionAborted => continue,
+                    _ => {
+                        self.accept_stalled = true;
+                        return;
+                    }
+                },
+            };
             if !same_user(&stream) {
                 continue;
             }
