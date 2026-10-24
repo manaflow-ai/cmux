@@ -46,7 +46,7 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: CloudMachineCreateFlow.gate(machines.cloudLimits))
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate)
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
     }
