@@ -8,8 +8,8 @@ import Testing
 /// with `SUFeedURL` stamped to the tip feed. Only that pair runs Sparkle; every other DEV and
 /// staging build stays a development build that never installs updates.
 @Suite struct TipAppTrackTests {
-    static let tipFeed = "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml"
-    static let stableFeed = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+    nonisolated static let tipFeed = "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml"
+    nonisolated static let stableFeed = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
 
     static func identity(_ bundleIdentifier: String, feed: String?, hasPublicKey: Bool = true) -> UpdateBuildIdentity {
         var info: [String: Any] = ["CFBundleIdentifier": bundleIdentifier, "CFBundleShortVersionString": "0.1.0",
