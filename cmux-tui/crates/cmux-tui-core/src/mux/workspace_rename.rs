@@ -206,33 +206,12 @@ impl Mux {
                 }),
                 true,
             )?;
-            // The commit rides the journal writer batch: state stays held
-            // across the receipt (as across a local commit's fsync), the
-            // connection pin is released for the writer. If the receipt is
-            // indeterminate, the next state holder applies the rename.
-            let settle: crate::workspace_registry::SettleState = {
-                let (key, name) = (key, name.clone());
-                Box::new(move |state: &mut State, receipt| {
-                    // Only when no later commit (built on the old name)
-                    // superseded it.
-                    if let crate::workspace_registry::RegistryReceipt::Workspace(receipt) = receipt
-                        && !receipt.commit.replayed
-                        && receipt.commit.revision > state.workspace_revision
-                        && let Some(workspace) =
-                            state.workspaces.iter_mut().find(|workspace| workspace.key == key)
-                    {
-                        workspace.name = name;
-                        workspace.name_source = name_source;
-                        workspace.name_revision = name_revision;
-                        state.workspace_revision = receipt.commit.revision;
-                    }
-                })
-            };
+            // The commit runs on this thread (registry_intent): state stays
+            // held across it, the connection pin is released after it.
             let receipt = registry
                 .commit_registry_intent_with(
                     crate::workspace_registry::RegistryIntent::Workspace(intent),
                     || state.unpin(),
-                    Some(settle),
                 )?
                 .into_workspace()?;
             let commit = receipt.commit;

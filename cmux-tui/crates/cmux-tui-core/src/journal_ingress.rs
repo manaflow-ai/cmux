@@ -21,10 +21,8 @@ use crate::{Mux, panic_free::RecoverPoison};
 mod coalesce;
 mod completion;
 pub(crate) mod contention;
-mod effect_intents;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
-pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
@@ -233,9 +231,6 @@ pub(crate) enum JournalIngressEvent {
         origin: String,
         idempotency_key: String,
     },
-    /// A registry commit (effect receipt, terminal record, workspace
-    /// registry revision) applied in the batch under its own SAVEPOINT.
-    Effect(Box<crate::workspace_registry::RegistryIntent>),
 }
 
 /// Which bounded ingress lane an event travels on. Terminal bytes and their
@@ -255,7 +250,7 @@ impl JournalIngressEvent {
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
             #[cfg(test)]
             Self::TerminalOutput { .. } => JournalLane::Terminal,
-            Self::Frontend { .. } | Self::Producer { .. } | Self::Effect(_) => JournalLane::Durable,
+            Self::Frontend { .. } | Self::Producer { .. } => JournalLane::Durable,
         }
     }
 
@@ -266,7 +261,6 @@ impl JournalIngressEvent {
             Self::TerminalOutput { bytes, .. } => bytes.len(),
             Self::TerminalResize { .. } => 64,
             Self::TerminalOutputGap { .. } => 128,
-            Self::Effect(intent) => intent.estimated_bytes(),
             Self::Frontend { event, .. } => match event {
                 FrontendJournalEvent::Focus { .. } => 512,
                 FrontendJournalEvent::Resize { .. } => 256,
@@ -350,27 +344,20 @@ enum JournalIngressCompletion {
         deadline: Instant,
         commit_fence: Arc<AtomicU8>,
     },
-    Effect {
-        sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
-        deadline: Instant,
-        commit_fence: Arc<AtomicU8>,
-    },
 }
 
 impl JournalIngressCompletion {
     fn deadline(&self) -> Instant {
         match self {
-            Self::Durable { deadline, .. }
-            | Self::Producer { deadline, .. }
-            | Self::Effect { deadline, .. } => *deadline,
+            Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
         }
     }
 
     fn commit_fence(&self) -> &AtomicU8 {
         match self {
-            Self::Durable { commit_fence, .. }
-            | Self::Producer { commit_fence, .. }
-            | Self::Effect { commit_fence, .. } => commit_fence,
+            Self::Durable { commit_fence, .. } | Self::Producer { commit_fence, .. } => {
+                commit_fence
+            }
         }
     }
 }
@@ -1104,9 +1091,6 @@ pub(crate) fn start(
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
     mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))?;
-    // Registry commits (effect receipts, terminal records, workspace
-    // revisions) ride the writer batch from now on.
-    mux.install_registry_intent_sink();
     Ok(())
 }
 
