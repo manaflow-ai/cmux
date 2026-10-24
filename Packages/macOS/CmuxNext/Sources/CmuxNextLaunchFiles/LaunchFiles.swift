@@ -37,8 +37,8 @@ package nonisolated struct LaunchFiles: Sendable {
     ///     thread, `terminal.launch_frame_shown` when a terminal's frame decoded after its pane was
     ///     built is shown.
     @MainActor package init(state: URL?, chiefHome: ChiefHome, mark: @escaping @Sendable (String) -> Void) {
-        terminalFrames = TerminalLaunchFrames(directory: state.map(TerminalLaunchFrames.directory(beside:)))
-        terminalFrames.onLateFrame = { shown in if shown { mark("terminal.launch_frame_shown") } }
+        terminalFrames = TerminalLaunchFrames(directory: state.map(TerminalLaunchFrames.directory(beside:)),
+                                              onLateFrame: { shown in if shown { mark("terminal.launch_frame_shown") } })
         agent = AgentPaneLaunchReads(state: state, readOnMain: mark)
         home = HomeLaunchReads(owner: chiefHome.session, readOnMain: mark)
     }
