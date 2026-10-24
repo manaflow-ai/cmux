@@ -1,0 +1,58 @@
+name: cmux fleet receipt
+description: Run one bounded CI command and write a provider-neutral, secret-free fleet receipt
+inputs:
+  command:
+    description: Shell command to plan or run
+    required: true
+  execute:
+    description: Execute the command (false writes a dry-run receipt)
+    required: false
+    default: "false"
+  timeout-seconds:
+    description: Hard wall-clock limit for the command
+    required: false
+    default: "900"
+  receipt-path:
+    description: Workspace-relative JSON receipt path
+    required: false
+    default: ".cmux/fleet-receipt.json"
+outputs:
+  status:
+    description: planned, passed, failed, or timed_out
+    value: ${{ steps.receipt.outputs.status }}
+  duration-ms:
+    description: Receipt duration in milliseconds
+    value: ${{ steps.receipt.outputs.duration_ms }}
+runs:
+  using: composite
+  steps:
+    - id: receipt
+      shell: bash
+      env:
+        CMUX_FLEET_COMMAND: ${{ inputs.command }}
+        CMUX_FLEET_EXECUTE: ${{ inputs.execute }}
+        CMUX_FLEET_TIMEOUT: ${{ inputs.timeout-seconds }}
+        CMUX_FLEET_RECEIPT: ${{ inputs.receipt-path }}
+      run: |
+        set -u
+        args=(--shell "$CMUX_FLEET_COMMAND" --timeout-seconds "$CMUX_FLEET_TIMEOUT" --output "$CMUX_FLEET_RECEIPT")
+        if [[ "$CMUX_FLEET_EXECUTE" == "true" ]]; then args+=(--execute); fi
+        set +e
+        python3 "${{ github.action_path }}/fleet_receipt.py" "${args[@]}"
+        code=$?
+        set -e
+        status="$(python3 - "$CMUX_FLEET_RECEIPT" <<'PY'
+        import json, sys
+        with open(sys.argv[1], encoding="utf-8") as f:
+            print(json.load(f)["status"])
+        PY
+        )"
+        duration="$(python3 - "$CMUX_FLEET_RECEIPT" <<'PY'
+        import json, sys
+        with open(sys.argv[1], encoding="utf-8") as f:
+            print(json.load(f)["duration_ms"])
+        PY
+        )"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        echo "duration_ms=$duration" >> "$GITHUB_OUTPUT"
+        exit "$code"
