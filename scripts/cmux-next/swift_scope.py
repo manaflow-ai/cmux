@@ -99,13 +99,11 @@ def enclosing_openers(lines: list[str], index: int, stop: re.Pattern, prefix: st
     return openers
 
 
-# Targets built with `.defaultIsolation(MainActor.self)`: those whose swiftSettings are `uiSwiftSettings`.
-TARGET = re.compile(r'\.(?:target|executableTarget|testTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)', re.S)
-
-
-def target_isolation(manifest: str) -> dict[str, bool]:
-    """{target name: main actor by default} for each target of a Package.swift that names its swiftSettings."""
-    return {name: settings == "uiSwiftSettings" for name, settings in TARGET.findall(manifest)}
+# Which targets are main actor by default (`.defaultIsolation(MainActor.self)`, the uiSwiftSettings
+# targets), and which target holds a file: check-main-actor-work.py's one Package.swift reader.
+Target = main_actor_scope.Target
+package_targets = main_actor_scope.package_targets
+default_isolation = main_actor_scope.default_isolation
 
 
 def main_lines(lines: list[str], default_main: bool) -> list[bool]:

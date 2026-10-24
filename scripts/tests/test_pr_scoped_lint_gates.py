@@ -183,7 +183,8 @@ class GateTests(unittest.TestCase):
                         MANIFEST)
 
     def test_crash_class_pr_adding_a_target_dependency_owns_every_violation(self):
-        # The lint reads `.target(name:` anywhere in the manifest, dependency lists included.
+        # A line that opens a target call counts as the lint's code wherever it sits: the lint reads each
+        # target call by balanced parentheses, so it can change which call the lines after it belong to.
         manifest = self.manifest(APP_DEPENDENCY, APP_DEPENDENCY + '                .target(name: "CmuxNextAdded"),\n')
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT}, {MANIFEST: manifest})
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
