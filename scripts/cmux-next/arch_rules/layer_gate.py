@@ -40,10 +40,10 @@ The manifest reader, the map reader and the edge classes are arch_counts.py's (`
 disagree about which edges exist.
 
 Loader contract (scripts/cmux-next/arch_rules/__init__.py): `check(base, head, changes)` returns
-(refusals, notes); a refusal is ("layer-gate", text, key, row), KEY naming what is refused (("edge", A, B),
-("relabel", T), ...) so a merge push matches it over both ranges, ROW the arch_counts row the refused change
-raises (a new edge's class row, layer_unplaced for a new unplaced target; else None) so the count rule does
-not refuse it a second time: one new edge, one refusal, one dated entry. It reads only `changes.files` and two files
+(refusals, notes) over the ratchet's one range (a merge push starts where HEAD meets origin/feat-cmux-next);
+a refusal is ("layer-gate", text, row), ROW the arch_counts row the refused change raises (a new edge's class
+row, layer_unplaced for a new unplaced target; else None) so the count rule does not refuse it a second time:
+one new edge, one refusal, one dated entry. It reads only `changes.files` and two files
 at both ends through `changes.read` (one `git cat-file --batch`).
 
   scripts/cmux-next/arch_rules/layer_gate.py                  # HEAD over its merge base with origin/feat-cmux-next
@@ -123,8 +123,6 @@ class Refusal:
     # layer_unplaced), or None. The ratchet's count rule does not refuse that unit again, so one new edge has
     # one refusal and one escape.
     row: str | None = None
-    # What is refused, independent of the base: matches the same refusal over the ranges of a merge push.
-    key: tuple = ()
 
     def __str__(self) -> str:
         return f"[{self.rule}] {self.path}:{self.number}: {self.text}"
@@ -173,7 +171,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         return [Refusal(LAYERS_JSON, 1, f"{LAYERS_JSON} does not parse: {head_map.error}; the gate cannot place any "
                                         f"target, so fix the file (an object with `order`, a list of layer names, "
                                         f"and `targets`, {{name: {{\"layer\": ...}}}})",
-                        key=("map",))]
+                        )]
     head, base = counts.parse_manifest(head_manifest), counts.parse_manifest(base_manifest)
     # A base map that does not parse places nothing: then only the head's layers judge the push.
     base_map = counts.LayerMap.parse(base_layers)
@@ -181,8 +179,8 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
     justified, invalid = relabels(base_map, head_map, base, head, changed)
     out = []
 
-    def refuse(name: str, text: str, row: str | None, key: tuple) -> None:
-        out.append(Refusal(PACKAGE_SWIFT, head.targets[name].line, text, row=row, key=key))
+    def refuse(name: str, text: str, row: str | None) -> None:
+        out.append(Refusal(PACKAGE_SWIFT, head.targets[name].line, text, row=row))
 
     def span(name: str) -> tuple[str, str] | None:
         """(lowest, highest) layer of NAME over the base and head maps. A new edge takes the source's lowest
@@ -207,7 +205,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         refuse(name, f"target {name} ({head.targets[name].kind}) {state} in {LAYERS_JSON}: add it under "
                      f"`targets` as {{\"layer\": ...}} with the layer it holds (core, service, domain, ui or app; a "
                      f"target that mixes layers takes its highest one and lists the others in `mixes`)",
-               "layer_unplaced", ("unmapped", name))
+               "layer_unplaced")
     for name, target in sorted(head.targets.items()):
         if target.kind not in MAPPED_KINDS:
             continue
@@ -215,7 +213,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         if now == "app" and name != COMPOSITION_ROOT and was != "app":
             refuse(name, f"target {name} is placed as app in {LAYERS_JSON}: only {COMPOSITION_ROOT}, the "
                          f"composition root, is app (DESIGN section 4); give {name} the layer its code holds "
-                         f"(core, service, domain or ui)", None, ("app", name))
+                         f"(core, service, domain or ui)", None)
         if was is None or now is None or was == now or name in justified:
             continue
         changed_edges = []
@@ -230,7 +228,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                      f"same push) and a dated reason the push adds under `relayered`: {{\"target\": \"{name}\", "
                      f"\"from\": \"{was}\", \"to\": \"{now}\", \"date\": \"YYYY-MM-DD\", \"reason\": what changed "
                      f"in its code}}; a relabel that only clears an edge is the debt renamed: {FIX}",
-               None, ("relabel", name))
+               None)
     for source, dep in sorted(head.edges() - base.edges()):
         ends, deps = span(source), span(dep)
         if ends is None or deps is None:
@@ -239,19 +237,19 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         kind = counts.edge_class(order, a, b)
         if kind is None:
             continue
-        note, key = moved(source) + moved(dep), ("edge", source, dep)
+        note = moved(source) + moved(dep)
         if kind == "hard":
             refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): {a_layer(a)} target may not depend on "
-                           f"{a_layer(b)} target{note}; {FIX}", ROW_OF_CLASS[kind], key)
+                           f"{a_layer(b)} target{note}; {FIX}", ROW_OF_CLASS[kind])
         elif kind == "upward":
             refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): edges only point down, so {a_layer(a)} "
-                           f"target may not depend on {a_layer(b)} target{note}; {FIX}", ROW_OF_CLASS[kind], key)
+                           f"target may not depend on {a_layer(b)} target{note}; {FIX}", ROW_OF_CLASS[kind])
         else:
             ok, why = excepted(head_map, source, dep)
             if not ok:
                 refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): a service may not depend on a domain "
                                f"target{note}{why}; {FIX}; or, if it must stay for now, list it under `exceptions` "
-                               f"in {LAYERS_JSON} with a date and a reason", ROW_OF_CLASS[kind], key)
+                               f"in {LAYERS_JSON} with a date and a reason", ROW_OF_CLASS[kind])
     for name, target in sorted(head.targets.items()):
         if target.kind == "testTarget":
             continue
@@ -259,7 +257,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         for expr in sorted(target.unresolved - (before.unresolved if before else set())):
             refuse(name, f"{name}'s dependencies hold `{shown(expr)}`, which the gate cannot read without swift: use "
                          f"string literals, `.target(name:)`/`.product(...)` entries or a top-level "
-                         f"`let` `[Target.Dependency]` variable", None, ("unresolved", name, expr))
+                         f"`let` `[Target.Dependency]` variable", None)
     for expr, (line, why) in sorted(head.unreadable.items(), key=lambda item: item[1][0]):
         if expr in base.unreadable:
             continue
@@ -267,8 +265,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                                                 f"declare each target as a `.target(name: \"...\", dependencies: "
                                                 f"[...])` call in `Package(targets:)` or a top-level `let X: Target`, "
                                                 f"with string-literal names and dependencies, and never change "
-                                                f"`package` after it is built",
-                           key=("unreadable", expr)))
+                                                f"`package` after it is built"))
     return out
 
 
@@ -315,9 +312,8 @@ def check_repo(repo: Path | str, base: str, head: str, changed: Iterable[str], r
 def check(base: str, head: str, changes: Any = None, repo: Path | str | None = None) -> tuple[list, list]:
     """arch-ratchet entry point: (refusals, notes) for the pushed range BASE..HEAD.
 
-    A refusal is `(ID, text, key, row)`, so a dated arch-ratchet.json exception for ID covers it, a merge push
-    matches it over both ranges by KEY, and the count rule does not refuse the unit of ROW (the arch_counts
-    row the refused change raises, or None) that it answers. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
+    A refusal is `(ID, text, row)`, so a dated arch-ratchet.json exception for ID covers it, and the count rule
+    does not refuse the unit of ROW (the arch_counts row the refused change raises, or None) that it answers. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
     `read`); None reads the changed paths from git in REPO (default: the repository that holds this file).
     """
     root = Path(getattr(changes, "repo", None) or repo or ROOT)
@@ -326,7 +322,7 @@ def check(base: str, head: str, changes: Any = None, repo: Path | str | None = N
     else:
         changed = changed_paths(getattr(changes, "files", changes))
     found = check_repo(root, base, head, changed, getattr(changes, "read", None))
-    return [(ID, f"{refusal}\n  {escape()}", refusal.key, refusal.row) for refusal in found], []
+    return [(ID, f"{refusal}\n  {escape()}", refusal.row) for refusal in found], []
 
 
 def escape() -> str:
