@@ -92,3 +92,17 @@ private final class NeverRestarter: ServerRestarting {
         throw CancellationError()
     }
 }
+
+/// `cmux host status --json` lists the addresses other devices dial; Settings shows the first.
+@Suite struct ServerTailnetAddressTests {
+    @Test func theFirstListedAddressIsShown() {
+        let json = #"{"enabled":true,"serving":true,"addresses":["100.64.0.7:7777","[fd7a::7]:7777"]}"#
+        #expect(ServerTailnetAddress(hostStatus: Data(json.utf8))?.value == "100.64.0.7:7777")
+    }
+
+    @Test func noAddressMeansNoRow() {
+        #expect(ServerTailnetAddress(hostStatus: Data(#"{"addresses":[]}"#.utf8)) == nil)
+        #expect(ServerTailnetAddress(hostStatus: Data(#"{"enabled":false}"#.utf8)) == nil)
+        #expect(ServerTailnetAddress(hostStatus: Data("not json".utf8)) == nil)
+    }
+}
