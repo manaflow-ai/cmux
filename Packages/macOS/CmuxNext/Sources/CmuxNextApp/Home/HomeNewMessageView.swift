@@ -76,13 +76,17 @@ final class HomeNewMessageView: NSView {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // This view owns no Sendable handle; its composer's own HomeStore is main-actor and only stop() ends its
     // connection, resend and prune tasks and flushes its cache. AppKit releases these views on the main thread, so
-    // stop() runs there and then, synchronously: the cache flush is done before the app can terminate, and a new
-    // page that asks for the same resources finds them released. Only a release off main (OffMainReleaseCleanupTests'
-    // shape, 39256ad7181) hops to the main actor, and only when stop() has not run yet.
+    // stop()'s two stops run there and then, synchronously, unless stop() already ran: the cache flush is done before
+    // the app can terminate, and a new page that asks for the same resources finds them released. Only a release off
+    // main (OffMainReleaseCleanupTests' shape, 39256ad7181) hops to the main actor. The stops capture copies of the
+    // two properties, never self: a deinit may read self's properties only before self is copied.
     nonisolated deinit {
-        if MainThreadInlineRun.ifOnMainThread({ stop() }) { return }
         guard !stopped else { return }
         let composer = composer, composerStore = composerStore
+        if MainThreadInlineRun.ifOnMainThread({
+            composer?.stop()
+            composerStore?.stop()
+        }) { return }
         // task-owner: the main-actor half of an off-main release; one call each, then it ends
         Task { @MainActor in
             composer?.stop()
