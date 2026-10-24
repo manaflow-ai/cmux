@@ -3,7 +3,7 @@
 public import Darwin
 #endif
 
-/// Marks a call that blocks: in Debug and Nightly builds, a blocking call on the main thread
+/// Marks a call that blocks: in builds with the detector (Debug, bench, and Nightly to come), a blocking call on the main thread
 /// outside ``allowBlocking(_:_:)`` is a violation; in Release this compiles to nothing.
 ///
 /// This is cmux's `base::ScopedBlockingCall` (Chrome's `AssertBlockingAllowed`). It belongs in
