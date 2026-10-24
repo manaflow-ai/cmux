@@ -69,15 +69,20 @@ public final class ActionBudgetReporter: Sendable {
         return await ledger.snapshot(dropped: Int(clamping: dropped))
     }
 
-    /// `debug.action_budget`: the report's counters and the newest runs from the monitor's ring
-    /// (with their real ids: a Debug method).
-    public var method: ControlMethod {
+    /// `debug.action_budget`: the report's counters, the newest runs from the monitor's ring (with their
+    /// real ids: a Debug method), and `registry`'s pipeline counts: handlers bound with an effect and the
+    /// untyped rest, and the runs of waiting effects by action and reason (what still shows nothing first).
+    ///
+    /// - Parameter registry: The app's registry.
+    /// - Returns: The control method.
+    public func method(registry: ActionRegistry) -> ControlMethod {
         .async("debug.action_budget") { [self] call in
             let limit = call.params["limit"]?.intValue ?? 64
-            let (recent, over, droppedSamples) = await MainActor.run { [monitor] in
-                (monitor.recent(limit), monitor.overBudgetCount, monitor.droppedSampleCount)
+            let (recent, over, droppedSamples, pipeline) = await MainActor.run { [monitor, weak registry] in
+                (monitor.recent(limit), monitor.overBudgetCount, monitor.droppedSampleCount, registry.map(Self.pipeline) ?? .null)
             }
             guard case .object(var members) = await counts().json else { return .null }
+            members["pipeline"] = pipeline
             members["over_budget_recorded"] = JSONValue(Int(clamping: over))
             members["samples_dropped"] = JSONValue(Int(clamping: droppedSamples))
             members["recent"] = .array(recent.map { sample in
@@ -93,5 +98,17 @@ public final class ActionBudgetReporter: Sendable {
             })
             return .object(members)
         }
+    }
+
+    /// The registry's pipeline counts as JSON.
+    @MainActor
+    private static func pipeline(_ registry: ActionRegistry) -> JSONValue {
+        .object([
+            "effect_bound": JSONValue(registry.effectBoundCount),
+            "untyped_bound": JSONValue(registry.legacyBoundCount),
+            "waiting_runs": .object(Dictionary(uniqueKeysWithValues: registry.waitingRuns.map { id, reasons in
+                (id.rawValue, JSONValue.object(Dictionary(uniqueKeysWithValues: reasons.map { ($0.key.rawValue, JSONValue($0.value)) })))
+            })),
+        ])
     }
 }
