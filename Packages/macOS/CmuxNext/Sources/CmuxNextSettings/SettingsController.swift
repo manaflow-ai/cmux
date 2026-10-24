@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextDesign
+import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -68,7 +69,7 @@ public final class SettingsController {
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
-    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
+    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context, writes: OrderedWrites)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.

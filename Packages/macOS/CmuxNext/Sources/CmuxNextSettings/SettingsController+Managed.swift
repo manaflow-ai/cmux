@@ -1,4 +1,5 @@
-public import Foundation
+public import CmuxNextWakeups
+import Foundation
 
 extension SettingsController {
     /// Re-reads managed preferences and reloads when they changed. The App
@@ -20,9 +21,10 @@ extension SettingsController {
 
     /// Writes the managed-settings status file after every applied load
     /// whose content changed (osquery, Fleet, Jamf extension attributes,
-    /// `cmux mdm status --json`). Call before `start()`.
-    public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context) {
-        statusTarget = (url, context)
+    /// `cmux mdm status --json`). Call before `start()`. The file is written on `work`'s files lane,
+    /// in order, best effort (the file is a convenience for local tooling; the backend report is the record).
+    public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context, work: BackgroundWork) {
+        statusTarget = (url, context, OrderedWrites(work: work) { _ in })
         lastStatusBody = nil
     }
 
@@ -32,14 +34,7 @@ extension SettingsController {
         guard body != lastStatusBody else { return }
         lastStatusBody = body
         let document = ManagedStatusReport.document(body: body, writtenAt: Date())
-        Task.detached(priority: .utility) {
-            do {
-                try FileManager.default.createDirectory(at: target.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data((document.prettyText() + "\n").utf8).write(to: target.url, options: .atomic)
-            } catch {
-                // Best effort: the file is a convenience for local tooling; the backend report is the record.
-            }
-        }
+        target.writes.save(Data((document.prettyText() + "\n").utf8), to: target.url)
     }
 
     /// The managed key a write at `path` would change (the path is the key,
