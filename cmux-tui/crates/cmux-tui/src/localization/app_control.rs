@@ -76,7 +76,7 @@ pub(crate) struct VersionLabels {
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
-    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (stdin: a JSON array, or one JSON object per line, of action.run params:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}; they run in order as ONE transaction:\n         every op is checked before any runs, and the app applies them in one frame.\n         At most 64 ops per transaction; --no-atomic applies more as consecutive transactions)",
+    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (stdin: a JSON array, or one JSON object per line, of action.run params:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}; they run in order in ONE app task:\n         every op is checked before any runs; app changes show together, daemon changes as they arrive.\n         A refusal stops there and the ops before it stay applied (not all-or-nothing).\n         At most 64 ops per transaction; --no-atomic applies more as consecutive transactions)",
     action_batch_stdin: "action run -: cannot read stdin: {error}",
     action_batch_line: "action run -: op {line} of stdin is not a JSON object of action.run params ({error}); nothing ran",
     action_batch_empty: "action run -: stdin has no op; nothing ran",
@@ -140,7 +140,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
-    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (標準入力: action.run のパラメーターの JSON 配列、または 1 行に 1 つの JSON オブジェクト:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}。1 つのトランザクションとして順に実行します。\n         実行前にすべての操作を検査し、アプリは 1 フレームで適用します。\n         1 トランザクションは最大 64 操作です。--no-atomic はそれを超える分を連続したトランザクションで適用します)",
+    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (標準入力: action.run のパラメーターの JSON 配列、または 1 行に 1 つの JSON オブジェクト:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}。アプリの 1 つのタスクで順に実行します。\n         実行前にすべての操作を検査します。アプリの変更はまとめて表示され、デーモンの変更は届いた順に表示されます。\n         拒否された操作で止まり、それより前の操作は適用されたままです (すべてか無しかではありません)。\n         1 トランザクションは最大 64 操作です。--no-atomic はそれを超える分を連続したトランザクションで適用します)",
     action_batch_stdin: "action run -: 標準入力を読めません: {error}",
     action_batch_line: "action run -: 標準入力の操作 {line} は action.run パラメーターの JSON オブジェクトではありません ({error})。何も実行していません",
     action_batch_empty: "action run -: 標準入力に操作がありません。何も実行していません",
