@@ -345,11 +345,6 @@ impl HolderClient {
         }
     }
 
-    /// Ask the holder for a [`Event::Pong`] with `nonce`.
-    pub fn ping(&mut self, nonce: u64) -> io::Result<()> {
-        self.send(Kind::Ping, 0, &Out::default().u64(nonce).0, None)
-    }
-
     /// [`Self::attach`] as a restarted daemon does: the prologue first.
     pub fn reattach(&mut self, chan: u32, from: u64) -> io::Result<()> {
         let payload = Out::default().u64(from).0;
