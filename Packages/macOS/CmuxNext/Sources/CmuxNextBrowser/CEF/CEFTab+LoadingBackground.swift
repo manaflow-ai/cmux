@@ -48,6 +48,8 @@ extension CEFTab {
         guard pastFirstRealPage, !documentSettled else { return }
         documentSettled = true
         applyPageBackground()
+        // A woken tab's picture gives the page area back to the painted document.
+        host.hostView.layerHosting.documentPainted(owner: ObjectIdentifier(self))
     }
 
     /// A real page committed, or a page opened this tab (a popup,

@@ -124,6 +124,7 @@ final class CEFPaneHost {
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
+        hostView.layerHosting.tabShown(owner: ObjectIdentifier(tab))
         if hostView.superview !== container {
             // A direct addSubview moves the view without taking it out of
             // the window: the page's child window is not re-added (about

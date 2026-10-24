@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -98,6 +99,10 @@ final class CEFLayerHosting {
     private var appliedDeadlineMs: Int32 = 0
     /// The window is in a live resize (``windowLiveResize(active:)``).
     private var inLiveResize = false
+    /// A woken tab's picture over the page until it paints (``showStandIn(_:owner:cap:hostingAvailable:)``).
+    private var standIn: (view: CEFWakeStandInView, owner: ObjectIdentifier)?
+    /// The stand-in's cap, for a page that never paints.
+    private let standInCap: DemandTimer
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -109,12 +114,15 @@ final class CEFLayerHosting {
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
+    ///   - standInClock: the clock of a stand-in's cap; tests pass one that never fires or fires at once.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
+         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
+         standInClock: any Clock<Duration> = ContinuousClock()) {
+        standInCap = DemandTimer(owner: "CEFLayerHosting.standInCap", clock: standInClock)
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
@@ -213,6 +221,7 @@ final class CEFLayerHosting {
     /// The view goes away (DevTools closed) or its page window closed: turns
     /// hosting off for the browser and drops the hosted view.
     func stop() {
+        endStandIn()
         pending = .none
         if page != nil, let fork, let browser {
             forkCalls += 1
@@ -286,6 +295,47 @@ final class CEFLayerHosting {
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
+    }
+
+    // MARK: Wake stand-in
+
+    /// Shows a woken tab's last picture over the page until that tab paints
+    /// (``documentPainted(owner:)``), the pane shows another tab
+    /// (``tabShown(owner:)``) or `cap` passes; the restored page stays visible
+    /// to Chromium under it, so its first frame is not held back. Only for a
+    /// layer-hosted page (`hostingAvailable`: fork API 26 or later; the
+    /// tunable on): a page window would draw over a picture in these layers.
+    /// - Returns: whether the picture shows; false keeps today's gap.
+    @discardableResult
+    func showStandIn(_ image: CGImage, owner: ObjectIdentifier, cap: Duration, hostingAvailable: Bool) -> Bool {
+        guard hostingAvailable, isEnabled(), let view else { return false }
+        endStandIn()
+        let standIn = CEFWakeStandInView(frame: view.bounds, image: image)
+        view.addSubview(standIn, positioned: .above, relativeTo: nil)
+        self.standIn = (standIn, owner)
+        standInCap.schedule(after: cap) { @MainActor [weak self] in self?.endStandIn() }
+        return true
+    }
+
+    /// Whether a stand-in shows now.
+    var hasStandIn: Bool { standIn != nil }
+
+    /// The tab `owner` painted its first content: its stand-in goes.
+    func documentPainted(owner: ObjectIdentifier) {
+        guard standIn?.owner == owner else { return }
+        endStandIn()
+    }
+
+    /// The pane shows the tab `owner`: another tab's stand-in goes.
+    func tabShown(owner: ObjectIdentifier) {
+        guard let standIn, standIn.owner != owner else { return }
+        endStandIn()
+    }
+
+    private func endStandIn() {
+        standInCap.cancel()
+        standIn?.view.removeFromSuperview()
+        standIn = nil
     }
 
     /// Runs `block` on the main run loop at the end of this turn, after the
