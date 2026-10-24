@@ -33,6 +33,10 @@ What the action rows mean:
                            perform, commit or input_to_commit rows (the run it lets through has
                            its own)
 
+Categories (SignpostCategory.swift): action, motion, key, switch, create, cef, launch, stall, and
+burst (events, not intervals: scripts/cmux-next/burst-bench.py reads those; this script pairs
+intervals only, so --category burst prints no rows).
+
 The stream is drained on a reader thread while the scenario runs (a full pipe would block
 `log stream` and logd would drop events). Lost-message reports from `log stream` are counted;
 any loss fails the run (exit 2) unless --allow-loss, because the percentiles would then come from
