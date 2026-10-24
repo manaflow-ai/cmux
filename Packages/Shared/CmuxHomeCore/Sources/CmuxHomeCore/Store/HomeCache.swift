@@ -33,9 +33,8 @@ public actor HomeCache {
     private var lastSequence: [UUID: UInt64] = [:]
 
     private struct Written {
-        /// The index as a value, not as bytes: `JSONEncoder` writes a struct's keys and a
-        /// non-`String`-keyed dictionary's entries in hash order, so two encodes of one state can
-        /// differ byte for byte. Comparing bytes rewrote `home.json` for an equal state.
+        /// The index as a value: an equal state is found without encoding anything (the index's
+        /// bytes are a function of its value too, ``HomeCacheSnapshot/encode(to:)``).
         var index: HomeCacheSnapshot?
         /// Each window file's messages (the kept tail), compared with a new state's tail.
         var windows: [ConversationID: [Message]] = [:]
@@ -170,10 +169,8 @@ public actor HomeCache {
         return snapshot
     }
 
-    /// Sorted keys order struct fields and String-keyed dictionaries only. ConversationID is not
-    /// `CodingKeyRepresentable`, so the ConversationID-keyed dictionaries (drafts, scroll,
-    /// draftAttachments) encode as unkeyed `[key, value, ...]` arrays in hash order:
-    /// equal values can give different bytes, and the change test must stay a value compare.
+    /// Sorted keys: with ``HomeCacheSnapshot/encode(to:)``, which writes the conversation-keyed
+    /// dictionaries in key order, equal values give equal bytes.
     private static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

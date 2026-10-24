@@ -123,6 +123,34 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     }
 
     public var hasInvitedParticipant: Bool { participants.contains { $0.membership == .invited } }
+
+    /// Encodes the summary as the synthesized encoding does, with ``readCursors`` and
+    /// ``readCursorTimes`` in participant order, so equal summaries give equal bytes under
+    /// `.sortedKeys` (the Home cache index keeps them; `KeyedEncodingContainer.encodeInKeyOrder`).
+    ///
+    /// - Parameter encoder: The encoder to write to.
+    /// - Throws: Any error the encoder throws.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(owner, forKey: .owner)
+        try container.encode(title, forKey: .title)
+        try container.encode(participants, forKey: .participants)
+        try container.encode(lastSeq, forKey: .lastSeq)
+        try container.encode(rev, forKey: .rev)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(lastMessage, forKey: .lastMessage)
+        try container.encodeInKeyOrder(readCursors, forKey: .readCursors)
+        try container.encodeInKeyOrder(readCursorTimes, forKey: .readCursorTimes)
+        try container.encodeIfPresent(pinRank, forKey: .pinRank)
+        try container.encode(muted, forKey: .muted)
+        try container.encodeIfPresent(previewAttachments, forKey: .previewAttachments)
+        try container.encode(mentionCount, forKey: .mentionCount)
+        try container.encodeIfPresent(declaredKind, forKey: .declaredKind)
+        try container.encodeIfPresent(memberCount, forKey: .memberCount)
+        try container.encodeIfPresent(chiefReplies, forKey: .chiefReplies)
+    }
 }
 
 /// The account inbox: every conversation the user is in.
