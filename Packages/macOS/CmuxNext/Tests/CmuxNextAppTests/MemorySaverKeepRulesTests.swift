@@ -75,3 +75,27 @@ import Testing
         #expect(history.doubted("page"))
     }
 }
+
+/// Chrome's kNotificationsEnabled: a proactive discard (the idle timeout) never takes a tab whose site
+/// may show notifications, because a discarded page shows none; an urgent discard (memory pressure)
+/// still may. cmux's WebKit tabs show web notifications (WebKitNotificationBridge); before, the
+/// timeout discarded such a tab (a chat, a mail) and its notifications stopped.
+@Suite struct MemorySaverNotificationsTests {
+    private func page(_ key: String, notifications: Bool) -> HibernationPlanner.Candidate {
+        HibernationPlanner.Candidate(key: key, hiddenFor: 3_600, allowsNotifications: notifications)
+    }
+
+    @Test func theTimeoutKeepsATabThatMayShowNotifications() {
+        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [
+            page("chat", notifications: true), page("docs", notifications: false),
+        ])
+        #expect(plan.due == ["docs"])
+        #expect(plan.exemptions["chat"]?.rawValue == "notifications")
+    }
+
+    @Test(arguments: [MemoryPressureLevel.warning, .critical])
+    func memoryPressureMayStillTakeIt(_ pressure: MemoryPressureLevel) {
+        let plan = HibernationPlanner.plan(.fallback, pressure: pressure, candidates: [page("chat", notifications: true)])
+        #expect(plan.due == ["chat"])
+    }
+}
