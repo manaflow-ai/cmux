@@ -9,6 +9,10 @@ struct WorkspaceAutoNameTests {
     private static let live = WorkspaceAutoName(enabled: true, variant: .live)
     private static let persist = WorkspaceAutoName(enabled: true, variant: .persist)
 
+    @Test func theDefaultVariantPersistsTheFirstChatTitle() {
+        #expect(WorkspaceAutoNameTunables.variant.defaultValue == .persist)
+    }
+
     private static func terminal(title: String? = nil, cwd: String? = nil, userName: String? = nil) -> WorkspaceAutoName.Front {
         .terminal(NewWorkspaceName.Tab(kind: .terminal, userName: userName, title: title, pageTitle: nil, url: nil, cwd: cwd))
     }
