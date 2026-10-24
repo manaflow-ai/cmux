@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Semaphore, broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -79,6 +79,13 @@ pub struct Conn {
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
 }
+
+// Transport readers already have bounded channels. Bound the work they can
+// start as well: a client may otherwise keep long-running requests alive by
+// sending faster than their handlers finish. Notifications have their own
+// slots so a burst of requests cannot keep a cancel from being admitted.
+const REQUEST_WORK_LIMIT: usize = 64;
+const NOTIFICATION_WORK_LIMIT: usize = 16;
 
 impl Conn {
     /// Whether this connection is the person (`hub/person.rs`).
@@ -834,6 +841,8 @@ async fn serve_connection_from(
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
+    let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+    let notification_slots = Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT));
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -848,12 +857,23 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                let Ok(slot) = request_slots.clone().try_acquire_owned() else {
+                    let error = RpcError::new(-32000, "connection request limit reached")
+                        .with_data(json!({"reason": "connection.busy", "retryable": true}));
+                    // Backpressure this connection when its output is also
+                    // full; a rejected request must receive a reply.
+                    if conn.out.send(Message::err(id, error).to_line()).await.is_err() {
+                        break;
+                    }
+                    continue;
+                };
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
+                    let _slot = slot;
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
@@ -864,9 +884,16 @@ async fn serve_connection_from(
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
+                // Notifications have no response id, so dropping one at the
+                // limit would silently lose a cancel. Let the transport's
+                // bounded inbound channel apply backpressure instead.
+                let Ok(slot) = notification_slots.clone().acquire_owned().await else {
+                    break;
+                };
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
+                    let _slot = slot;
                     handle_notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                 });
             }
