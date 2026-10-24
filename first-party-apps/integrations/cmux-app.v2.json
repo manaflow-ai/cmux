@@ -87,7 +87,8 @@
     "onInterface:cmux.pane/1",
     "onOp:integrations.open",
     "onOp:integrations.connect",
-    "onOp:integrations.import_api"
+    "onOp:integrations.import_api",
+    "onOp:integrations.linear.teams"
   ],
   "files": [
     "dist/",

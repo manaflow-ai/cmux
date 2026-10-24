@@ -4,8 +4,9 @@
 import { t } from "./l10n.ts"
 import { connect as connectProvider } from "./model/actions.ts"
 import { submitImport } from "./model/importer.ts"
+import { normalizeTeams, type LinearTeamsResult } from "./model/linear.ts"
 import { CONNECTABLE } from "./model/providers.ts"
-import { codeOf, open, reload } from "./model/store.ts"
+import { codeOf, findConnection, open, reload } from "./model/store.ts"
 import { cycleVariant as cycle } from "./settings.ts"
 
 type CmuxErrorConstructor = new (code: string, message: string) => CmuxError
@@ -41,6 +42,27 @@ export async function importApi(args: { source?: string } = {}) {
   open({ screen: "import" })
   await submitImport(args.source)
   return { opened: await openPane() }
+}
+
+/** Lists the teams on one active Linear connection without exposing provider fields. */
+export async function linearTeams(args: { connection?: string } = {}): Promise<LinearTeamsResult & { connection: string; opened: boolean }> {
+  if (typeof args.connection !== "string" || !args.connection.trim()) throw invalid(t("command.linearTeams.invalidConnection", "connection must be a non-empty id"))
+  const connection = args.connection.trim()
+  await reload()
+  const record = findConnection(connection)
+  if (!record) throw invalid(t("command.linearTeams.notFound", "connection {connection} was not found", { connection }))
+  if (record.provider !== "linear") throw invalid(t("command.linearTeams.notLinear", "connection {connection} is not a Linear connection", { connection }))
+  if (record.status !== "active") throw invalid(t("command.linearTeams.notActive", "connection {connection} is not active", { connection }))
+
+  let result: LinearTeamsResult
+  try {
+    result = normalizeTeams(await cmux.call<unknown>("linear.teams.list", { connection }))
+  } catch (error) {
+    if (error instanceof TypeError && error.message.startsWith("Linear teams response")) throw invalid(t("command.linearTeams.invalidResponse", "Linear returned an invalid teams response"))
+    throw error
+  }
+  open({ screen: "detail", id: connection })
+  return { connection, ...result, opened: await openPane() }
 }
 
 export async function cycleVariant() {

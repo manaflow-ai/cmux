@@ -17,6 +17,7 @@ The generic import (OpenAPI, GraphQL and MCP ingestion, tool paths, auth-method 
 | `openIntegrations` | command (palette, section) | opens the pane, optionally on one connection |
 | `connect` | command (palette) | starts connecting `github`, `linear` or `slack` |
 | `importApi` | command (palette) | previews a spec URL or JSON in the importer |
+| `linearTeams` | command (palette, CLI) | lists the teams on an active Linear connection |
 | `cycleVariant` | command (palette, DEV/NIGHTLY) | next design variant |
 
 No MCP tools: connecting needs a human at the provider, and agents already reach `integration.list` and provider ops through the backend catalog.
