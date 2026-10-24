@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import os
 import CmuxNextWakeups
 
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
@@ -160,21 +159,6 @@ final class CEFPaneHost {
         }
     }
 
-    /// Makes the shown tab's browser Chromium's active tab and puts the page window over this
-    /// host's view. Also for a tab whose browser joined a live window after the frame
-    /// (`createDeferred`): `tab_add` alone left that pane on its empty themed area.
-    private func showBrowser(of tab: CEFTab) {
-        guard let browser = tab.browserID else { return }
-        lastActivated = browser
-        tabSwitchMark("activate")
-        _ = runtime.shim?.tabActivate(browser)
-        tabSwitchMark("activated")
-        hostView.layerHosting.pageShown(browser: browser)
-        hostView.postGeometryChange()
-        // A window-wide side panel stays open across tabs: no event.
-        tab.sidePanel.scheduleRefresh()
-    }
-
     /// True when Chromium activating `tab` is a choice made inside Chromium
     /// (an extension switching the window's tab), not the echo of this
     /// host's own activation or tab creation: only then may the App select
@@ -208,16 +192,18 @@ final class CEFPaneHost {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
         for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) {
-            ensureCreated(tab)
-            // Joined a live window (`tab_add` returns the browser) while still shown: present's
-            // activation, page-shown and geometry steps, which it skipped for a tab with no browser.
-            // A window still being built activates its shown tab in `windowCreated`.
-            if visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab) }
+            // Joined a live window while still shown (`tab_add` activated it and returned the browser):
+            // present's page-shown and geometry steps, which it skipped for a tab with no browser.
+            // A window still being built shows its shown tab in `windowCreated`.
+            if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
         }
     }
 
-    func ensureCreated(_ tab: CEFTab) {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return }
+    /// Starts `tab`'s browser: a new Chromium window, or a tab of this host's live or coming one.
+    /// True when it joined the live window as Chromium's active tab (`tab_add` with activate).
+    @discardableResult
+    func ensureCreated(_ tab: CEFTab) -> Bool {
+        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
             let request = runtime.makeRequestToken()
@@ -241,13 +227,13 @@ final class CEFPaneHost {
                shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
                 || shim.contextProxyState(contextKey) < 0 {
                 tab.creationFailed()
-                return
+                return false
             }
             // A browser profile's own proxy (#24432), also before the first
             // request: a page the shim cannot proxy never opens (fail closed).
             if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
                 tab.creationFailed()
-                return
+                return false
             }
             tab.isCreationPending = true
             windowTab = tab
@@ -276,22 +262,28 @@ final class CEFPaneHost {
                 window = .none
                 tab.creationFailed()
             }
+            return false
         case .creating:
             // Joins the window once it exists (windowCreated).
             tab.isCreationPending = true
+            return false
         case .live:
-            addToWindow(tab)
+            return addToWindow(tab)
         }
     }
 
-    private func addToWindow(_ tab: CEFTab) {
+    /// Adds `tab` to the live window; the shown tab becomes Chromium's active tab in the same call
+    /// (the one activation of it). True when it joined as the active tab.
+    @discardableResult
+    private func addToWindow(_ tab: CEFTab) -> Bool {
         guard let shim = runtime.shim, let anchor = tabs.lazy.compactMap(\.browserID).first else {
             window = .none
-            return
+            return false
         }
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
-        let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, self.visibleTab === tab ? 1 : 0) }
+        let activates = visibleTab === tab
+        let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, activates ? 1 : 0) }
         #if DEBUG || CMUX_BENCH_HOOKS
         let browser = runtime.benchMarks.span("cef.tab_add", add)
         #else
@@ -303,7 +295,10 @@ final class CEFPaneHost {
         } else if tab.browserID == nil {
             runtime.register(tab, browser: browser)
         }
+        // Chromium's echo of this activation is this host's own (`isForeignActivation`).
+        if browser != 0, activates { lastActivated = browser }
         closeSparePlaceholder(joined: tab)
+        return browser != 0 && activates
     }
 
     func windowCreated(browser: Int32, request: Int32) {
@@ -318,15 +313,22 @@ final class CEFPaneHost {
         lastActivated = browser
         runtime.register(tab, browser: browser)
         hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
-        // Tabs shown or created while the window was being built.
+        // Tabs shown or created while the window was being built. The window's first tab is its
+        // active one until a shown tab joins it as active (`tab_add` with activate).
+        var active = tab
         for waiting in tabs where waiting !== tab && waiting.browserID == nil && waiting.isCreationPending {
             waiting.isCreationPending = false
-            addToWindow(waiting)
+            if addToWindow(waiting) { active = waiting }
         }
-        if let visible = visibleTab, !visible.awaitsWindowMove, let id = visible.browserID {
+        if let visible = visibleTab, !visible.awaitsWindowMove, visible !== active, let id = visible.browserID {
             lastActivated = id
             _ = runtime.shim?.tabActivate(id)
         }
+        // The shown tab's page-shown and geometry steps, out of Chromium's creation stack (this
+        // runs inside OnAfterCreated): a tab queued while the window was being built, or the
+        // window's own tab whose pane moved since the window took its first frame (a pane
+        // growing in on its split spring), would keep the place and clip the fork read then.
+        endOfTurn { [weak self] in self?.showCreatedWindow() }
         refreshExtensionActions()
         runtime.extensionStores.store(for: key.profile).refresh()
         runtime.orphans.windowBecameLive(self)
@@ -384,14 +386,6 @@ final class CEFPaneHost {
     func refreshExtensionActions() {
         for tab in tabs { tab.refreshExtensionActions() }
     }
-}
-
-/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
-/// them up with the page's own clock. Debug level: nothing is written unless
-/// a `log stream --level debug` reads category "tab-switch".
-private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
 
 /// A tab a host creates after the frame commits; weak, so a tab closed meanwhile goes.
