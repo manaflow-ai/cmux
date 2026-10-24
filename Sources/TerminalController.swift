@@ -572,7 +572,7 @@ class TerminalController {
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
-        agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
+        agentHookDeliveryQueue: AgentHookDeliveryQueue? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -583,9 +583,14 @@ class TerminalController {
             FileWatcher(path: $0.path)
         }
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
-        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        let socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientCapabilityAuthority = socketClientCapabilityAuthority
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
-        self.agentHookDeliveryQueue = agentHookDeliveryQueue
+        self.agentHookDeliveryQueue = agentHookDeliveryQueue ?? AgentHookDeliveryQueue(
+            process: AgentHookDeliveryProcess(
+                socketClientCapability: socketClientCapabilityAuthority.issueCapability()
+            )
+        )
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
