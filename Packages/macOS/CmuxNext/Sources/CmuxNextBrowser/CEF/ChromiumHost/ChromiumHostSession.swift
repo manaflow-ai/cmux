@@ -267,6 +267,9 @@ public final class ChromiumHostSession {
             contextID = UInt32(bitPattern: frame.v[0])
             view.show(contextID: contextID)
         case .address:
+            // A host that quits (after close()) still reports its page; a reopen meanwhile set the URL
+            // the next host loads, and the old page must not replace it.
+            guard !closing else { return }
             url = frame.text
         case .title:
             title = frame.text
