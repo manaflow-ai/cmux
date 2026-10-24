@@ -35,7 +35,7 @@ pub const BUILTIN: [(&str, &str); 5] = [
     ("cmux-setup", include_str!("../skills/cmux-setup/SKILL.md")),
     (
         "github-signin",
-        include_str!("../skills/github-signin/SKILL.md"),
+        include_str!("../toolpacks/github/SKILL.md"),
     ),
     ("paid-plans", include_str!("../skills/paid-plans/SKILL.md")),
 ];
