@@ -186,22 +186,7 @@ public final class BrowserHostProvider {
     /// shows and hides a few pages): each is read again alone and announced when it differs, O(changed),
     /// never a walk of every tab of the session. With no host link nothing is read: the link reads the
     /// list when it connects (`run`).
-    public func refreshTabs(changed: Set<String>? = nil) {
-        guard connection != nil else { return }
-        guard let changed, let tabSource else { return observeTabs() }
-        for targetID in changed {
-            guard let index = latestTabIndex[targetID] else {
-                // A tab the list does not hold yet (or one gone): the whole diff decides.
-                if tabSource.providerTab(targetID) != nil { return observeTabs() }
-                continue
-            }
-            // Gone, or a new URL (its extension access is read again with the list): the whole diff.
-            guard let tab = tabSource.providerTab(targetID), tab.url == latestTabs[index].url else { return observeTabs() }
-            guard tab != latestTabs[index] else { continue }
-            latestTabs[index] = tab
-            announceChange(tab)
-        }
-    }
+    public func refreshTabs(changed: Set<String>? = nil) { observeTabs() }
 
     /// A person pressed a key or clicked in tab `targetID`: when the tab is
     /// leased, the host pauses the lease. Call only from the app's own event

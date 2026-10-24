@@ -178,11 +178,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// resolves to (a workspace that comes, goes or is replaced), so a workspace added, moved or closed in another window
     /// re-runs nothing here (the store's list is one observed value: every window's stream wakes, only this key decides).
     private struct ShowInputs: Equatable {
-        let request: [String?], page: TopPageRoute?, flags: [Bool], creation: String, members: [String], models: [ObjectIdentifier?]
+        let request: [String?], page: TopPageRoute?, flags: [Bool], creation: String, members: [String]
+        var models: [ObjectIdentifier?]
         init(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
             (request, page, members) = ([state.workspaceID, state.machineID], state.page, windows.registry.members(of: state.id))
             (flags, creation) = ([cloud.hasLoadedMachines, WindowController.multiViewEnabled] + machines.daemons.map(\.store.isLoaded), WindowController.creationKey(state, cloud, machines))
             models = ([state.workspaceID] + members).map { $0.flatMap { machines.workspace(id: $0) }.map { ObjectIdentifier($0.0) } }
+            for daemon in machines.daemons { _ = daemon.store.workspaces.count; models.append(nil) }
         }
     }
 

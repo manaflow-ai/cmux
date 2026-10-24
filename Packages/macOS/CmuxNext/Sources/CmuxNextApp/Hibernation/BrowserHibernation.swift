@@ -239,7 +239,7 @@ final class BrowserHibernation {
     func tabDidHide(_ key: String) {
         guard cache?.browsers[key] != nil else { return }
         hiddenAt[key] = .now
-        replanAfterTurn.schedule()
+        replan()
     }
 
     func tabDidShow(_ key: String) {
@@ -357,7 +357,7 @@ final class BrowserHibernation {
             if exemptions[key] == .neighbor { exemptions[key] = nil }
         }
         for key in joined { warm(key) }
-        if replans { replanAfterTurn.schedule() }
+        if replans { replan() }
     }
 
     /// Wakes a hidden page early: thaws a frozen one, restores a hibernated one

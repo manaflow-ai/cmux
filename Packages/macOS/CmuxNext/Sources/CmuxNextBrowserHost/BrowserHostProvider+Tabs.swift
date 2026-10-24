@@ -17,10 +17,6 @@ extension BrowserHostProvider {
     func observeTabs() {
         // No host linked: nothing reads the list or its access until the link connects, so no
         // change (a title, a switch) walks every tab meanwhile; `run` reads it then (`trackTabs`).
-        guard connection != nil else {
-            observation += 1
-            return
-        }
         trackTabs()
         sendTabChanges()
     }
