@@ -7,12 +7,12 @@
 use super::files::{chrome, eval_in};
 use super::*;
 
-/// `/rerender`: a button replaced every 40 ms; each click counts in `#out`.
+/// `/rerender`: a button replaced every 100 ms (faster than a press is held; slower than the two animation frames the stability check needs); each click counts in `#out`.
 pub fn rerender_page() -> String {
     "<!doctype html><title>Rerender</title><div id=host></div><p id=out>idle</p><script>\
      let n = 0; const render = () => { document.getElementById('host').innerHTML = \
      '<button class=rerender onclick=\"document.getElementById(\\'out\\').textContent = \\'clicked \\' + ++n\">Again</button>'; }; \
-     render(); setInterval(render, 40);</script>"
+     render(); setInterval(render, 100);</script>"
         .to_owned()
 }
 
