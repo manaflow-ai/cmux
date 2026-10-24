@@ -82,6 +82,7 @@ struct LayoutScrollModifierTests {
         /// A trackpad gesture: began, three changes, ended, then a coast of momentum. `commandAt`
         /// says which events have Command held (by index: 0 began, 1-3 changes, 4 ended, 5-7
         /// momentum). Returns how many of the 8 events the layout took.
+        @discardableResult
         func gesture(at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, commandAt: Set<Int> = []) -> Int {
             var taken = 0
             if scroll(at: point, dx: dx, dy: dy, phase: .began, command: commandAt.contains(0)) { taken += 1 }
