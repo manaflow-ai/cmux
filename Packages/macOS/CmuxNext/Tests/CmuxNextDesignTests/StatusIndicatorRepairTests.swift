@@ -76,7 +76,7 @@ import Testing
         window.isReleasedWhenClosed = false
         _ = WindowKeyFamily.of(window, environment: WindowKeyEnvironment(
             center: app, keyWindow: { nil }, isAppActive: { true }, nextTurn: { _ in },
-            workspaceCenter: workspace, isWindowVisible: { _ in true }))
+            resyncMoments: IndicatorResyncMoments(app: app, workspace: workspace), isWindowVisible: { _ in true }))
         let client = ResyncCounter()
         client.placement.update(client, in: window, shown: true)
         return (window, client)

@@ -15,6 +15,8 @@ import Testing
     @MainActor final class App {
         let center = CountingNotificationCenter()
         let workspace = CountingNotificationCenter()
+        /// The app's one listener for its windows' indicator moments, on this app's centers.
+        lazy var moments = IndicatorResyncMoments(app: center, workspace: workspace)
         var visible: Set<ObjectIdentifier> = []
         var pending: [@MainActor () -> Void] = []
         var windows: [NSWindow] = []
@@ -22,7 +24,7 @@ import Testing
         var environment: WindowKeyEnvironment {
             WindowKeyEnvironment(center: center, keyWindow: { nil }, isAppActive: { true },
                                  nextTurn: { [unowned self] check in self.pending.append(check) },
-                                 workspaceCenter: workspace,
+                                 resyncMoments: moments,
                                  isWindowVisible: { [unowned self] in self.visible.contains(ObjectIdentifier($0)) })
         }
 

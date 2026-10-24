@@ -15,8 +15,10 @@ struct WindowKeyEnvironment {
     var nextTurn: @MainActor (_ check: @escaping @MainActor () -> Void) -> Void = { check in
         Task { @MainActor in check() }
     }
-    /// The center the Mac's wake and session notices arrive on.
-    var workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
+    /// Where the window's status indicators hear their moments (main, occlusion, activation, wake):
+    /// one per app, the app's own by default; a test makes one on its own centers and passes it to
+    /// each of its windows.
+    var resyncMoments: IndicatorResyncMoments = StatusIndicatorAppearance.shared.resyncMoments
     /// Whether `window` is on screen and not fully covered.
     var isWindowVisible: @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) }
 
