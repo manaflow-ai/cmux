@@ -48,7 +48,8 @@ public final class SidebarSessionTreeFeed {
                 guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
-                let chats = Self.chats(workspaces())
+                let models = workspaces()
+                let chats = Self.chats(models)
                 var links: [String: AgentLaneLinks] = [:]
                 for (_, refs) in chats {
                     for ref in refs where ref.host == localHost {
@@ -58,10 +59,12 @@ public final class SidebarSessionTreeFeed {
                 var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
+                // Captures: sample pull requests on every row, and no GitHub reads.
+                if SidebarTunables.pullRequestFixture.value { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
                 return pass
             }) {
                 Self.publish(pass, to: tree)
-                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                if let pass, !SidebarTunables.pullRequestFixture.value { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
