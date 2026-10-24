@@ -115,7 +115,7 @@ public final class WorkspaceModel: Identifiable {
         daemonUnreadCount = s.unreadCount
     }
 
-    static func identity(_ s: WorkspaceSnapshot) -> String {
+    nonisolated static func identity(_ s: WorkspaceSnapshot) -> String {
         s.key?.rawValue ?? "handle:\(s.id.rawValue)"
     }
 
