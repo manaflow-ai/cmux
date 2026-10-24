@@ -1390,8 +1390,8 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
 CLASS_DECL = swift_scope.CLASS_DECL
 GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
 GENERIC_TYPE = swift_scope.GENERIC_TYPE
-MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
-TARGET_ROOTS = (SOURCES, TESTS)
+PACKAGE_ROOT = "Packages/macOS/CmuxNext/"
+MANIFEST = PACKAGE_ROOT + "Package.swift"
 
 
 class GenericTypes:
@@ -1426,13 +1426,14 @@ class GenericTypes:
         return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
 
 
-def main_by_default(path: str, targets: dict[str, bool]) -> bool:
-    """Whether PATH's target is main actor by default, from TARGETS (swift_scope.target_isolation of the
-    revision's Package.swift). A target the manifest does not name (or no manifest) counts as main actor."""
-    for root in TARGET_ROOTS:
-        if path.startswith(root):
-            return targets.get(path[len(root):].split("/", 1)[0], True)
-    return True
+def main_by_default(path: str, targets: list) -> bool:
+    """Whether PATH's target is main actor by default, from TARGETS (swift_scope.package_targets of the
+    revision's Package.swift: the target whose folder holds PATH). A file in no target's folder (or no
+    manifest) counts as main actor."""
+    if not path.startswith(PACKAGE_ROOT):
+        return True
+    main = swift_scope.default_isolation(path[len(PACKAGE_ROOT):], targets)
+    return True if main is None else main
 
 
 def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
@@ -1863,8 +1864,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
     head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in paths])
     base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
-    head_targets = swift_scope.target_isolation(texts.get((head, MANIFEST), ""))
-    base_targets = swift_scope.target_isolation(texts.get((base, MANIFEST), ""))
+    head_targets = swift_scope.package_targets(texts.get((head, MANIFEST), ""))
+    base_targets = swift_scope.package_targets(texts.get((base, MANIFEST), ""))
     for path in paths:
         change = changes[path]
         change.head_types, change.base_types = head_types, base_types
