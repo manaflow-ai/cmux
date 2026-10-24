@@ -1964,6 +1964,41 @@ def runs_on_main(version: Version, index: int) -> bool:
 OPENER_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
 
 
+ASYNC_DECLARATION = re.compile(r"\bfunc\b[^{]*\)\s*(async|async\s+throws|async\s+throws\([^)]*\)|async\s+rethrows)\b")
+CALLER_ISOLATION_OPT_OUT = re.compile(r"@concurrent\b|\bnonisolated\b(?!\s*\(unsafe\))|@MainActor\b|\bactor\b")
+ACTOR_DECLARATION = re.compile(r"(^|\s)(distributed\s+)?actor\s+\w+")
+
+
+def may_run_on_main(version: Version, index: int) -> bool:
+    """Whether VERSION's line INDEX sits directly in a non-`@concurrent` async function of a target that is not
+    main-actor by default, outside an actor. Under NonisolatedNonsendingByDefault such a function runs on its
+    caller's executor, so a main-actor caller runs it on main (AsyncProcess.run's spawn stalled screen.close
+    807 ms, 2026-10-24). PL-qos proposal; a warning, never a refusal (30 such sites on the tip, 2026-10-24)."""
+    module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+    if module in ui_targets():
+        return False
+    code = code_of(version.lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    openers = enclosing_openers(version.lines, index, OPENER_STOP, prefix)
+    for position, (opener, number) in enumerate(openers):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        if DECLARATION_OPENER.search(header):
+            if not ASYNC_DECLARATION.search(header) or CALLER_ISOLATION_OPT_OUT.search(header):
+                return False
+            outer = enclosing_openers(version.lines, number - 1, ACTOR_DECLARATION)
+            return not any(ACTOR_DECLARATION.search(o) for o, _ in outer)
+        if not CONTROL_OPENER.search(header):
+            return False  # a closure: may run anywhere
+    return False
+
+
+@dataclass
+class WarnHit(Added):
+    """A hit that check() reports as a warning, never a refusal."""
+    warn: bool = True
+
+
 def changed_debt(changes: list[FileChange], judge: Callable[[Version, int, str], bool]) -> list[Added]:
     """New debt among the lines the push changed, as matcher_rule counts it (a per-file count ratchet with moves),
     without matcher_rule's scan of unchanged lines: JUDGE(version, 0-based line, code) decides a changed line."""
@@ -1991,6 +2026,15 @@ def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> l
             return True
         return blocking_match(MAIN_SCAN, code) and index < len(version.lines) and runs_on_main(version, index)
     return changed_debt(outside_seams(changes), judge)
+
+
+def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw or seam) that may run on main through a caller-isolated async function
+    (may_run_on_main): warnings only."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (index < len(version.lines) and blocking_match(MAIN_SCAN, code) and not runs_on_main(version, index)
+                and may_run_on_main(version, index))
+    return [WarnHit(h.path, h.number, h.text) for h in changed_debt(outside_seams(changes), judge)]
 
 
 def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
@@ -2087,6 +2131,12 @@ BLOCKING_RULES = (
          "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
+    Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
+         "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
+         "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
+         "mark the function `@concurrent` (or move the work into an actor) so it never runs on the caller's main thread",
+         "// blocking-allow: <why every caller is off the main thread>",
+         maybe_blocking_on_main),
     Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
          "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
          "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
