@@ -2619,7 +2619,8 @@ mod stream_lanes;
 
 mod connection_scheduler;
 use connection_scheduler::{
-    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
+    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, RequestAcceptance,
+    run_pending_request,
 };
 #[cfg(test)]
 use connection_scheduler::{ConnectionSurfaceState, OrderLane};
@@ -2845,7 +2846,7 @@ fn handle_command(
     cmd: Command,
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
-    handle_command_with_cancellation(mux, client, cmd, writer, None)
+    handle_command_with_cancellation(mux, client, cmd, writer, None, None)
 }
 
 mod command_dispatch;
