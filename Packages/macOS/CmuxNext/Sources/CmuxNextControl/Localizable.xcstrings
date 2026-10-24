@@ -11803,127 +11803,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "action.batch takes at most %1$lld ops in one transaction (got %2$lld); send several batches, or atomic: false to apply it as consecutive transactions"
+            "value": "action.batch: too many ops for one transaction (limit %1$lld, got %2$lld); send several batches, or atomic: false to apply it as consecutive transactions"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يقبل action.batch ما لا يزيد عن %1$lld عملية في معاملة واحدة (تم استلام %2$lld)؛ أرسل عدة دفعات، أو atomic: false لتطبيقها كمعاملات متتالية"
+            "value": "action.batch: عمليات كثيرة جدًا لمعاملة واحدة (الحد %1$lld، المستلم %2$lld)؛ أرسل عدة دفعات، أو atomic: false لتطبيقها كمعاملات متتالية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch prima najviše %1$lld operacija u jednoj transakciji (primljeno %2$lld); pošaljite više paketa ili atomic: false da se primijeni kao uzastopne transakcije"
+            "value": "action.batch: previše operacija za jednu transakciju (ograničenje %1$lld, primljeno %2$lld); pošaljite više paketa ili atomic: false da se primijeni kao uzastopne transakcije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch tager højst %1$lld handlinger i én transaktion (fik %2$lld); send flere batches, eller atomic: false for at anvende den som flere transaktioner i træk"
+            "value": "action.batch: for mange handlinger til én transaktion (grænse %1$lld, fik %2$lld); send flere batches, eller atomic: false for at anvende den som flere transaktioner i træk"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch nimmt höchstens %1$lld Operationen in einer Transaktion an (erhalten: %2$lld); sende mehrere Batches oder atomic: false, um sie als aufeinanderfolgende Transaktionen anzuwenden"
+            "value": "action.batch: zu viele Operationen für eine Transaktion (Limit %1$lld, erhalten %2$lld); sende mehrere Batches oder atomic: false, um sie als aufeinanderfolgende Transaktionen anzuwenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch admite como máximo %1$lld operaciones en una transacción (recibidas %2$lld); envía varios lotes, o atomic: false para aplicarlo como transacciones consecutivas"
+            "value": "action.batch: demasiadas operaciones para una transacción (límite %1$lld, recibidas %2$lld); envía varios lotes, o atomic: false para aplicarlo como transacciones consecutivas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch accepte au plus %1$lld opérations par transaction (%2$lld reçues) ; envoyez plusieurs lots, ou atomic: false pour l’appliquer en transactions successives"
+            "value": "action.batch : trop d’opérations pour une transaction (limite %1$lld, reçues %2$lld) ; envoyez plusieurs lots, ou atomic: false pour l’appliquer en transactions successives"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch accetta al massimo %1$lld operazioni in una transazione (ricevute %2$lld); invia più batch, oppure atomic: false per applicarlo come transazioni consecutive"
+            "value": "action.batch: troppe operazioni per una transazione (limite %1$lld, ricevute %2$lld); invia più batch, oppure atomic: false per applicarlo come transazioni consecutive"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "action.batch は 1 つのトランザクションで最大 %1$lld 個の操作を受け付けます (%2$lld 個を受信)。複数のバッチに分けるか、atomic: false で連続したトランザクションとして適用してください"
+            "state": "translated",
+            "value": "action.batch: 1 つのトランザクションには操作が多すぎます (上限 %1$lld、受信 %2$lld)。複数のバッチに分けるか、atomic: false で連続したトランザクションとして適用してください"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch ទទួលបានប្រតិបត្តិការយ៉ាងច្រើន %1$lld ក្នុងប្រតិបត្តិការមួយ (បានទទួល %2$lld); សូមផ្ញើជាច្រើនបាច់ ឬ atomic: false ដើម្បីអនុវត្តជាប្រតិបត្តិការបន្តបន្ទាប់"
+            "value": "action.batch៖ ប្រតិបត្តិការច្រើនពេកសម្រាប់ប្រតិបត្តិការមួយ (ដែនកំណត់ %1$lld, បានទទួល %2$lld); សូមផ្ញើជាច្រើនបាច់ ឬ atomic: false ដើម្បីអនុវត្តជាប្រតិបត្តិការបន្តបន្ទាប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch는 한 트랜잭션에 최대 %1$lld개의 작업을 받습니다(%2$lld개 받음). 여러 배치로 나누어 보내거나 atomic: false로 연속된 트랜잭션으로 적용하세요"
+            "value": "action.batch: 한 트랜잭션에 작업이 너무 많습니다(한도 %1$lld, 받음 %2$lld). 여러 배치로 나누어 보내거나 atomic: false로 연속된 트랜잭션으로 적용하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch tar maks %1$lld operasjoner i én transaksjon (fikk %2$lld); send flere batcher, eller atomic: false for å bruke den som påfølgende transaksjoner"
+            "value": "action.batch: for mange operasjoner for én transaksjon (grense %1$lld, fikk %2$lld); send flere batcher, eller atomic: false for å bruke den som påfølgende transaksjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch przyjmuje najwyżej %1$lld operacji w jednej transakcji (otrzymano %2$lld); wyślij kilka partii albo atomic: false, aby zastosować je jako kolejne transakcje"
+            "value": "action.batch: za dużo operacji na jedną transakcję (limit %1$lld, otrzymano %2$lld); wyślij kilka partii albo atomic: false, aby zastosować je jako kolejne transakcje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch aceita no máximo %1$lld operações em uma transação (recebidas %2$lld); envie vários lotes, ou atomic: false para aplicá-lo como transações consecutivas"
+            "value": "action.batch: operações demais para uma transação (limite %1$lld, recebidas %2$lld); envie vários lotes, ou atomic: false para aplicá-lo como transações consecutivas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch принимает не больше %1$lld операций в одной транзакции (получено %2$lld); отправьте несколько пакетов или atomic: false, чтобы применить их как последовательные транзакции"
+            "value": "action.batch: слишком много операций для одной транзакции (лимит %1$lld, получено %2$lld); отправьте несколько пакетов или atomic: false, чтобы применить их как последовательные транзакции"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch รับได้สูงสุด %1$lld การดำเนินการในหนึ่งธุรกรรม (ได้รับ %2$lld) ส่งหลายชุด หรือใช้ atomic: false เพื่อใช้เป็นธุรกรรมต่อเนื่อง"
+            "value": "action.batch: การดำเนินการมากเกินไปสำหรับหนึ่งธุรกรรม (ขีดจำกัด %1$lld, ได้รับ %2$lld) ส่งหลายชุด หรือใช้ atomic: false เพื่อใช้เป็นธุรกรรมต่อเนื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch bir işlemde en fazla %1$lld işlem alır (%2$lld alındı); birkaç toplu iş gönderin ya da ardışık işlemler olarak uygulamak için atomic: false kullanın"
+            "value": "action.batch: bir işlem için çok fazla işlem (sınır %1$lld, alınan %2$lld); birkaç toplu iş gönderin ya da ardışık işlemler olarak uygulamak için atomic: false kullanın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch приймає щонайбільше %1$lld операцій в одній транзакції (отримано %2$lld); надішліть кілька пакетів або atomic: false, щоб застосувати їх як послідовні транзакції"
+            "value": "action.batch: забагато операцій для однієї транзакції (ліміт %1$lld, отримано %2$lld); надішліть кілька пакетів або atomic: false, щоб застосувати їх як послідовні транзакції"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch nhận tối đa %1$lld thao tác trong một giao dịch (đã nhận %2$lld); hãy gửi nhiều lô, hoặc atomic: false để áp dụng thành các giao dịch liên tiếp"
+            "value": "action.batch: quá nhiều thao tác cho một giao dịch (giới hạn %1$lld, đã nhận %2$lld); hãy gửi nhiều lô, hoặc atomic: false để áp dụng thành các giao dịch liên tiếp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch 每个事务最多接受 %1$lld 个操作(收到 %2$lld 个);请分成多个批次发送,或使用 atomic: false 作为连续事务应用"
+            "value": "action.batch：单个事务的操作过多(上限 %1$lld，收到 %2$lld);请分成多个批次发送,或使用 atomic: false 作为连续事务应用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "action.batch 每個交易最多接受 %1$lld 個操作(收到 %2$lld 個);請分成多個批次傳送,或使用 atomic: false 作為連續交易套用"
+            "value": "action.batch：單一交易的操作過多(上限 %1$lld，收到 %2$lld);請分成多個批次傳送,或使用 atomic: false 作為連續交易套用"
           }
         }
       }
