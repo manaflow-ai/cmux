@@ -8,7 +8,6 @@
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -229,7 +228,7 @@ export function ThreadMinimap({
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
-      if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
+      if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
     // band already drawn.

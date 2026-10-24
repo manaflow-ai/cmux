@@ -168,7 +168,7 @@ private final class RunTimingRecorder: ActionRunTiming {
         var closes: [ActionInvocation] = []
         let registry = Self.gatedRegistry(recorder) { id, invocation in if id == "tabGroup.close" { closes.append(invocation) } }
         var pending: (@MainActor () -> Void)?
-        registry.confirmationPresenter = { _, _, proceed in pending = proceed }
+        registry.confirmationPresenter = { _, _, proceed in pending = { proceed(false) } }
         let key = try Self.key(at: ProcessInfo.processInfo.systemUptime - 0.005)
         var dispatching: NSEvent? = key
         registry.dispatchingInputEvent = { dispatching }
@@ -181,6 +181,7 @@ private final class RunTimingRecorder: ActionRunTiming {
         proceed()
         #expect(closes.count == 1)
         #expect(closes.first?.isConfirmed == true)
+        #expect(closes.first?.inputTimestamp == nil, "the handler got the press: a follow-up action would report its age")
         #expect(recorder.runs.map(\.id) == ["tabGroup.close"])
         #expect((recorder.runs.first?.inputAge ?? -1) >= 5, "the confirmed run lost the press's age")
     }
@@ -207,6 +208,55 @@ private final class RunTimingRecorder: ActionRunTiming {
     @Test func aCarriedStampCountsOnlyForAPersonsRun() {
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 100.5) == 500)
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .cli, event: nil, carried: 100, now: 100.5) == -1)
+    }
+
+    /// After a question the confirmed run answers the answer, not the press: a click on the sheet
+    /// gives that click's age; an answer outside any dispatch gives -1, never the press's age with
+    /// the person's reading time in it.
+    @Test func aRunConfirmedAfterAQuestionReportsTheAnswersAgeNotThePresses() throws {
+        let recorder = RunTimingRecorder()
+        var closes: [ActionInvocation] = []
+        let registry = Self.gatedRegistry(recorder) { id, invocation in if id == "tabGroup.close" { closes.append(invocation) } }
+        var pending: (@MainActor (Bool) -> Void)?
+        registry.confirmationPresenter = { _, _, proceed in pending = proceed }
+        let now = ProcessInfo.processInfo.systemUptime
+        var dispatching: NSEvent? = try Self.key(at: now - 3)  // the press; the person then reads for 3 s
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("tabGroup.close"))
+        let proceed = try #require(pending)
+
+        dispatching = try Self.key(at: now - 0.002)  // the sheet's button, being dispatched
+        proceed(true)
+        let answered: Double = try #require(recorder.runs.last?.inputAge)
+        #expect(answered >= 1, "the run reported \(answered) ms, not the answer's age")
+        #expect(answered < 1_000, "the run reported \(answered) ms: the press's age with the reading time")
+
+        #expect(registry.perform("tabGroup.close"))
+        dispatching = nil  // answered outside any dispatch
+        let secondProceed = try #require(pending)
+        secondProceed(true)
+        let unanswered = recorder.runs.last?.inputAge
+        #expect(unanswered == -1)
+        #expect(closes.count == 2)
+        let confirmed = closes.filter { $0.isConfirmed }
+        #expect(confirmed.count == 2)
+    }
+
+    /// The main run loop waking while a run watches (a nested loop that waited inside a handler)
+    /// is counted; a run's synchronous work alone never wakes it.
+    @Test func theWakeWatchCountsANestedLoopsWakes() {
+        let watch = RunLoopWakeWatch()
+        watch.begin()
+        #expect(watch.wakes == 0)
+        let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
+        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
+        _ = CFRunLoopRunInMode(.defaultMode, 1, true)
+        CFRunLoopTimerInvalidate(timer)
+        #expect(watch.wakes >= 1)
+        watch.end()
+        let after = watch.wakes
+        _ = CFRunLoopRunInMode(.defaultMode, 0.05, false)
+        #expect(watch.wakes == after, "an ended watch still counted")
     }
 
     // MARK: Previews

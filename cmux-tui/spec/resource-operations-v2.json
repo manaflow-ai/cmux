@@ -25943,7 +25943,8 @@
         "fields": {
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
           "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
-          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },

@@ -168,6 +168,10 @@ pub struct SessionMeta {
     /// Title requests that came back with no title in this daemon run (`hub/titles.rs`).
     #[serde(skip)]
     pub title_failures: u8,
+    /// The first prompt was too thin to title reliably; permit one refresh after its turn.
+    /// Ephemeral so this does not change the stored session format.
+    #[serde(skip)]
+    pub title_thin: bool,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -183,6 +187,9 @@ pub struct SessionMeta {
     /// where an agent lists them once (perf100).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Value>,
+    /// Last goal reported by the harness. Codex owns its persistence and continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<Value>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,

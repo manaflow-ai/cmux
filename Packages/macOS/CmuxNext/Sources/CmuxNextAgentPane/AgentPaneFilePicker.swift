@@ -1,14 +1,21 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Add Files to Project's open panel (cx-ncc.67): a sheet on the pane's window for files, several
-/// at a time. None when the user cancels or the pane has no window. The model asks for it only
+/// at a time. None when the user cancels, the pane has no window, or the panel came back dead (no
+/// GUI session: no sheet is shown, so nothing waits on it). The model asks for it only
 /// after a real gesture. Both sheets take the app's panel made ahead (`MadeAheadOpenPanel`).
+@MainActor
 public struct AgentPaneFilePicker {
-    public init() {}
-    @MainActor public static func pick(window: NSWindow?) async -> [URL] {
-        guard let window else { return [] }
-        let panel = MadeAheadOpenPanel.shared.panel()
+    private let openPanel: MadeAheadOpenPanel
+
+    /// - Parameter openPanel: The app's made-ahead panel (`AppServices.openPanel`).
+    public init(openPanel: MadeAheadOpenPanel) {
+        self.openPanel = openPanel
+    }
+
+    public func pick(window: NSWindow?) async -> [URL] {
+        guard let window, let panel = openPanel.panel() else { return [] }
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
@@ -20,10 +27,9 @@ public struct AgentPaneFilePicker {
     }
 
     /// Attach files or folders (`chat.attach.choose`): the same sheet for files and folders, several
-    /// at a time. None when the user cancels or the pane has no window.
-    @MainActor public static func pickAttachments(window: NSWindow?) async -> [URL] {
-        guard let window else { return [] }
-        let panel = MadeAheadOpenPanel.shared.panel()
+    /// at a time. None when the user cancels, the pane has no window, or the panel came back dead.
+    public func pickAttachments(window: NSWindow?) async -> [URL] {
+        guard let window, let panel = openPanel.panel() else { return [] }
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
@@ -34,7 +40,7 @@ public struct AgentPaneFilePicker {
 
     /// The chosen files, read in the sheet's own handler: once it ends, the shared panel is free
     /// for the next picker, which would reconfigure it before an `await` resumed here.
-    @MainActor private static func sheet(_ panel: NSOpenPanel, on window: NSWindow) async -> [URL] {
+    private func sheet(_ panel: NSOpenPanel, on window: NSWindow) async -> [URL] {
         await withCheckedContinuation { done in
             panel.beginSheetModal(for: window) { response in done.resume(returning: response == .OK ? panel.urls : []) }
         }

@@ -135,12 +135,12 @@ public struct Palette {
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
     /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
-    /// the theme's own hue with `appearance.accent`. A themed menu's highlight washes it (`menuHighlight`).
+    /// the theme's own hue with `appearance.accent`. `menuHighlight` washes it.
     public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
     /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
-    /// A themed menu's highlighted row (`NSMenu.themeRows(in:)`): `accentFill` as a faint wash over
-    /// the menu's glass, so labels keep their own ink. A neutral theme gets a gray wash.
+    /// A highlighted row in a cmux-drawn panel (the extensions panel): `accentFill` as a faint wash,
+    /// so labels keep their own ink. Right-click menus are native and use the system highlight. A neutral theme gets a gray wash.
     public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
     static let menuHighlightOpacity: CGFloat = 0.2
 

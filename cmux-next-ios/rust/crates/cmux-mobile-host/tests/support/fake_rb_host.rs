@@ -92,6 +92,13 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
             _ => return url,
         }
     };
+    // Frames that came in with the hello (hostd sends the file policy and a first
+    // page right after it): replayed as the first read, as the real host's session
+    // drains its deframer before reading.
+    let mut replay = Vec::new();
+    while let Ok(Some((kind, payload))) = deframer.next_frame() {
+        let _ = encode_stream_frame(kind, &payload, &mut replay);
+    }
     let authorized = matches!(&hello, Some(Control::Hello { token: Some(t), service, .. }) if t.0 == secret && service == "rb/1");
     if !authorized {
         let _ = stream.write_all(&control(&Control::Refused { reason: "unauthorized".into() })).await;
@@ -142,8 +149,16 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
                 pending = emit(&mut out, o);
             }
         }
+        let first = std::mem::take(&mut replay);
         tokio::select! {
-            read = stream.read(&mut buf) => match read {
+            read = async {
+                if first.is_empty() {
+                    stream.read(&mut buf).await
+                } else {
+                    buf[..first.len()].copy_from_slice(&first);
+                    Ok(first.len())
+                }
+            } => match read {
                 Ok(0) | Err(_) => return url,
                 Ok(n) => {
                     deframer.extend(&buf[..n]);

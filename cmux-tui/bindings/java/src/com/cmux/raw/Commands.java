@@ -227,7 +227,7 @@ public final class Commands {
     public static final CommandMetadata SELECT_SCREEN = new CommandMetadata("select-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_TAB = new CommandMetadata("select-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_WORKSPACE = new CommandMetadata("select-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
+    public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_agent", "send-expect-agent-v1"), Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("submit", "send-expect-agent-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());

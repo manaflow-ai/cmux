@@ -1,10 +1,15 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 @testable import CmuxNextApp
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import WebKit
+import UniformTypeIdentifiers
 
 /// u9489 (Oct 21): "I want to be able to right-click and open it as text instead of as the HTML
 /// page. I want to open it in Monaco editor instead." A page cmux renders (HTML, SVG, Markdown)
@@ -32,6 +37,76 @@ struct FileOpenAsTextTests {
     func openAsTextRoutesARenderedPageToTheCodeEditor(name: String, open: FilePageOpener.Route, asText: FilePageOpener.Route) {
         #expect(FilePageOpener.route(for: Self.url(name), userChose: true) == open)
         #expect(FilePageOpener.route(for: Self.url(name), userChose: true, asText: true) == asText)
+    }
+
+    @Test(arguments: ["sidebar-clean-cmux.png", "wide.jpg", "poster.webp", "document.pdf"])
+    func localImageAndPDFPreviewsUseTheScopedWebKitReader(name: String) {
+        #expect(FilePageOpener.tabEngine(for: Self.url(name)) == BrowserEngineTag.webkit.rawValue)
+    }
+
+    @Test func theScopedWebKitReaderDisplaysALargePNG() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-image-viewer-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("sidebar-clean-cmux.png")
+        try Self.largeVisiblePNG.write(to: file)
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil); window.close() }
+        let webView = WKWebView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = webView
+        let navigation = NavigationCompletion()
+        webView.navigationDelegate = navigation
+        webView.loadFileURL(file, allowingReadAccessTo: folder)
+        try await navigation.wait()
+        let visible = try await webView.evaluateJavaScript(
+            "document.images.length === 1 && document.images[0].naturalWidth > 0 && document.images[0].naturalHeight > 0"
+        ) as? Bool
+        #expect(visible == true)
+    }
+
+    private static let largeVisiblePNG: Data = {
+        let width = 3708, height = 2468
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Data() }
+        context.setFillColor(CGColor(red: 0.05, green: 0.2, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { return Data() }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else { return Data() }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return Data() }
+        return output as Data
+    }()
+
+    @MainActor final class NavigationCompletion: NSObject, WKNavigationDelegate {
+        private var continuation: CheckedContinuation<Void, Error>?
+
+        func wait() async throws {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                self.continuation = continuation
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            continuation?.resume()
+            continuation = nil
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
     }
 
     // MARK: The shared file menu (Home attachments and file links, the Files pane)

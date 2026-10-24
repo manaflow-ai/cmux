@@ -5,8 +5,8 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// A row's right-click menu in the toolbar's Downloads popup takes the cmux NEXT menu look, as the
-/// right-click menus do (#22787): every row is a cmux-drawn `ThemedMenuRowView` with its command's
+/// A row's right-click menu in the toolbar's Downloads popup is a standard macOS menu, as every
+/// right-click menu is (Lawrence 2026-10-23): every row is a plain AppKit row with its command's
 /// icon, and a chosen row still runs.
 @MainActor @Suite(.serialized) struct BrowserDownloadsMenuThemeTests {
     @Test func aDownloadRowsMenuIsThemedWithIconsAndItsRowsRun() throws {
@@ -21,7 +21,7 @@ import Testing
 
         #expect(menu.items.map(\.title).contains(BrowserHitStrings.downloadCopyLink))
         for item in menu.items where !item.isSeparatorItem {
-            #expect(item.view is ThemedMenuRowView, "\(item.title) is not themed")
+            #expect(item.view == nil, "\(item.title) is custom-drawn, not a standard macOS row")
             #expect(item.image != nil, "\(item.title) has no icon")
         }
 
@@ -32,7 +32,7 @@ import Testing
         let runningRow = BrowserDownloadRowEventView()
         runningRow.menuProvider = { BrowserDownloadsMenu.actions(running, list: list) }
         let cancel = try #require(runningRow.themedMenu()?.items.first { $0.title == BrowserHitStrings.downloadCancel })
-        #expect(cancel.view is ThemedMenuRowView)
+        #expect(cancel.view == nil)
         _ = try #require(cancel.target as? NSObject).perform(try #require(cancel.action), with: cancel)
         #expect(running.status == .cancelled)
     }

@@ -20,7 +20,7 @@ Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--command
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp  # noqa: E402
+from bench_launch import BenchApp, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -36,6 +36,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -45,7 +46,7 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+           "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
 COMMANDS = [c for c in opts.commands.split(",") if c]
 
@@ -248,22 +249,19 @@ def cleanup():
 
 def main():
     global app, SOCKET
-    if os.path.exists(SOCKET):
-        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
-        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
-        os.remove(SOCKET)
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
     try:
-        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
-        app = bench.process
-    SOCKET = bench.socket
+        app = launcher.process
+    SOCKET = launcher.socket
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: shell prompt
     window = window_key()

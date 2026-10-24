@@ -8,8 +8,8 @@ import Testing
 /// The sidebar's workspace and group menus as the app builds them (`SidebarContextMenus`), not
 /// their parts alone: Chrome's tab-group menu look (Leo and Lawrence 2026-10-20, "this got
 /// regressed again"). The name and colors open the menu in place of Rename… and a color row,
-/// every row is cmux-drawn (a wash of the theme's accent on the glass, never the system blue)
-/// and has an icon, and nothing is left in a nested More of More.
+/// every other row is a standard macOS menu row with an icon (Lawrence 2026-10-23: "we don't want
+/// ANYTHING custom besides the icons"), and nothing is left in a nested More of More.
 @MainActor
 struct SidebarMenuLookTests {
     private static let workspace = WorkspaceID("look-ws"), group = GroupID("look-g")
@@ -33,7 +33,7 @@ struct SidebarMenuLookTests {
         #expect(header.field != nil || header.strip != nil)
         #expect(menu.items.count > 1 && menu.items[1].isSeparatorItem, "\(name): a separator under the header")
         for item in menu.items.dropFirst() where !item.isSeparatorItem {
-            #expect(item.view is ThemedMenuRowView, "\(name): \(item.title) is drawn by AppKit (system blue highlight)")
+            #expect(item.view == nil, "\(name): \(item.title) is custom-drawn, not a standard macOS row")
             #expect(item.image != nil, "\(name): \(item.title) has no icon")
             // A rename that can't run here (the group's needs a daemon) keeps its disabled row; the header is the swatches.
             if header.field != nil { #expect(!item.title.hasPrefix("Rename"), "\(name): Rename… is the header's field") }

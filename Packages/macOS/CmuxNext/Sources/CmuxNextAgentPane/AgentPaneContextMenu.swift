@@ -138,14 +138,14 @@ enum AgentPaneContextMenu {
     }
 
     /// WebKit's own item (Cut, Copy, Look Up...): its target forgets the menu once WebKit's popUp
-    /// returns, so a themed row runs it as the menu closes (`runsInPlace`), as a native row would.
+    /// returns, so it must run as the menu closes, as a native row does.
     static func isWebKitItem(_ item: NSMenuItem) -> Bool {
         item.identifier?.rawValue.hasPrefix("WKMenuItemIdentifier") == true
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators. With a
-    /// `scope` (the pane's), the rows then draw as every cmux menu's do: the theme's glass highlight
-    /// (`NSMenu.themeRows(in:)`), each with its icon.
+    /// `scope` (the pane's), the menu opens in its light or dark look (`NSMenu.themeRows(in:)`): a
+    /// standard macOS menu, each row with its icon.
     static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String? = nil, devTools: Bool,
                         chatMenu: [NSMenuItem] = [], scope: ThemeScope? = nil, actions: Actions) {
         fill(menu, target: target, selection: selection, devTools: devTools, chatMenu: chatMenu, actions: actions)

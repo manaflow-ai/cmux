@@ -251,6 +251,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
     public var mobile = MobileSettings()
+    /// `macScreen.*`: Mac Screen tabs (system shortcuts to the remote Mac).
+    public var macScreen = MacScreenSettings()
+    /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
+    public var macScreenDebug = MacScreenDebugSettings()
+    /// `deviceHub.*`: the Development section's device hub address (DEV builds read it).
+    public var deviceHub = DeviceHubSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -410,6 +416,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.macScreenDebug = MacScreenDebugSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.deviceHub = DeviceHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)

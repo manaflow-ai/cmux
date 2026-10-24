@@ -56,6 +56,10 @@
 //!   gesture, but a LocalApp page could send it itself with no gesture: that
 //!   is accepted, since the page can already prompt the agent, and it writes
 //!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
+//!   (`mediaRead.remote`). They read a chat's images and videos on this
+//!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
+//!   app and a peer forwarding for either.
 //!
 //! The unix socket keeps today's behavior.
 
@@ -326,6 +330,15 @@ pub(super) async fn check(
             "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "filePut.remote"})));
+    }
+    // So is a chat's media read (`hub/media_read.rs`).
+    if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
