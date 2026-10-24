@@ -75,7 +75,9 @@ pub(crate) fn valid_token(token: &str) -> bool {
     }
     token.strip_prefix(DEVICE_PREFIX).is_some_and(|id| {
         (1..=128).contains(&id.len())
-            && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
     })
 }
 
@@ -100,7 +102,10 @@ impl HostSizePolicy {
 
     /// The engine policy for a terminal whose participants are
     /// `(priority_key, is_this_mac, device_id)`, in attach order.
-    pub(crate) fn expand(&self, participants: &[(String, bool, Option<String>)]) -> TerminalSizingPolicy {
+    pub(crate) fn expand(
+        &self,
+        participants: &[(String, bool, Option<String>)],
+    ) -> TerminalSizingPolicy {
         let keys_for = |token: &str| -> Vec<String> {
             participants
                 .iter()
@@ -267,9 +272,12 @@ impl Mux {
     /// the owner has read the settings file) `latest`, the engine default
     /// the terminals use until then (`resolved_size_policy`).
     pub fn host_size_policy(&self) -> HostSizePolicy {
-        self.client_sizing.lock().recover_poison().host_policy.clone().unwrap_or_else(|| {
-            HostSizePolicy { mode: HostSizeMode::Latest, order: Vec::new() }
-        })
+        self.client_sizing
+            .lock()
+            .recover_poison()
+            .host_policy
+            .clone()
+            .unwrap_or_else(|| HostSizePolicy { mode: HostSizeMode::Latest, order: Vec::new() })
     }
 
     /// The participant ids of `surface`'s terminal that are this Mac's views.
@@ -309,7 +317,9 @@ impl Mux {
             self.refresh_host_policy_locked(&mut sizing, runtime);
             self.apply_terminal_grid(&sizing, runtime);
             owner_changes.extend(
-                owners_before.symmetric_difference(&sizing.terminal_owner_clients(runtime)).copied(),
+                owners_before
+                    .symmetric_difference(&sizing.terminal_owner_clients(runtime))
+                    .copied(),
             );
         }
         drop(sizing);
@@ -325,7 +335,10 @@ impl Mux {
         order: Option<Vec<String>>,
     ) -> anyhow::Result<HostSizePolicy> {
         if let Some(order) = &order {
-            anyhow::ensure!(order.len() <= MAX_ORDER, "bad request: order takes at most {MAX_ORDER} tokens");
+            anyhow::ensure!(
+                order.len() <= MAX_ORDER,
+                "bad request: order takes at most {MAX_ORDER} tokens"
+            );
             if let Some(token) = order.iter().find(|token| !valid_token(token)) {
                 anyhow::bail!("bad request: invalid order token {token:?}; use mac or device:<id>");
             }
@@ -388,8 +401,12 @@ mod tests {
         let expanded = policy.expand(&participants);
         assert_eq!(expanded.mode, TerminalSizingMode::Priority);
         assert_eq!(expanded.priority, vec!["anon:c3/iphone/p2", "anon:c1/mac"]);
-        let mac = HostSizePolicy { mode: HostSizeMode::Mac, order: Vec::new() }.expand(&participants);
+        let mac =
+            HostSizePolicy { mode: HostSizeMode::Mac, order: Vec::new() }.expand(&participants);
         assert_eq!(mac.priority, vec!["anon:c1/mac"]);
-        assert_eq!(HostSizePolicy::from_settings(Some(&json!("nope")), None).mode, HostSizeMode::Smallest);
+        assert_eq!(
+            HostSizePolicy::from_settings(Some(&json!("nope")), None).mode,
+            HostSizeMode::Smallest
+        );
     }
 }

@@ -287,7 +287,11 @@ pub(crate) fn path_has_own_team(path: &std::path::Path) -> Result<bool, String> 
 unsafe extern "C" {
     /// libproc: the path of the process `token` names, failing (`<= 0`) when
     /// its pid no longer carries the token's pid version.
-    fn proc_pidpath_audittoken(token: *mut [u32; 8], buffer: *mut libc::c_void, size: u32) -> libc::c_int;
+    fn proc_pidpath_audittoken(
+        token: *mut [u32; 8],
+        buffer: *mut libc::c_void,
+        size: u32,
+    ) -> libc::c_int;
 }
 
 /// `app_caller::executable_path`.

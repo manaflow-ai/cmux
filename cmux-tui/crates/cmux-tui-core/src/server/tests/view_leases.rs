@@ -27,7 +27,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             api_revision: None,
             version: None,
             install: None,
-        remote: None,
+            remote: None,
         },
         &writer,
     )
@@ -279,7 +279,7 @@ fn attachment_resize_waits_for_detach_lifecycle_and_becomes_superseded() {
             api_revision: None,
             version: None,
             install: None,
-        remote: None,
+            remote: None,
         },
         &writer,
     )
@@ -355,7 +355,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
             api_revision: None,
             version: None,
             install: None,
-        remote: None,
+            remote: None,
         },
         &writer,
     )
