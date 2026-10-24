@@ -1236,7 +1236,8 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextWakeups",
-            // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget).
+            // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
+            // the typing probe's key-press flow hops (`key.flow`).
             dependencies: ["CmuxNextCompat", "CmuxNextSignposts"],
             swiftSettings: daemonSwiftSettings
         ),
