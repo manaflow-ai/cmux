@@ -68,7 +68,8 @@ import Testing
     }
 }
 
-/// The same rules through the real grid: mouse and key events sent to its collection view.
+/// The same rules through the real grid: mouse and key events sent to its collection view
+/// (AppKit's press tracking off: a ci-step Mac has no window server session to track in).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct FileGridClickTests {
     private static let names = (0..<8).map { "shot-\($0).png" }
 
@@ -84,27 +85,24 @@ import Testing
         grid.show(Self.names.map { name in
             FileGridItem(url: URL(fileURLWithPath: "/shots/\(name)"), size: 1, modified: Date(timeIntervalSinceReferenceDate: 1), sourceID: "s")
         })
+        grid.collectionView.tracksPresses = false
         grid.layoutSubtreeIfNeeded()
         grid.collectionView.layoutSubtreeIfNeeded()
         return (grid, window)
     }
 
-    private func close(_ window: NSWindow) {
-        NSApp.discardEvents(matching: .any, before: nil)
-        window.close()
-    }
+    private func close(_ window: NSWindow) { window.close() }
 
     private func mouse(_ type: NSEvent.EventType, at point: NSPoint, _ flags: NSEvent.ModifierFlags, _ window: NSWindow) -> NSEvent {
         NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
     }
 
-    /// Clicks tile `index` with `flags`: the release is queued first, as a real click's would be.
+    /// Clicks tile `index` with `flags`.
     private func click(_ index: Int, _ flags: NSEvent.ModifierFlags = [], _ grid: FileGridView, _ window: NSWindow) {
         let collection = grid.collectionView
         let frame = collection.frameForItem(at: index)
         let point = collection.convert(NSPoint(x: frame.midX, y: frame.midY), to: nil)
-        window.postEvent(mouse(.leftMouseUp, at: point, flags, window), atStart: false)
         collection.mouseDown(with: mouse(.leftMouseDown, at: point, flags, window))
     }
 
