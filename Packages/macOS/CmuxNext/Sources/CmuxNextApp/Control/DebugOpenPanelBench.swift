@@ -31,9 +31,12 @@ enum DebugOpenPanelBench {
     //   plain_animnone / made_animnone  the sheet's animationBehavior is .none
     //   plain_child / made_child  no sheet: the window shows as a child window at the sheet's place (made: `begin`)
     //   made_default  the made-ahead panel while NSWindowResizeTime is registered as 0.001 (removed after the open)
+    //   overlay       a CmuxDialog in the window scope (the in-window overlay layer), the path an NSAlert or a plain
+    //                 sheet window could take instead of an AppKit sheet
     static func run(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .null }
         let mode = params["mode"]?.stringValue ?? "made"
+        if mode == "overlay" { return await overlay(services) }
         guard let personWindow = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
         guard personWindow.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
         let shared = services.openPanel
@@ -148,6 +151,37 @@ enum DebugOpenPanelBench {
             "frames": stats,
             "resize_time_calls": calls,
             "behavior": .number(Double(behavior.rawValue)),
+        ])
+    }
+}
+
+extension DebugOpenPanelBench {
+    /// A CmuxDialog confirm in the first window's scope, timed as a sheet is: the present call, the first frame with
+    /// its view on screen in the window, the longest frame; then dismissed.
+    private static func overlay(_ services: AppServices) async -> JSONValue {
+        guard let window = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
+        let center = CmuxDialogCenter.shared
+        let spec = CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],
+                                  buttons: [.cancel(), CmuxDialogButton(id: "close", title: "Close", role: .destructive)],
+                                  identifier: "cmux.dialog.fixture.openpanel-probe")
+        frames.start()
+        _ = await frames.settled(until: { true }, start: .now, window: 120, deadline: 1_000)
+        let start = ContinuousClock.now
+        let id = center.present(spec, in: .window(window)) { _ in }
+        let begun = ContinuousClock.now
+        let visible = await frames.settled(until: {
+            guard let view = center.view(id), view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
+            return view.visibleRect.width > 0
+        }, start: start, window: 300, deadline: 10_000)
+        let stats = frames.stop()
+        center.dismiss(id)
+        frames.start()
+        _ = await frames.settled(until: { center.record(id) == nil }, start: .now, window: 0, deadline: 3_000)
+        _ = frames.stop()
+        return .object([
+            "mode": .string("overlay"), "sheet_class": .string("CmuxDialog"),
+            "init_ms": .number(0), "begin_ms": .number(BenchSpans.ms(begun - start)), "sync_ms": .number(BenchSpans.ms(begun - start)),
+            "visible_ms": visible.map { .number($0) } ?? .null, "frames": stats,
         ])
     }
 }
