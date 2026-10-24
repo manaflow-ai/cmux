@@ -447,3 +447,4 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-23: Follow-up repair keeps the tapered rail mask taller than both old and destination bounds during collapse springs.
 - 2026-10-24: Codex #24700 keeps the two-point rail's left edge straight and gives its right edge a six-point Chrome-style taper into the header, with the view frame clipping retained spring coverage.
 - 2026-10-24: Codex follow-up restores Chrome's plain two-point rail: a six-point header gap and quarter-rounds only on the right corners at both ends, with the left edge square.
+- 2026-10-24: Codex #24962 restores colored dots for named spaces in `ProfileBarView`; the fallback initials from `08d10063080d` are removed per Leo's "turn these back into dots" request, while explicit icons, selection, per-space color and `+` remain.
