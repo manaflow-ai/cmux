@@ -5205,6 +5205,10 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  const [sessionSelection, setSessionSelection] = useState<
+    { sessionId: string; state: "pending" | "failed" } | undefined
+  >();
+  const sessionSelectionToken = useRef(0);
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
@@ -5230,7 +5234,25 @@ function AcpmuxPane() {
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab, markContextKnown);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
-    void callNative("chat.select", { sessionId });
+    const token = ++sessionSelectionToken.current;
+    setSessionSelection({ sessionId, state: "pending" });
+    void callNative("chat.select", { sessionId }).then(
+      (selected) => {
+        if (sessionSelectionToken.current !== token) return;
+        if (selected !== sessionId) {
+          setSessionSelection({ sessionId, state: "failed" });
+          return;
+        }
+        // Keep the New Tab mounted until the accepted selection has a matching attach summary.
+        // This preserves its geometry during the hold and restores it on stale or malformed opens.
+        setSessionSelection(undefined);
+        setNewTab(undefined);
+        setNewSession(false);
+      },
+      () => {
+        if (sessionSelectionToken.current === token) setSessionSelection({ sessionId, state: "failed" });
+      },
+    );
   }, []);
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
@@ -6514,7 +6536,10 @@ function AcpmuxPane() {
           },
           "chat.select": async ({ sessionId }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.select(String(sessionId)));
+            const selected = await client.select(String(sessionId));
+            if (!selected || client.attachedSession() !== selected) return undefined;
+            await persistSession(selected);
+            return selected;
           },
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
@@ -7326,7 +7351,7 @@ function AcpmuxPane() {
   // chat view's error card with Retry shows, as before.
   const showNewTab =
     newTab !== undefined &&
-    !snapshot.sessionId &&
+    (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
@@ -8615,10 +8640,7 @@ function AcpmuxPane() {
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
-              onOpenSession={(sessionId) => {
-                setNewTab(undefined);
-                selectSession(sessionId);
-              }}
+              onOpenSession={selectSession}
               onShowAll={showAllChats}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse")

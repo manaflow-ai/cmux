@@ -99,7 +99,6 @@ export function newTabScreenActions(deps: {
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {
-      deps.leave();
       deps.selectSession(sessionId);
     },
     // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New
