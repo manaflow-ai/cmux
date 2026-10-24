@@ -1,11 +1,13 @@
 import { accountAccessForIdentity } from "./accountAccess";
 
-export type NoAccountFamily = "codex" | "claude" | "opencode";
+export type NoAccountFamily = "codex" | "claude" | "opencode" | "grok";
 
-const FAMILY: Record<NoAccountFamily, { readonly name: string; readonly hostAdd: string; readonly vmAdd: string }> = {
+/** `vmAdd` is null when the CodeRouter CLI on a Cloud machine cannot add the family. */
+const FAMILY: Record<NoAccountFamily, { readonly name: string; readonly hostAdd: string; readonly vmAdd: string | null }> = {
   codex: { name: "Codex", hostAdd: "`cr add codex`", vmAdd: "`cr add codex`" },
   claude: { name: "Claude upstream", hostAdd: "`cmux coderouter claude add`", vmAdd: "`cr add claude`" },
   opencode: { name: "OpenCode", hostAdd: "`cr add opencode`", vmAdd: "`cr add opencode`" },
+  grok: { name: "Grok", hostAdd: "`cmux coderouter grok add`", vmAdd: null },
 };
 
 /**
@@ -22,12 +24,15 @@ export function noAccountConfiguredMessage(
 ): string {
   const { name, hostAdd, vmAdd } = FAMILY[family];
   const vm = accountAccessForIdentity(identity).kind === "vm";
+  const add = vm ? vmAdd : hostAdd;
   const message = vm && identity.teamId !== identity.stackUserId
-    ? `No ${name} account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with ${vmAdd} (accounts added on a Cloud machine are shared with its team).`
-    : `No ${name} account is configured for this team or shared with this caller. Add one with ${vm ? vmAdd : hostAdd} or at coderouter.dev.`;
+    ? `No ${name} account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, ${vmAdd ? `or add one here with ${vmAdd} (accounts added on a Cloud machine are shared with its team).` : "or add a shared one there."}`
+    : `No ${name} account is configured for this team or shared with this caller. ${add ? `Add one with ${add} or at coderouter.dev.` : "Add one at coderouter.dev."}`;
   // Every agent on a Cloud machine can sign in with the user's own account
   // instead; `cr use own` stops the machine from sending it through CodeRouter.
-  return vm ? `${message} ${OWN_LOGIN_HINT[family]}` : message;
+  // Grok runs inside Codex or Pi on CodeRouter's xAI keys, so it has no own sign-in.
+  if (!vm || family === "grok") return message;
+  return `${message} ${OWN_LOGIN_HINT[family]}`;
 }
 
 /**
@@ -35,7 +40,7 @@ export function noAccountConfiguredMessage(
  * images before the sign-in switch have no `cr use`; the parenthetical is
  * their equivalent.
  */
-export const OWN_LOGIN_HINT: Record<NoAccountFamily, string> = {
+export const OWN_LOGIN_HINT: Record<Exclude<NoAccountFamily, "grok">, string> = {
   claude:
     "Or use your own Claude account on this machine: run `cr use own claude` (on older machines, `unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL` in the terminal instead), then restart claude and sign in with /login.",
   codex:

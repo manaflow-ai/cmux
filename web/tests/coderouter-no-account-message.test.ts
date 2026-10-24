@@ -33,6 +33,20 @@ describe("coderouter no-account message", () => {
     expect(noAccountConfiguredMessage("claude", personal)).not.toContain("cmux coderouter claude add");
   });
 
+  test("Grok points a Cloud machine at coderouter.dev, since its CodeRouter CLI cannot add an xAI key", () => {
+    const organization = { teamId: "org-1", stackUserId: "user-1", vmId: "vm-1", poolId: "pool-1" };
+    const personal = { teamId: "user-1", stackUserId: "user-1", vmId: "vm-1", poolId: "pool-1" };
+    expect(noAccountConfiguredMessage("grok", organization)).toBe(
+      "No Grok account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add a shared one there.",
+    );
+    expect(noAccountConfiguredMessage("grok", personal)).toBe(
+      "No Grok account is configured for this team or shared with this caller. Add one at coderouter.dev.",
+    );
+    expect(noAccountConfiguredMessage("grok", { teamId: "org-1", stackUserId: "user-1", vmId: null })).toBe(
+      "No Grok account is configured for this team or shared with this caller. Add one with `cmux coderouter grok add` or at coderouter.dev.",
+    );
+  });
+
   test("chatmux machines, API keys and people keep the host text", () => {
     const callers = [
       { teamId: "org-1", stackUserId: "user-1", vmId: "vm-1", machine: "chatmux" as const },

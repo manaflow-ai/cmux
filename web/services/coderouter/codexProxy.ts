@@ -279,7 +279,9 @@ async function proxyCodexRequestWith(
     if (value) forwardedHeaders.set(name, value);
   }
   const sessionKey = sessionKeyFromRequest(request);
-  const providers = responsesProvidersForModel(await requestModel(request));
+  const providers = responsesProvidersForModel(
+    await requestModel(request, upstreamHeaderDeadlineAt, runtime.now),
+  );
   /** Accounts tried this round; cleared when the request holds for capacity. */
   const attempted: string[] = [];
   let attemptCount = 0;
@@ -674,7 +676,7 @@ async function proxyCodexRequestWith(
     break;
   }
   if (noAccountConfigured) {
-    return noCodexAccountConfigured({ requestId, identity, request, startedAt });
+    return noCodexAccountConfigured({ requestId, identity, request, startedAt }, providers);
   }
   if (!upstream) {
     captureRouteHealth({
@@ -1361,19 +1363,31 @@ async function sendResponses(
 
 /**
  * The `model` of a plain JSON Responses body, read from a clone so the
- * original still streams upstream. A compressed or unparsable body yields
- * `undefined`, which keeps the default provider pool.
+ * original still streams upstream. A compressed, unparsable or unfinished
+ * body yields `undefined`, which keeps the default provider pool. The read
+ * shares the request's failover deadline, so a body that never ends falls
+ * through to the selection and header timeouts instead of holding the request.
  */
-async function requestModel(request: Request): Promise<string | undefined> {
-  if (request.headers.get("content-encoding")) return undefined;
+async function requestModel(
+  request: Request,
+  deadlineAt: number,
+  now: () => number,
+): Promise<string | undefined> {
+  const encoding = request.headers.get("content-encoding")?.trim().toLowerCase();
+  if (encoding && encoding !== "identity") return undefined;
   try {
-    const parsed: unknown = await request.clone().json();
+    const parsed: unknown = await withCoderouterOperationDeadline(
+      request.signal,
+      deadlineAt,
+      now,
+      async () => await request.clone().json(),
+    );
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const model = (parsed as { model?: unknown }).model;
       return typeof model === "string" ? model : undefined;
     }
   } catch {
-    // Not JSON: the upstream answers it.
+    // Not JSON, or not finished in time: the upstream answers it.
   }
   return undefined;
 }
@@ -1549,7 +1563,7 @@ function noCodexAccountConfigured(input: {
   readonly identity: RouteTokenIdentity;
   readonly request: Request;
   readonly startedAt: number;
-}): Response {
+}, providers: readonly CodeRouterProvider[]): Response {
   captureRouteHealth({
     ...input,
     status: 403,
@@ -1559,14 +1573,14 @@ function noCodexAccountConfigured(input: {
     failureStage: "provider_config",
     responseStreamed: false,
   });
-  return noCodexAccountResponse(input.identity);
+  return noCodexAccountResponse(input.identity, providers === GROK_RESPONSES_PROVIDERS ? "grok" : "codex");
 }
 
 /** Shared by every Codex surface: a terminal 403 in the OpenAI error shape. */
-function noCodexAccountResponse(identity: RouteTokenIdentity): Response {
+function noCodexAccountResponse(identity: RouteTokenIdentity, family: "codex" | "grok" = "codex"): Response {
   return Response.json({
     error: {
-      message: noAccountConfiguredMessage("codex", identity),
+      message: noAccountConfiguredMessage(family, identity),
       type: "invalid_request_error",
       code: "no_account_configured",
     },

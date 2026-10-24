@@ -454,7 +454,7 @@ describe("Grok models through xAI keys", () => {
     } as RequestInit & { duplex: "half" });
     const outcome = await Promise.race([
       stalled(request).then(() => "answered"),
-      Bun.sleep(2_000).then(() => "hung"),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 2_000)),
     ]);
     expect(outcome).toBe("answered");
   });
