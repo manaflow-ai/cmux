@@ -183,10 +183,21 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     static func statsLine(_ session: ScreenSession) -> String {
         let stats = session.stats
-        var parts = [session.streamPath, String(format: "%.0f fps", stats.fps)]
-        if let rtt = stats.latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
-        if stats.encoding != "-" { parts.append(stats.encoding) }
-        if session.frameSize.width >= 1 { parts.append("\(Int(session.frameSize.width))×\(Int(session.frameSize.height))") }
+        return statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                         encoding: stats.encoding, frameSize: session.frameSize)
+    }
+
+    /// The stats line: path, frame rate (measured, then the rate the Mac
+    /// streams at when it says: "118/120 fps"), round trip, codec, size.
+    static func statsLine(path: String, fps: Double, targetFps: Int?, latencyMs: Double?, encoding: String, frameSize: CGSize) -> String {
+        let measured = fps.isFinite ? Int(fps.rounded()) : 0
+        let rate = targetFps.map { target in
+            L.t("macScreen.stats.fpsOfTarget", "\(measured)/\(target) fps")
+        } ?? String(format: "%.0f fps", fps)
+        var parts = [path, rate]
+        if let rtt = latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
+        if encoding != "-" { parts.append(encoding) }
+        if frameSize.width >= 1 { parts.append("\(Int(frameSize.width))×\(Int(frameSize.height))") }
         return parts.joined(separator: " · ")
     }
 
