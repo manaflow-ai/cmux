@@ -50,6 +50,10 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=nsl-launch` (scratch, ns-launch-stalls-remaining retest; never lands): scripts/cmux-next/nsl-launch-fleet.py.
+if "--suite=nsl-launch" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nsl-launch-fleet.py")
+    os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
