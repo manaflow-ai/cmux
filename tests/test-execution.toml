@@ -150,7 +150,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_swift_typecheck_diagnostics.py"
-lane = "linux-guard"
+lane = "macos-shell"
 
 [[test]]
 path = "tests/test_check_package_resolved_policy.py"
