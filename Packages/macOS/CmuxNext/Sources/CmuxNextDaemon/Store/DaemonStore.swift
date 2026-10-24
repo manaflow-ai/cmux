@@ -261,16 +261,17 @@ public final class DaemonStore: StateResourceQueries {
     /// found (``SnapshotDiff``, computed off the main thread by the resync); nil or a diff of an
     /// older memo compares here. Only the changed, new and removed workspaces, and those an event
     /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
-    /// (``incrementalChanges(_:diff:)``) applies in full.
+    /// (``incrementalDiff(_:diff:)``) applies in full.
     func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
         withOverlayLifted(snapshot: true) {
-            if let touched = incrementalChanges(tree, diff: diff) {
-                applyTreeIncrementally(tree, touching: touched)
+            if let diff = incrementalDiff(tree, diff: diff) {
+                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
+                advanceSnapshotMemo(tree, applying: diff)
             } else {
                 applyTree(tree)
                 rebuildIndex()
+                recordSnapshotMemo(tree)
             }
-            recordSnapshotMemo(tree)
             if isProvisional { isProvisional = false }
             if !isLoaded {
                 isLoaded = true

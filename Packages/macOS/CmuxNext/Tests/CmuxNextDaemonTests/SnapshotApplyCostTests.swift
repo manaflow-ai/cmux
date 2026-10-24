@@ -64,7 +64,7 @@ import Testing
     @Test func aSnapshotDiffComputedAgainstAnOlderMemoIsRecomputed() {
         let store = DaemonStore()
         store.apply(snapshot: session(20))
-        let stale = SnapshotDiff(revision: store.snapshotMemo.revision &- 1, changed: [])
+        let stale = SnapshotDiff(revision: store.snapshotMemo.revision &- 1, changed: [:], removed: [])
         store.apply(snapshot: session(20, changing: 5), diff: stale)
         #expect(store.workspaces[5].screens.first?.panes.first?.tabs.first?.title == "renamed 0",
                 "a diff of another memo revision is not trusted")
@@ -93,16 +93,16 @@ import Testing
         let store = DaemonStore()
         store.apply(snapshot: session(sessionSize))
         let next = session(sessionSize, changing: 7)
-        let memo = store.snapshotMemo
-        let diff = await SnapshotDiff.computed(next, against: memo.applied, revision: memo.revision)
+        let diff = await store.snapshotDiff(of: next)
         let before = store.snapshotWorkspacesWalkedOnMain
         store.apply(snapshot: next, diff: diff)
         let walked = store.snapshotWorkspacesWalkedOnMain - before
         #expect(walked == 0, "main walked \(walked) workspace snapshots in a \(sessionSize)-workspace session")
         #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
         // The memo vouches for the tree it applied: the same snapshot again differs nowhere.
-        let again = await SnapshotDiff.computed(next, against: store.snapshotMemo.applied, revision: store.snapshotMemo.revision)
-        #expect(again.changed.isEmpty)
+        let again = await store.snapshotDiff(of: next)
+        #expect(again?.changed.isEmpty == true)
+        #expect(again?.removed.isEmpty == true)
         #expect(store.snapshotMemo.applied.count == sessionSize)
     }
 
