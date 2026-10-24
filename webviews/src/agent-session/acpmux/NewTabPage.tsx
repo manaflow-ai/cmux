@@ -413,13 +413,13 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, attachError, drop, dropLanded } = useAttachmentIntake({
+  const { attachments, setAttachments, pending, loading, cancel, retry, attachError, drop, dropLanded } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
     dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
   });
   attachmentRef.current = attachments;
-  const holdForAttachments = useSendWhenAttached(pending.length);
+  const holdForAttachments = useSendWhenAttached(loading);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
@@ -697,6 +697,11 @@ export function NewTabPage({
               setAttachments((current) => current.filter((item) => item.id !== id));
               field.current?.focus();
             }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
           />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />

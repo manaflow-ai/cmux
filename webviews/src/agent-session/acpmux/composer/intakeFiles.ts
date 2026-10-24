@@ -20,6 +20,8 @@ export type IntakeOptions = {
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
   upload?(files: File[]): Promise<UploadResult>;
+  /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
+  cancelled?(index: number): boolean;
 };
 
 export type IntakeError = AttachmentError | { text: string };
@@ -122,8 +124,12 @@ export async function intakeFiles(
     }),
   );
   if (waiting.length) {
-    // One upload for the batch, in the order the files came (the host's batch token covers them).
+    // One upload for the batch, in the order the files came (the host's batch token covers them),
+    // without the files cancelled meanwhile.
     waiting.sort((a, b) => a.index - b.index);
+    for (let at = waiting.length - 1; at >= 0; at--) if (options.cancelled?.(waiting[at]!.index)) waiting.splice(at, 1);
+  }
+  if (waiting.length) {
     const sent = await options.upload?.(waiting.map(({ file }) => file)).catch(
       (failure: unknown): UploadResult => ({ error: failure instanceof Error ? failure.message : String(failure) }),
     );

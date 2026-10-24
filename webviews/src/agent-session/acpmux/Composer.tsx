@@ -895,7 +895,9 @@ export function Composer({
           return true;
         }
       }
-      setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
+      // By id: a chip patched after it went (its original's path arriving) is still the one sent.
+      const went = new Set(attachments.map((attachment) => attachment.id));
+      setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
       edit("", 0);
@@ -909,7 +911,8 @@ export function Composer({
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
-      setAttachments((current) => current.filter((attachment) => !sent.includes(attachment)));
+      const went = new Set(sent.map((attachment) => attachment.id));
+      setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
