@@ -25,10 +25,6 @@ public struct TerminalEnvironment: Sendable {
     /// agent). Taken from the app process, never from the login shell, and
     /// only for the daemon process: terminals inherit them from it.
     public let daemonIdentityKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"]
-    /// The local daemon owns the settings file, so it starts on the app's
-    /// (`CMUX_NEXT_CONFIG_FILE`). Not an identity key: a remote daemon
-    /// (`SSHService`) and terminals (`terminal`) never get this Mac's path.
-    public let localDaemonKeys: Set<String> = ["CMUX_NEXT_CONFIG_FILE"]
 
     public func isAllowed(_ key: String) -> Bool {
         guard !LoginEnvironment.shared.excludedKeys.contains(key), !isCredential(key) else { return false }
@@ -78,7 +74,7 @@ public struct TerminalEnvironment: Sendable {
     /// app's process identity keys, plus `overrides`.
     public func daemon(login: [String: String]?, base: [String: String], overrides: [String: String]) -> [String: String] {
         var env: [String: String] = terminal(login: login, base: base)
-        for key in daemonIdentityKeys.union(localDaemonKeys) { if let value = base[key] { env[key] = value } }
+        for key in daemonIdentityKeys { if let value = base[key] { env[key] = value } }
         for (key, value) in overrides { env[key] = value }
         return env
     }
