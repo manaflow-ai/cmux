@@ -71,6 +71,11 @@ pub async fn spawn_within(
     let mut child = cmd
         .spawn()
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
+    // Before the spec: the host starts its harness only once it has it, so
+    // the harness starts in the host's own scope too (`scope.rs`).
+    if let Some(pid) = child.id() {
+        super::scope::place(pid).await;
+    }
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
     // A host that never reports ready must not hold the session's spawn.
