@@ -247,7 +247,7 @@ extension LiveCoordinator {
 
     /// `session`'s link once its pairing passed, for channels that may overtake
     /// `auth` (the input lane rides another stream).
-    private func pairedLink(_ session: MacSession) async throws -> any MacLink {
+    func pairedLink(_ session: MacSession) async throws -> any MacLink {
         guard let link = session.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
         if let gate = session.pairingGate, gate.link === link, !(await gate.passed.value) {
             throw LinkError(code: "unpaired", message: "This iPhone is not paired with the Mac")

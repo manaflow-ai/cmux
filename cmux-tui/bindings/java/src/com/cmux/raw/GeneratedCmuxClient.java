@@ -608,6 +608,11 @@ public abstract class GeneratedCmuxClient {
         return FrontendProjection.fromWire(result);
     }
 
+    public final GetHostSizePolicyResult getHostSizePolicy(GetHostSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_HOST_SIZE_POLICY, request.toWire());
+        return GetHostSizePolicyResult.fromWire(result);
+    }
+
     public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
         Object result = execute(Commands.GET_SIZE_STATE, request.toWire());
         return GetSizeStateResult.fromWire(result);
@@ -1145,6 +1150,11 @@ public abstract class GeneratedCmuxClient {
     public final Object setFrontendBrowserHistory(SetFrontendBrowserHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.SET_FRONTEND_BROWSER_HISTORY, request.toWire());
         return Wire.immutableJson(result);
+    }
+
+    public final SetHostSizePolicyResult setHostSizePolicy(SetHostSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_HOST_SIZE_POLICY, request.toWire());
+        return SetHostSizePolicyResult.fromWire(result);
     }
 
     public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {

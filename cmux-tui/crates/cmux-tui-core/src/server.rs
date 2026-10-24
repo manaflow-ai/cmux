@@ -642,6 +642,15 @@ struct BrowserProviderTargetRequest {
     target_id: String,
 }
 
+/// `set-host-size-policy`'s `policy`: a mode and optionally the order.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostSizePolicyRequest {
+    mode: String,
+    #[serde(default)]
+    order: Option<Vec<String>>,
+}
+
 /// Optional shared-sizing identity carried by `set-client-info` and relay sub-views.
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ClientIdentityWire {
@@ -659,6 +668,11 @@ struct ClientIdentityWire {
 }
 
 impl ClientIdentityWire {
+    /// The same identity without a user or a device id.
+    fn anonymous(self) -> Self {
+        Self { user_id: None, device_id: None, ..self }
+    }
+
     fn is_empty(&self) -> bool {
         self.user_id.is_none()
             && self.display_name.is_none()
@@ -677,6 +691,7 @@ impl ClientIdentityWire {
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
             device_id: self.device_id.map(clamp_client_label),
+            remote: false,
         }
     }
 }
@@ -820,6 +835,11 @@ enum Command {
         /// so a refusal names its update command.
         #[serde(default)]
         install: Option<String>,
+        /// `host-size-policy-v1`: this connection is a remote device's
+        /// spliced lane (cmux-mobile-host sets it on every phone), never one
+        /// of this host's own views. Sticky: `false` never clears it.
+        #[serde(default)]
+        remote: Option<bool>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -904,6 +924,16 @@ enum Command {
     },
     GetSizeState {
         surface: SurfaceId,
+    },
+    /// The host sizing policy (`host-size-policy-v1`) and, with `surface`,
+    /// which of its terminal's participants are this host's own views.
+    GetHostSizePolicy {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Store the host sizing policy in the settings file and apply it.
+    SetHostSizePolicy {
+        policy: HostSizePolicyRequest,
     },
     /// Record explicit input or focus activity for the caller's own view, or
     /// with `view` for one of its relay sub-views (input a relay forwards).
@@ -2279,7 +2309,8 @@ impl Command {
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
-            | Self::SetSizePolicy { surface, .. } => *surface,
+            | Self::SetSizePolicy { surface, .. }
+            | Self::GetHostSizePolicy { surface } => *surface,
             _ => None,
         }
     }

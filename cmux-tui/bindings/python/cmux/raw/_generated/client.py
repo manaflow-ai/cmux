@@ -369,6 +369,9 @@ class GeneratedClientMixin:
     def get_frontend_projection(self, frontend: str, scope: str, subject_key: str) -> FrontendProjection:
         return self._invoke_command('get-frontend-projection', GetFrontendProjectionRequest(frontend=frontend, scope=scope, subject_key=subject_key))
 
+    def get_host_size_policy(self, surface: Union[Id, None, MissingType] = MISSING) -> GetHostSizePolicyResult:
+        return self._invoke_command('get-host-size-policy', GetHostSizePolicyRequest(surface=surface))
+
     def get_size_state(self, surface: Id) -> GetSizeStateResult:
         return self._invoke_command('get-size-state', GetSizeStateRequest(surface=surface))
 
@@ -675,8 +678,8 @@ class GeneratedClientMixin:
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
-    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, api_revision: Union[int, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, install: Union[str, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING, version: Union[str, None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, api_revision=api_revision, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, install=install, user_id=user_id, version=version))
+    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, api_revision: Union[int, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, install: Union[str, None, MissingType] = MISSING, remote: Union[bool, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING, version: Union[str, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, api_revision=api_revision, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, install=install, remote=remote, user_id=user_id, version=version))
 
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
@@ -689,6 +692,9 @@ class GeneratedClientMixin:
 
     def set_frontend_browser_history(self, surface: Id, history: Union[JsonValue, None]) -> JsonValue:
         return self._invoke_command('set-frontend-browser-history', SetFrontendBrowserHistoryRequest(surface=surface, history=history))
+
+    def set_host_size_policy(self, policy: HostSizePolicyRequest) -> SetHostSizePolicyResult:
+        return self._invoke_command('set-host-size-policy', SetHostSizePolicyRequest(policy=policy))
 
     def set_personal_terminal(self, session_id: str, terminal_key: str, *, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-personal-terminal', SetPersonalTerminalRequest(session_id=session_id, terminal_key=terminal_key, theme=theme))
@@ -981,6 +987,7 @@ GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-brows
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
 GeneratedClientMixin.get_frontend_browser_history.__cmux_command__ = COMMANDS['get-frontend-browser-history']
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
+GeneratedClientMixin.get_host_size_policy.__cmux_command__ = COMMANDS['get-host-size-policy']
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
 GeneratedClientMixin.history_search.__cmux_command__ = COMMANDS['history-search']
 GeneratedClientMixin.home_inbox.__cmux_command__ = COMMANDS['home-inbox']
@@ -1088,6 +1095,7 @@ GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-s
 GeneratedClientMixin.set_column_dock.__cmux_command__ = COMMANDS['set-column-dock']
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
 GeneratedClientMixin.set_frontend_browser_history.__cmux_command__ = COMMANDS['set-frontend-browser-history']
+GeneratedClientMixin.set_host_size_policy.__cmux_command__ = COMMANDS['set-host-size-policy']
 GeneratedClientMixin.set_personal_terminal.__cmux_command__ = COMMANDS['set-personal-terminal']
 GeneratedClientMixin.set_personal_workspace.__cmux_command__ = COMMANDS['set-personal-workspace']
 GeneratedClientMixin.set_profile_follows.__cmux_command__ = COMMANDS['set-profile-follows']
