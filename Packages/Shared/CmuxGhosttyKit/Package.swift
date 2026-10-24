@@ -82,6 +82,11 @@ import PackageDescription
 // has then); ghostty_surface_fit_grid gives the grid a size will fit without
 // resizing; the grid metrics say whether the alternate screen is active;
 // kitty graphics follow upstream #14811 and #14812.
+// Since 723c4ab..0493ce8 (PRs 51, 54, 55): ghostty_surface_present_host_frame_ready
+// presents a resized surface's frame only if it is drawn, never waits; a
+// content-only frame goes to the screen from the GPU completion thread (a
+// terminal echo does not wait for the main thread); bash 4.4-5.2 forks once
+// per command, not twice.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -106,8 +111,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-723c4ab93e70c6be896bd9b6d0ad42f2a5fbfedc-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "9cf0bdc5f8ef77adfa28ff2fdcd373c4ee8aac9021b228746b043931ac741052"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-0493ce89a99e7813b3a230aad521090be4e3a066-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "2da17796f56cfdf935af6f4338865a4beb16f6f9bc46d5d3e30fd2ed397911ed"
         ),
     ]
 )
