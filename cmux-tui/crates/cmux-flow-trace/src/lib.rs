@@ -19,8 +19,8 @@
 //! (a deliberate timer: a diagnostic mode, never on in a normal run), or at once
 //! when a hop finds the ring half full (the one wake a hop may send). Each record
 //! is one JSON line: hop name, flow id or 0, terminal hex id, pid, thread id and
-//! `CLOCK_UPTIME_RAW` in nanoseconds on macOS (`CLOCK_MONOTONIC` elsewhere): the
-//! clock of the app's signposts, so no offset is guessed.
+//! `CLOCK_UPTIME_RAW` in nanoseconds on macOS (the performance counter on Windows,
+//! `CLOCK_MONOTONIC` elsewhere): the clock of the app's signposts, so no offset is guessed.
 //!
 //! A hop with a flow id carries the id the app minted for one key press (the
 //! `send` request's `flow`). A hop with flow 0 is on a path no message carries
@@ -332,12 +332,37 @@ fn now_ns() -> u64 {
     unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 fn now_ns() -> u64 {
     let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: `now` is a valid out pointer for the call.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
     (now.tv_sec as u64).saturating_mul(1_000_000_000).saturating_add(now.tv_nsec as u64)
+}
+
+/// The performance counter in nanoseconds, with no allocation or lock. On most current Windows
+/// machines (an invariant TSC) both reads come from user-mode shared data with no kernel entry;
+/// with an HPET or PM-timer counter Windows enters the kernel, as close to the rule as the platform
+/// allows. Declared here as on macOS, so the crate stays std and libc only.
+#[cfg(windows)]
+fn now_ns() -> u64 {
+    unsafe extern "system" {
+        fn QueryPerformanceCounter(count: *mut i64) -> i32;
+        fn QueryPerformanceFrequency(frequency: *mut i64) -> i32;
+    }
+    let (mut count, mut frequency) = (0i64, 0i64);
+    // SAFETY: both are valid out pointers; the calls have no other preconditions and cannot
+    // fail on Windows XP and later.
+    unsafe {
+        QueryPerformanceCounter(&mut count);
+        QueryPerformanceFrequency(&mut frequency);
+    }
+    if frequency <= 0 {
+        return 0;
+    }
+    let ns =
+        u128::from(count.unsigned_abs()) * 1_000_000_000 / u128::from(frequency.unsigned_abs());
+    u64::try_from(ns).unwrap_or(u64::MAX)
 }
 
 /// The system-wide id of the calling thread (the id Instruments and
