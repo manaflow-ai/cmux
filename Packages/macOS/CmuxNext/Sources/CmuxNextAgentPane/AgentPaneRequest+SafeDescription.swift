@@ -99,6 +99,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .displaySetting: "displaySetting"
         case .toolCard: "toolCard"
         case .upload: "upload"
+        case .uploadStage: "uploadStage"
         case .unsupported: "unsupported"
         }
     }
