@@ -173,6 +173,7 @@
 .acpmux-workflow__row{min-height:32px;gap:8px}
 .acpmux-workflow__icon,.acpmux-workflow__agent-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--agent-accent)}
 .acpmux-workflow__title{font-weight:600}
+.acpmux-workflow__state{flex:none;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-workflow__detail{padding:8px;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 2%,transparent)}
 .acpmux-workflow__warning{margin:0 0 8px;padding:4px 8px;border-radius:5px;background:color-mix(in srgb,var(--agent-status-warning) 12%,transparent);color:var(--agent-status-warning);font-size:var(--text-detail)}
 .acpmux-workflow__columns{display:grid;grid-template-columns:minmax(100px,.8fr) minmax(0,1.2fr);gap:8px}

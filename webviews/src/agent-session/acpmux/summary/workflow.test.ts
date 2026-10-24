@@ -30,3 +30,17 @@ test("workflow adapter keeps typed phases, agents and counters", () => {
     agents: [{ id: "a", name: "API", state: "running", doing: "Editing", tokens: 42, transcriptRowId: "row" }],
   });
 });
+
+test("workflow adapter rejects malformed children, references, duplicates and selections", () => {
+  const base = {
+    id: "w",
+    title: "Migration",
+    state: "running",
+    phases: [{ id: "p", name: "Implement", state: "running", agentIds: ["a"] }],
+    agents: [{ id: "a", name: "API", state: "running" }],
+  };
+  expect(workflowFromWire({ ...base, agents: [{ id: "a", name: "API", state: "bogus" }] })).toBeUndefined();
+  expect(workflowFromWire({ ...base, agents: [...base.agents, base.agents[0]] })).toBeUndefined();
+  expect(workflowFromWire({ ...base, phases: [{ ...base.phases[0], agentIds: ["missing"] }] })).toBeUndefined();
+  expect(workflowFromWire({ ...base, selectedAgentId: "missing" })).toBeUndefined();
+});

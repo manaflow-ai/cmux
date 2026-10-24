@@ -39,6 +39,16 @@ export function WorkflowSummaryRow({
   if (!workflow) return null;
   const completed = workflow.agents.filter((agent) => agent.state === "completed").length;
   const selected = workflow.agents.find((agent) => agent.id === workflow.selectedAgentId) ?? workflow.agents[0];
+  const stateLabel =
+    workflow.state === "running"
+      ? t("bgTask.state.running")
+      : workflow.state === "completed"
+        ? t("bgTask.state.completed")
+        : workflow.state === "failed"
+          ? t("bgTask.state.failed")
+          : workflow.state === "paused"
+            ? t("replay.pause")
+            : "Pending";
   const state =
     workflow.state === "running" ? <Spinner size={12} loading /> : <Icon name="agent.session" size={12} row />;
   return (
@@ -53,11 +63,15 @@ export function WorkflowSummaryRow({
           {state}
         </span>
         <span className="acpmux-summary-text acpmux-workflow__title">{workflow.title}</span>
+        <span className="acpmux-workflow__state" aria-label={`${workflow.title}: ${stateLabel}`}>
+          {stateLabel}
+        </span>
         {workflow.phase && <span className="acpmux-summary-meta">{workflow.phase}</span>}
         <span className="acpmux-summary-meta">
           {completed}/{workflow.agents.length}
           {workflow.elapsedMs !== undefined && ` · ${formatDuration(workflow.elapsedMs)}`}
-          {workflow.tokens !== undefined && ` · ${t("subagents.tokens", { tokens: workflow.tokens })}`}
+          {workflow.tokens !== undefined &&
+            ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>
         <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
       </button>
@@ -112,6 +126,7 @@ export function WorkflowSummaryRow({
                       <button
                         type="button"
                         className="acpmux-workflow__transcript"
+                        aria-label={`Open transcript for ${agent.name}`}
                         onClick={() => actions.onOpenTranscript?.(agent.transcriptRowId!)}
                       >
                         <Icon name="disclosure.collapsed" size={11} />

@@ -178,7 +178,7 @@ import {
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
-import { workflowFromSnapshot } from "./summary/workflow";
+import { workflowFromWire } from "./summary/workflow";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -483,6 +483,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
+      applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
@@ -3908,6 +3910,7 @@ function AcpmuxPane() {
   const t = useT();
   /// Labs preview features are off until the host explicitly enables them.
   const [preview, setPreview] = useState(false);
+  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
@@ -4651,7 +4654,10 @@ function AcpmuxPane() {
     () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
     [snapshot.sessions, shownSessionId],
   );
-  const workflow = preview ? workflowFromSnapshot(snapshot) : undefined;
+  const workflow = useMemo(
+    () => (workflowLabsEnabled ? workflowFromWire(snapshot.workflow) : undefined),
+    [workflowLabsEnabled, snapshot.workflow],
+  );
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflow !== undefined,
     [snapshot.rows, chatSubsessions, workflow],
@@ -6014,6 +6020,9 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
         setPromptSurfaces(on === true);
+      },
+      applyWorkflowLabs(on) {
+        setWorkflowLabsEnabled(on === true);
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
@@ -8453,7 +8462,8 @@ function AcpmuxPane() {
             }
             tools={chatTools}
             // Labs is off by default; the adapter returns nothing until acpmux publishes a
-            // workflow record, so ordinary chats keep the current summary unchanged.
+            // complete workflow record. No action callbacks are offered until acpmux publishes
+            // pause/stop/save methods; ordinary chats keep the current summary unchanged.
             workflow={workflow}
           />
         </SubagentHarnessContext.Provider>
