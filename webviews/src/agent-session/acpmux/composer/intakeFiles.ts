@@ -85,7 +85,7 @@ export async function intakeFiles(
         if (image) {
           image.originalPath = path;
           image.originalName = file.name;
-        } else
+        } else {
           const link = {
             ...savedAttachment(path, file.name),
             ...(ids?.[index] ? { id: ids[index]! } : {}),
@@ -93,6 +93,7 @@ export async function intakeFiles(
             size: file.size,
           };
           ordered[index] = link;
+        }
       }
     } else if (waiting.some(({ image }) => !image)) {
       error ??= { name: waiting.find(({ image }) => !image)!.file.name, reason: "unsupported" };

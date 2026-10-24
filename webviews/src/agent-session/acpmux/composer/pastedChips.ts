@@ -62,9 +62,9 @@ export function usePastedChips(
     take(text: string): boolean {
       if (raw() || !isLargePaste(text)) return false;
       const chip = pastedTextAttachment(text);
+      field.current?.insertInlineAttachments([chip.id]);
       // Ahead of the render, so a second paste at once counts this one.
       attachments.current = [...attachments.current, chip];
-      field.current?.insertInlineAttachments([chip.id]);
       setAttachments((current) => [...current, chip]);
       return true;
     },

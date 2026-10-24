@@ -42,6 +42,8 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
+  onRestoreAttachment?(id: string): void;
+  onPasteAttachments?(attachments: ComposerAttachment[], index: number): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -105,6 +107,8 @@ export function ComposerBox({
   chromeItems,
   bottom,
   showAttachmentTray = false,
+  onRestoreAttachment,
+  onPasteAttachments,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
@@ -124,7 +128,6 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
-  const removedInline = useRef(new Map<string, ComposerAttachment>());
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
   const inlineAttachments = useMemo(
@@ -142,27 +145,6 @@ export function ComposerBox({
   );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
-  const removeInline = useCallback(
-    (id: string) => {
-      const found = (attachmentsRef ?? ownAttachments).current.find((attachment) => attachment.id === id);
-      if (found) removedInline.current.set(id, found);
-      onRemoveAttachment(id);
-    },
-    [attachmentsRef, onRemoveAttachment],
-  );
-  const restoreInline = useCallback(
-    (id: string, index: number) => {
-      const found = removedInline.current.get(id);
-      if (!found) return;
-      removedInline.current.delete(id);
-      setAttachments((current) => {
-        if (current.some((attachment) => attachment.id === id)) return current;
-        const at = Math.min(Math.max(index, 0), current.length);
-        return [...current.slice(0, at), found, ...current.slice(at)];
-      });
-    },
-    [setAttachments],
-  );
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
   const { onBeforeInput, onKeyDown } = field;
   // A press on the card around the text (the field's padding, the gap around the button row, the
@@ -209,8 +191,9 @@ export function ComposerBox({
             ref={setPrompt}
             {...field}
             inlineAttachments={inlineAttachments}
-            onInlineAttachmentRemove={removeInline}
-            onInlineAttachmentRestore={restoreInline}
+            onInlineAttachmentRemove={onRemoveAttachment}
+            onInlineAttachmentRestore={onRestoreAttachment}
+            onInlineAttachmentPaste={onPasteAttachments}
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).

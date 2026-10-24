@@ -5,13 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import {
-  INLINE_ATTACHMENT_MARK,
-  type AttachmentError,
-  type ComposerAttachment,
-  type DroppedKind,
-  type LinkItem,
-} from "./attachments";
+import { INLINE_ATTACHMENT_MARK, type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -531,6 +525,20 @@ export function Composer({
     },
     [setAttachments],
   );
+  const pasteAttachments = useCallback(
+    (added: ComposerAttachment[], insertionIndex: number) => {
+      attachmentsRef.current = [
+        ...attachmentsRef.current.slice(0, insertionIndex),
+        ...added,
+        ...attachmentsRef.current.slice(insertionIndex),
+      ];
+      setAttachments((items) => {
+        const at = Math.min(Math.max(insertionIndex, 0), items.length);
+        return [...items.slice(0, at), ...added, ...items.slice(at)];
+      });
+    },
+    [setAttachments],
+  );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -589,12 +597,17 @@ export function Composer({
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
-        const next = appendAttachments(held, [attachment]);
+        const insertionIndex = field.current?.insertInlineAttachments([attachment.id]);
+        const next =
+          insertionIndex === undefined
+            ? appendAttachments(held, [attachment])
+            : [...held.slice(0, insertionIndex), attachment, ...held.slice(insertionIndex)];
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
         attachmentsRef.current = next;
         setAttachments((current) => {
-          const next = appendAttachments(current, [attachment]);
-          return next;
+          if (insertionIndex === undefined) return appendAttachments(current, [attachment]);
+          const at = Math.min(Math.max(insertionIndex, 0), current.length);
+          return [...current.slice(0, at), attachment, ...current.slice(at)];
         });
       },
       detach(ids) {
@@ -828,8 +841,7 @@ export function Composer({
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
-    const visiblePrompt = prompt.replaceAll(INLINE_ATTACHMENT_MARK, "").trim();
-    if (!visiblePrompt && attachments.length === 0) {
+    if (!prompt.replaceAll(INLINE_ATTACHMENT_MARK, "").trim() && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
     }
@@ -1583,6 +1595,7 @@ export function Composer({
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={removeAttachment}
         onRestoreAttachment={restoreAttachment}
+        onPasteAttachments={pasteAttachments}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={

@@ -185,16 +185,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       read();
       throw error;
     }
-    read();
     // The composer moved to another chat meanwhile: the chips are the chat's they were pasted in.
     const now = live.current.options;
     if (batch.scope !== now.scope) {
+      read();
       if (batch.scope !== undefined && taken.attachments.length) now.elsewhere?.(batch.scope, taken.attachments);
       return;
     }
     const delivered = new Set(taken.attachments.map((attachment) => attachment.id));
     const refused = shown.map((chip) => chip.id).filter((id) => !delivered.has(id));
     if (refused.length) current.releaseInline?.(refused);
+    // Keep pending ids visible to `removeInlineAttachment` until refused marks are removed.
+    read();
     setAttachments((staged) => {
       if (insertionIndex === undefined) return appendAttachments(staged, taken.attachments);
       const at = Math.min(Math.max(insertionIndex, 0), staged.length);

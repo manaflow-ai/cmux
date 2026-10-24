@@ -282,14 +282,13 @@
   max-width: 0;
   overflow: hidden;
   color: transparent;
-  font-size: 0;
   line-height: 0;
 }
 .acpmux-md-inline-attachment {
   position: relative;
   display: inline-flex;
   width: min(128px, 30vw);
-  height: 72px;
+  height: var(--acpmux-attach-height);
   margin: 2px 5px 2px 1px;
   overflow: visible;
   vertical-align: middle;
@@ -311,14 +310,14 @@
   width: min(180px, 40vw);
   height: 32px;
   align-items: center;
-  padding: 0 28px 0 10px;
+  padding: 0 var(--acpmux-attach-gap) 0 var(--acpmux-attach-gap);
   box-sizing: border-box;
   font-size: var(--text-caption);
 }
 .acpmux-md-inline-attachment.is-pending::before {
   content: "";
-  width: 16px;
-  height: 16px;
+  width: var(--acpmux-context-control-size);
+  height: var(--acpmux-context-control-size);
   margin: auto;
   border: 2px solid color-mix(in srgb, var(--agent-text) 22%, transparent);
   border-top-color: var(--agent-text);
@@ -329,8 +328,8 @@
   position: absolute;
   top: 3px;
   right: 3px;
-  width: 17px;
-  height: 17px;
+  width: var(--acpmux-context-control-size);
+  height: var(--acpmux-context-control-size);
   display: grid;
   place-items: center;
   padding: 0;
@@ -338,7 +337,7 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--acpmux-composer-bg) 84%, transparent);
   color: var(--agent-text);
-  font-size: 14px;
+  font-size: var(--text-caption);
   line-height: 1;
   opacity: 0;
   cursor: pointer;
