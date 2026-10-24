@@ -1675,6 +1675,19 @@ def manage_issue(repo, state, event, now, run_url, summary, set_changed):
     return f"{'reopened' if not is_open else 'updated'} issue #{number}"
 
 
+def refresh_issue_body(repo, state, now):
+    """Rewrite the open issue's body when it no longer matches the state (a tick that finished no part: the Mac route
+    or bench status changed). Returns a line for the run summary, or ""."""
+    issue = find_issue(repo, state.get("issue"))
+    if not issue or issue.get("state") != "open":
+        return ""
+    body = issue_body(state, repo, now)
+    if (issue.get("body") or "") == body:
+        return ""
+    gh_request(f"/repos/{repo}/issues/{issue['number']}", "PATCH", {"body": body})
+    return f"rewrote the body of issue #{issue['number']}"
+
+
 def record_part(cur, part, result, run_url, t=None):
     """Fold one part's run into the measurement in flight (pure). A yielded part stays to do; after MAX_YIELDS it
     ends as 'yielded_out' (not run: the fleet was busy, not a failure of the commit). A part whose app build failed
@@ -1826,6 +1839,12 @@ def cmd_report(o):
         set_changed = sorted(r["name"] for r in state.get("regressions") or []) != before_names
         line += "; " + manage_issue(o.repo, state, event, t, o.run_url, summary or line, set_changed)
         changed = changed or json.dumps(state, sort_keys=True) != before
+    elif o.issues and state.get("issue"):
+        try:
+            rewrote = refresh_issue_body(o.repo, state, t)
+        except (urllib.error.URLError, TimeoutError, ValueError) as error:
+            rewrote = f"the issue body was not checked ({error!r})"
+        line += f"; {rewrote}" if rewrote else ""
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     nxt = next_now(state, fleet_done)
     if nxt:

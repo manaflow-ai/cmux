@@ -1103,5 +1103,33 @@ class ControllerRouteTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(out, "report.json")))
 
 
+
+class IssueRefreshTests(unittest.TestCase):
+    def test_a_tick_that_finishes_nothing_rewrites_a_stale_body(self):
+        state = cron.empty_state(T0)
+        state["issue"] = 9
+        state["regressions"] = [{"name": "diff.stream.p95", "p95": 32.9, "base": 19.5, "range": {"good": "a" * 40, "bad": "b" * 40}}]
+        old = cron.ISSUE_MARK + "\n**Mac parts disabled:** no route"
+        issue = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR}, "body": old, "state": "open"}
+        calls = []
+
+        def gh(path, method="GET", body=None, **k):
+            calls.append((method, path, body))
+            return issue
+        with mock.patch.object(cron, "gh_request", gh):
+            line = cron.refresh_issue_body("o/r", state, at(1))
+        self.assertEqual(line, "rewrote the body of issue #9")
+        patch = [b for m, _, b in calls if m == "PATCH"]
+        self.assertEqual(len(patch), 1)
+        self.assertNotIn("Mac parts disabled", patch[0]["body"])
+        issue["body"] = patch[0]["body"]
+        calls.clear()
+        with mock.patch.object(cron, "gh_request", gh):
+            self.assertEqual(cron.refresh_issue_body("o/r", state, at(1)), "")
+        self.assertFalse([c for c in calls if c[0] != "GET"], "an unchanged body is not written again")
+        issue["state"] = "closed"
+        with mock.patch.object(cron, "gh_request", gh):
+            self.assertEqual(cron.refresh_issue_body("o/r", state, at(1)), "", "a closed issue is left alone")
+
 if __name__ == "__main__":
     unittest.main()
