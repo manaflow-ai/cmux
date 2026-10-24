@@ -1248,7 +1248,7 @@ mod outbound_queue_tests {
     use serde_json::json;
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::{Arc, Mutex};
-    use tokio::sync::mpsc;
+    use tokio::sync::{Notify, mpsc};
 
     #[tokio::test]
     async fn a_slow_reader_gets_a_gap_signal_without_losing_a_response() {
