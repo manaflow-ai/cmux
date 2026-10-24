@@ -36,7 +36,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
+    private(set) lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -330,6 +330,7 @@ public final class SidebarView: NSView {
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
+        clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         scrollView.tile()
         syncListSize()
