@@ -557,9 +557,8 @@ fn audit_actor(
     if agent_claim {
         return "agent".to_owned();
     }
-    match request_actor {
-        Actor::AcpSession { .. } => return request_actor.wire(),
-        _ => {}
+    if matches!(request_actor, Actor::AcpSession { .. }) {
+        return request_actor.wire();
     }
     match caller {
         Caller::Chief(me) => me.clone(),
