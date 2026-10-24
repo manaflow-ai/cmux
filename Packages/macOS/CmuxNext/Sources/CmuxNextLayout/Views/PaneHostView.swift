@@ -29,9 +29,14 @@ final class PaneHostView: NSView, RestingPlacement {
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
 
-    init(pane: PaneID, content: NSView) {
+    /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
+    /// default: live resize). Injected so tests pin it without the shared tunable store.
+    private let holdsContentInMotion: () -> Bool
+
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
         self.pane = pane
         self.content = content
+        self.holdsContentInMotion = holdsContentInMotion
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -72,7 +77,7 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
             if isOnLayoutSpring {
-                heldContentSize = LayoutTunables.holdsContentInMotion.value ? content.frame.size : nil
+                heldContentSize = holdsContentInMotion() ? content.frame.size : nil
             } else {
                 heldContentSize = nil
                 heldAnchor = nil
