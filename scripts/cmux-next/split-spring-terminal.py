@@ -137,6 +137,16 @@ if "--suite=action-budget-bench" in sys.argv:
     env = dict(os.environ, CMUX_ACTION_BUDGET_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
     sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
                              "ActionBudgetMonitorBench"], cwd=root, env=env).returncode)
+# `--suite=gui-tests --tests=SuiteA,SuiteB`: CmuxNext package suites that need a screen (a window zoom, a real
+# display link), run through the same lane script on a measure host, which has the console session and a
+# display the suite runners lack (there such tests are skipped: `.enabled(if: NSScreen.main != nil)`).
+if "--suite=gui-tests" in sys.argv:
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
+    tests = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--tests=")), "")
+    if not tests:
+        sys.exit("split-spring --suite=gui-tests needs --tests=SuiteA,SuiteB")
+    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext", tests],
+                            cwd=root).returncode)
 # `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
 # light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
 if "--suite=every-action" in sys.argv:
