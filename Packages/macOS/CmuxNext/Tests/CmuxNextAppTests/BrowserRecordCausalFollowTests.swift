@@ -32,7 +32,7 @@ struct BrowserRecordCausalFollowTests {
     /// A frontend browser tab showing `a`, tracked with no write-back delay.
     /// `settled` applies what the daemon published, one record at a time.
     static func tracked(_ daemon: Daemon) -> (BrowserTabService, MockBrowserTab, TabModel) {
-        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()))
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: a.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "cef"))
         service.tabModel = { $0 == tab.id ? tab : nil }
