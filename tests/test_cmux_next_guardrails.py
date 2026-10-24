@@ -514,7 +514,7 @@ class RuleTests(Fixture):
         hit = self.check()[0][0][1][0]
         self.assertIn("Ledger.swift:1", getattr(hit, "cause", ""))
         # A generic type that only changes its parameters adds nothing: its extension was already debt.
-        self.rebase_on({})
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
         self.write(f"{KIT}/Ledger.swift", "struct Ledger<Entry, Key> {\n    var count = 0\n}\n")
         self.commit("Ledger gains a parameter")
         self.assertEqual(self.refused(), [])
