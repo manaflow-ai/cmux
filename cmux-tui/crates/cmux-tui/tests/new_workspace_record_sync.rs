@@ -9,6 +9,8 @@
 //! data and a directory sync on the request path (the deprecated recovery
 //! mirror): three slow syncs before the reply. Now the host's first record
 //! names the workspace, so at most the record's own data barrier is left.
+//! The test counts the slow syncs from each create's span marks (one gap of
+//! a whole slow sync each), so load on a parallel suite cannot pass for one.
 //! A tab moved to another workspace rewrote its host's record (two syncs) on
 //! the request path too; now the rewrite is queued off it.
 
@@ -128,15 +130,35 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
     client.call(json!({"cmd": "shutdown-daemon", "pid": identity["pid"],
         "generation": identity["generation"], "force": true, "end_terminals": true}));
     let _ = daemon.wait();
-    // The creates' marks, for a failure message.
-    eprintln!("{}", fs::read_to_string(dir.join("spans.jsonl")).unwrap_or_default());
+    let spans = fs::read_to_string(dir.join("spans.jsonl")).unwrap_or_default();
     let _ = fs::remove_dir_all(&dir);
     assert!(
         move_ms < SLOW_SYNC_MS,
         "a tab move answered after {move_ms} ms: it waited for its host record's rewrite ({SLOW_SYNC_MS} ms per sync)"
     );
-    assert!(
-        slowest < 2 * SLOW_SYNC_MS,
-        "a new workspace answered after {slowest} ms: it waited for more than one discovery-file sync ({SLOW_SYNC_MS} ms each)"
-    );
+    // Count the slow syncs on each measured create's own path from its span
+    // marks, not from wall time: under a parallel suite a create can also
+    // queue behind the previous create of its connection (`commit.start`,
+    // creates commit in request order), which is not a sync.
+    let traces: Vec<Value> = spans
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|trace| trace["label"] == "create")
+        .collect();
+    assert!(traces.len() >= 4, "missing create traces ({slowest} ms slowest):\n{spans}");
+    for trace in &traces[1..] {
+        let mut previous = 0;
+        let mut slow = Vec::new();
+        for mark in trace["marks"].as_array().into_iter().flatten() {
+            let (name, at) = (mark[0].as_str().unwrap_or(""), mark[1].as_u64().unwrap_or(0));
+            if at.saturating_sub(previous) >= SLOW_SYNC_MS * 900 && name != "commit.start" {
+                slow.push(name.to_string());
+            }
+            previous = at;
+        }
+        assert!(
+            slow.len() <= 1,
+            "a new workspace waited for more than one discovery-file sync ({SLOW_SYNC_MS} ms each) at {slow:?}:\n{trace}"
+        );
+    }
 }
