@@ -2008,6 +2008,42 @@ def start_ratchet(repo: Path, ranges: list[tuple[str, str]]) -> Ratchet:
     return Ratchet(repo, ranges)
 
 
+GHOSTTY_NEXT = "ghostty-next"
+GHOSTTY_KIT = "Packages/Shared/CmuxGhosttyKit/Package.swift"
+GHOSTTY_PIN = re.compile(r"ghostty-next/releases/download/xcframework-([0-9a-f]{40})-")
+
+
+def ghostty_pin_problem(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM) -> str | None:
+    """The refusal when the push changes the ghostty-next gitlink or the GhosttyNextKit pin and HEAD's two
+    name different ghostty-next commits (769ae064b16 moved the gitlink and left the app on a binary two pins
+    behind its source). Only the push's own change counts: a range rebased onto UPSTREAM_REF starts at their
+    merge base, and a merge must change one in both ranges, so a mismatch others landed refuses nobody."""
+    own = git(repo, "merge-base", head, upstream_ref, check=False).strip()
+    starts = [base]
+    if own and own != base and is_ancestor(repo, base, own):
+        starts = [own]
+    elif own and own != base and not is_ancestor(repo, own, base):
+        starts = [base, own]
+    for start in starts:
+        if not git(repo, "diff", "--name-only", "--no-renames", start, head, "--", GHOSTTY_NEXT, GHOSTTY_KIT,
+                   check=False).strip():
+            return None
+    link = git(repo, "ls-tree", head, GHOSTTY_NEXT, check=False).split()
+    gitlink = link[2] if len(link) >= 3 and link[1] == "commit" else None
+    manifest = git(repo, "show", f"{head}:{GHOSTTY_KIT}", check=False)
+    pinned = GHOSTTY_PIN.search(manifest)
+    if gitlink is None or pinned is None or pinned.group(1) == gitlink:
+        return None  # no submodule or no pin in this tree: nothing to compare
+    return ("guardrails: this push leaves the ghostty-next source and its binary on different commits:\n"
+            f"  [ghostty-pin] the {GHOSTTY_NEXT} gitlink is {gitlink[:12]}, but {GHOSTTY_KIT}'s GhosttyNextKit "
+            f"url downloads the xcframework built at {pinned.group(1)[:12]}\n"
+            "    why: the app links the pinned binary, so it runs code other than its source, and the next landing "
+            "that takes either side moves the other back without a word\n"
+            f"    do:  publish the xcframework for {gitlink[:12]} (a ghostty-next release "
+            f"xcframework-{gitlink}-apple-vN) and change the url and checksum in the same push, or set the gitlink "
+            f"back to {pinned.group(1)[:12]}")
+
+
 def run_push(repo: Path, ranges: list[tuple[str, str]], ratchet: Ratchet | None = None) -> bool:
     """Print the guardrails report for the pushed RANGES: the line rules (check_push per range, so lines a
     push only brings in from origin/feat-cmux-next never count) and the arch ratchet (started here unless the
@@ -2020,6 +2056,14 @@ def run_push(repo: Path, ranges: list[tuple[str, str]], ratchet: Ratchet | None 
         if text:
             print(text)
         refused = refused or refuse
+        try:
+            pin = ghostty_pin_problem(repo, base, head)
+        except Exception as error:  # fail open: a broken check must not stop the push
+            pin = None
+            print(f"guardrails: {check_failure('ghostty-pin', error)}")
+        if pin:
+            print(pin)
+            refused = True
     text, refuse = ratchet.finish()
     if text:
         print(text)
