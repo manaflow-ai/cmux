@@ -22,9 +22,11 @@ final class cmuxUITests: XCTestCase {
         if pairingCancel.waitForExistence(timeout: 3) {
             pairingCancel.tap()
         }
-        let cloudTab = app.tabBars.buttons["Cloud"]
+        let cloudTab = app.tabBars.buttons["MobilePrimaryTabCloud"]
         XCTAssertTrue(cloudTab.waitForExistence(timeout: 15))
+        XCTAssertTrue(cloudTab.isHittable)
         cloudTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["CloudInlineOnboarding"].waitForExistence(timeout: 10))
 
         let progress = app.descendants(matching: .any)["CloudOnboardingProgressIndicator"]
         let primary = app.buttons["CloudOnboardingPrimaryButton"]
