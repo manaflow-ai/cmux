@@ -528,6 +528,7 @@
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
+				"$(CMUX_TIMESTAMP)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
@@ -571,6 +572,7 @@
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
+				"$(CMUX_TIMESTAMP)",
 			);
 			name = "Embed remote browser host";
 			outputFileListPaths = (
