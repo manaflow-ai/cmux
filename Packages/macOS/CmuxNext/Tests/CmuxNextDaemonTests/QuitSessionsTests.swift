@@ -183,9 +183,12 @@ struct QuitSessionsTests {
             let generation = await next.identity?.generation
             let second = try #require(after.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
                 .first { $0.tabResourceID == keptIDs.last })
+            // Read until the echo's own line: the prompt's cwd report (OSC 7, the title) holds "/other" before
+            // the command runs, and the typed line holds `kept:$PWD`, not an expanded path.
+            let echoed = #"kept:/\S*/other\r?\n"#
             let output = try await Self.run(#"echo "kept:$PWD""#, in: second, endpoint: endpoint,
-                                            generation: generation, until: "/other")
-            #expect(output.range(of: #"kept:/\S*/other"#, options: .regularExpression) != nil, "\(output)")
+                                            generation: generation, untilMatching: echoed)
+            #expect(output.range(of: echoed, options: .regularExpression) != nil, "\(output)")
             let again = try await next.relaunchKeptTabs()
             #expect(again.relaunched == 0 && again.failures.isEmpty, "a second relaunch restarted a running tab: \(again.failures)")
             #expect(Self.shape(after) == Self.shape(before), "the relaunch changed the layout")
@@ -203,9 +206,10 @@ struct QuitSessionsTests {
         await BranchDaemonHarness.shutDown(next)
     }
 
-    /// Types `command` into `tab`'s terminal and returns its output up to `sentinel` (bounded: 20 s).
+    /// Types `command` into `tab`'s terminal and returns its output up to the first match of the regular
+    /// expression `pattern` (bounded: 20 s).
     static func run(_ command: String, in tab: TabSnapshot, endpoint: DaemonEndpoint, generation: DaemonGeneration?,
-                    until sentinel: String) async throws -> String {
+                    untilMatching pattern: String) async throws -> String {
         let attachment = try await TerminalAttachment.attach(
             endpoint: endpoint, target: .init(tab: tab, generation: generation),
             size: CellSize(cols: 200, rows: 50), claimGeometry: true)
@@ -218,7 +222,7 @@ struct QuitSessionsTests {
         for await event in attachment.events {
             guard case .output(let data, _) = event else { continue }
             output += String(decoding: data, as: UTF8.self)
-            if output.contains(sentinel) { break }
+            if output.range(of: pattern, options: .regularExpression) != nil { break }
         }
         watchdog.cancel()
         await attachment.detach()
