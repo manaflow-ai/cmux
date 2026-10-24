@@ -1,4 +1,5 @@
 @testable import CmuxNextDaemon
+import Foundation
 import Testing
 
 /// A snapshot apply costs what changed, not the session (plans/cmux-next/main-thread-budget.md; the
@@ -122,5 +123,32 @@ import Testing
         #expect(group.isSaved, "the saved record now names the open group")
         store.apply(snapshot: DaemonTree(workspaces: workspaces))
         #expect(!group.isSaved, "the saved record is gone")
+    }
+
+    /// Review 2 of pl-main-bc: agent statuses, agent presence and notifications write no field of
+    /// the tree snapshot, and a title, size or exit writes one tab's. Each marked its whole workspace,
+    /// so the next snapshot re-applied, re-indexed and re-laid every workspace an agent or a terminal
+    /// title touched (STRESS: 10 agents ticking, 10 terminals retitling, 72 tabs in one workspace).
+    @Test func eventsBetweenTwoIdenticalSnapshotsReapplyOnlyTheTabsTheyWrote() throws {
+        let store = DaemonStore()
+        store.apply(snapshot: session(50))
+        for index in 0..<10 {
+            let surface = SurfaceID(rawValue: UInt64(index * 100 + 10))
+            _ = store.apply(.agentChanged(AgentStatus(surface: surface, state: .working, source: "hook", agent: "claude", updatedAtMs: 100)))
+            _ = store.apply(.agentPresenceChanged(AgentPresence(surface: surface, activity: .editing, agent: "claude", path: "/r/a.rs")))
+        }
+        let json = #"{"notification":1,"title":"","body":"done","level":"info","surface":\#(20 * 100 + 10)}"#
+        _ = store.apply(.notification(try JSONDecoder().decode(DaemonNotification.self, from: Data(json.utf8))))
+        // Five tabs in five other workspaces retitled by events; the daemon's copy (the snapshot) still
+        // has the old titles, so the snapshot corrects those tabs.
+        let retitled = (30..<35).map { SurfaceID(rawValue: UInt64($0 * 100 + 11)) }
+        for surface in retitled { _ = store.apply(.titleChanged(surface: surface, title: "from an event")) }
+        let before = store.index.indexedRecords
+        store.apply(snapshot: session(50))
+        let indexed = store.index.indexedRecords - before
+        #expect(indexed <= retitled.count, "the snapshot indexed \(indexed) records for 5 retitled tabs and 10 agents")
+        for surface in retitled { #expect(store.index.tabsBySurface[surface]?.title == "t 1") }
+        #expect(store.index.tabsBySurface[SurfaceID(rawValue: 10)]?.agent?.state == .working, "agent state is not the snapshot's")
+        #expect(store.index.tabsBySurface[SurfaceID(rawValue: 10)]?.presence != nil)
     }
 }
