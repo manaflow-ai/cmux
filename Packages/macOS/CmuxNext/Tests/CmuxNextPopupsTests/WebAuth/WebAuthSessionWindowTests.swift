@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextPopups
 import Foundation
 import os
@@ -8,16 +9,14 @@ import Testing
 /// A sign-in window through its host seam (``WebAuthHost``): the page comes
 /// from the host in the request's profile, every end (the callback, Escape,
 /// the system cancelling, no page) closes the window and its page once and
-/// answers the request once, and links out go to the host.
+/// answers the request once, and links out go to the host. Panels are
+/// recorded, not ordered in: the suite never activates the test process.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebAuthSessionWindowTests {
     private let callbackURL = URL(string: "https://app.example.com/done?code=42")!
     private let host = FakeWebAuthHost()
     private let profiles = OffTheRecordProfiles()
+    private let panels = FakePanelPresenter()
     private let brokers = HeldBrokers()
-
-    init() {
-        _ = NSApplication.shared // the window activates the app
-    }
 
     private nonisolated struct NoChromiumPage: Error {}
 
@@ -30,9 +29,11 @@ import Testing
 
     /// The sign-in windows (the broker's opener) and the broker serving `request`.
     private func begin(_ request: FakeWebAuthRequest) -> (WebAuthSessionWindows, WebAuthSessionBroker) {
+        let panels = panels
         let windows = WebAuthSessionWindows(
             host: host, logger: Logger(subsystem: "com.cmuxterm.tests", category: "webauth"),
-            profiles: profiles, signInCallbacks: CEFSignInCallbacks(), contextMenus: BrowserContextMenuBuilder()
+            profiles: profiles, signInCallbacks: CEFSignInCallbacks(), contextMenus: BrowserContextMenuBuilder(),
+            present: { panels.present($0, $1) }
         )
         let broker = WebAuthSessionBroker(opener: windows)
         brokers.all.append(broker)
@@ -53,6 +54,8 @@ import Testing
         #expect(page.profileID == .default, "a person already signed in stays signed in")
         #expect(profiles.active.isEmpty)
         #expect(windows.windows[request.id] != nil)
+        #expect(panels.presented.map { $0.intent } == [.focus], "the sign-in panel comes forward focused, once")
+        #expect(panels.presented.first?.window is BrowserPopupWindow)
         page.load(callbackURL)
         await awaitObserved { request.completions > 0 }
         #expect(request.completedURL == callbackURL)

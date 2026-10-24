@@ -19,6 +19,8 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private let profiles: OffTheRecordProfiles
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
+    /// Orders the panel in (`WindowActivation.show` in the app).
+    private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private let onEnd: (UUID) -> Void
     private var page: (any BrowserTab)?
     private var panel: BrowserPopupWindow?
@@ -33,6 +35,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         profiles: OffTheRecordProfiles,
         signInCallbacks: CEFSignInCallbacks,
         contextMenus: BrowserContextMenuBuilder,
+        present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void,
         onEnd: @escaping (UUID) -> Void
     ) {
         id = request.id
@@ -45,6 +48,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         self.profiles = profiles
         self.signInCallbacks = signInCallbacks
         self.contextMenus = contextMenus
+        self.present = present
         self.onEnd = onEnd
     }
 
@@ -81,7 +85,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         page.load(url)
         // `.focus` makes the panel key and activates the app; under
         // no-activate (`WindowPlacement.noActivate`) it only orders it front.
-        WindowActivation.show(panel, .focus)
+        present(panel, .focus)
         if panel.isKeyWindow { page.setFocused(true) }
     }
 
