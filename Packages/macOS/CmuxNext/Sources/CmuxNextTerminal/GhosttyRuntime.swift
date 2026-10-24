@@ -390,6 +390,14 @@ public final class GhosttyRuntime {
 nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
     let pending = Atomic<Bool>(false)
     @MainActor weak var runtime: GhosttyRuntime?
+    /// Where libghostty's wakeups are counted (`debug.wakeups`, the idle-wake audit).
+    let ledger: WakeupLedger
+
+    /// - Parameter ledger: The app's wakeup ledger; the default is the one the other recorders use
+    ///   (`CEFMessagePump`, `BusyWatchdog`).
+    init(ledger: WakeupLedger = .shared) {
+        self.ledger = ledger
+    }
 
     static func from(_ raw: UnsafeMutableRawPointer?) -> RuntimeCallbackContext? {
         guard let raw else { return nil }

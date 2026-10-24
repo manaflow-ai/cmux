@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import AppKit
 import GhosttyNextKit
 
@@ -18,6 +19,8 @@ nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard context.pending.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
         return
     }
+    // One per coalesced wake (the main hop below), on libghostty's thread: a lock and a dictionary update.
+    context.ledger.record("GhosttyRuntime", reason: "wakeup")
     DispatchQueue.main.async {
         // main-proof: DispatchQueue.main runs its blocks on the main thread
         MainActor.assumeIsolated { context.runtime?.tick() }
