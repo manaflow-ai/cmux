@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextPages
 import CmuxNextSettings
@@ -10,7 +11,9 @@ import Foundation
 // (true: the pool's parked spare). Without `instance` the target is a page that is not the parked
 // spare (its document has no routes, so probes of it saw a failed-read banner no visible page
 // showed), the one in the key window first, else the newest. `action`:
-// - `list`: every live page of the id: instance, parked, window number, claim outcome;
+// - `list`: every live page of the id: instance, parked, window number, claim outcome, Chromium
+//   lifecycle (`chromium`) and, for a started Chromium page, `renderer_clients` (the renderer
+//   client ids hosting its frames), all read without a call into the page (bench_idle.py);
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
 //   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
@@ -131,6 +134,13 @@ enum DebugPages {
         ]
         if let claim = page.lastClaim {
             members["claim"] = ["path": .string(claim.path.rawValue), "ms": .number(claim.milliseconds)]
+        }
+        // The renderers hosting the page's frames (main frame and out-of-process iframes), by their
+        // `--renderer-client-id=`: the browser process's frame tree, no call into the page, so a
+        // frozen page stays frozen. bench_idle.py maps them to renderer pids.
+        if let tab = (page.chromiumPage as? CEFPageChromiumPage)?.tab {
+            let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
+            members["renderer_clients"] = .array(clients.map { .number(Double($0)) })
         }
         return members
     }
