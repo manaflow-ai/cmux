@@ -283,8 +283,9 @@ struct HangEpisodeTrackerTests {
         #expect(recorder.subscriberCount == 1)
     }
 
-    /// A recorder that goes away (``MainThreadWatchdog/episodes`` replaced) ends its streams, so
-    /// a subscriber's `for await` returns instead of waiting for a change that cannot come.
+    /// A recorder that goes away ends its streams, so a subscriber that does not own it stops
+    /// waiting for a change that cannot come (defense: Debug Settings owns its recorder and ends
+    /// its stream when its page closes, DebugSettingsHangWatchTests).
     @Test(.timeLimit(.minutes(1))) func aReleasedRecorderEndsItsStreams() async {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
