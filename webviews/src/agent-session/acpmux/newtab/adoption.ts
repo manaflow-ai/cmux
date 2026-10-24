@@ -7,12 +7,10 @@ import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
 import { omnibarContext } from "../omnibar";
 import { parseWeather } from "./ambient";
+import { NEW_TAB_PLACES_EVENT, NEW_TAB_WEATHER_EVENT } from "./hostEvents";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
-/// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
-export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
-/// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
-export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
+export { NEW_TAB_PLACES_EVENT, NEW_TAB_WEATHER_EVENT };
 
 /// The context the host gave as the document committed (AgentPaneNavigation), for the first
 /// render: the page draws New Tab with no round trip (cx-z9kz0). Undefined when it came too late
