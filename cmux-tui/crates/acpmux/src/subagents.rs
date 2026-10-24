@@ -14,7 +14,17 @@
 //!   null for the session's own subagents and `state` one of `running`,
 //!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
-//!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
+//!   Claude workflow (`kind: "workflow"`), `agents: {done, started, failed?,
+//!   queued?}`, its `runId` and, from Claude's progress snapshots, its
+//!   `phases` (`{index, title}`, whole, when they change) and
+//!   `workflowAgents`: each agent that changed, as its `index` and only the
+//!   fields that changed (a removed one null), which a client merges by
+//!   `index`. An agent's fields are `label`, `state` (`queued`, `running`,
+//!   `completed`, `failed`, `skipped` or `blocked`), `phase`, `phaseIndex`,
+//!   `agentId`, `kind`, `model`, `fallbackModel`, `tokens`, `toolUses`,
+//!   `elapsedMs`, `queuedAt`, `startedAt`, `lastProgressAt`, `attempt`,
+//!   `retryReason`, `cached`, `isolation`, `remoteSessionId`, `action`,
+//!   `prompt`, `result` and `error` (`claude_stdio/workflows.rs`).
 //!   `background: true` marks one that outlives its parent's turn (every
 //!   Codex child, which runs in its own thread).
 
@@ -131,6 +141,9 @@ impl SubagentTree {
                     "elapsedMs",
                     "action",
                     "agents",
+                    "runId",
+                    "phases",
+                    "workflowAgents",
                     "background",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {

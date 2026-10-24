@@ -892,7 +892,7 @@ impl Translator {
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {
-            self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
+            self.workflows.lock().await.insert(tool_use_id.to_owned(), Default::default());
         }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {

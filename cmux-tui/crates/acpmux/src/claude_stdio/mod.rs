@@ -367,9 +367,9 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
-    /// Running Workflow tool calls (`workflows.rs`), each with its run's
-    /// transcript dir once its launch named it.
-    workflows: Mutex<HashMap<String, Option<std::path::PathBuf>>>,
+    /// Running Workflow tool calls (`workflows.rs`): each run's transcript
+    /// dir once its launch named it, and what was last sent of its agents.
+    workflows: Mutex<HashMap<String, workflows::WorkflowRun>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
