@@ -2,7 +2,7 @@ import CmuxAgentBrands
 @testable import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextBridge
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
 import Testing

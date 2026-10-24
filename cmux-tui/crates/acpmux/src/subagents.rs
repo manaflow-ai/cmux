@@ -14,7 +14,20 @@
 //!   null for the session's own subagents and `state` one of `running`,
 //!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
-//!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
+//!   Claude workflow (`kind: "workflow"`), `agents: {done, started, failed?,
+//!   queued?}`, its `runId` and, from Claude's progress snapshots, its
+//!   `phases` (`{index, title}`, whole, when they change) and
+//!   `workflowAgents`: each agent that changed, as its `index` and only the
+//!   fields that changed (a removed one null), which a client merges by the
+//!   subagent's id and `index`; at the run's end, every agent whole with
+//!   `workflowAgentsFull: true`, which replaces them. An agent's fields are `label`, `state` (`queued`, `running`,
+//!   `completed`, `failed`, `skipped` or `blocked`), `phase`, `phaseIndex`,
+//!   `agentId`, `kind`, `model`, `fallbackModel`, `tokens`, `toolUses`,
+//!   `elapsedMs`, `queuedAt`, `startedAt`, `lastProgressAt`, `attempt`,
+//!   `retryReason`, `cached`, `isolation`, `remoteSessionId`, `action`,
+//!   `prompt`, `result` and `error` (`claude_stdio/workflows.rs`). A
+//!   subagent's end may say why (`reason`: `paused` for a Claude workflow a
+//!   resume can pick up by its `runId`).
 //!   `background: true` marks one that outlives its parent's turn (every
 //!   Codex child, which runs in its own thread).
 
@@ -116,6 +129,11 @@ impl SubagentTree {
                 let state = s(update, "state").unwrap_or_else(|| "completed".into());
                 let Some(mut event) = self.spawn(&id, owner) else { return vec![] };
                 event.insert("state".into(), json!(state));
+                // Why it ended, when the harness says (`paused`: a Claude workflow
+                // whose run a resume can pick up again by its `runId`).
+                if let Some(reason) = s(update, "reason") {
+                    event.insert("reason".into(), json!(reason));
+                }
                 vec![Value::Object(event)]
             }
             // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
@@ -131,6 +149,10 @@ impl SubagentTree {
                     "elapsedMs",
                     "action",
                     "agents",
+                    "runId",
+                    "phases",
+                    "workflowAgents",
+                    "workflowAgentsFull",
                     "background",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {

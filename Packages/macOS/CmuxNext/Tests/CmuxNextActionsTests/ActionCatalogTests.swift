@@ -109,6 +109,16 @@ import Testing
         }
     }
 
+    /// The agent header calls this panel Session Info. Keep the existing action id and shared
+    /// handler, while making the command-palette row discoverable by the user-facing name.
+    @Test func sessionInfoToggleUsesTheHeaderNameAndKeywords() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleInspector" })
+        #expect(action.title == "Toggle Session Info")
+        #expect(action.surfaces.contains(.palette))
+        #expect(action.keywords.contains("session info"))
+        #expect(action.keywords.contains("session"))
+    }
+
     /// Palette and menu titles use title case (HIG): every word is capitalized except
     /// short articles, conjunctions and prepositions, and names spelled in lowercase.
     @Test func titlesUseTitleCase() {

@@ -16,3 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+# The spawn-race test only: the holder binary stays std and libc.
+cmux-process.workspace = true

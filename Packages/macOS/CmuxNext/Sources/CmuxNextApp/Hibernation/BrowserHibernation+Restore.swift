@@ -70,6 +70,12 @@ extension BrowserHibernation {
         }
         // The new page starts unmuted: a tab muted when it slept wakes muted.
         if asleep.state.isAudioMuted, let muting = page as? BrowserAudioMuting { muting.setAudioMuted(true) }
+        // Its last frame stays over the new page until the page paints: no blank frame on a wake.
+        // A page that cannot show one (a Chromium page in its own child window) is counted.
+        if let picture = snapshotImage(key) {
+            let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, cap: Self.standInCap, clock: standInClock) ?? false
+            if !covered { uncoveredWakes += 1 }
+        }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
         // The live page now; a later sleep takes a new picture.

@@ -65,6 +65,7 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { configurationSessionMatches, resolveEffortOption } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -345,6 +346,7 @@ import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { PendingSteer } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -478,7 +480,7 @@ declare global {
         layout?: Record<string, unknown>;
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
-      command?(name: string): void;
+      command?(name: string, sessionId?: string): void;
       /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
       /// since a script it runs here is no gesture the page's clipboard accepts.
       lastCodeBlock?(): string | null;
@@ -1817,6 +1819,7 @@ export function VirtualTranscript({
   coldOpen,
   onColdOpenShown,
   afterLatest,
+  showMinimap = true,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1880,6 +1883,9 @@ export function VirtualTranscript({
   onColdOpenShown?: (open: number) => void;
   /// Optional content placed immediately after the latest message, outside the scroller.
   afterLatest?: React.ReactNode;
+  /// The focused chat's palette action can hide this pane's rail without changing the configured
+  /// minimap experiment or any other pane's layout.
+  showMinimap?: boolean;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -3637,23 +3643,25 @@ export function VirtualTranscript({
         data-docked={dockSpace > 0 || undefined}
         style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
       >
-        <ThreadMinimap
-          rows={rows}
-          sessionId={sessionId}
-          layout={layout}
-          scroller={ref}
-          scrollTop={renderScroll.top}
-          // Above the room under the last row, so a composer that grows while the reader is scrolled
-          // up leaves the map as it was, as it does the scrollbar.
-          viewportHeight={height - room}
-          // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
-          // rail's rows stay above its bottom band.
-          foot={height - dockSpace}
-          scrolls={layout.totalHeight - height > 0.5}
-          width={width}
-          placed={minimapPlaced}
-          change={rowsChange.current}
-        />
+        {showMinimap && (
+          <ThreadMinimap
+            rows={rows}
+            sessionId={sessionId}
+            layout={layout}
+            scroller={ref}
+            scrollTop={renderScroll.top}
+            // Above the room under the last row, so a composer that grows while the reader is scrolled
+            // up leaves the map as it was, as it does the scrollbar.
+            viewportHeight={height - room}
+            // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+            // rail's rows stay above its bottom band.
+            foot={height - dockSpace}
+            scrolls={layout.totalHeight - height > 0.5}
+            width={width}
+            placed={minimapPlaced}
+            change={rowsChange.current}
+          />
+        )}
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div
@@ -3981,6 +3989,9 @@ function AcpmuxPane() {
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
+  /// this local switch is only the command-palette toggle and does not write shared experiment state.
+  const [minimapVisible, setMinimapVisible] = useState(true);
   // Why the last `/btw` did not start its side session, for the chat it was asked in; "" when
   // acpmux gave no reason.
   const [btwFailure, setBtwFailure] = useState<{ sessionId: string; reason: string }>();
@@ -4092,6 +4103,7 @@ function AcpmuxPane() {
       ),
     [clientSnapshot, switchView, catalog],
   );
+  useEffect(() => setMinimapVisible(true), [snapshot.sessionId]);
   const queueIds = useMemo(() => snapshot.queue.map((entry) => entry.id), [snapshot.queue]);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
@@ -6123,8 +6135,23 @@ function AcpmuxPane() {
           return null;
         }
       },
-      command(name) {
+      command(name, sessionId) {
+        // Native palette rows carry the session id that was focused when the action was queued.
+        // Handle them after the current render has installed its row callbacks; the listener below
+        // drops a command whose page has since switched to another session.
+        if (name.startsWith("menu:")) {
+          window.dispatchEvent(new CustomEvent("cmux-acpmux-menu-command", { detail: name }));
+          return;
+        }
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Stop Agent Turn (the native command palette): the composer owns the guarded cancel
+        // callback, so a palette invocation cannot race a session switch with a stale client.
+        if (name === "stopTurn") {
+          // The page may hold chat A's last snapshot while the live client has already selected B.
+          // Recheck the live selection before dispatching so A's command cannot cancel B.
+          if (directClient.current?.selectedSession !== sessionId) return;
+          window.dispatchEvent(new CustomEvent("cmux-acpmux-stopTurn", { detail: { sessionId } }));
+        }
         // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
         if (name === "sideQuestion" && opensSideSessionsRef.current) composerHandle.current?.prefill("/btw ");
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
@@ -6676,23 +6703,36 @@ function AcpmuxPane() {
           "chat.permission_groups.refresh": () => client.permissions.refresh(),
           // A model, mode or effort picked while a harness starts waits for its session; a model
           // picked in a live session draws at once (harnessSwitch.ts).
-          "chat.model": ({ modelId }) => {
+          "chat.model": ({ modelId, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
+            if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              throw new Error("the agent chat session changed");
             return harnessSwitch.pickModel(
               String(modelId),
               summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined,
             );
           },
-          "chat.mode": async ({ modeId }) => {
+          "chat.mode": async ({ modeId, expectedSessionId }) => {
+            const sessionId = snapshotRef.current?.summary?.sessionId;
+            if (!configurationSessionMatches(expectedSessionId, sessionId))
+              throw new Error("the agent chat session changed");
             if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
           },
-          "chat.effort": async ({ configId, value }) => {
+          "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
-            const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
+            if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              throw new Error("the agent chat session changed");
+            const requested = typeof value === "string" && value ? value : String(effort ?? "");
+            const resolved = resolveEffortOption(
+              summary?.configOptions,
+              typeof configId === "string" ? configId : undefined,
+            );
+            if (!resolved || !requested) throw new Error("the session offers no effort option");
+            const current = resolved.currentValue;
             if (
               !harnessSwitch.pickConfig(
-                String(configId),
-                String(value),
+                resolved.id,
+                requested,
                 summary?.sessionId
                   ? {
                       sessionId: summary.sessionId,
@@ -6701,7 +6741,7 @@ function AcpmuxPane() {
                   : undefined,
               )
             )
-              await client.setConfig(String(configId), String(value));
+              await client.setConfig(resolved.id, requested);
           },
           // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
           // page is read now, so the switch draws it from memory (direct.ts `prefetch`).
@@ -7205,6 +7245,8 @@ function AcpmuxPane() {
     const turn = pair ? { turn: { ...pair, show: false } } : {};
     ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}), ...turn }));
   };
+  const runHeaderActionRef = useRef(runHeaderAction);
+  runHeaderActionRef.current = runHeaderAction;
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   const summary = snapshot.summary;
   const localCwd =
@@ -7260,6 +7302,51 @@ function AcpmuxPane() {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
+  useEffect(() => {
+    const run = (event: Event) => {
+      const name = (event as CustomEvent<unknown>).detail;
+      const parsed = parseMenuCommand(name);
+      if (!parsed || !isCurrentMenuCommand(name, snapshotRef.current?.sessionId)) return;
+      const { action, sessionId } = parsed;
+      // A command queued for a previous chat must never act on the page now shown in this pane.
+      if (!sessionId || snapshotRef.current?.sessionId !== sessionId) return;
+      switch (action) {
+        case "toggleDisplaySettings": {
+          const anchor = Array.from(document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")).find(
+            (button) => button.getAttribute("aria-label") === t("chatMenu.open"),
+          );
+          setDisplayAnchor(anchor ?? document.querySelector<HTMLElement>(".acpmux-header-tools"));
+          break;
+        }
+        case "replayConversation":
+          // Replay is an experiment-gated page surface. A palette row cannot bypass that gate.
+          if (experimentArm(sessionReplay) === "on") setReplaying(sessionId);
+          break;
+        case "editInstructions":
+          instructionsRow(
+            { cwd: localCwd, family: summary?.family || summary?.harness },
+            openInstructions,
+            t,
+          )?.onSelect?.();
+          break;
+        case "addProjectFiles":
+          projectFilesRow(
+            { cwd: localCwd, family: summary?.family || summary?.harness },
+            (cwd, name) => ignoreFailure(callNative("project.addFiles", { cwd, name })),
+            t,
+          )?.onSelect?.();
+          break;
+        case "floatingChat":
+          runHeaderActionRef.current(HEADER_ACTIONS.floatingChat);
+          break;
+        case "toggleMinimap":
+          setMinimapVisible((visible) => !visible);
+          break;
+      }
+    };
+    window.addEventListener("cmux-acpmux-menu-command", run);
+    return () => window.removeEventListener("cmux-acpmux-menu-command", run);
+  }, [localCwd, openInstructions, summary?.family, summary?.harness, t]);
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
@@ -7865,6 +7952,7 @@ function AcpmuxPane() {
                                                       : (anchor) => postScrollAnchor(shownSessionId, anchor)
                                                   }
                                                   expanded={expanded}
+                                                  showMinimap={minimapVisible}
                                                   reveal={childRows ? undefined : revealRow}
                                                   coldOpen={!childRows && opened.cold ? opened.open : undefined}
                                                   onColdOpenShown={coldOpenShown}
@@ -8887,6 +8975,7 @@ function AcpmuxPane() {
                   rows={rows}
                   sessionId={`replay:${replaying}`}
                   expanded={expanded}
+                  showMinimap={minimapVisible}
                   registry={registry}
                   onToggleActivity={toggleActivity}
                 />

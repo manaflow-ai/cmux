@@ -56,7 +56,7 @@ def changed(repo: Path, a: str, b: str) -> list[str]:
 
 
 def command(head: str) -> str:
-    return (f'cmux-ci compile-check --app --package CmuxNext --ref {head} --urgent --reason "pre-push compile"'
+    return (f'cmux-ci compile-check --app --package CmuxNext --ref {head}'
             " (then add the trailer line `Compiled: <the job id it prints>` to the newest commit and push again)")
 
 

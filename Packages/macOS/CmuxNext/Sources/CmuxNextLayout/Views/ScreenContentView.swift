@@ -346,13 +346,17 @@ final class ScreenContentView: NSView {
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering
-        // A split's chain and a close's neighbours keep their terminals' grids until they land.
-        if (departing || !arrivals.isEmpty) && animateFrames && !covering { holdsGrids = true }
+        // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
+        // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
+        // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
         reconcileDock()
         reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
-        applyPresentation(force: true)
+        // Only a structural change re-places everything: a ratio, width or row-height change (every divider
+        // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
+        // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
+        applyPresentation(force: structural)
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }

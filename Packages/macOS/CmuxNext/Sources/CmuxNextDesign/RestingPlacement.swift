@@ -28,6 +28,28 @@ public protocol PaneMotionSettling: NSView {
     func paneMotionDidSettle()
 }
 
+/// A view inside a ``RestingPlacement`` that wants its final size when a layout spring starts (or retargets,
+/// a press during the motion), not when it lands: a terminal sends its final grid to its PTY at the start
+/// of a split or close and draws each frame's size meanwhile. Called once per start or retarget, never per
+/// frame, and never for a placement that only moves.
+@MainActor
+public protocol PaneMotionTargeting: NSView {
+    /// The enclosing placement's content area will rest `sizeChange` larger (negative: smaller) than it is
+    /// now, in points; the pane chrome around this view does not change size during a spring, so this
+    /// view's final size is `bounds.size + sizeChange`.
+    /// - Returns: The edge held content taller than its clip should be pinned to during the spring
+    ///   (``PaneMotionAnchor``): a terminal whose prompt is on its last row answers `.bottom`.
+    func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor
+}
+
+/// The vertical edge a pane's held content rides during a layout spring (``PaneMotionTargeting``).
+public enum PaneMotionAnchor: Sendable {
+    /// Pinned at the top (the default).
+    case top
+    /// Pinned at the bottom: the content's last row stays in view while the pane grows or shrinks.
+    case bottom
+}
+
 /// A window whose chrome resizes the content area over several frames: the sidebar sliding
 /// open or closed moves the content edge on every display frame of its width animation, which
 /// resizes every pane in it. Content whose resize is costly defers it to the landing, as it
@@ -49,6 +71,15 @@ public extension NSView {
             ancestor = view.superview
         }
         return false
+    }
+
+    /// Tells every ``PaneMotionTargeting`` view in this subtree (this view included) the size change its
+    /// placement's spring will rest at. Returns `.bottom` when any of them asks for it, else `.top`.
+    @discardableResult
+    func notifyPaneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
+        var anchor = (self as? PaneMotionTargeting)?.paneMotionWillRest(sizeChange: sizeChange) ?? .top
+        for subview in subviews where subview.notifyPaneMotionWillRest(sizeChange: sizeChange) == .bottom { anchor = .bottom }
+        return anchor
     }
 
     /// Tells every ``PaneMotionSettling`` view in this subtree (this view included) that its

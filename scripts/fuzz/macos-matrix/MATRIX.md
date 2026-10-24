@@ -142,7 +142,9 @@ there). For each major, it:
    - It sends clicks, right-clicks, double-clicks, drags (resizes, tab and sidebar drags), scrolls and typed
      text.
 4. After every step, it pings the main thread from inside the guest. A ping over `--hang-ms` (1000 ms) counts
-   as a hang and the fuzzer `sample`s the app. New `.ips` or `.hang` reports count as crashes. When the app
+   as a hang. A ping still unanswered at `--hang-ms` starts a 5 s `sample` of the app in the guest while the hang
+   lasts (`hang-N.live-sample.txt`; `sudo -n` first, because the hardened runtime refuses a non-root sampler), and
+   a 2 s sample follows after the ping. New `.ips` or `.hang` reports count as crashes. When the app
    has died, the fuzzer records a screenshot and starts the app again. At the end, it collects the unified-log
    faults of the cmux processes.
 5. Copies the results out and deletes the clone.

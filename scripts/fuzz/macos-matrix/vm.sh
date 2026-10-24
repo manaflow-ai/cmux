@@ -16,8 +16,8 @@
 #              (a probe must catch its errors and exit 1 for a FAIL: a trap is no verdict).
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
 #              copied into the guest, so a probe may use it).
-#   --minutes  fuzz: stop each major's walk after N minutes (the run's time bound); --steps
-#              stays the upper bound of the walk.
+#   --minutes  fuzz: stop each major's walk after N minutes (the run's time bound). Without
+#              --steps the walk runs until then; with --steps, whichever ends first.
 #   --results  write the run (logs, screenshots, reports, matrix.json) to FILE as a .tgz and
 #              exit 0: the verdict is the data (matrix.json and the line MATRIX VERDICT
 #              PASS|FAIL|NO-VERDICT). Without it the exit code is the verdict (0, 1, 2 no verdict).
@@ -37,7 +37,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 IMAGES="$HERE/images.json"
-MAJORS=14,15,26; SEED=1; STEPS=600; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""
+MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""
 WORK=${FUZZ_WORK:-/Volumes/ephemeral0/cmux-agent-work/mfloor}
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -157,7 +157,10 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
     ssh "${SSHB[@]}" "admin@$ip" "codesign --force --deep --sign - $(printf %q "$app") >/dev/null 2>&1" </dev/null
     rargs+=(--insert-dylib /Users/admin/fuzz-diag.dylib)
   fi
-  python3 -I "$HERE/fuzz.py" "${common[@]}" --seed "$SEED" --steps "$STEPS" --minutes "$MINUTES" ${rargs[@]+"${rargs[@]}"} ${FUZZ_ARGS:-} \
+  # --minutes alone: the walk runs until the time is up; neither: 600 steps.
+  local steps=$STEPS; [[ -z "$steps" && "$MINUTES" == 0 ]] && steps=600
+  [[ -n "$steps" ]] && rargs+=(--steps "$steps")
+  python3 -I "$HERE/fuzz.py" "${common[@]}" --seed "$SEED" --minutes "$MINUTES" ${rargs[@]+"${rargs[@]}"} ${FUZZ_ARGS:-} \
     >"$out/fuzz.log" 2>&1 || echo "fuzz exit $?" >"$out/failure"
 }
 
@@ -256,7 +259,7 @@ if [[ "$SUITE" == exec ]] && ! compile_probe "$RUN/probe-bin"; then
 fi
 for major in ${majors[@]+"${majors[@]}"}; do
   out="$RUN/$major"; mkdir -p "$out"
-  echo "== macOS $major (suite $SUITE${REPRO:+ $REPRO}, seed $SEED, steps $STEPS, minutes $MINUTES): waiting for the host lock" >&2
+  echo "== macOS $major (suite $SUITE${REPRO:+ $REPRO}, seed $SEED, steps ${STEPS:-auto}, minutes $MINUTES): waiting for the host lock" >&2
   if [[ "$LOCK" == none ]]; then cycle "$major" "$out" || true
   else
     # Hold the fleet lock only for clone..delete.

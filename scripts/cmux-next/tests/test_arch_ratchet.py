@@ -1240,6 +1240,29 @@ class RatchetTests(Repo):
         self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW], notes)
         self.assertIn("raises stateful_singletons from 0 to 1", refusals[0][1])
 
+    def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_observer(self):
+        # Upstream removes an observer site; the branch adds another and merges upstream in. Over the old remote
+        # head the totals cancel (observer_sites holds the total only): upstream's removal must not pay for it.
+        observer = ("final class {name} {{\n    func start() {{\n        _ = NotificationCenter.default.addObserver(\n"
+                    "            forName: NSWindow.{event}Notification, object: nil, queue: nil) {{ _ in }}\n    }}\n}}\n")
+        self.write(f"{SRC}/CmuxNextDomain/Watch.swift", observer.format(name="Watch", event="didBecomeKey"))
+        self.commit("an observer on the base")
+        self.write("README", "pushed once\n")
+        pushed = self.commit("already pushed")
+        self.git("checkout", "--quiet", "-b", "upstream", "HEAD~1")
+        self.remove(f"{SRC}/CmuxNextDomain/Watch.swift")
+        self.commit("upstream removes the observer")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{SRC}/CmuxNextDomain/Other.swift", observer.format(name="Other", event="didResignKey"))
+        self.commit("the branch's own observer")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "upstream")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(ratchet.check_own(self.repo, pushed, head, [])[0], [],
+                         "control: over the old remote head the totals cancel")
+        refusals, notes = ratchet.check_range(self.repo, pushed, head, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), ["observer_sites"], notes)
+        self.assertIn("Other.swift", refusals[0][1])
+
     def test_a_push_that_raises_or_deletes_the_recorded_totals_is_refused(self):
         code, out = self.update()
         self.assertEqual(code, 0, out)

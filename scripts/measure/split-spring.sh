@@ -27,21 +27,25 @@
 #                   the debug.* control commands kept), so the bench measures an optimized app; cached apart.
 #   --vdisplay-hold=SECONDS  the helper's own lifetime (default 1200): it ends by itself even when this script
 #                   is killed with SIGKILL. The perf cron passes the part's run time.
+#   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
+#                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
+#                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
 # The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
 # commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
-SPLIT_SPRING_MEASURE_VERSION=2
+SPLIT_SPRING_MEASURE_VERSION=3  # 3: the virtual display is 1920x1200 (was 1920x1080)
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=() reload_config=()
+build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
+    --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     *) args+=("$arg") ;;
   esac
@@ -157,7 +161,7 @@ if [[ -n "$vdisplay_hz" ]]; then
       scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
     cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
     codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
-    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main > "$vd/out" 2> "$vd/err" &
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main "$vdisplay_size" > "$vd/out" 2> "$vd/err" &
     vdisplay_pid=$!
     for _ in $(seq 20); do
       grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break

@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextBrowserImport
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -21,6 +23,10 @@ final class AppControl {
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
+    #if DEBUG
+    /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
+    private let keySequencePlayer = DebugKeySequencePlayer()
+    #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -279,8 +285,9 @@ final class AppControl {
                 return .value(DebugAgentCursor.clickTag(call.params, services: services))
             },
             // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
-            .mainActor("debug.key") { [weak services] call in
+            .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
+                if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return .value(DebugKey.send(call.params, services: services))
             }.injectingInput(),
             // The app's resign and become-active path without activating it (DebugAppActivation).
@@ -425,6 +432,22 @@ final class AppControl {
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // The burst bench's record: each press's outcome, refusals, terminal grids, echoes and redraws.
+            // `status`: whether the burst is done (its keys posted, no create still asking the daemon, no
+            // grid waiting to go or for its echo), the signal the bench waits for before it reads the counts.
+            .mainActor("debug.burst") { [weak services, player = keySequencePlayer] call in
+                .value(services.map { services in
+                    services.burstTrace.control(call.params, facts: [
+                        "key_repeat_delay_s": .number(NSEvent.keyRepeatDelay), "key_repeat_interval_s": .number(NSEvent.keyRepeatInterval),
+                        "quick_press_window_s": .number(services.quickPressWindow()),
+                        "sequence_playing": .bool(player.isPlaying),
+                        "pending_intents": JSONValue(services.daemon.store.pendingIntents.count),
+                        "resize_idle": .bool(ResizeCoordinator.shared.isIdle),
+                        // The attach machines' own due echoes: a closed view is gone from the cache, so it never waits.
+                        "terminals_awaiting_echo": JSONValue(services.cache.terminals.values.filter { $0.io.awaitsEcho }.count),
+                    ])
+                } ?? .null)
             },
             // Every window's toasts (R96): list, a person's action run, the undo key.
             .mainActor("debug.toast") { [weak services] call in

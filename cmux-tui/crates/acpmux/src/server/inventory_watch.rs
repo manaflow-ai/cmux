@@ -31,15 +31,16 @@ pub(super) async fn send_latest(
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let reserved = super::OUTBOUND_CONTROL_RESERVE
         + conn.outbound_pending_controls.load(std::sync::atomic::Ordering::Acquire);
-    if enabled && conn.out.capacity() > reserved {
-        if let Ok(permit) = conn.out.try_reserve() {
-            let value = snapshots.borrow_and_update().wire();
-            match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
-                Ok(line) => permit.send(line),
-                Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
-            }
-            return;
+    if enabled
+        && conn.out.capacity() > reserved
+        && let Ok(permit) = conn.out.try_reserve()
+    {
+        let value = snapshots.borrow_and_update().wire();
+        match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
+            Ok(line) => permit.send(line),
+            Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
         }
+        return;
     }
     if enabled {
         // Keep the response and gap-marker permits available when an

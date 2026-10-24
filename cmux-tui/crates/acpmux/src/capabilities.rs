@@ -119,6 +119,11 @@ pub const CAPABILITIES: &[Capability] = &[
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.
     Capability { id: "subagent-stop-v1", wire: &[method::MUX_SUBAGENT_STOP] },
+    // A Claude workflow's progress names its phases and agents (`phases`,
+    // `workflowAgents`, `subagents.rs`), not only how many returned. The id
+    // speaks for this daemon's own chats; a peer's chat comes from the peer's
+    // daemon, so a pane draws rows from the payload, never from the id.
+    Capability { id: "workflow-agents-v1", wire: &[method::SESSION_UPDATE] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
 ];

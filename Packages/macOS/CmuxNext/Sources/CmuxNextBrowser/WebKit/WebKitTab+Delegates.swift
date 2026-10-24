@@ -127,6 +127,8 @@ extension WebKitTab: WKNavigationDelegate {
         forgetNavigation(navigation)
         apply(.finished(id))
         pageDidFinish()
+        // The load ended: a document with no contentful paint (an empty body) shows as it is.
+        removeStandIn()
         syncHistory()
         refreshFavicon()
     }
@@ -138,7 +140,7 @@ extension WebKitTab: WKNavigationDelegate {
         // is a newer navigation taking this one's place, and that one's commit
         // decides: handing the page area back here would draw white over a
         // document that has not painted yet. `stop()` settles its own case.
-        if !failure.isBenignInterruption { pageDidFinish() }
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, failure))
@@ -153,7 +155,7 @@ extension WebKitTab: WKNavigationDelegate {
         // keeps no background for good (`WebKitTab+LoadingBackground`). A
         // benign interruption is a newer navigation taking this one's place,
         // and that one's commit decides, as in `didFail`.
-        if !failure.isBenignInterruption { pageDidFinish() }
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, failure))
@@ -168,6 +170,7 @@ extension WebKitTab: WKNavigationDelegate {
         // putting the tab back in the stuck state this is here to prevent.
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
+        removeStandIn()
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 

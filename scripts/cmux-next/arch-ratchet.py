@@ -46,11 +46,12 @@ environment-variable skip.
 Rule modules in scripts/cmux-next/arch_rules/*.py add their own refusals (see arch_rules/__init__.py);
 none are needed. A missing arch_rules directory (a broken install) prints a warning.
 
-A push counts over one range (range_to_count): from where HEAD meets origin/feat-cmux-next (their merge
-base) when the push is rebased onto it or merges it in, else from the pushed base. Everything others landed
-is in that base, so it never refuses a push, never cancels the push's own rise (an upstream drop that came
-in through a merge is not the push's) and never lends the push an exception. The count rule, the record
-rule, the exceptions the push adds and every rule module read that one range.
+A push counts over one range: the push's own base..head (push_range.py; prepush-gate passes the ranges its
+scanners judged, through guardrails; own_pair). A push rebased onto origin/feat-cmux-next or merging it in
+counts from where HEAD meets it, a second push from its old remote head. Everything others landed is in that
+base, so it never refuses a push, never cancels the push's own rise (an upstream drop that came in through a
+merge is not the push's) and never lends the push an exception. The count rule, the record rule, the
+exceptions the push adds and every rule module read that one range.
 
 When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.json:
 scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves stale, judged over the
@@ -65,7 +66,7 @@ arch_counts.py changes. v4 adds the observer count at both ends of every Swift p
 observer facts of about 150 files from the cache when warm (one parse of each when cold); not measured yet.
 
   scripts/cmux-next/arch-ratchet.py                  # HEAD over its merge base with origin/feat-cmux-next
-  scripts/cmux-next/arch-ratchet.py --base A --head B
+  scripts/cmux-next/arch-ratchet.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/arch-ratchet.py --update [--rev R]
                                                      # rewrite plans/cmux-next/arch-ratchet.json at R (HEAD)
   scripts/cmux-next/arch-ratchet.py --audit [--rev R] [--json]
@@ -215,26 +216,38 @@ def git(repo: Path, *args: str) -> tuple[int, str]:
     return r.returncode, r.stdout.strip()
 
 
+def load_push_range():
+    """push_range.py next to this file: which commits a push owns (prepush-gate and guardrails use it too)."""
+    name = "cmux_next_push_range"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, HERE / "push_range.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def own_pair(own) -> tuple[str, str]:
+    """The one range the ratchet counts for OWN (a push_range.OwnRange): HEAD over its base, the merged upstream
+    commit for a merge of origin/feat-cmux-next in (where HEAD meets it).
+
+    OWN.before (what the branch's old remote head already had, which the gate and guardrails take off a merge)
+    is not taken off here: commits of the pushed branch that an earlier push sent count again in a merge push,
+    as they do after a rebase (3f25c6b0fc2: the branch lands as one change, and a rule module's refusal has no
+    key to match across ranges)."""
+    return own.base, own.head
+
+
 def range_to_count(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM) -> tuple[str, str]:
-    """The one range whose delta counts for a pushed BASE..HEAD (full shas): the push's own changes.
+    """The one range whose delta counts for a push of HEAD whose remote head is BASE: the push's own changes.
 
     The ratchet rule (perf-lead brief, agreed with cmux-b6) refuses only what the push adds, counted against
-    the push's own merge base with origin/feat-cmux-next. A push rebased onto it and a push that merges it in
-    both count from that merge base: everything others landed is in it, so an upstream drop never cancels the
-    push's own rise and an upstream `exceptions` entry is never the push's own. (Two ranges whose minimum
-    counted did both: a merge's base..head holds every upstream change.) Commits of the pushed branch that an
-    earlier push sent count again, as they do after a rebase: the branch lands as one change. One
-    `git merge-base` in the common case (BASE is already where HEAD meets origin/feat-cmux-next).
+    the push's own merge base with origin/feat-cmux-next (push_range.own_range). A push rebased onto it and a
+    push that merges it in both count from where HEAD meets it: everything others landed is in it, so an
+    upstream drop never cancels the push's own rise and an upstream `exceptions` entry is never the push's own.
     """
-    code, upstream = git(repo, "merge-base", head, upstream_ref)
-    if code != 0 or not upstream or upstream == base:
-        return base, head
-    if upstream == head:
-        return head, head  # every pushed commit is already on origin/feat-cmux-next: none is the push's own
-    _, common = git(repo, "merge-base", base, upstream)
-    if common == upstream:
-        return base, head  # origin/feat-cmux-next is behind the base: the base already holds it
-    return upstream, head  # rebased onto it or merged it in: count from where HEAD meets it
+    return own_pair(load_push_range().own_range(repo, head, [base], upstream_ref))
 
 
 def exception_key(entry: dict) -> str:
@@ -657,9 +670,15 @@ def push_allowance(changes: Changes, known, notes: list[str]) -> dict[str, int]:
 
 def check_range(repo: Path, base: str, head: str, rules=None,
                 upstream_ref: str = UPSTREAM) -> tuple[list[tuple[str, str]], list[str]]:
-    """(refusals, notes) for one pushed BASE..HEAD, counted over range_to_count's one range."""
+    """(refusals, notes) for a push of HEAD whose remote head is BASE, counted over range_to_count's one range."""
+    return check_own(repo, *range_to_count(repo, base, head, upstream_ref), rules, upstream_ref)
+
+
+def check_own(repo: Path, base: str, head: str, rules=None,
+              upstream_ref: str = UPSTREAM) -> tuple[list[tuple[str, str]], list[str]]:
+    """(refusals, notes) for exactly what HEAD adds over BASE: the push's own range (own_pair)."""
     counts = load_counts()
-    delta = counts.delta_count(repo, *range_to_count(repo, base, head, upstream_ref))
+    delta = counts.delta_count(repo, base, head)
     loaded, warnings = load_rules() if rules is None else (rules, [])
     ids = module_ids(loaded)
     known = set(counts.ROW_IDS) | set(ids)
@@ -714,12 +733,14 @@ def allow_module_refusals(kept: list[tuple[str, str]], allow: dict[str, int], id
     return out
 
 
-def run_push(repo: Path, ranges: list[tuple[str, str]], upstream_ref: str = UPSTREAM,
+def run_push(repo: Path, ranges: list, upstream_ref: str = UPSTREAM,
              out: list[str] | None = None) -> bool:
     """Report the ratchet for the pushed RANGES; True when it refuses the push. Fails open.
 
-    The report is printed, or appended to OUT (guardrails runs this on a thread next to the gate's scanners
-    and prints OUT with its own report).
+    RANGES are push_range.OwnRange values (guardrails passes the gate's, so the ratchet judges the commits the
+    scanners judged); a (base, head) pair is a push whose remote head is base. The report is printed, or
+    appended to OUT (guardrails runs this on a thread next to the gate's scanners and prints OUT with its own
+    report).
     """
     def emit(text: str, error: bool = False) -> None:
         if out is not None:
@@ -733,8 +754,8 @@ def run_push(repo: Path, ranges: list[tuple[str, str]], upstream_ref: str = UPST
     try:
         rules, warnings = load_rules()
         refusals, notes = [], [f"arch-ratchet: WARNING: {w}" for w in warnings]
-        for base, head in ranges:
-            got, extra = check_range(repo, base, head, rules, upstream_ref)
+        for own in load_push_range().as_own_ranges(repo, ranges, upstream_ref):
+            got, extra = check_own(repo, *own_pair(own), rules, upstream_ref)
             refusals += got
             notes += extra
         text = "\n".join(notes + [t for _, t in refusals])
@@ -960,16 +981,15 @@ def main(argv: list[str] | None = None) -> int:
     if code != 0:
         print(f"arch-ratchet: no commit {args.head}", file=sys.stderr)
         return 2
-    if args.base:
-        code, base = git(repo, "rev-parse", "--verify", f"{args.base}^{{commit}}")
-    else:
-        code, base = git(repo, "merge-base", head, args.upstream)
-        if code != 0 or not base:
-            code, base = git(repo, "rev-parse", "--verify", f"{head}~1")
-    if code != 0 or not base:
-        print(f"arch-ratchet: no base commit for {args.head}", file=sys.stderr)
+    try:
+        push_range = load_push_range()
+        own = (push_range.given_range(repo, args.base, head) if args.base
+               else push_range.own_range(repo, head, [], args.upstream))
+    except ValueError as error:
+        print(f"arch-ratchet: {error}", file=sys.stderr)
         return 2
-    return 1 if run_push(repo, [(base, head)], args.upstream) else 0
+    print(f"arch-ratchet: judging {own.describe()}")
+    return 1 if run_push(repo, [own], args.upstream) else 0
 
 
 if __name__ == "__main__":

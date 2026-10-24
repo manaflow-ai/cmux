@@ -407,6 +407,16 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
+        // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
+        if context.reduceMotion {
+            for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+            applyScreenFrames()
+            updateVisibility()
+            flushOverlaySync()
+            setLayoutInMotion(false)
+            return false
+        }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
         var moving = false

@@ -25,6 +25,9 @@ export const HOVER_INTENT = {
   cardAim: 300,
 } as const;
 
+/** Pointer rest before an inline media preview starts. Kept separate from the native parity map. */
+export const MEDIA_PREVIEW_DWELL = 250;
+
 /** The timers the intent runs on; tests pass a fake one. */
 export interface HoverClock {
   set(run: () => void, ms: number): unknown;
