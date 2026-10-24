@@ -5576,33 +5576,6 @@ function AcpmuxPane() {
     () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
     [subagentTray, chatAgents, childSessions],
   );
-  const trayNode =
-    !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
-      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            items={trayList}
-            finished={trayFinished}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            placement={trayPlacement}
-          />
-        </SubagentClockContext.Provider>
-      </BackgroundTaskOutputContext.Provider>
-    ) : null;
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({
@@ -5811,6 +5784,33 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  const trayNode =
+    !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
+      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+          <SubagentTray
+            key={shownSessionId}
+            items={trayList}
+            finished={trayFinished}
+            working={snapshot.isWorking}
+            waiting={waitingAgents}
+            onOpen={showSubagent}
+            onOpenCommand={openTrayCommand}
+            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+            canReadTail={
+              opensProcessTerminal(snapshot.summary) &&
+              clientEpoch > 0 &&
+              directClient.current !== undefined &&
+              backgroundTaskOutput !== undefined
+            }
+            onOpenSession={openOfferChat}
+            stop={stopSubagent}
+            stopProcess={stopProcess}
+            placement={trayPlacement}
+          />
+        </SubagentClockContext.Provider>
+      </BackgroundTaskOutputContext.Provider>
+    ) : null;
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
