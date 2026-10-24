@@ -689,7 +689,7 @@ final class BrowserHibernation {
     /// (STRESS 2026-10-24: 53-379 ms stalls, probes of other pages left unanswered). The picture
     /// is re-encoded as a JPEG for the store anyway (`HibernationSnapshots.compress`), so a fast
     /// JPEG loses nothing it keeps. WebKit's `thumbnail()` is its `snapshot()`.
-    var capture: (any BrowserTab) async -> CGImage? = { tab in
+    var capture: @MainActor (any BrowserTab) async -> CGImage? = { tab in
         try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.thumbnail()
         }
