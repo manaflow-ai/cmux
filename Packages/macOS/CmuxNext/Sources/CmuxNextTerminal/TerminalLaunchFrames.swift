@@ -20,9 +20,10 @@ public final class TerminalLaunchFrames {
     public nonisolated static let maximumBytes = 16 * 1024 * 1024
 
     private let frames: SavedFrameDirectory
-    /// Hears each frame shown after its pane was built (the decode came later than the pane), for
-    /// the launch marks; the app sets it.
-    public var onLateFrameShown: (() -> Void)?
+    /// Hears each frame delivered after its pane was built (the decode came later than the pane),
+    /// with whether it was shown (false: the terminal left that pane, drew its own content first, or
+    /// the frame does not fit), for the launch marks; the app sets it.
+    public var onLateFrame: ((_ shown: Bool) -> Void)?
 
     /// The frames of `frames` (tests pass a directory whose decodes they hold).
     init(frames: SavedFrameDirectory) {
@@ -65,8 +66,9 @@ public final class TerminalLaunchFrames {
     @discardableResult
     public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
         let decoded = frames.take(key) { [weak self, weak session, weak content] frame in
-            guard let self, let session, let content, Self.present(frame, on: session, in: content, reveal: reveal) else { return }
-            self.onLateFrameShown?()
+            guard let self else { return }
+            let shown = if let session, let content { Self.present(frame, on: session, in: content, reveal: reveal) } else { false }
+            self.onLateFrame?(shown)
         }
         guard let decoded else { return false }
         return Self.present(decoded, on: session, in: content, reveal: reveal)

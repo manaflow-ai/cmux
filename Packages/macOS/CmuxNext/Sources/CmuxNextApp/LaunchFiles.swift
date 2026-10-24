@@ -25,7 +25,7 @@ nonisolated struct LaunchFiles: Sendable {
     @MainActor init(state: URL?, chiefHome: ChiefHome) {
         let mark: @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
         terminalFrames = TerminalLaunchFrames(directory: state.map(TerminalLaunchFrames.directory(beside:)))
-        terminalFrames.onLateFrameShown = { DebugTimings.markLaunch("terminal.launch_frame_shown") }
+        terminalFrames.onLateFrame = { shown in if shown { DebugTimings.markLaunch("terminal.launch_frame_shown") } }
         agent = AgentPaneLaunchReads(state: state, readOnMain: mark)
         home = HomeLaunchReads(owner: chiefHome.session, readOnMain: mark)
     }

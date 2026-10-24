@@ -134,7 +134,7 @@ import Testing
             return SavedFrame(image: image, scale: scale)
         })
         let (shown, didShow) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        frames.onLateFrameShown = { didShow.yield() }
+        frames.onLateFrame = { if $0 { didShow.yield() } }
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "not decoded yet: nothing now, and no wait")
         #expect(pane.content.alphaValue == 0)
         gate.signal()
@@ -146,7 +146,7 @@ import Testing
     /// #17587 review: the launch's frames are the store its services hand to the pane builds and the
     /// quit (`LaunchFiles.terminalFrames`), not a process-wide registry keyed by the state URL. Before,
     /// a second launch graph on the same state directory got the first one's store back, so a frame
-    /// one had handed out was gone for the other, and each one's `onLateFrameShown` replaced the
+    /// one had handed out was gone for the other, and each one's `onLateFrame` replaced the
     /// other's.
     @Test func eachLaunchsFramesAreItsOwnStore() async throws {
         let reveal = LaunchReveal(deadline: .seconds(60))
@@ -168,5 +168,45 @@ import Testing
         #expect(first.terminalFrames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(second.terminalFrames.show("tab-1", on: other.session, in: other.content, reveal: reveal),
                 "another launch graph's store handed out this one's frame")
+    }
+
+    /// #17587 review: a frame decoded after its pane was built is delivered with the pane content
+    /// asked with. A terminal moved to another pane's content host before the decode ended (a tab
+    /// moved or re-hosted during restore) was resized to the pane it left and drew the last frame of
+    /// that size there, and the left pane was revealed by a frame it no longer hosted.
+    @Test func aFrameDecodedAfterItsTerminalMovedToAnotherPaneIsNotShown() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        let other = Pane(reveal: reveal)
+        defer { pane.close(); other.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // A test gate on the reader's own queue, not a lock on state: the decode waits until the terminal moved.
+        let gate = DispatchSemaphore(value: 0)
+        let frames = TerminalLaunchFrames(frames: SavedFrameDirectory(url: directory, name: "test_frames") { file, scale in
+            gate.wait()
+            guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+            return SavedFrame(image: image, scale: scale)
+        })
+        let (delivered, didDeliver) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        frames.onLateFrame = { didDeliver.yield($0) }
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "not decoded yet")
+        // The terminal is hosted in another pane's content now, at that pane's size.
+        let moved = NSRect(x: 0, y: 0, width: 300, height: 200)
+        pane.session.view.removeFromSuperview()
+        other.content.addSubview(pane.session.view)
+        pane.session.view.frame = moved
+        gate.signal()
+        var shown: Bool?
+        for await value in delivered {
+            shown = value
+            break
+        }
+        #expect(shown == false, "the late frame went to the pane the terminal left")
+        #expect(pane.session.view.frame == moved, "the late frame resized the terminal to the pane it left")
+        #expect(pane.held == nil)
+        #expect(pane.content.alphaValue == 0, "the left pane was revealed by a frame it no longer hosts")
     }
 }
