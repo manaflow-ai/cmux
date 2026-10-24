@@ -17,8 +17,8 @@ new focused pane in the measured workspace, closed again, the typed tab still th
            one ping before any kind is paced):
              reorder     move-workspace of a random background workspace to a random index (daemon)
              move        move-tab of the spare tab between the two panes of a background workspace (daemon)
-             column      one op per step in the next background workspace: new-pane-right / new-row while that
-                         workspace has fewer than --live-columns script panes, the storm fewer than
+             column      one op per step in the next background workspace: new-pane-right / new-row (in turn, by
+                         create) while that workspace has fewer than --live-columns script panes, the storm fewer than
                          --max-live-terminals and the host's PTYs in use stay under MAX_PTY_LIMIT, else close-tabs
                          (end_terminals) of the oldest live one; closed from the create's reply, every one closed again
                          when the phase ends (daemon)
@@ -385,7 +385,7 @@ class ColumnLoad(Load):
         self.alive = {ws["handle"]: 0 for ws in self.background}  # creating + live + closing, per workspace
         self.live = collections.OrderedDict()  # surface -> workspace handle, oldest first
         self.total = 0
-        self.held = self.held_pty = self.creates_ok = self.closes_ok = 0
+        self.held = self.held_pty = self.creates_ok = self.closes_ok = self.creates_sent = 0
         self.unclosable = []  # surfaces whose close was refused, and creates whose ok reply named no surface
         connection = Connection(plan["daemon"], daemon_frame, plan["max_inflight"], on_reply=self.reply)
         super().__init__("column", plan["rates"]["column"], connection, self.step)
@@ -425,7 +425,10 @@ class ColumnLoad(Load):
         pty_room = wants and ptys_in_use() + 1 < MAX_PTY_LIMIT
         with self.lock:
             if pty_room and self.under_limits(handle):
-                op, surface = ("new-row" if i % 2 else "new-pane-right"), None
+                # In turn by create, not by step: at a limit the steps alternate create and close, so a step parity
+                # would make nearly every create the same op.
+                op, surface = ("new-row" if self.creates_sent % 2 else "new-pane-right"), None
+                self.creates_sent += 1
                 self.alive[handle] += 1
                 self.total += 1
             else:
@@ -455,7 +458,9 @@ class ColumnLoad(Load):
                     self.total -= 1
 
     def finish(self):
-        """Every pane this storm made, closed again: the creates still in flight answered first, then one close each."""
+        """Every pane this storm made, closed again: the creates still in flight answered first, then one close each.
+        The terminal ledger (creates_ok, closes_ok) is read after these closes; the paced counts (sent, ok, applied)
+        are read before them, so closes_at_end is the only part of the ledger the pacing did not send."""
         answered = self.connection.wait_until(lambda: not any(c[0] == "create" for _, c, _ in self.connection.pending.values()),
                                               STORM_DRAIN_DEADLINE_S)
         with self.lock:
@@ -468,14 +473,14 @@ class ColumnLoad(Load):
                     self.unclosable.append({"close_not_sent": surface})
         drained = self.connection.drain(STORM_DRAIN_DEADLINE_S)
         with self.lock:
-            return {"creates_answered": bool(answered), "closes_answered": bool(drained),
+            return {"creates_answered": bool(answered), "closes_answered": bool(drained), "closes_at_end": len(surfaces),
+                    "creates_ok": self.creates_ok, "closes_ok": self.closes_ok,
                     "terminals_left_open": self.total, "unclosable": self.unclosable[:20]}
 
     def report(self, seconds, window):
         report = super().report(seconds, window)
         with self.lock:
-            report.update({"creates_ok": self.creates_ok, "closes_ok": self.closes_ok, "held_at_limit": self.held,
-                           "creates_held_at_pty_limit": self.held_pty})
+            report.update({"held_at_limit": self.held, "creates_held_at_pty_limit": self.held_pty})
         return report
 
 
@@ -520,7 +525,8 @@ def storm_worker(plan_path):
         window = None
     report = {"seconds": round(seconds, 2), "window": window}
     for load in loads:
-        report[load.kind] = {**load.report(seconds, window), **load.finish()}
+        paced = load.report(seconds, window)  # before finish(): its closes are not paced ops
+        report[load.kind] = {**paced, **load.finish()}
         load.connection.close()
     print(json.dumps(report), flush=True)
     return 0
