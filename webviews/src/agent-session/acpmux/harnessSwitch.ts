@@ -155,6 +155,9 @@ type Intent = {
   /// The port a run is in flight on; a reconnect runs again on the new one.
   running?: SwitchPort;
   done: { resolve(sessionId: string | undefined): void; promise: Promise<string | undefined> };
+  /// The switch started in this turn of the event loop: a send in the same turn (the New Tab
+  /// page's agent pick and Send) leaves its gesture to the session/new it just sent (#23031).
+  startedThisTurn?: boolean;
 };
 
 /// The frame a gesture ticket redeems for (ad349, pane-native transport).
@@ -332,6 +335,8 @@ export class HarnessSwitch {
     this.changed();
     // Before session/new: acpmux's answer as its rules stand when the chat is asked for.
     if (!intent.reused) void askStartMode(intent.harness, intent.cwd);
+    intent.startedThisTurn = true;
+    this.clock.schedule(() => (intent.startedThisTurn = false), 0);
     void this.run(intent);
     return done.promise;
   }
@@ -380,6 +385,9 @@ export class HarnessSwitch {
     else if (
       byPerson &&
       !restarts &&
+      // A start sent in this same turn takes the Enter itself (its folder check may need it) and
+      // carries it to this prompt as its start credit.
+      !intent.startedThisTurn &&
       intent.queued.length === 1 &&
       promptId === undefined &&
       this.port &&

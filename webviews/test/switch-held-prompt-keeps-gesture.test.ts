@@ -5,6 +5,9 @@
 // a cold harness takes longer. The switch now keeps the send's gesture as a ticket for that prompt
 // when the person presses Enter, and the prompt goes with it.
 import { expect, test } from "bun:test";
+
+/// The person's Enter comes in a later turn than the pick that started the chat.
+const laterTurn = () => new Promise((resolve) => setTimeout(resolve, 0));
 import { HarnessSwitch, type GestureIntent } from "../src/agent-session/acpmux/harnessSwitch";
 
 type Sent = { text: string; promptId: string; ticket?: string };
@@ -47,6 +50,7 @@ test("a prompt held behind a slow start goes with the ticket its Enter took", as
   pane.store.connect(pane.port(pane.slowStart));
   // The pick starts the harness; the person presses Enter while it starts.
   const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
   const turn = pane.store.send("Add a remove command", [], undefined, undefined, true);
   // The ticket is asked for in the send itself, while the Enter's gesture is live.
   expect(pane.intents).toHaveLength(1);
@@ -68,6 +72,7 @@ test("only the first held prompt takes a ticket; the others go on a live gesture
   const pane = harness();
   pane.store.connect(pane.port(pane.slowStart));
   const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
   const first = pane.store.send("first", [], undefined, undefined, true);
   const second = pane.store.send("second", [], undefined, undefined, true);
   pane.start("s1");
@@ -108,6 +113,7 @@ test("a ticket taken before a reconnect is not sent on the new connection", asyn
   const before = pane.port(pane.slowStart);
   pane.store.connect(before);
   const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
   const turn = pane.store.send("after reconnect", [], undefined, undefined, true);
   expect(pane.intents).toHaveLength(1);
   // The connection drops while the harness starts; the next client opens the started chat.
@@ -157,15 +163,19 @@ test("a ticketed prompt held for the folder's Trust answer goes after Trust with
     holdPrompt: (promptId: string) => holds.push(promptId),
   });
   let attempts = 0;
+  let refuse!: (error: unknown) => void;
   pane.store.connect(
-    pane.port(async () => {
+    pane.port(() => {
       attempts += 1;
-      if (attempts === 1) throw Object.assign(new Error("trust"), { reason: "trust.pending", cwd: "/Users/dev" });
-      return "s1";
+      // The first start waits, then acpmux refuses it for the folder's Trust answer.
+      if (attempts === 1) return new Promise<string | undefined>((_, fail) => (refuse = fail));
+      return Promise.resolve("s1");
     }),
   );
   const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
   const turn = pane.store.send("after trust", [], undefined, undefined, true);
+  refuse(Object.assign(new Error("trust"), { reason: "trust.pending", cwd: "/Users/dev" }));
   // The start's trust refusal settles over a few microtasks.
   for (let step = 0; step < 10 && pane.store.view().intent?.phase !== "trust"; step += 1) await Promise.resolve();
   expect(pane.store.view().intent?.phase).toBe("trust");
@@ -175,4 +185,17 @@ test("a ticketed prompt held for the folder's Trust answer goes after Trust with
   expect(await opened).toBe("s1");
   await turn;
   expect(pane.sent.map((prompt) => [prompt.text, prompt.ticket])).toEqual([["after trust", "ticket-1"]]);
+});
+
+test("a send in the same turn as the pick leaves the gesture to the start it just sent", async () => {
+  const pane = harness();
+  pane.store.connect(pane.port(pane.slowStart));
+  // The New Tab page: the agent pick and the Send in one handler.
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  const turn = pane.store.send("new tab ask", [], undefined, undefined, true);
+  expect(pane.intents).toEqual([]);
+  pane.start("s1");
+  await opened;
+  await turn;
+  expect(pane.sent).toEqual([{ text: "new tab ask", promptId: expect.any(String) }]);
 });
