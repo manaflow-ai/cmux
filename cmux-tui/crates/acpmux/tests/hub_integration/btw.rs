@@ -219,6 +219,23 @@ async fn a_side_session_of_a_harness_that_cannot_fork_reads_the_chat_and_never_w
 }
 
 #[tokio::test]
+async fn inline_btw_emulation_answers_once_and_discards_its_read_only_session() {
+    let (hub, mut c) = asking_setup(&[("FAKE_PICKER", "1")]).await;
+    let id = new_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "main stays unchanged")).await.unwrap();
+    let before = prompts(&hub, &id);
+
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "answer inline", "inline": true}))
+        .await
+        .unwrap();
+    assert_eq!(inline["text"], "echo: answer inline");
+    assert_eq!(prompts(&hub, &id), before, "inline emulation never prompts the main chat");
+    assert_eq!(hub.sessions().len(), 1, "the one-shot side session is cleaned up");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn a_side_session_takes_the_asked_model_then_the_configured_one_then_the_harness_default() {
     let calls = std::env::temp_dir().join(format!("acpmux-btw-calls-{}", uuid::Uuid::now_v7()));
     let calls_path = calls.to_string_lossy().into_owned();

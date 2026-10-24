@@ -257,6 +257,11 @@ pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 /// origin `user_backgrounded`.
 pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 
+/// The internal ACP request for Claude Code's native, transcript-free `/btw`
+/// control request. The translator turns this into a `side_question`
+/// `control_request` on Claude's running stream-json process.
+pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
@@ -480,6 +485,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// Claude Code's native `side_question`, answered once its callback
+    /// returns `{response, synthetic}` (or another response payload).
+    SideQuestion,
     /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
     /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
     /// `end_background_asks` unmarks them when nothing moved, at that
