@@ -41,7 +41,7 @@ enum AgentChatMenuHandlers {
 
     private static func bindMarkUnread(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPane.markUnread", run: { invocation in
-            guard let (tab, pane) = context.daemonTab(invocation), let session = tab.agentSession,
+            guard let (tab, pane) = context.daemonTab(invocation), let session = tab.agentSession?.session,
                   !tab.showsUnread, let view = context.services.agentTabs.existingView(tab.id),
                   view.model.sessionId == session else {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
@@ -49,14 +49,14 @@ enum AgentChatMenuHandlers {
             let daemon = context.services.daemon(for: pane)
             let mark = AgentChatMarkUnread(
                 acpmux: {
-                    guard view.model.sessionId == session, tab.agentSession == session else { return false }
+                    guard view.model.sessionId == session, tab.agentSession?.session == session else { return false }
                     let marked = await AgentPaneMarkUnread(view.model).run()
                     // A session switch while the socket was in flight invalidates the tab fallback.
-                    guard view.model.sessionId == session, tab.agentSession == session else { return false }
+                    guard view.model.sessionId == session, tab.agentSession?.session == session else { return false }
                     return marked
                 },
                 daemon: {
-                    guard view.model.sessionId == session, tab.agentSession == session else {
+                    guard view.model.sessionId == session, tab.agentSession?.session == session else {
                         throw ActionFailure(message: MiscHandlerStrings.noAgentChat)
                     }
                     try TabUnreadMark.set(true, tab: tab, daemon: daemon)
@@ -65,7 +65,7 @@ enum AgentChatMenuHandlers {
             // The action's owner is this one mark request. CLI/MCP callers await the registry's
             // tracked work; a palette or menu invocation receives the same refusal if both paths fail.
             registry.track(Task { @MainActor in
-                guard view.model.sessionId == session, tab.agentSession == session else {
+                guard view.model.sessionId == session, tab.agentSession?.session == session else {
                     return ActionWorkFailure(refusal: .unavailable, reason: MiscHandlerStrings.noAgentChat)
                 }
                 do {
