@@ -412,7 +412,7 @@ import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./convers
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
-import { useSideSessions } from "./aside/sideSessions";
+import { isSideSession as isKnownSideSession, useSideSessions } from "./aside/sideSessions";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -5762,10 +5762,12 @@ function AcpmuxPane() {
   const opensSideSessions = !quick && sideSessions;
   const opensSideSessionsRef = useRef(opensSideSessions);
   opensSideSessionsRef.current = opensSideSessions;
+  // A side session can render before its `side` tag arrives in the watched session list. Keep
+  // locally-created ids fenced from the composer immediately, so that first paint cannot offer a
+  // nested `/btw` command while the tag catches up.
+  const knownSideSessionIds = useRef(new Set<string>());
   // A side session (New side chat's, or one `/btw` opened): its composer answers in it.
-  const isSideSession = snapshot.sessions.some(
-    (session) => session.sessionId === snapshot.sessionId && session.side === true,
-  );
+  const isSideSession = isKnownSideSession(snapshot.sessionId, snapshot.sessions, knownSideSessionIds.current);
   // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
   const floatingHold = useFloatingState();
   const surfaceRef = useRef(surface);
@@ -6875,7 +6877,11 @@ function AcpmuxPane() {
             return true;
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
-          "chat.btw": ({ question }) => client.btw(String(question ?? "")),
+          "chat.btw": async ({ question }) => {
+            const side = await client.btw(String(question ?? ""));
+            knownSideSessionIds.current.add(side);
+            return side;
+          },
           "chat.side": async ({ throughSeq }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
@@ -6883,6 +6889,7 @@ function AcpmuxPane() {
             if (!sessionId || !chat) return;
             // acpmux marks it the chat's side chat; the app only opens it beside the chat.
             await client.markSide(sessionId, chat);
+            knownSideSessionIds.current.add(sessionId);
             await postNative("chat.sideChat", { sessionId });
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
@@ -7280,7 +7287,9 @@ function AcpmuxPane() {
     sideSession: async (sessionId, question) => {
       const client = directClient.current;
       if (!client) throw new Error(translate("needsYou.askFailed"));
-      await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
+      const side = await client.btw(question, sessionId);
+      knownSideSessionIds.current.add(side);
+      await postNative("chat.sideChat", { sessionId: side });
     },
   });
   const lastForkSeq = latestForkSeq(snapshot.rows);
