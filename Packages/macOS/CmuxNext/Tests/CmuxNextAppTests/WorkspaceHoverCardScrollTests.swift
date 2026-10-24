@@ -84,6 +84,9 @@ import Testing
 
     /// The history is longer than the card: the wheel on it scrolls the history, and the card stays.
     @Test func aScrollOnALongHistoryScrollsTheHistory() async throws {
+        let richDetails = DesignSettings.shared.workspaceHoverCard.showsRichDetails
+        DesignSettings.shared.workspaceHoverCard.showsRichDetails = true
+        defer { DesignSettings.shared.workspaceHoverCard.showsRichDetails = richDetails }
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let now = Date()

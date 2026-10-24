@@ -378,7 +378,7 @@ public final class HoverCardCoordinator {
             }
             let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
             if panel.cardFrame.contains(point) {
-                if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
+                if event.type == .leftMouseDown {
                     // Let the interactive card's row receive the click. Its
                     // action dismisses after it focuses the selected tab.
                     return event
