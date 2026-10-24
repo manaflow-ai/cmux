@@ -285,10 +285,15 @@ pub(crate) fn handle_request(
     {
         anyhow::bail!("unsupported_version");
     }
-    let stream = params
-        .stream
-        .and_then(|stream| mux.control_clients.client_stream(client, stream))
-        .map(|(_, outbound)| outbound.id);
+    // A request for a client stream that has ended is answered `not_attached`:
+    // it must not resync the connection's other views of the surface.
+    let stream = match params.stream {
+        Some(stream) => match mux.control_clients.client_stream(client, stream) {
+            Some((_, outbound)) => Some(outbound.id),
+            None => anyhow::bail!("not_attached"),
+        },
+        None => None,
+    };
     let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface, stream);
     if gates.is_empty() {
         anyhow::bail!("not_attached");
@@ -408,6 +413,22 @@ fn send_ready(
     )
 }
 
+/// The bytes of one tail chunk: compressed history (made for this chunk), or a
+/// range of the READY's shared images stream (never copied).
+enum ChunkBytes {
+    Packed(Vec<u8>),
+    Images(Arc<SnapshotImages>, std::ops::Range<usize>),
+}
+
+impl ChunkBytes {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Packed(bytes) => bytes,
+            Self::Images(images, range) => images.data.get(range.clone()).unwrap_or_default(),
+        }
+    }
+}
+
 /// The history and the images of one READY still to send.
 struct PendingTail {
     generation: u64,
@@ -438,11 +459,11 @@ impl PendingTail {
     fn next_chunk(
         &mut self,
         surface: SurfaceId,
-    ) -> std::io::Result<Option<(Value, Vec<u8>, bool)>> {
+    ) -> std::io::Result<Option<(Value, ChunkBytes, bool)>> {
         if !self.history_done {
             let (value, data) = self.next_history_chunk(surface)?;
             let done = self.history_done && self.images.is_none();
-            return Ok(Some((value, data, done)));
+            return Ok(Some((value, ChunkBytes::Packed(data), done)));
         }
         let at = (self.generation, self.offset, self.version);
         Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, at)))
@@ -492,7 +513,7 @@ impl PendingImages {
         &mut self,
         surface: SurfaceId,
         at: (u64, u64, u16),
-    ) -> Option<(Value, Vec<u8>, bool)> {
+    ) -> Option<(Value, ChunkBytes, bool)> {
         let (generation, offset, version) = at;
         if self.finished {
             return None;
@@ -512,7 +533,7 @@ impl PendingImages {
         if done && self.skipped_images > 0 {
             value.insert("skipped_images", json!(self.skipped_images));
         }
-        let data = stream.get(self.sent..end).unwrap_or_default().to_vec();
+        let data = ChunkBytes::Images(self.data.clone(), self.sent..end);
         self.sent = end;
         self.finished = done;
         Some((value, data, done))
@@ -632,12 +653,8 @@ impl SnapshotWorker {
             return self.send(&legacy());
         }
         // Frames: the bytes, then the colors that apply after them.
-        self.sent(self.writer.send_output_backpressured(
-            output,
-            start,
-            legacy,
-            &self.outbound_stream,
-        )) && colors.is_none_or(|colors| self.send(&colors_changed_json(surface, colors)))
+        self.sent(self.writer.send_output_frames(output, start, &self.outbound_stream))
+            && colors.is_none_or(|colors| self.send(&colors_changed_json(surface, colors)))
     }
 
     /// A history or images chunk of the READY cut at `offset`.
@@ -712,7 +729,7 @@ impl SnapshotWorker {
                 if done {
                     self.tail = None;
                 }
-                self.send_more(cut, meta, &data)
+                self.send_more(cut, meta, data.as_slice())
             }
             Ok(None) => {
                 self.tail = None;
@@ -1079,8 +1096,9 @@ mod tests {
             assert!(value.get("compression").is_none(), "{value}");
             assert_eq!(value["version"], 1);
             assert!(value.get("data").is_none(), "the bytes travel beside the fields");
+            let bytes = bytes.as_slice();
             assert!(bytes.len() <= IMAGES_CHUNK_BYTES);
-            joined.extend_from_slice(&bytes);
+            joined.extend_from_slice(bytes);
             assert_eq!(value["done"], done);
             events.push(value);
         }
