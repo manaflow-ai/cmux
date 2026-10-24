@@ -16,11 +16,12 @@ import Foundation
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
-/// The observer keeps a timer only while what it reported plays or a report
-/// waits for the binding: an idle frame costs its renderer no wakeup. While a
-/// paused report is live it watches DOM removals, so a paused element the
+/// The observer keeps a timer only while what it reported plays or, for at
+/// most ten looks, while a report waits for the binding: an idle frame costs
+/// its renderer no wakeup and no work per DOM change. A paused element the
 /// page removes (its events fire on a detached node no listener here sees)
-/// reports null at once.
+/// reports null at the next natural event: a media event, or the page
+/// showing again.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
@@ -37,8 +38,11 @@ nonisolated extension BrowserMediaState {
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // What the last look found playing, and the one-second look-again while it plays (`follow`).
           let playing = false, ticks = 0, ticker = 0;
-          // The element last reported, and the DOM-removal watch kept while it is reported paused.
-          let held = null, watcher = null;
+          // Looks a report has waited for the binding; after `maxRetries` only a natural event retries.
+          let retries = 0;
+          const maxRetries = 10;
+          // The element last reported: the page showing again checks it is still in the document.
+          let held = null;
           // This document's id: the tab keeps one report per frame.
           const frame = Math.random().toString(36).slice(2) + Date.now().toString(36);
           // The elements the tab's mute muted, which Unmute unmutes.
@@ -48,6 +52,7 @@ nonisolated extension BrowserMediaState {
           const send = (report) => {
             if (!(\#(ready))) { pending = true; return false; }
             pending = false;
+            retries = 0;
             const message = { frame, report };
             try { \#(post); return true; } catch (_) { return false; }
           };
@@ -95,30 +100,19 @@ nonisolated extension BrowserMediaState {
             reported = true;
             held = element;
           };
-          // A paused element the page removes fires its events on a detached node: while a paused
-          // report is live, a DOM change that took the reported element out of the document looks
-          // again (one `isConnected` read per change batch). No watch at any other time.
-          const watchRemovals = (on) => {
-            if (on && !watcher && typeof MutationObserver === 'function') {
-              watcher = new MutationObserver(() => { if (held && !held.isConnected) schedule(); });
-              watcher.observe(document, { childList: true, subtree: true });
-            } else if (!on && watcher) {
-              watcher.disconnect();
-              watcher = null;
-            }
-          };
           // Metadata changes fire no event: look again every second while what this frame reported
-          // plays (every third look sends it again with its position), and while a report waits
-          // for the binding. Nothing else keeps a timer, so a frame with nothing playing (every
-          // idle page, hidden or shown) never wakes its renderer.
+          // plays (every third look sends it again with its position), and for at most `maxRetries`
+          // looks while a report waits for the binding (an iframe made after the last binding add
+          // never gets one: the next media event tries again). Nothing else keeps a timer, so a
+          // frame with nothing playing (every idle page, hidden or shown) never wakes its renderer.
           const follow = () => {
-            watchRemovals(reported && !playing);
-            const on = (playing && reported) || pending;
+            const on = (playing && reported) || (pending && retries < maxRetries);
             if (on && !ticker) {
               ticks = 0;
               ticker = setInterval(() => {
                 ticks += 1;
                 heartbeat = reported && ticks % 3 === 0;
+                if (pending) retries += 1;
                 schedule();
               }, 1000);
             } else if (!on && ticker) {
@@ -139,10 +133,16 @@ nonisolated extension BrowserMediaState {
           // The document goes (navigation, its frame removed): its report goes with it. A page
           // restored from the back-forward cache looks again.
           addEventListener('pagehide', () => {
-            watchRemovals(false);
             if (reported && send(null)) { reported = false; last = ''; held = null; }
+            follow();
           }, true);
           addEventListener('pageshow', (event) => { if (event.persisted) schedule(); }, true);
+          // The page shows again: a reported element the page removed meanwhile, or a report that
+          // waits, looks again. One check per show, no DOM watch.
+          addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') return;
+            if (pending || (reported && held && !held.isConnected)) schedule();
+          }, true);
           for (const type of ['seeked', 'ratechange']) {
             addEventListener(type, () => { seeked = true; schedule(); }, true);
           }
