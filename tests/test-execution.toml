@@ -1347,6 +1347,10 @@ path = "tests/test_cmux_next_generated_catch_up.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_generated_fold.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_next_batch.py"
 lane = "linux-guard"
 

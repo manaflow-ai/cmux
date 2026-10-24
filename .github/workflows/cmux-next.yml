@@ -182,6 +182,7 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_generated_fold.py
       - tests/test_cmux_next_pr_autofix_push_gate.py
       - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
@@ -411,6 +412,7 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_generated_fold.py
       - tests/test_cmux_next_pr_autofix_push_gate.py
       - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
@@ -1613,6 +1615,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_generated_fold.py
           python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
