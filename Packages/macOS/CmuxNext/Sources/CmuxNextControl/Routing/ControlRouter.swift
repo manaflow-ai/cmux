@@ -128,8 +128,14 @@ public final class ControlRouter: Sendable {
     /// methods (DEBUG builds), whichever code path registers it.
     public func register(_ methods: [ControlMethod]) {
         let allowsDebug = configuration.allowsDebugMethods
+        // Each method's owner is interned once here (registration), never per request.
+        let methods = methods.filter { allowsDebug || !Self.isDebugMethod($0.name) }.map { method in
+            var method = method
+            method.owner = workQueue.owner(of: method.name)
+            return method
+        }
         state.withLock { state in
-            for method in methods where allowsDebug || !Self.isDebugMethod(method.name) {
+            for method in methods {
                 if state.methods.updateValue(method, forKey: method.name) == nil { state.order.append(method.name) }
             }
         }
@@ -266,8 +272,9 @@ public final class ControlRouter: Sendable {
             if request.method != "debug.hangs", let after = request.params["after"], !after.isNull {
                 snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
             }
-            let call = ControlCall(request: request, snapshot: snapshot, connection: connection,
+            var call = ControlCall(request: request, snapshot: snapshot, connection: connection,
                                    deadline: deadline, startsTerminal: startsTerminal, progress: progress, engineStartMark: engineStartMark)
+            call.owner = method.owner
             return .success(try await Self.run(method, call, queue: workQueue))
         } catch let error as ControlError {
             return .failure(error.annotated(progress: progress))
@@ -305,7 +312,7 @@ public final class ControlRouter: Sendable {
                                                         countingFrom: call.engineStartMark) { try await body(call) }
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
-            let reply = try await queue.run(connection: call.connection, method: call.method, workClass: method.workClass,
+            let reply = try await queue.run(connection: call.connection, method: call.method, owner: method.owner, workClass: method.workClass,
                                             deadline: call.deadline, countingFrom: call.engineStartMark) {
                 // The request may have answered `not_run` already.
                 guard call.progress.begin() else { throw expired }

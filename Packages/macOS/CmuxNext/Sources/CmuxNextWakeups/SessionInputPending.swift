@@ -11,6 +11,12 @@ import CoreGraphics
 /// dispatches (taken by another process while the app turns inactive) stops counting after
 /// ``staleAfter``, so it cannot hold batches back.
 ///
+/// Each check is one window-server query in the common case: the newest input event of any type
+/// (``SessionInputEvents/secondsSinceLastInput()``). When that event is no newer than the last one
+/// AppKit dispatched here, or is stale, no key or click can be pending (each is an input event, and
+/// the app's event queue is first in, first out), so the check ends there. Only when some input
+/// is still on its way does it ask per type (key-down first, then each mouse button).
+///
 /// ```swift
 /// // The app:
 /// let budget = MainFrameBudget(input: SessionInputPending(), signposts: true)
@@ -27,7 +33,10 @@ public final class SessionInputPending: InputPendingSource {
 
     private static let eventTypes: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
     private let events: any SessionInputEvents
+    /// The newest key-down or mouse-button-down AppKit dispatched here.
     private var lastDispatched: TimeInterval = 0
+    /// The newest input event of any type AppKit dispatched here.
+    private var lastDispatchedAny: TimeInterval = 0
     private var observing = false
 
     /// - Parameter events: The window server and AppKit (tests: a fake that reports its own event
@@ -36,21 +45,32 @@ public final class SessionInputPending: InputPendingSource {
         self.events = events
     }
 
-    /// Records that AppKit dispatched an event with `timestamp` (seconds since boot).
-    private func dispatched(_ timestamp: TimeInterval) {
-        lastDispatched = max(lastDispatched, timestamp)
+    /// Records that AppKit dispatched an input event with `timestamp` (seconds since boot).
+    private func dispatched(_ timestamp: TimeInterval, isKeyOrClick: Bool) {
+        lastDispatchedAny = max(lastDispatchedAny, timestamp)
+        if isKeyOrClick { lastDispatched = max(lastDispatched, timestamp) }
     }
 
     public func hasPendingInput(uptime: TimeInterval) -> Bool {
         if !observing {
-            observing = events.observeDispatch { [weak self] timestamp in self?.dispatched(timestamp) }
+            observing = events.observeDispatch { [weak self] timestamp, isKeyOrClick in self?.dispatched(timestamp, isKeyOrClick: isKeyOrClick) }
         }
         guard events.isAppActive else { return false }
-        var newest: TimeInterval = 0
-        for type in Self.eventTypes {
-            newest = max(newest, uptime - events.secondsSinceLastEvent(type))
+        // One query: nothing generated after the last dispatched event, or nothing recent, means no
+        // key or click is on its way either (the event queue is first in, first out). Events a
+        // tracking loop takes (a drag, a menu) never reach the monitor, so during one this answers
+        // "maybe" and the per-type queries decide.
+        guard Self.isPending(uptime - events.secondsSinceLastInput(), after: lastDispatchedAny, now: uptime) else { return false }
+        for type in Self.eventTypes where Self.isPending(uptime - events.secondsSinceLastEvent(type), after: lastDispatched, now: uptime) {
+            return true
         }
-        // 1 ms: the HID time and the event's timestamp come from one clock but are rounded apart.
-        return newest > lastDispatched + 0.001 && uptime - newest < Self.staleAfter
+        return false
+    }
+
+    /// Whether an event generated at `generated` (seconds since boot) is newer than `dispatched`
+    /// and recent enough at `now` to count. 1 ms: the HID time and the event's timestamp come from
+    /// one clock but are rounded apart.
+    private static func isPending(_ generated: TimeInterval, after dispatched: TimeInterval, now: TimeInterval) -> Bool {
+        generated > dispatched + 0.001 && now - generated < staleAfter
     }
 }

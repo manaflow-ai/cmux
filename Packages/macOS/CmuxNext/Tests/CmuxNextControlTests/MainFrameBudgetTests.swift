@@ -381,6 +381,50 @@ import Testing
         batch.deactivate()
     }
 
+    /// The commit a frame's requests cause is charged: after a 6 ms render pass (layout, display,
+    /// the Core Animation commit of what the requests changed), the next frame's scheduled work
+    /// stops at the 2 ms left of the 8 ms pass, not at 4 ms, and a cheap pass gives the 4 ms back.
+    @Test func anExpensiveRenderPassLowersTheNextFramesScheduledWork() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let request = budget.board.owner("workspace.move")
+        func frame(_ timestamp: Double) -> Int {
+            clock.advance(ms: 17)
+            budget.beginFrame(timestamp: timestamp, refreshInterval: 1.0 / 60)
+            var ran = 0
+            while budget.mayRun(.automation) {
+                budget.run(.automation, owner: request) { clock.advance(ms: 0.5) }
+                ran += 1
+            }
+            return ran
+        }
+        #expect(frame(1) == 8, "no render pass yet: 4 ms of 0.5 ms requests")
+        budget.noteRenderPass(nanos: 6_000_000)
+        #expect(frame(2) == 4, "a 6 ms commit leaves 2 ms of the 8 ms pass for the requests")
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(frame(3) == 8, "a cheap commit gives the frame its 4 ms back")
+        budget.noteRenderPass(nanos: 9_000_000)
+        #expect(frame(4) == 1, "past the whole pass: the first task of a frame still runs")
+        #expect(budget.stats.renderPasses == 3)
+        #expect(budget.stats.maxRenderPassNanos == 9_000_000)
+    }
+
+    /// The pending-input checks between tasks are main-thread work too: their time counts in the
+    /// frame's scheduled 4 ms. With 0.25 ms checks and 0.5 ms requests, five run, not eight.
+    @Test func thePendingInputChecksCountInTheFramesScheduledWork() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(input: CostlyInputPending(clock: clock, ms: 0.25), uptimeNanos: clock.read)
+        let request = budget.board.owner("workspace.move")
+        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        var ran = 0
+        while budget.mayRun(.automation) {
+            budget.run(.automation, owner: request) { clock.advance(ms: 0.5) }
+            ran += 1
+        }
+        #expect(ran == 5, "the checks' time was left out of the frame's budget: \(ran) requests ran")
+        #expect(budget.stats.maxInputCheckNanos == 250_000)
+    }
+
     /// FIFO within a connection: a client that pipelines a focus change and then a key, without
     /// waiting for the first reply, gets them in that order (the key types into what it focused).
     @Test func anInjectedKeyNeverPassesItsOwnConnectionsEarlierRequest() {
@@ -491,6 +535,21 @@ private final class BudgetClock {
 private final class FakeInputPending: InputPendingSource {
     var pending = false
     func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
+}
+
+/// A pending-input check that takes `ms` of main-thread time and finds nothing.
+@MainActor
+private final class CostlyInputPending: InputPendingSource {
+    private let clock: BudgetClock
+    private let ms: Double
+    init(clock: BudgetClock, ms: Double) {
+        self.clock = clock
+        self.ms = ms
+    }
+    func hasPendingInput(uptime: TimeInterval) -> Bool {
+        clock.advance(ms: ms)
+        return false
+    }
 }
 
 @MainActor

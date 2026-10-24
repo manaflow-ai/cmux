@@ -39,8 +39,14 @@ final class SSHService {
     /// Automatic updates tried in this app run (``RemoteAutoUpdateLedger``).
     @ObservationIgnored private var autoUpdated = RemoteAutoUpdateLedger()
 
-    init(machines: MachineRegistry, bundleID: String?) {
+    /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event
+    /// batches run on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+
+    /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
+    init(machines: MachineRegistry, bundleID: String?, mainWork: MainWorkScheduler) {
         self.machines = machines
+        self.mainWork = mainWork
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths)
@@ -279,7 +285,7 @@ final class SSHService {
     private func makeSession(_ host: SSHHost) -> SSHMachineSession? {
         guard let binary else { return nil }
         let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment,
-                                        mainWork: machines.local.mainWork)
+                                        mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
         session.onStatusChange = { [weak self] session, status in self?.statusChanged(session, status) }
         machines.add(session)

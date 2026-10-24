@@ -133,7 +133,8 @@ extension ControlRouter {
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         // A later step of a composite call (`file.open`'s next path) follows steps that may have applied.
         let firstStep = !progress.hasStarted
-        let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline, countingFrom: call.engineStartMark) {
+        let run = try await workQueue.run(connection: call.connection, method: call.method, owner: call.owner, deadline: call.deadline,
+                                          countingFrom: call.engineStartMark) {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin(), scope.noting("handler") else { throw expired }
             if action.id == "tab.focus" { tabSwitchMark("run") }
