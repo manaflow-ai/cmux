@@ -179,9 +179,14 @@ export class MockKeybindingsProvider implements PageClient {
     for (const listener of this.changed) listener({}, ++this.seq);
   }
 
-  private emitRecorded(done: boolean, cancelled: boolean): void {
+  /** The dispatcher saw the held modifiers change ("⇧⌘"; "" when none are held). */
+  hold(held: string): void {
+    if (this.recording) this.emitRecorded(false, false, held);
+  }
+
+  private emitRecorded(done: boolean, cancelled: boolean, held = ""): void {
     const key = this.strokesSoFar.join(" ");
-    const event: RecordedEvent = { key, display: displayFor(key), done, cancelled };
+    const event: RecordedEvent = { key, display: displayFor(key), done, cancelled, held };
     if (done || cancelled) this.stopRecording();
     for (const listener of this.recorded) listener(event, ++this.seq);
   }
@@ -194,15 +199,23 @@ export class MockKeybindingsProvider implements PageClient {
       const onKey = (event: KeyboardEvent) => {
         event.preventDefault();
         event.stopPropagation();
-        if (event.key === "Escape") this.cancel();
+        if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) this.hold(heldFor(event));
+        else if (event.key === "Escape") this.cancel();
         else if (event.key === "Enter" && this.strokesSoFar.length) this.finish();
         else {
           const stroke = strokeFor(event);
           if (stroke) this.press(stroke);
         }
       };
+      const onKeyUp = (event: KeyboardEvent) => {
+        if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) this.hold(heldFor(event));
+      };
       window.addEventListener("keydown", onKey, true);
-      this.detachDom = () => window.removeEventListener("keydown", onKey, true);
+      window.addEventListener("keyup", onKeyUp, true);
+      this.detachDom = () => {
+        window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("keyup", onKeyUp, true);
+      };
     }
   }
 
@@ -312,6 +325,20 @@ export class MockKeybindingsProvider implements PageClient {
     if (entry.args) row.args = entry.args;
     return row;
   }
+}
+
+/** The held modifiers of a key event as glyphs (⌃⌥⇧⌘), for the dev loop's stand-in dispatcher. */
+function heldFor(event: KeyboardEvent): string {
+  const held: Array<[boolean, string]> = [
+    [event.ctrlKey, "⌃"],
+    [event.altKey, "⌥"],
+    [event.shiftKey, "⇧"],
+    [event.metaKey, "⌘"],
+  ];
+  return held
+    .filter(([down]) => down)
+    .map(([, glyph]) => glyph)
+    .join("");
 }
 
 /** A key event as one stroke, for the dev loop's stand-in dispatcher. */

@@ -31,7 +31,7 @@ export type Connection = "connecting" | "connected" | "disconnected";
 /** Where recorded strokes go: the search field, or a new key for one row. */
 export type Recording =
   | { target: "search" }
-  | { target: "row"; row: string; binding: Binding; key: string; display: string };
+  | { target: "row"; row: string; binding: Binding; key: string; display: string; held: string };
 
 export type Notice = { kind: "unsupported" } | { kind: "failed"; message: string };
 
@@ -236,7 +236,7 @@ export class KeybindingsStore {
     if (this.snapshot.recording) this.endRecording();
     const row = identity(binding);
     this.set({ editing: undefined, selection: row });
-    await this.beginRecording({ target: "row", row, binding, key: "", display: "" });
+    await this.beginRecording({ target: "row", row, binding, key: "", display: "", held: "" });
   }
 
   stopRecording(): void {
@@ -257,7 +257,7 @@ export class KeybindingsStore {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row" || !this.client) return;
     // The recorder stays open: only the app's capture starts over.
-    this.set({ recording: { ...recording, key: "", display: "" } });
+    this.set({ recording: { ...recording, key: "", display: "", held: "" } });
     await this.client.call(KeybindingOps.recordStop, {}).catch(() => undefined);
     const current = this.snapshot.recording;
     if (current?.target === "row" && current.row === recording.row) await this.beginRecording(current);
@@ -279,7 +279,7 @@ export class KeybindingsStore {
     if (!recording) return;
     const finished = event.done || event.cancelled;
     if (recording.target === "search") {
-      if (!event.cancelled && event.key) {
+      if (!event.cancelled && event.key && event.key !== this.snapshot.keyFilter?.key) {
         this.refilter({ text: event.key, keyFilter: { key: event.key, exact: false } });
       }
       if (finished) this.endRecording();
@@ -300,7 +300,7 @@ export class KeybindingsStore {
       }
     }
     if (!finished) {
-      this.set({ recording: { ...recording, key: event.key, display: event.display } });
+      this.set({ recording: { ...recording, key: event.key, display: event.display, held: event.held ?? "" } });
       return;
     }
     this.endRecording();

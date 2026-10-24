@@ -568,25 +568,68 @@
   color: var(--ui-fg);
 }
 
+/* The footer: the action on the left, cut to one line with an ellipsis, and a small Close with its
+   keys on the right. */
 .keys-recorder-actions {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   align-self: stretch;
+  min-width: 0;
   padding-top: 8px;
   border-top: 0.5px solid var(--ui-line);
 }
 
+.keys-recorder-command {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: start;
+  font-size: var(--text-caption);
+  color: var(--ui-fg-2);
+}
+
 .keys-recorder-button {
-  height: 24px;
-  padding: 0 8px;
+  flex: none;
+  height: 20px;
+  padding: 0 4px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 4px;
   background: transparent;
-  color: var(--ui-fg);
+  color: var(--ui-fg-2);
   font: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-caption);
+  white-space: nowrap;
 }
 
 .keys-recorder-button:hover {
   background: var(--ui-hover);
+  color: var(--ui-fg);
+}
+
+.keys-recorder-button .keys-recorder-hint-cap {
+  margin: 0 2px;
+}
+
+/* Each key pops in as it goes down; the modifiers held before a key wait at half strength. Only
+   when the person allows motion (the motion gate and Reduce Motion), and it never delays a key:
+   with no motion a cap is there in one frame. */
+.keys-recorder-stroke.held .keys-recorder-cap {
+  opacity: 0.6;
+}
+
+@keyframes keys-cap-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]) .keys-recorder-keys.recorded .keys-recorder-cap {
+    animation: keys-cap-in var(--cmux-motion-micro, 120ms) ease-out;
+  }
 }

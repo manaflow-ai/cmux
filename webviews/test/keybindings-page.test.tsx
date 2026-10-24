@@ -161,13 +161,29 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   expect(recorderKeys()?.textContent).toBe("⌘P");
   expect(recorder()?.textContent).toContain("⌫");
   expect(close()?.textContent).toContain("esc");
+  expect(recorder()?.querySelector(".keys-recorder-command")?.textContent).toBe("Go to File");
+
+  // Each modifier shows the moment it goes down, before a key makes the stroke.
+  const caps = () => [...(recorderKeys()?.querySelectorAll(".keys-recorder-cap") ?? [])].map((cap) => cap.textContent);
+  await act(async () => {
+    provider.hold("⌘");
+    await Promise.resolve();
+  });
+  expect(caps()).toEqual(["⌘"]);
+  expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeTruthy();
+  await act(async () => {
+    provider.hold("⇧⌘");
+    await Promise.resolve();
+  });
+  expect(caps()).toEqual(["⇧", "⌘"]);
 
   // Keys another action has: the recorder names it before anything is saved.
   await act(async () => {
     provider.press("cmd+shift+p");
     await Promise.resolve();
   });
-  expect(recorder()?.querySelectorAll(".keys-recorder-cap").length).toBe(3);
+  expect(caps()).toEqual(["⇧", "⌘", "P"]);
+  expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeNull();
   expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Command Palette");
 
   // A click on the keys starts over; Close (as Return) saves the keys recorded.

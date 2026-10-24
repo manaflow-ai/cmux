@@ -41,6 +41,12 @@ struct KeyRecorder: Equatable {
         ActionRegistry.shortcuts(for: event).first { !$0.key.isEmpty }
     }
 
+    /// The glyphs of the held modifiers in the menu order (⌃⌥⇧⌘), as a stroke's display writes them.
+    static func heldGlyphs(_ flags: NSEvent.ModifierFlags) -> String {
+        [(NSEvent.ModifierFlags.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+            .filter { flags.contains($0.0) }.map(\.1).joined()
+    }
+
     static func isEscape(_ event: NSEvent) -> Bool {
         event.keyCode == ChordTracker.escapeKeyCode && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
     }

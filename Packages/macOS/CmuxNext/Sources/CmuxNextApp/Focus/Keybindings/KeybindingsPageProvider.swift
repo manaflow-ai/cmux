@@ -17,6 +17,9 @@ final class KeybindingsPageProvider: PageProvider {
     /// The page's window: only its key-downs are recorded.
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?
+    /// While recording: the modifier changes of the page's window, so the page shows the modifiers
+    /// held before a key makes the stroke.
+    private var flagsMonitor: Any?
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var fileListener: UUID?
@@ -121,11 +124,19 @@ final class KeybindingsPageProvider: PageProvider {
             self.record(event)
             return true
         }
+        if flagsMonitor == nil {
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                self?.hold(event)
+                return event
+            }
+        }
     }
 
     private func stopRecording() {
         recorder = nil
         services.keyRouter.keyRecorder = nil
+        if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
+        flagsMonitor = nil
     }
 
     private func record(_ event: NSEvent) {
@@ -134,10 +145,23 @@ final class KeybindingsPageProvider: PageProvider {
                                              isReturn: KeyRecorder.isReturn(event)) else { return }
         self.recorder = recorder
         if recorded.done || recorded.cancelled { stopRecording() }
+        send(recorded.keys, done: recorded.done, cancelled: recorded.cancelled, held: "")
+    }
+
+    /// A modifier went down or up in the page's window: the strokes so far and the modifiers held now.
+    private func hold(_ event: NSEvent) {
+        guard let recorder, !recorder.isFinished, let page = pageWindow(),
+              event.window === page || event.window?.parent === page else { return }
+        send(recorder.keys, done: false, cancelled: false, held: KeyRecorder.heldGlyphs(event.modifierFlags))
+    }
+
+    /// One `recorded` event: the strokes so far (`key`, `display`), how the recording ended, and
+    /// `held`, the glyphs of the modifiers held before the next key ("" on a stroke).
+    private func send(_ keys: [Shortcut], done: Bool, cancelled: Bool, held: String) {
         let event: JSONValue = [
-            "key": .string(KeybindingReports.text(recorded.keys)),
-            "display": .string(recorded.keys.map(\.displayString).joined(separator: " ")),
-            "done": .bool(recorded.done), "cancelled": .bool(recorded.cancelled),
+            "key": .string(KeybindingReports.text(keys)),
+            "display": .string(keys.map(\.displayString).joined(separator: " ")),
+            "done": .bool(done), "cancelled": .bool(cancelled), "held": .string(held),
         ]
         for listener in recordedListeners.values { listener(event) }
     }

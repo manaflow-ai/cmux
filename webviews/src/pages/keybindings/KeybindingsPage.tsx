@@ -285,9 +285,10 @@ function withKeys(text: string, keys: readonly string[]) {
 }
 
 /** The recorder over a row's keys while it records: "Press ⌫ to delete" (a row with keys), the
- *  keys (its own until a key comes, then the keys so far) as large caps that start over on a
- *  click, a warning when another action has them, and Close (Escape drops new keys, Return saves
- *  them). The app's recorder answers the keys; the controls are the same intents. Focus stays. */
+ *  keys as large caps (its own until a key comes, then each key as it goes down, modifiers
+ *  included) that start over on a click, a warning when another action has them, and a footer
+ *  with the action and Close (Escape drops new keys, Return saves them). The app's recorder
+ *  answers the keys; the controls are the same intents. Focus stays. */
 function Recorder({
   anchor,
   binding,
@@ -304,7 +305,14 @@ function Recorder({
   store: KeybindingsStore;
 }) {
   const { t } = strings;
-  const display = recording.display || binding.display;
+  // Its own keys until a key comes; then the strokes so far and the modifiers held now.
+  const live = Boolean(recording.display || recording.held);
+  const strokesShown = displayStrokes(live ? recording.display : binding.display);
+  const held = strokeCaps(recording.held);
+  const groups = [
+    ...strokesShown.map((stroke) => ({ caps: strokeCaps(stroke), held: false })),
+    ...(held.length ? [{ caps: held, held: true }] : []),
+  ];
   const others = sameKeys(bindings, binding, recording.key);
   return (
     <Popover
@@ -323,19 +331,20 @@ function Recorder({
       )}
       <button
         type="button"
-        className={`keys-recorder-keys${recording.display ? " recorded" : ""}`}
+        className={`keys-recorder-keys${live ? " recorded" : ""}`}
         aria-label={t("keybindings.page.recorder.edit")}
         aria-live="polite"
         onMouseDown={keepFocus}
         onClick={() => void store.restartRecording()}
       >
-        {display ? (
-          displayStrokes(display).map((stroke, index) => (
+        {groups.length ? (
+          // One group per stroke, the held modifiers last: a cap keeps its element when the stroke
+          // lands, so only the new key pops in.
+          groups.map((group, index) => (
             // oxlint-disable-next-line react/no-array-index-key
-            <span key={index} className="keys-recorder-stroke">
-              {strokeCaps(stroke).map((cap, capIndex) => (
-                // oxlint-disable-next-line react/no-array-index-key
-                <kbd key={capIndex} className="keys-recorder-cap">
+            <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
+              {group.caps.map((cap) => (
+                <kbd key={cap} className="keys-recorder-cap">
                   {cap}
                 </kbd>
               ))}
@@ -353,6 +362,9 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
+        <span className="keys-recorder-command" title={binding.title}>
+          {binding.title}
+        </span>
         <button
           type="button"
           className="keys-recorder-button"

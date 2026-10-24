@@ -79,6 +79,9 @@ export interface RecordedEvent {
   done: boolean;
   /** Escape ended the recording; `key` holds no new stroke. */
   cancelled: boolean;
+  /** Optional: the glyphs of the modifiers held now, before a key makes the next stroke ("⇧⌘");
+   *  "" on a stroke and when none are held. */
+  held?: string;
 }
 
 export const KeybindingOps = {
