@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextFeed
 import CmuxNextIcons
 import Foundation
@@ -16,9 +17,9 @@ extension InternalPageID {
 final class FeedPageService: InternalPageProvider {
     private unowned let services: AppServices
     /// Starts report replies off the main thread.
-    private let replies: FeedReportReplies
+    private let replies: AcpmuxReplySender
 
-    init(services: AppServices, replies: FeedReportReplies = FeedReportReplies()) {
+    init(services: AppServices, replies: AcpmuxReplySender = AcpmuxReplySender()) {
         self.services = services
         self.replies = replies
     }
@@ -48,7 +49,7 @@ final class FeedPageService: InternalPageProvider {
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
             // report rows; the command is a bounded local adapter for Labs.
-            // The process starts off the main thread (FeedReportReplies).
+            // The process starts off the main thread (AcpmuxReplySender).
             guard let self, let environment = QuitAgents.environment(self.services) else { return false }
             return await replies.send(session: reportID, text: reply, environment: environment)
         }
