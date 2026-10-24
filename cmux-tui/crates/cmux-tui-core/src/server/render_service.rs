@@ -308,27 +308,49 @@ impl RenderService {
         &self,
         value: &VtStateMessage,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        self.serialize_vt_state_as(value, ReplayBytes::Base64)
+    }
+
+    /// The `vt-state` event, with its replay as base64 `data`, or (a REPLAY
+    /// frame's meta) without it and with `pending_len`: one writer for both
+    /// forms, so their fields never differ and nothing is parsed back.
+    pub(super) fn serialize_vt_state_as(
+        &self,
+        value: &VtStateMessage,
+        bytes: ReplayBytes,
+    ) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         write!(
             writer,
-            "{{\"event\":\"vt-state\",\"surface\":{},\"cols\":{},\"rows\":{},\"data\":\"",
+            "{{\"event\":\"vt-state\",\"surface\":{},\"cols\":{},\"rows\":{}",
             value.surface, value.cols, value.rows
         )?;
-        {
-            let mut encoder = base64::write::EncoderWriter::new(
-                &mut writer,
-                &base64::engine::general_purpose::STANDARD,
-            );
-            encoder.write_all(&value.replay)?;
-            encoder.finish()?;
+        match bytes {
+            ReplayBytes::Base64 => {
+                writer.write_all(b",\"data\":\"")?;
+                {
+                    let mut encoder = base64::write::EncoderWriter::new(
+                        &mut writer,
+                        &base64::engine::general_purpose::STANDARD,
+                    );
+                    encoder.write_all(&value.replay)?;
+                    encoder.finish()?;
+                }
+                writer.write_all(b"\"")?;
+            }
+            ReplayBytes::Omitted => {
+                write!(writer, ",\"pending_len\":{}", value.pending_sequence.len())?;
+            }
         }
-        writer.write_all(b"\",\"kitty_image_aliases\":")?;
+        writer.write_all(b",\"kitty_image_aliases\":")?;
         write_kitty_image_aliases_json(&mut writer, &value.kitty_image_aliases)?;
         writer.write_all(b",\"kitty_graphics_state\":")?;
         write_kitty_replay_state_json(&mut writer, value.kitty_state)?;
         writer.write_all(b",\"colors\":")?;
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
-        write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
+        if bytes == ReplayBytes::Base64 {
+            write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
+        }
         writer.write_all(b"}")?;
         Ok(writer.finish())
     }
@@ -338,6 +360,18 @@ impl RenderService {
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        self.serialize_attach_frame_as(surface, frame, shape, ReplayBytes::Base64)
+    }
+
+    /// [`Self::serialize_attach_frame`]; for a resize, with its replay as base64
+    /// or (a REPLAY frame's meta) without it and with `pending_len`.
+    pub(super) fn serialize_attach_frame_as(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        bytes: ReplayBytes,
     ) -> std::io::Result<Arc<BudgetedText>> {
         let include_color_overrides = shape.color_overrides;
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
@@ -368,14 +402,14 @@ impl RenderService {
             } => {
                 write!(
                     writer,
-                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
+                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows}"
                 )?;
-                write_resized_replay_json(&mut writer, replay, pending_sequence, shape)?;
-                writer.write_all(b"\",\"kitty_image_aliases\":")?;
+                write_resized_replay_field(&mut writer, replay, pending_sequence, shape, bytes)?;
+                writer.write_all(b",\"kitty_image_aliases\":")?;
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
                 writer.write_all(b",\"kitty_graphics_state\":")?;
                 write_kitty_replay_state_json(&mut writer, *kitty_state)?;
-                if shape.pending_sequence {
+                if shape.pending_sequence && bytes == ReplayBytes::Base64 {
                     write_pending_sequence_json(&mut writer, pending_sequence)?;
                 }
                 writer.write_all(b"}")?;
@@ -391,10 +425,10 @@ impl RenderService {
             } => {
                 write!(
                     writer,
-                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
+                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows}"
                 )?;
-                write_resized_replay_json(&mut writer, replay, pending_sequence, shape)?;
-                writer.write_all(b"\",\"kitty_image_aliases\":")?;
+                write_resized_replay_field(&mut writer, replay, pending_sequence, shape, bytes)?;
+                writer.write_all(b",\"kitty_image_aliases\":")?;
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
                 writer.write_all(b",\"kitty_graphics_state\":")?;
                 write_kitty_replay_state_json(&mut writer, *kitty_state)?;
@@ -404,7 +438,7 @@ impl RenderService {
                     &terminal_colors_json(**colors, include_color_overrides),
                 )
                 .map_err(json_error_to_io)?;
-                if shape.pending_sequence {
+                if shape.pending_sequence && bytes == ReplayBytes::Base64 {
                     write_pending_sequence_json(&mut writer, pending_sequence)?;
                 }
                 writer.write_all(b"}")?;
@@ -453,6 +487,35 @@ fn write_base64_json_parts(
 
 /// A resized replay and its pending sequence: separate fields for viewers
 /// that advertised the capability, one self-contained replay otherwise.
+/// How a replay event carries its bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReplayBytes {
+    /// In the JSON event, base64 (`data`, `replay`, `pending`).
+    Base64,
+    /// Beside it, raw in a REPLAY frame: the event is the frame's meta and says
+    /// `pending_len`.
+    Omitted,
+}
+
+/// A resize's replay field: `"replay":"<base64>"`, or `"pending_len":N` when
+/// the bytes travel raw beside the meta.
+fn write_resized_replay_field(
+    writer: &mut BudgetedJsonWriter,
+    replay: &[u8],
+    pending: &[u8],
+    shape: AttachWireShape,
+    bytes: ReplayBytes,
+) -> std::io::Result<()> {
+    match bytes {
+        ReplayBytes::Base64 => {
+            writer.write_all(b",\"replay\":\"")?;
+            write_resized_replay_json(writer, replay, pending, shape)?;
+            writer.write_all(b"\"")
+        }
+        ReplayBytes::Omitted => write!(writer, ",\"pending_len\":{}", pending.len()),
+    }
+}
+
 fn write_resized_replay_json(
     writer: &mut BudgetedJsonWriter,
     replay: &[u8],
