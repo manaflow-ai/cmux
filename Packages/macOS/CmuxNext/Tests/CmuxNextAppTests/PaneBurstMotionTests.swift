@@ -53,4 +53,20 @@ import Testing
         #expect(frames[PaneID("unrelated")]?.width.velocity == 777, "the release reset a spring it does not move")
         #expect((frames[PaneID("beside")]?.width.velocity ?? 0) > 0, "the pane beside the divider was not seeded")
     }
+
+    /// M2 (PL-burst): the screen resized while a spring runs (the sidebar sliding, the screen bar toggling) keeps
+    /// the spring going toward the new rest from where the panes show; it does not snap them to their end.
+    @Test func aResizeDuringASpringKeepsItGoing() async throws {
+        let harness = PaneMotionBench.Harness(Self.row(4), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: Self.row(4, without: [1]))
+        harness.root.syncWithModel()
+        for _ in 0..<4 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        let shown = try #require(screen.paneFrames[PaneID("p3-0")]).rect
+        screen.setFrameSize(NSSize(width: screen.frame.width - 200, height: screen.frame.height))
+        let frame = try #require(screen.paneFrames[PaneID("p3-0")])
+        #expect(frame.rect == shown, "the resize moved a springing pane in its turn: \(shown) -> \(frame.rect)")
+        #expect(screen.hasMotion, "the resize snapped the spring to its end")
+    }
 }
