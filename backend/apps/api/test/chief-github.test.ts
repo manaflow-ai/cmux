@@ -74,7 +74,7 @@ const githubObject = (agent: string) => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF
 /** github.com and api.github.com: the device flow, /user, and an App's installation tokens. */
 const fakeGitHub = () => {
   const inner = vi.mocked(globalThis.fetch).getMockImplementation()!
-  const gh = { polls: 0, approved: false, devicePosts: [] as Array<string>, minted: 0, jwts: [] as Array<string>, users: new Map<string, { login: string; scopes: string; expires?: string }>() }
+  const gh = { polls: 0, approved: false, expiresIn: 900, devices: [] as Array<string>, devicePosts: [] as Array<string>, minted: 0, jwts: [] as Array<string>, users: new Map<string, { login: string; scopes: string; expires?: string }>() }
   gh.users.set("gho_device_token_not_real", { login: "octo", scopes: "gist, read:org, repo, workflow" })
   gh.users.set("github_pat_good_not_real", { login: "octo-pat", scopes: "", expires: "2026-12-01 00:00:00 UTC" })
   vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -82,11 +82,13 @@ const fakeGitHub = () => {
     const url = new URL(req.url)
     if (url.origin === "https://github.com" && url.pathname === "/login/device/code") {
       gh.devicePosts.push(await req.text())
-      return Response.json({ device_code: "device-code-secret-not-real", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 0 })
+      const n = gh.devicePosts.length
+      gh.devices.push(n === 1 ? "device-code-secret-not-real" : `device-code-secret-${n}-not-real`)
+      return Response.json({ device_code: gh.devices.at(-1), user_code: n === 1 ? "ABCD-1234" : `EFGH-000${n}`, verification_uri: "https://github.com/login/device", expires_in: gh.expiresIn, interval: 0 })
     }
     if (url.origin === "https://github.com" && url.pathname === "/login/oauth/access_token") {
       const body = new URLSearchParams(await req.text())
-      expect(body.get("device_code")).toBe("device-code-secret-not-real")
+      expect(body.get("device_code")).toBe(gh.devices.at(-1))
       expect(body.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:device_code")
       gh.polls++
       if (!gh.approved) return Response.json({ error: "authorization_pending" })
@@ -180,7 +182,7 @@ describe("GitHub sign-in per Chief", { timeout: 120_000 }, () => {
     expect(JSON.stringify([await history(a.token, a.chief.main_conversation), runs])).not.toContain("gho_device_token_not_real")
     const stored = await (githubObject(a.chief.id) as any).ccGithubDump()
     expect(JSON.stringify(stored)).not.toContain("gho_device_token_not_real")
-    expect(JSON.stringify(stored)).not.toContain("device-code-secret-not-real")
+    expect(JSON.stringify(stored)).not.toContain("device-code-secret")
   })
 
   it("takes a pasted token after checking it, shows its expiry, signs out, and mints GitHub App installation tokens fresh", async () => {
@@ -227,6 +229,78 @@ describe("GitHub sign-in per Chief", { timeout: 120_000 }, () => {
       expect(r.text).toContain("INTEGRATIONS_KEK")
     } finally {
       testEnv.INTEGRATIONS_KEK = kek
+    }
+  })
+
+  it("keeps a fresh device code ready: a new one when the old expires, until approved", async () => {
+    const seen: Record<string, any> = {}
+    fakeCloud(
+      () => "ok",
+      async (s, n) => {
+        if (n === 1) seen.login = await call(s, { action: "github_login" })
+      }
+    )
+    const gh = fakeGitHub()
+    gh.expiresIn = 1
+    const a = await enabledChief("chief-github-renew")
+    expect((await send(a.token, a.chief.main_conversation, "r1", "sign in to github")).ok).toBe(true)
+    await replies(a.token, a.chief.main_conversation, a.chief.id, 1)
+    expect(seen.login.body.pending.user_code).toBe("ABCD-1234")
+    // The card says when the code ends, so the Chief can wake itself then (chief-wake).
+    expect(seen.login.body.wake_in).toBeGreaterThan(0)
+    gh.expiresIn = 900
+    await new Promise((r) => setTimeout(r, 1200))
+    // The expired code is replaced at once when the status is read: the woken Chief posts the new one.
+    const status = (await http("GET", `/v1/chiefs/${a.chief.id}/github`, a.token)).json.value
+    expect(status).toMatchObject({ signed_in: false, pending: { user_code: "EFGH-0002" } })
+    expect(status.pending.renewals).toBe(1)
+    gh.approved = true
+    let s: any = null
+    for (let i = 0; i < 40 && !s?.signed_in; i++) {
+      await fireAlarm(githubObject(a.chief.id))
+      s = (await http("GET", `/v1/chiefs/${a.chief.id}/github`, a.token)).json.value
+    }
+    expect(s).toMatchObject({ signed_in: true, login: "octo" })
+  })
+
+  it("lets a Cloud Chief set a timer that wakes it with a [wake] message, list it and clear it", async () => {
+    const seen: Record<string, any> = {}
+    const before = testEnv.CHIEF_CC_WAKE_MIN_SECONDS
+    testEnv.CHIEF_CC_WAKE_MIN_SECONDS = "0"
+    try {
+      const cloud = fakeCloud(
+        () => "ok",
+        async (s, n) => {
+          if (n !== 1) return
+          seen.bad = await call(s, { action: "wake_set", seconds: -5, note: "x" })
+          seen.later = await call(s, { action: "wake_set", seconds: 3600, note: "not this one" })
+          seen.list = await call(s, { action: "wake_list" })
+          seen.clear = await call(s, { action: "wake_clear" })
+          seen.set = await call(s, { action: "wake_set", seconds: 0, note: "post the new GitHub code" })
+        }
+      )
+      const a = await enabledChief("chief-github-wake")
+      expect((await send(a.token, a.chief.main_conversation, "w1", "sign in to github")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 1)
+      expect(seen.bad.status).toBe(400)
+      expect(seen.later.status).toBe(200)
+      expect(seen.list.body.wakes.map((w: any) => w.note)).toEqual(["not this one"])
+      expect(seen.clear.body).toMatchObject({ cleared: 1 })
+      expect(seen.set.status).toBe(200)
+      const brain = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${a.chief.id}/${a.chief.main_conversation}`))
+      for (let i = 0; i < 40 && cloud.started.length < 2; i++) {
+        await fireAlarm(brain)
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      // A second turn with no message from anyone: the timer's note starts it.
+      expect(cloud.started.length).toBe(2)
+      expect(cloud.started[1]!.input.prompt).toContain("[wake] post the new GitHub code")
+      expect(cloud.started[1]!.input.prompt).not.toContain("not this one")
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 2)
+      // The timer client ships to every turn machine.
+      expect((cloud.started[1]!.input as any).files[".local/bin/chief-wake"]).toContain("wake_set")
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_WAKE_MIN_SECONDS : (testEnv.CHIEF_CC_WAKE_MIN_SECONDS = before)
     }
   })
 })
