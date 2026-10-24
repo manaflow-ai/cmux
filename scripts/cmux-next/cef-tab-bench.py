@@ -205,7 +205,18 @@ def build_stress():
     spec = importlib.util.spec_from_file_location("perf_stress_session", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    summary = module.Stress(rpc).build()
+    stress = module.Stress(rpc)
+    # STRESS has 60 workspaces in all: the tag's daemon may keep workspaces from an earlier run on this host,
+    # and a light round's workspace may outlive its close. Close every one but the focused one first.
+    for _ in range(3):
+        others = [w["id"] for w in stress.workspaces() if w["id"] != stress.focused_workspace()]
+        if not others:
+            break
+        print(f"STRESS: closing {len(others)} workspaces the app already had", flush=True)
+        for workspace in others:
+            action("goToWorkspace", {"workspace": workspace}, focus=True)
+            action("closeWorkspace", {"confirm": True}, focus=True)  # destructive: a script caller confirms
+    summary = stress.build()
     print("STRESS-SESSION " + json.dumps(summary), flush=True)
     return summary
 
