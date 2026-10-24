@@ -136,7 +136,7 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
 }
 
 #[tokio::test]
-async fn a_peer_row_carries_the_health_read_on_connect() {
+async fn peer_status_rides_on_the_peer_row_read_after_connect() {
     let b = hub().await;
     let (port, token) = listen(b.clone(), "row").await;
     let a = hub().await;

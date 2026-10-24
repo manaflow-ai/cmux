@@ -47,7 +47,10 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
     });
-    if let Some((free, total)) = disk(&crate::config::home()) {
+    // The disk acpmux's home is on, or will be: a home not made yet reads its
+    // nearest folder that is.
+    let home = crate::config::home();
+    if let Some((free, total)) = home.ancestors().find_map(disk) {
         v["disk"] = json!({"freeBytes": free, "totalBytes": total});
     }
     if let Some(load) = load() {
@@ -203,7 +206,7 @@ fn ram_total() -> Option<u64> {
         .next()?
         .parse()
         .ok()?;
-    (kb > 0).then_some(kb * 1024)
+    (kb > 0).then_some(kb.saturating_mul(1024))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -247,7 +250,7 @@ fn swap() -> Option<(u64, u64)> {
         text.lines().find_map(|l| l.strip_prefix(key))?.split_whitespace().next()?.parse().ok()
     };
     let (total, free) = (kb("SwapTotal:")?, kb("SwapFree:")?);
-    Some((total.saturating_sub(free) * 1024, total * 1024))
+    Some((total.saturating_sub(free).saturating_mul(1024), total.saturating_mul(1024)))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
