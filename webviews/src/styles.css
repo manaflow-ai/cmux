@@ -61,11 +61,9 @@
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
   /* cmux NEXT chrome (the toolbar, the files panel, the file bars): every chip has a one-pixel
-     rim, what is selected or open takes the theme accent, and the toolbar and files panel share
-     one lift off the backdrop so they frame the code. The lift is a tint of the text color, so it
-     stays translucent over a see-through window (glass) and follows every theme. */
+     rim and what is selected or open takes the theme accent. The toolbar has no fill, as every
+     page header; the files panel takes a lift off the backdrop (--cmux-diff-files-bg). */
   --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-chrome-lift: color-mix(in srgb, var(--cmux-diff-fg) 3%, transparent);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
   /* The files panel paints opaque (the tree's truncation marker must hide the text under it):
      the same lift, composited onto the solid backdrop. */
@@ -1766,9 +1764,10 @@ svg[data-icon-fill] {
   gap: 6px;
   min-height: 50px;
   padding: 0 7px 0 8px;
-  /* Glass: the chrome lift over the window's backdrop, blurred where a menu or the narrow files
-     panel passes under it (--surface-blur is none under Reduce Transparency). */
-  background: var(--cmux-diff-chrome-lift);
+  /* No fill of its own: like the tab bar and every other page header, it shows the page's
+     backdrop. Blurred where a menu or the narrow files panel passes under it (--surface-blur is
+     none under Reduce Transparency). */
+  background: transparent;
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
