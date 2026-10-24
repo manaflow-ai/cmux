@@ -51,7 +51,12 @@ final class CEFVerificationBridge {
         let document = (url: state.url, phase: state.phase)
         guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
         boundDocument = document
-        run([Self.binding, Self.readyCall()], browser, tab: tab)
+        run(Self.documentCalls(phase: state.phase), browser, tab: tab)
+    }
+
+    /// The DevTools calls for a document that reached `phase`.
+    static func documentCalls(phase: BrowserLoadPhase) -> [(String, [String: Any])] {
+        [binding, readyCall()]
     }
 
     private func run(_ calls: [(String, [String: Any])], _ browser: Int32, tab: CEFTab) {
