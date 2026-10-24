@@ -93,6 +93,17 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
+      - name: Prepare full webview tests
+        if: inputs.setup == 'webviews'
+        run: |
+          if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
+            ./scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          if [[ -x webviews/node_modules/.bin/playwright ]]; then
+            cd webviews
+            ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+          fi
+
       - name: Install gallery dependencies and browsers
         if: inputs.setup == 'playwright'
         run: |
