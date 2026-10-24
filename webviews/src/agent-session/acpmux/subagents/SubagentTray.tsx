@@ -34,13 +34,13 @@ import { memo, useId, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { type BackgroundCommand, commandLabel } from "../inspector/processes";
+import { arrivalKey, type BackgroundCommand, commandLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { AgentLine } from "./AgentLine";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
-import { arrivalKey, itemStart, type TrayItem } from "./runningTray";
+import { itemStart, type TrayItem } from "./runningTray";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
