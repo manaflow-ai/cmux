@@ -1,7 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.diagnostics.hangReports.helpConsent": {
+    "settings.diagnostics.hangReports.help": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
