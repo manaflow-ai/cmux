@@ -129,6 +129,12 @@ export function alwaysAllowScope(permission: AcpmuxPermission, option: Permissio
   return name;
 }
 
+/** The concrete target an approval covers, kept visible beside its actions. */
+export function permissionScopeText(permission: AcpmuxPermission, t: Translate): string | undefined {
+  const scope = permission.scope;
+  return scope ? t("permission.cwd", { path: scope.value }) : undefined;
+}
+
 /// Where the keyboard belongs to something else: typing, a menu, a list or a dialog.
 const OWNS_KEYS =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="menu"], [role="menubar"], [role="listbox"], [role="dialog"], [role="combobox"], [role="grid"], [role="tree"]';

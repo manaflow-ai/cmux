@@ -505,11 +505,16 @@ impl Session {
         let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
         let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
         let reflexive = async {
-            let deadline = Instant::now() + STUN_WAIT;
+            let mut deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
             while found.len() < asked {
                 match tokio::time::timeout_at(deadline, reflexive_rx.recv()).await {
-                    Ok(Some(address)) => found.push(address),
+                    Ok(Some(address)) => {
+                        found.push(address);
+                        // One answered: a silent server (port 53 on a cellular
+                        // network) gets only a short grace (STUN_GRACE).
+                        deadline = deadline.min(Instant::now() + STUN_GRACE);
+                    }
                     _ => break,
                 }
             }

@@ -815,6 +815,8 @@ export function NewTabScreen(props: Props) {
   const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
+    // The mic and Send at the row's end (Claude Code's split) keep their own press.
+    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area")) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
@@ -1154,7 +1156,7 @@ export function NewTabScreen(props: Props) {
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="nt-box">
+        <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
               matches={commandMatches}
@@ -1209,6 +1211,10 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
+            {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
+              the mic and Send end the field's row and the empty box is one line tall, as the chat
+              composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
+            {split && pickers}
           </div>
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
@@ -1226,7 +1232,7 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
           />
-          {!pill && pickers}
+          {!pill && !split && pickers}
         </div>
         {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
             a quiet row under the box; the box keeps the prompt, the mic and Send. */}

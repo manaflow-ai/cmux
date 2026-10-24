@@ -220,7 +220,7 @@ final class ScreenBarController {
         case .emptyStrip, .newTabButton:
             registry.makeContextMenu(for: .screenBar)
         }
-        // The bar's rows highlight as the sidebar's and the tab strip's do: a wash of the theme's accent.
+        // A standard macOS menu in the bar's light or dark look, like every right-click menu.
         return menu.themeRows(in: content.themeScope.fullStrength)
     }
 }

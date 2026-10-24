@@ -30,6 +30,11 @@ extension AgentPaneRequest {
         }
         let params = object["params"] as? [String: Any]
         switch method {
+        case "uiPointer.report":
+            guard let params, JSONSerialization.isValidJSONObject(params),
+                  let data = try? JSONSerialization.data(withJSONObject: params),
+                  let text = String(data: data, encoding: .utf8) else { self = .unsupported(method); return }
+            self = .uiPointerReport(text)
         case "ready":
             self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
         case "chat.missing":
@@ -252,7 +257,12 @@ extension AgentPaneRequest {
                 self = Self.preview(params, method: method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
-                self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
+                let toggle = params?["mode"] as? String == "toggle"
+                if id == AgentPaneModel.diffAction, let turn = AgentPaneDiffTurn(params: params?["turn"]) {
+                    self = .diffTurn(turn, cwd: cwd, toggle: toggle)
+                } else {
+                    self = .paneAction(id, cwd: cwd, toggle: toggle)
+                }
             } else {
                 self = .unsupported(method)
             }

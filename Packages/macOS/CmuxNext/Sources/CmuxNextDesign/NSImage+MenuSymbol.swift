@@ -2,9 +2,8 @@ public import AppKit
 import CmuxNextIcons
 
 extension NSImage {
-    /// A menu row's icon: the SF Symbol `name` as a template, at the menu font's size, so a
-    /// themed row (`NSMenu.themeRows(in:)`) and a native one both ink it like the row's title
-    /// (white in dark mode, black in light) and follow its highlight. Every right-click menu's
+    /// A menu row's icon: the SF Symbol `name` as a template, at the menu font's size, so AppKit
+    /// inks it like the row's title (white in dark mode, black in light) and follows its highlight. Every right-click menu's
     /// icons are system symbols, the ones Finder and Safari use, never the icon pack's drawings
     /// (user 2026-10-21: "i dont like the svgs for the icons"). Rows that run an action use that
     /// action's `ActionDescriptor.symbol`.

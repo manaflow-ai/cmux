@@ -86,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalThemeSetting.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
-        ThemeBridge.start()
+        ThemeBridge.start(store: ThemeScope.app.store)
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
@@ -141,7 +141,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // An App Store request made while no window existed shows in this window (S22).
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
-            if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
+            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
+                Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
+            }
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_window_frame_committed")
@@ -179,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
+        PageWebView.openPanel = services.openPanel
         PageWebView.chromiumHosting = ChromiumPageHost(
             cef: services.cache.cef,
             preference: { [weak services] in

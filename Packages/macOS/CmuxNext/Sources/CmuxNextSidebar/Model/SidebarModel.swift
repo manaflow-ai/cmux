@@ -357,7 +357,7 @@ public final class SidebarModel {
         switch intent {
         case let .select(id):
             activeWorkspaceID = id
-            if !selection.contains(id) { selection = [id] }
+            selection = [id]
         case .selectTab, .moveTab:
             break
         case let .closeGroup(id):

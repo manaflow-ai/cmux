@@ -35,6 +35,8 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+#[cfg(unix)]
+mod dev;
 mod docs;
 mod extra_help;
 mod federation;
@@ -248,6 +250,78 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Whether the removed `route` resource scope is the command after global
+/// options have been stripped. This keeps the early refusal ahead of the
+/// generic app-action fallback even for invocations such as
+/// `cmux --json route list`.
+pub(crate) fn removed_route_requested(args: &[String]) -> bool {
+    // This mode consumes an arbitrary argv payload through `--` and never
+    // enters the CLI dispatcher, so a literal `route` belongs to the provider
+    // command rather than the removed cmux resource scope.
+    if let Some(provider_index) = args.iter().position(|arg| arg == "--machine-provider-command")
+        && args
+            .iter()
+            .position(|arg| arg == "route")
+            .is_none_or(|route_index| provider_index < route_index)
+    {
+        return false;
+    }
+    scan_globals(args, MachineFlag::Global)
+        .map(|(_, command)| {
+            let mut words = command.iter().take_while(|word| *word != "--").peekable();
+            let mut command_words = Vec::new();
+            while let Some(word) = words.next() {
+                if startup_value_option(word) {
+                    let _ = words.next();
+                } else if !word.starts_with('-') {
+                    command_words.push(word.as_str());
+                }
+            }
+            matches!(
+                command_words.as_slice(),
+                ["route", ..] | ["help", "route", ..] | ["acp", "route", ..]
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn startup_value_option(value: &str) -> bool {
+    matches!(
+        value,
+        "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--ws-allow-origin"
+            | "--ws-allow-host"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--terminal-reap-grace-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term"
+            | "--owner-host-fg"
+            | "--owner-host-bg"
+            | "--owner-ready-fd"
+            | "--owner-install-key-fd"
+            | "--machine-provider-command"
+    )
+}
+
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
 /// (with the deprecation hint), so `main` routes `server start` to the
 /// headless startup like `daemon start`. No-op elsewhere.
@@ -280,6 +354,10 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    #[cfg(unix)]
+    if let Some(code) = dev::run_if_requested(args, surface) {
+        return code;
+    }
     let lifecycle_args;
     let args = match machine_server::run_if_requested(args, surface) {
         Some(machine_server::Mount::Exit(code)) => return code,

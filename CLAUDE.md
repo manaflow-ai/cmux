@@ -103,6 +103,10 @@ Swift/Rust builds and tests stay on the fleet.
 
 ## Before you touch hot paths
 
+- Use the patterns in [PATTERNS.md](plans/cmux-next/PATTERNS.md) (composition root, seam adapters, targeted
+  observation, instant create, main-thread budget, off-main frames, daemon request path) and meet
+  [REVIEW-STANDARD.md](plans/cmux-next/REVIEW-STANDARD.md): root-cause fixes, no hacks, no partial fixes. Review
+  landed work with the repo workflow `.claude/workflows/cmux-next-deep-review.js`.
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
 - Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to
@@ -275,3 +279,16 @@ execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes
 on the remote host. An allowlist addition without this analysis blocks review.
+
+## Hand the person something to try
+
+End every implementation with something the person can run or see, not only a diff or a summary:
+
+- App changes: a tagged dev build named after the task ([tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md);
+  team agents build it on the fleet, see the hq link at the top), with its tag and how to open it
+  (`CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, or the team's Tag Opener link). Never a raw `.app` path or `file://` URL.
+- Web or webview changes: a preview URL. Visual changes: screenshots or a video.
+- Anything else: the test or run command that exercises the change.
+
+Say where it is and how to try it, with the exact steps and what the person should see. Check it works before
+handing off. If none could be produced, say why. Documentation-only changes need no build.

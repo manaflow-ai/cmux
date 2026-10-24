@@ -74,6 +74,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+from bench_launch import launch_app  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -234,25 +235,15 @@ class App:
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
-        binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-        log = open(os.path.join(OUT, "app.log"), "a")
-        self.process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-        self.pids.append(self.process.pid)
-        SIGNPOSTS.pids.add(self.process.pid)
-        note(f"every-action: launched pid {self.process.pid}")
-        def up():
-            global SOCKET
-            for path in SOCKETS:
-                if os.path.exists(path):
-                    SOCKET = path
-                    if (rpc("debug.windows") or {}).get("windows"):
-                        return True
-            return False
-        if not wait(up, 180, step=0.25):
-            log.flush()
-            tail = open(os.path.join(OUT, "app.log"), errors="replace").read()[-3000:]
-            raise SystemExit(f"every-action: the tagged app did not come up (exit={self.process.poll()}, sockets "
-                             f"{[(p, os.path.exists(p)) for p in SOCKETS]})\n{tail}")
+        def started(process):
+            self.process = process
+            self.pids.append(process.pid)
+            SIGNPOSTS.pids.add(process.pid)
+            note(f"every-action: launched pid {process.pid}")
+        # One launch path (bench_launch.py): the state-folder socket, the session check, and the reason (crash
+        # report, main-thread sample, log tail) when the app does not come up; raises LaunchError (a SystemExit).
+        global SOCKET
+        _, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180, on_start=started)
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
@@ -449,7 +440,14 @@ class Sweep:
             note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
                  f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
-            summary = self.builder.build()
+            summary = self.builder.build(check=False) if "check" in self.builder.build.__code__.co_varnames else self.builder.build()
+            # The builder's own shape check (PL-motion-core): a deviation is quoted with every number, not a failed run.
+            try:
+                checker = getattr(type(self.builder), "check", None)
+                if checker:
+                    checker(summary)
+            except Exception as error:  # StressShapeError
+                summary["shape_error"] = str(error)[:400]
             note("STRESS-SESSION " + json.dumps(summary))
             self.summary = summary
             workspace = summary.get("measured")
@@ -525,6 +523,9 @@ class Sweep:
     # Restore.
 
     def restore(self, action_id, toggled):
+        if self.app.process and self.app.process.poll() is not None:
+            # The app is gone (it quit or crashed): rebuilding through a dead socket would only time out.
+            raise RuntimeError(f"the app exited (code {self.app.process.returncode})")
         for _ in range(2):
             rpc("debug.key", {"key": "escape"}, timeout=5)
         rpc("debug.key", {"key": "escape", "target": "palette"}, timeout=5)
@@ -1377,9 +1378,15 @@ def main():
             if index:
                 app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
-            sweep.run(actions)
-            report["sessions"].append({"name": name, "summary": sweep.summary, "validity": sweep.validity, "idle": sweep.idle,
-                                       "rows": sweep.rows, "interactions": sweep.interactions})
+            try:
+                sweep.run(actions)
+            except Exception as error:  # one session failing still returns the other's rows (the step must pass to return them)
+                note(f"every-action: the {name} session failed: {error!r}")
+                report.setdefault("failed_sessions", []).append({"name": name, "error": repr(error)[:400]})
+                if not getattr(sweep, "validity", None):
+                    continue
+            report["sessions"].append({"name": name, "summary": getattr(sweep, "summary", {}), "validity": sweep.validity,
+                                       "idle": getattr(sweep, "idle", {"frames": {}}), "rows": sweep.rows, "interactions": sweep.interactions})
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:

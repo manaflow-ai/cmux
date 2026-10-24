@@ -281,6 +281,10 @@ final class AppControl {
             .async("debug.omnibar_bench") { [weak services] call in
                 await DebugOmnibarClickBench.run(call.params, services)
             }.withDeadline(.fixed(.seconds(15))),
+            // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
+            .async("debug.open_panel_bench") { [weak services] call in
+                await DebugOpenPanelBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))
