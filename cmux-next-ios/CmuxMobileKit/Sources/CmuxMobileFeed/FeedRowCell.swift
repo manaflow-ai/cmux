@@ -480,7 +480,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
             FeedRowCell.drawAsync(button)
             button.addAction(UIAction { [weak self, weak button] _ in
                 guard let self, let button, let id = button.actionID else { return }
-                if button.actionID == "terminal" { self.delegate?.rowOpen(self.id) } else { self.delegate?.rowRespond(self.id, optionID: id) }
+                if button.opensTerminal { self.delegate?.rowOpen(self.id) } else { self.delegate?.rowRespond(self.id, optionID: id) }
             }, for: .touchUpInside)
             capsules.append(button)
             row.addSubview(button)
@@ -668,7 +668,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         // One terminal reply at a time: a second would interleave with the first.
         footerButtons[0].isEnabled = layout.footerReplyEnabled
         footerButtons[0].alpha = layout.footerReplyEnabled ? 1 : 0.4
-                for button in footerButtons { button.isHidden = true }
+        for button in footerButtons { button.isHidden = true }
         // HStack with a Spacer between each button: the first at the leading edge, the last at the trailing one.
         let frame = layout.footer
         let gaps = CGFloat(max(entries.count - 1, 1))
@@ -687,8 +687,10 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     @objc private func openTapped(_ tap: UITapGestureRecognizer) {
         guard offset == 0 else { return }
         // A link in the body: a web link opens in Safari; a file link opens the event, whose chat previews it.
-        if made.contains("markdown"), !markdown.isHidden, let url = markdown.link(at: tap.location(in: markdown)),
-           let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {
+        var url: URL?
+        if !inlineText.isHidden { url = NativeMarkdownView.link(in: inlineText, at: tap.location(in: inlineText)) }
+        if url == nil, made.contains("markdown"), !markdown.isHidden { url = markdown.link(at: tap.location(in: markdown)) }
+        if let url, let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {
             UIApplication.shared.open(url)
             return
         }
@@ -1052,6 +1054,8 @@ final class FeedCapsuleButton: UIControl {
     private let fill = UIView()
     private let label = UILabel()
     var actionID: String?
+    /// The button opens the event's terminal (not an answer: an agent's option id could be anything).
+    var opensTerminal = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1072,6 +1076,7 @@ final class FeedCapsuleButton: UIControl {
     func apply(_ button: FeedRowLayout.CapsuleButton) {
         isHidden = false
         actionID = button.id
+        opensTerminal = button.opensTerminal
         frame = button.frame
         isEnabled = button.enabled
         fill.frame = bounds.insetBy(dx: 0, dy: 2)

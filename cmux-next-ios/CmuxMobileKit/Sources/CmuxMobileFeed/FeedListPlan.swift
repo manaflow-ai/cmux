@@ -78,12 +78,23 @@ struct FeedListPlan: Equatable {
     /// `unchanged`: rows whose key is known to be the one shown (not compared again).
     init(old: [(String, FeedRowKey)], new: [(String, FeedRowKey)], anchorID: String?, unchanged: Set<String> = []) {
         let before = Dictionary(old, uniquingKeysWith: { first, _ in first })
-        orderChanged = old.map(\.0) != new.map(\.0)
-        reconfigure = new.compactMap { id, key in
-            guard !unchanged.contains(id), let previous = before[id] else { return nil }
-            return previous == key ? nil : id
+        self.init(oldOrder: old.map(\.0), shown: before, new: new, unchanged: unchanged)
+    }
+
+    /// The same plan from the shown order and keys as the list keeps them (no dictionary built per update).
+    init(oldOrder: [String], shown: [String: FeedRowKey], new: [(String, FeedRowKey)], unchanged: Set<String>) {
+        orderChanged = oldOrder.count != new.count || !zip(oldOrder, new).allSatisfy { $0 == $1.0 }
+        var reconfigure: [String] = [], inserted: [String] = []
+        for (id, key) in new {
+            if unchanged.contains(id) { continue }
+            if let previous = shown[id] {
+                if previous != key { reconfigure.append(id) }
+            } else {
+                inserted.append(id)
+            }
         }
-        inserted = new.compactMap { id, _ in before[id] == nil ? id : nil }
+        self.reconfigure = reconfigure
+        self.inserted = inserted
     }
 
     var isEmpty: Bool { !orderChanged && reconfigure.isEmpty }

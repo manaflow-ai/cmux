@@ -9,10 +9,40 @@ import UIKit
 final class FeedListLayout: UICollectionViewLayout {
     /// Section 0's one header height, then each event row's height (section 1).
     var headerHeight: CGFloat = 0 { didSet { if headerHeight != oldValue { dirty = true } } }
-    var rowHeights: [CGFloat] = [] { didSet { if rowHeights != oldValue { dirty = true } } }
+    private(set) var rowHeights: [CGFloat] = []
 
     private var dirty = true
     private var tops: [CGFloat] = []
+    /// Each row's index by id (the order the heights follow).
+    private var index: [String: Int] = [:]
+
+    /// The rows' heights in `order`. `changed`: only these rows' heights may differ (a reconfigure),
+    /// so only they are read and the frames below the first of them are summed again; nil: all.
+    func setHeights(order: [String], heights: [String: CGFloat], changed: [String]?) {
+        if let changed, order.count == rowHeights.count, !index.isEmpty {
+            var first = Int.max
+            for id in changed {
+                guard let row = index[id], let height = heights[id], rowHeights[row] != height else { continue }
+                rowHeights[row] = height
+                first = min(first, row)
+            }
+            if first != Int.max { resum(from: first) }
+            return
+        }
+        index = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        rowHeights = order.map { heights[$0] ?? 1 }
+        dirty = true
+    }
+
+    private func resum(from row: Int) {
+        guard row < tops.count else { dirty = true; return }
+        var y = tops[row]
+        for i in row..<rowHeights.count {
+            tops[i] = y
+            y += rowHeights[i]
+        }
+        total = y
+    }
     private var width: CGFloat = 0
     private var total: CGFloat = 0
 

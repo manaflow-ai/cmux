@@ -83,6 +83,8 @@ struct FeedRowLayout: @unchecked Sendable {
         var frame: CGRect
         var kind: Kind
         var enabled = true
+        /// Opens the event's terminal instead of answering.
+        var opensTerminal = false
     }
 
     struct CommandCard {
@@ -404,13 +406,17 @@ private struct FeedRowBuilder {
             let title = symbolText("terminal", "Open in Terminal", font: font, color: capsuleColor(.secondary))
             let width = min(columnWidth, nativeTextSize(title, width: columnWidth).width + 24)
             let top = place(44)
-            return .question(card, openTerminal: capsule("terminal", title, kind: .secondary, x: columnX, y: top, width: width))
+            var button = capsule("terminal", title, kind: .secondary, x: columnX, y: top, width: width)
+            button.opensTerminal = true
+            return .question(card, openTerminal: button)
         case .needsInput:
             if let resolution = item.resolution { return secondaryLine("checkmark.circle", resolution) }
             let font = styles.font(.headline)
             let title = symbolText("terminal", "Answer in Terminal", font: font, color: capsuleColor(.primary))
             let top = place(44)
-            return .terminal(capsule("terminal", title, kind: .primary, x: columnX, y: top, width: columnWidth))
+            var button = capsule("terminal", title, kind: .primary, x: columnX, y: top, width: columnWidth)
+            button.opensTerminal = true
+            return .terminal(button)
         case .permission(let request):
             if let resolution = item.resolution {
                 return secondaryLine(resolution.hasPrefix("Denied") ? "xmark.circle" : "checkmark.circle", resolution)

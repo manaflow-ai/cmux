@@ -109,6 +109,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     /// The events as the list shows them (the applied snapshot's order).
     private var shownOrder: [String] = []
     private var shownKeys: [String: FeedRowKey] = [:]
+    /// `shownOrder` as a set, rebuilt only when the order changes.
+    private var shownSet: Set<String> = []
     /// Each shown row's height (its shown layout's), so a commit reads no layout it did not change.
     private var shownHeights: [String: CGFloat] = [:]
     /// The latest events from the store, applied once per run-loop turn.
@@ -374,8 +376,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         defer { FeedCellTiming.log("commit n=\(next.count)", t0) }
         #endif
         guard let dataSource, let collectionView else { return }
-        var plan = FeedListPlan(old: shownOrder.map { ($0, shownKeys[$0] ?? FeedListController.emptyKey) }, new: keys, anchorID: nil,
-                                unchanged: unchanged)
+        var plan = FeedListPlan(oldOrder: shownOrder, shown: shownKeys, new: keys, unchanged: unchanged)
         if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
         for item in next where !unchanged.contains(item.id) { items[item.id] = item }
         // Read flags change no layout: those rows redraw their dot and actions in place.
@@ -388,7 +389,10 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
         let anchor = control.atTop ? nil : visibleAnchor()
+        let previousOrder = shownOrder
+        let previousSet = shownSet
         shownOrder = next.map(\.id)
+        if plan.orderChanged { shownSet = Set(shownOrder) }
         if plan.orderChanged || reconfigureAll {
             shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
         }
@@ -397,7 +401,6 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             shownKeys[id] = key
             shownHeights[id] = layouts.cached(key)?.height ?? 1
         }
-        let previousOrder = dataSource.snapshot().numberOfSections == 2 ? dataSource.snapshot().itemIdentifiers(inSection: .events) : []
         var snapshot = dataSource.snapshot()
         if snapshot.numberOfSections == 0 {
             snapshot = NSDiffableDataSourceSnapshot<Section, String>()
@@ -413,13 +416,13 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
                 snapshot.appendItems(shownOrder, toSection: .events)
             }
         }
-        let present = Set(shownOrder), wasShown = Set(previousOrder)
-        let reconfigure = plan.reconfigure.filter { present.contains($0) && wasShown.contains($0) }
+        // Reconfigured rows are shown rows by construction (the plan lists only ids it had shown); a
+        // relayout's list may name rows the snapshot just removed.
+        let reconfigure = plan.orderChanged ? plan.reconfigure.filter { shownSet.contains($0) && previousSet.contains($0) } : plan.reconfigure
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         applyCount += 1
-        let heights = shownOrder.map { shownHeights[$0] ?? 1 }
         UIView.performWithoutAnimation {
-            listLayout.rowHeights = heights
+            listLayout.setHeights(order: shownOrder, heights: shownHeights, changed: plan.orderChanged ? nil : reconfigure)
             dataSource.apply(snapshot, animatingDifferences: false)
             if plan.orderChanged || !plan.reconfigure.isEmpty { listLayout.invalidateLayout() }
             if let anchor { restore(anchor) }
@@ -432,10 +435,10 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         } else {
             _ = FeedListPlan.fresh(plan.inserted, seen: &everShown)
         }
-        if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp() }
-        // Rows that left the list: only when the order changed (a reconfigure removes none).
-        if plan.orderChanged {
-            let present = Set(shownOrder)
+        if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp(plan.inserted + plan.reconfigure) }
+        // Rows that left the list: only when some did (an insert or a move removes none).
+        if plan.orderChanged, previousOrder.count + plan.inserted.count != shownOrder.count {
+            let present = shownSet
             layouts.prune(keeping: present)
             items = items.filter { present.contains($0.key) }
             states = states.filter { present.contains($0.key) }
@@ -495,8 +498,9 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     }
 
     /// Draws one row of each shape not seen yet off screen, one per run-loop turn while idle.
-    private func scheduleWarmUp() {
-        for id in shownOrder {
+    /// Queues a warm-up draw for the shapes among `ids` (the rows just added or changed) not seen yet.
+    private func scheduleWarmUp(_ ids: [String]) {
+        for id in ids {
             guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
             let shape = Self.shape(layout)
             if warmed.insert(shape).inserted { warmQueue.append(layout) }
@@ -601,9 +605,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         }
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems(present)
-        let heights = shownOrder.map { shownHeights[$0] ?? 1 }
         let apply = {
-            self.listLayout.rowHeights = heights
+            self.listLayout.setHeights(order: self.shownOrder, heights: self.shownHeights, changed: present)
             dataSource.apply(snapshot, animatingDifferences: false)
             self.listLayout.invalidateLayout()
             collectionView.layoutIfNeeded()

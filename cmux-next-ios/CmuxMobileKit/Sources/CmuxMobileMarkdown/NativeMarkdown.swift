@@ -396,10 +396,8 @@ extension NativeMarkdownLayout {
                 }
                 if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             }
-            // A link, or a file the agent names in code (`src/app.swift:12`, as InlineMarkdownCache does).
-            var link = run.link
-            if link == nil, run.inlinePresentationIntent?.contains(.code) == true { link = MarkdownFilePath(text)?.url }
-            if let link {
+            // Links, as the web renderer drew them (it did not link file paths in code spans).
+            if let link = run.link {
                 attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 attributes[NativeMarkdownLayout.linkKey] = link
             }
@@ -486,20 +484,30 @@ public final class NativeMarkdownView: UIView {
     /// The link at `point` (in this view), if a label's text has one there.
     public func link(at point: CGPoint) -> URL? {
         for label in labels where !label.isHidden && label.frame.contains(point) {
-            guard let text = label.attributedText, text.length > 0 else { continue }
-            let storage = NSTextStorage(attributedString: text)
-            let manager = NSLayoutManager()
-            let container = NSTextContainer(size: label.bounds.size)
-            container.lineFragmentPadding = 0
-            manager.addTextContainer(container)
-            storage.addLayoutManager(manager)
-            let local = CGPoint(x: point.x - label.frame.minX, y: point.y - label.frame.minY)
-            var fraction: CGFloat = 0
-            let index = manager.characterIndex(for: local, in: container, fractionOfDistanceBetweenInsertionPoints: &fraction)
-            guard index < text.length else { continue }
-            return text.attribute(NativeMarkdownLayout.linkKey, at: index, effectiveRange: nil) as? URL
+            if let url = Self.link(in: label, at: CGPoint(x: point.x - label.frame.minX, y: point.y - label.frame.minY)) { return url }
         }
         return nil
+    }
+
+    /// The link under `point` (in `label`'s coordinates): only on the glyph itself, not the blank
+    /// space after a line or between paragraphs.
+    public static func link(in label: UILabel, at point: CGPoint) -> URL? {
+        guard let text = label.attributedText, text.length > 0 else { return nil }
+        let storage = NSTextStorage(attributedString: text)
+        let manager = NSLayoutManager()
+        // Unbounded height: the label's height leaves out the last line's leading TextKit adds.
+        let container = NSTextContainer(size: CGSize(width: label.bounds.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        var fraction: CGFloat = 0
+        let glyph = manager.glyphIndex(for: point, in: container, fractionOfDistanceThroughGlyph: &fraction)
+        guard glyph < manager.numberOfGlyphs else { return nil }
+        let rect = manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).insetBy(dx: -4, dy: -4)
+        guard rect.contains(point) else { return nil }
+        let index = manager.characterIndexForGlyph(at: glyph)
+        guard index < text.length else { return nil }
+        return text.attribute(NativeMarkdownLayout.linkKey, at: index, effectiveRange: nil) as? URL
     }
 
     public func apply(_ layout: NativeMarkdownLayout) {
