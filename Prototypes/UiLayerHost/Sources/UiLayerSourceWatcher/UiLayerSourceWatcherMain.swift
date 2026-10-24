@@ -4,6 +4,10 @@ import Foundation
 
 private func uiLayerSignalHandler(_: Int32) {}
 
+private func writeError(_ message: String) {
+    FileHandle.standardError.write(Data(message.utf8))
+}
+
 @main
 @MainActor
 struct UiLayerSourceWatcherMain {
@@ -12,7 +16,7 @@ struct UiLayerSourceWatcherMain {
             let options = try WatchOptions(arguments: CommandLine.arguments)
             SourceSupervisor(options: options).run()
         } catch {
-            fputs("ui-layer watcher: \(error.localizedDescription)\n", stderr)
+            writeError("ui-layer watcher: \(error.localizedDescription)\n")
             exit(2)
         }
     }
@@ -87,7 +91,7 @@ private final class SourceSupervisor {
             try process.run()
             child = process
         } catch {
-            fputs("ui-layer watcher: could not start host: \(error.localizedDescription)\n", stderr)
+            writeError("ui-layer watcher: could not start host: \(error.localizedDescription)\n")
             exit(1)
         }
     }
@@ -103,7 +107,7 @@ private final class SourceSupervisor {
     private func sourceChanged(_ url: URL) {
         guard !restartPending else { return }
         restartPending = true
-        fputs("ui-layer.reload path=\(url.path) requested_at_ns=\(DispatchTime.now().uptimeNanoseconds)\n", stderr)
+        writeError("ui-layer.reload path=\(url.path) requested_at_ns=\(DispatchTime.now().uptimeNanoseconds)\n")
         child?.terminate()
     }
 
