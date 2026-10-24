@@ -320,13 +320,10 @@ final class HomeHostView: NSView {
         for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, headerPanelsWatch, firstPage] {
             task?.cancel()
         }
-        if Thread.isMainThread {
-            MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
-                settings.close()
-                transcript.stop()
-            }
-            return
-        }
+        if MainThreadInlineRun.ifOnMainThread({
+            settings.close()
+            transcript.stop()
+        }) { return }
         let settings = settings, transcript = transcript
         // task-owner: the main-actor half of an off-main release; one call each, then it ends
         Task { @MainActor in
