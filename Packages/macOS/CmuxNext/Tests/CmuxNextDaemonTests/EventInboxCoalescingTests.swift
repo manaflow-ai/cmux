@@ -2,8 +2,8 @@
 import Testing
 
 /// The store's event inbox applies each object's newest value once per frame
-/// (plans/cmux-next/main-thread-budget.md): whole-value surface events coalesce, deltas never do,
-/// and events a frame's budget did not reach go back in front, in order.
+/// (plans/cmux-next/main-thread-budget.md): whole-value surface events coalesce; deltas and agent
+/// statuses never do.
 @Suite struct EventInboxCoalescingTests {
     private func title(_ surface: UInt64, _ text: String, _ sequence: UInt64) -> DaemonEventEnvelope {
         DaemonEventEnvelope(sequence: sequence, event: .titleChanged(surface: SurfaceID(rawValue: surface), title: text))
@@ -40,31 +40,6 @@ import Testing
         _ = inbox.append(DaemonEventEnvelope(sequence: 3, event: .personalChanged))
         _ = inbox.append(DaemonEventEnvelope(sequence: 4, event: .personalChanged))
         #expect(inbox.take().map(\.sequence) == [1, 2, 3, 4])
-    }
-
-    @Test func eventsPutBackApplyFirstAndANewerBufferedValueStillWins() {
-        let inbox = EventInbox()
-        _ = inbox.append(title(1, "old", 1))
-        _ = inbox.append(DaemonEventEnvelope(sequence: 2, event: .treeChanged(transaction: nil)))
-        _ = inbox.append(title(2, "two", 3))
-        var batch = inbox.take()
-        // The frame's budget ran out after the first event; meanwhile surface 1 changed again.
-        let rest = batch.dropFirst()
-        batch = Array(batch.prefix(1))
-        _ = inbox.append(title(1, "new", 4))
-        #expect(!inbox.putBack(rest), "a frame is already scheduled for the new event")
-        let next = inbox.take()
-        #expect(next.map(\.sequence) == [2, 3, 4])
-        #expect(titles(next) == ["two", "new"])
-    }
-
-    @Test func putBackOnAnEmptyInboxAsksForAFrame() {
-        let inbox = EventInbox()
-        _ = inbox.append(title(1, "a", 1))
-        _ = inbox.append(title(2, "b", 2))
-        let batch = inbox.take()
-        #expect(inbox.putBack(batch.dropFirst()))
-        #expect(titles(inbox.take()) == ["b"])
     }
 
     /// Review 1 of pl-main-bc: `agent-changed` is not a whole value to the store. The roster
