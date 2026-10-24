@@ -123,7 +123,8 @@ final class BrowserDownloadList {
     /// Puts back the downloads the last run kept, before this run's.
     func restore() async {
         guard let history, !restored else { return }
-        let loaded = await history.load()
+        // Not read (quit shut the lanes down): not restored, so no save writes over the last run's rows.
+        guard let loaded = await history.load() else { return }
         let kept = clearedBeforeRestore ? [] : loaded.compactMap(\.download)
         restored = true
         items = kept + items

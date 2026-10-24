@@ -43,7 +43,7 @@ import Testing
         #expect(try String(contentsOf: file, encoding: .utf8) == "49")
     }
 
-    @Test func aSaveCutOffAtQuitLeavesTheLastCompleteFile() async throws {
+    @Test func aSaveQuitCutsOffBeforeItStartsLeavesTheLastCompleteFile() async throws {
         let file = try Self.folder().appending(path: "state.json")
         let work = BackgroundWork(label: "test.writes.cut")
         let writes = OrderedWrites(work: work) { Issue.record("write failed: \($0)") }
@@ -60,7 +60,8 @@ import Testing
         _ = await iterator.next()
         writes.save(Data(repeating: UInt8(ascii: "x"), count: 1 << 20), to: file)
         #expect(await work.shutdown(within: .milliseconds(100)) == false)
-        // What the next launch reads: the last complete file, never a partial one.
+        // What the next launch reads: the last complete file (the queued save never started; a started one
+        // writes atomically, a temp file renamed over the old).
         #expect(try String(contentsOf: file, encoding: .utf8) == "complete")
         release.signal()
     }

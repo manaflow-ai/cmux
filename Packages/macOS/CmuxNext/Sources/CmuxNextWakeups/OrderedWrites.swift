@@ -39,10 +39,10 @@ public final class OrderedWrites: Sendable {
     public func save(_ data: Data?, to url: URL) {
         enqueue {
             if let data {
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: url, options: .atomic)
-            } else if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+                try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.blockingWrite(to: url, options: .atomic)
+            } else if FileManager.checked.fileExists(atPath: url.path) {
+                try FileManager.checked.removeItem(at: url)
             }
         }
     }

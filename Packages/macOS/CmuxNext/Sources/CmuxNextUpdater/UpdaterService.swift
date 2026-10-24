@@ -19,8 +19,8 @@ import Observation
 @Observable
 public final class UpdaterService {
     public let identity: UpdateBuildIdentity
-    /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
-    /// previews get lanes of their own).
+    /// The blocking-work lanes the kept-versions listing and the rollback keep run on: the updater's own
+    /// (AppServices' `updaterWork`, which quit drains), so a long keep never delays the app's store saves.
     let work: BackgroundWork
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.

@@ -44,7 +44,8 @@ extension UpdaterService {
         let log = log
         let work = work
         // task-owner: one clone that ends by itself; the install waits for nothing it does. The clone and the
-        // prune's signature reads run on the files lane, best effort (nobody waits), and quit waits for them.
+        // prune's signature reads run on the updater's own files lane, best effort (nobody waits); quit waits for
+        // them within its 250 ms bound (a keep cut off there leaves no kept bundle, only its hidden partial).
         keepTask = Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let kept = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { () -> Bool in
                 #if DEBUG || CMUX_BENCH_HOOKS

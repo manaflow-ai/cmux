@@ -81,14 +81,18 @@ userInteractive: only the main thread and threads a frame waits for. Today: Main
 CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
 MetalYUVRenderer. No BackgroundWork lane runs at it.
 
-Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
-.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
-once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
-(default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
+Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits; the child runs at
+the request's stated priority, else the caller's); file I/O uses lane .files (serial per priority); a sync system call
+(getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at once, Chrome kDefaultMaxSystemTasks); long CPU work
+uses lane .cpu (P-cores minus 1). On .system and .cpu, background items (bestEffort, idle) take at most every slot but
+one, so hung background calls never hold userVisible or userBlocking work (Chrome's separate foreground and background
+groups). ShutdownBehavior: skipOnShutdown (default), continueOnShutdown, blockShutdown (quit's drainBackgroundWork step,
+after the session steps and before the engines stop, awaits BackgroundWork.shutdown(within:) on the app's and the
+updater's lanes: 250 ms in total).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
 dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value (Swift escalation), BackgroundWork.run
-(boost at the call; macOS 26+ also on a later escalation). Non-donating (never on a hot main-thread path):
+(boost at the call only; no later escalation on any macOS). Non-donating (never on a hot main-thread path):
 DispatchSemaphore.wait, DispatchGroup.wait, NSCondition.wait, Rust std mpsc/Condvar waits. BackgroundWork has no
 synchronous wait.
 
@@ -134,10 +138,20 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
   `cmux.home.fixture.video`
+- Off-main work (task traits): `com.cmuxterm.next.process.<x>` (one serial queue per AsyncProcess run: the spawn, the
+  output reads and the exit drain, at the request's or the caller's QoS, never userInteractive); the BackgroundWork
+  lane slots `com.cmuxterm.next.work.<x>` (`.files.<priority>`, one per WorkPriority, and `.system.<n>`, `.cpu.<n>`,
+  each item at its own QoS: userInitiated, default, utility or background); the updater's own lanes
+  `com.cmuxterm.next.work.updater.<x>` (the rollback keep, utility); the Chief avatar lanes
+  `com.cmuxterm.next.work.chief-avatars.<x>` and `com.cmuxterm.next.work.chief-settings.<x>` (default instances when
+  no app lanes are passed, userVisible); ProcessLauncher queues (one serial queue each, at its stated priority's QoS):
+  `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (userInitiated),
+  `com.cmuxterm.next.sleepy-lock` (userInitiated), `com.cmuxterm.next.now-playing` (default)
+- Named URLSession and promise queues: `header-pull-request` (AgentChatPullRequestReader, utility, 2 at once),
+  `cmux.home.promised-files` (HomePromisedFiles, userInitiated)
 - Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
-  `OperationQueue`s in AcpmuxPaneSocket.swift, AgentChatPullRequestReader.swift,
-  URLSessionChromiumRuntimeDownloader.swift and HomePromisedFiles.swift, and WebKitSetupGate.swift's
-  `Thread.detachNewThread`.
+  `OperationQueue`s in AcpmuxPaneSocket.swift and URLSessionChromiumRuntimeDownloader.swift, and
+  WebKitSetupGate.swift's `Thread.detachNewThread`.
 
 ## Reviewed blocking allowances
 

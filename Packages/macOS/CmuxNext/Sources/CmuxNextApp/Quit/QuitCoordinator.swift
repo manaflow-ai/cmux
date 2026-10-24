@@ -146,16 +146,22 @@ final class QuitCoordinator {
     /// quit stays prompt even on a stalled disk; each save is a small atomic JSON write).
     static let saveLimit: Duration = .milliseconds(250)
 
-    /// Quit's wait for the background work it promised: shuts `work` down and waits for every
-    /// ``ShutdownBehavior/blockShutdown`` item (store saves, the rollback keep), never for other items,
-    /// in total at most `limit`. A hung disk never holds quit; a save cut off there leaves the last
-    /// complete file (saves write atomically). Runs after the session ends, so their saves count too.
+    /// Quit's wait for the background work it promised: shuts every lane set in `works` down at once and
+    /// waits for each ``ShutdownBehavior/blockShutdown`` item (store saves, the rollback keep), never for
+    /// other items, in total at most `limit`. A hung disk never holds quit; a save cut off there leaves the
+    /// last complete file (saves write atomically), a keep cut off leaves no kept bundle (it is cloned under
+    /// a hidden name, then renamed). Runs after the session steps, so their saves count too.
     ///
     /// - Returns: whether every block-shutdown item finished within `limit`.
     @discardableResult
-    static func drainBackgroundWork(_ work: BackgroundWork, limit: Duration = saveLimit,
+    static func drainBackgroundWork(_ works: [BackgroundWork], limit: Duration = saveLimit,
                                     clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
-        let finished = await work.shutdown(within: limit, clock: clock)
+        let finished = await withTaskGroup(of: Bool.self) { group in
+            for work in works { group.addTask { await work.shutdown(within: limit, clock: clock) } }
+            var all = true
+            for await done in group { all = all && done }
+            return all
+        }
         if !finished {
             Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                 .error("quit: background saves still running after \(limit); quitting without them")
@@ -218,7 +224,7 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
-            drainBackgroundWork: { _ = await Self.drainBackgroundWork(services.work) },
+            drainBackgroundWork: { _ = await Self.drainBackgroundWork([services.work, services.updaterWork]) },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
