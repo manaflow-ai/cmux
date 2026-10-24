@@ -23,7 +23,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "e2e"))
 from e2e import CNX, RUNTIMES, ensure_sim  # noqa: E402
-from journey import BUNDLE, Journey  # noqa: E402
+import journey  # noqa: E402
+from journey import Journey  # noqa: E402
 from mac import Mac, pb, refuse_other_rigs  # noqa: E402
 from sim import Sim  # noqa: E402
 
@@ -58,6 +59,8 @@ def main():  # noqa: C901 - one live scenario
     a = ap.parse_args()
 
     mac_app = os.path.abspath(a.mac_app)
+    # The rig's journey drives the app by its bundle id; a tagged Demo build has its own.
+    journey.BUNDLE = pb(os.path.join(a.app, "Info.plist"), "Print :CFBundleIdentifier")
     refuse_other_rigs(pb(os.path.join(mac_app, "Contents/Info.plist"), "Print :CFBundleIdentifier"))
     out = a.out or os.path.join(CNX, "verify/evidence", datetime.date.today().isoformat(), "chief-invite")
     os.makedirs(out, exist_ok=True)
@@ -82,7 +85,7 @@ def main():  # noqa: C901 - one live scenario
         steps = j.run(only={"fresh_install", "sign_in", "choose_space", "mac_discovered"})
         if any(st["status"] != "pass" for st in steps):
             log("setup failed once; relaunching and retrying choose_space")
-            sim.launch(BUNDLE)
+            sim.launch(journey.BUNDLE)
             steps = j.run(only={"choose_space", "mac_discovered"})[-2:]
         log(f"setup: {[(s['id'], s['status']) for s in steps]}")
         if any(st["status"] != "pass" for st in steps):

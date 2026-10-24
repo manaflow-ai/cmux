@@ -46,13 +46,21 @@ extension ChiefInvite {
         UIActivityViewController(activityItems: [message, LinkItem()], applicationActivities: nil)
     }
 
-    /// This app's icon, as the system shows it on the Home Screen; the
-    /// launch screen's cmux mark when the icon is not loadable by name (an
-    /// Icon Composer icon may have no named rendition).
+    /// This app's icon: the PNG actool writes next to the binary for
+    /// `CFBundleIconFiles` (AppIcon60x60@2x.png), read from its file. Never
+    /// `UIImage(named: "AppIcon")`: the Icon Composer icon's catalog entry
+    /// fails an assertion inside UIKit and aborts the app (seen in the live
+    /// run, 2026-10-23). The launch screen's cmux mark when there is no PNG.
     @MainActor static func appIcon() -> UIImage? {
         let primary = (Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any])?["CFBundlePrimaryIcon"] as? [String: Any]
-        if let name = primary?["CFBundleIconName"] as? String, let image = UIImage(named: name) { return image }
-        if let name = (primary?["CFBundleIconFiles"] as? [String])?.last, let image = UIImage(named: name) { return image }
+        for base in ((primary?["CFBundleIconFiles"] as? [String]) ?? []).reversed() {
+            for suffix in ["@3x", "@2x", ""] {
+                if let path = Bundle.main.path(forResource: base + suffix, ofType: "png"),
+                   let image = UIImage(contentsOfFile: path) {
+                    return image
+                }
+            }
+        }
         return UIImage(named: "LaunchMark")
     }
 
