@@ -1,10 +1,12 @@
 import CmuxNextWakeups
+import Darwin
 import Foundation
 import os
 import Testing
 
 /// AsyncProcess: a child's run is awaited without parking any thread (the cooperative pool stays free),
-/// with its whole output, its exit, and SIGTERM on timeout and cancel.
+/// with its whole output, its exit, SIGTERM on timeout and cancel (SIGKILL after the grace), never a spawn
+/// on the main thread, and `.finish` requests that outlive their caller's cancel.
 @Suite(.timeLimit(.minutes(1))) struct AsyncProcessTests {
     let processes = AsyncProcess()
 
@@ -58,15 +60,73 @@ import Testing
     }
 
     @Test func pastItsTimeoutTheChildIsStopped() async {
-        var request = Self.tool("/bin/sleep", "30")
-        request.timeout = .milliseconds(100)
+        // The child would sleep past the suite's one-minute limit: the test ends only when the stop killed it.
+        let child = ChildExit()
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sleep"), ["600"], timeout: .milliseconds(100),
+                                     onLaunch: { child.watch($0) })
         await #expect(throws: ProcessFailure.timedOut) { try await processes.run(request) }
+        await child.exit()
     }
 
-    @Test func aCancelledCallerStopsTheChild() async {
-        let run = Task { try await processes.run(Self.tool("/bin/sleep", "30")) }
+    @Test func aCancelledCallerStopsItsRunningChild() async {
+        let child = ChildExit()
+        let (launched, launch) = AsyncStream.makeStream(of: Int32.self)
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sleep"), ["600"], onLaunch: { pid in
+            child.watch(pid)
+            launch.yield(pid)
+        })
+        let run = Task { try await processes.run(request) }
+        // Cancel only once the child runs, so the cancel handler (not the check at the call) stops it.
+        var iterator = launched.makeAsyncIterator()
+        _ = await iterator.next()
         run.cancel()
         await #expect(throws: CancellationError.self) { try await run.value }
+        await child.exit()
+    }
+
+    @Test func aStoppedChildThatIgnoresTheStopSignalIsKilledAfterItsGrace() async {
+        // `exec`: sleep itself ignores SIGTERM (an ignored signal stays ignored across exec), so only SIGKILL
+        // ends it before the suite's limit, and no orphan outlives the test.
+        let child = ChildExit()
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", "trap '' TERM; exec /bin/sleep 600"],
+                                     timeout: .milliseconds(100), killGrace: .milliseconds(200),
+                                     onLaunch: { child.watch($0) })
+        await #expect(throws: ProcessFailure.timedOut) { try await processes.run(request) }
+        await child.exit()
+    }
+
+    @Test func aFinishRequestRunsToItsEndThoughItsCallerIsCancelled() async throws {
+        // The child waits on a fifo that only the test writes, after its cancel: it is surely running then.
+        let fifo = FileManager.default.temporaryDirectory.appending(path: "async-process-\(UUID().uuidString)").path
+        try #require(mkfifo(fifo, 0o600) == 0)
+        defer { unlink(fifo) }
+        let (launched, launch) = AsyncStream.makeStream(of: Int32.self)
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", "read line < \"$0\"; printf %s \"$line\"", fifo],
+                                     onCancel: .finish, onLaunch: { launch.yield($0) })
+        let run = Task { try await processes.run(request) }
+        var iterator = launched.makeAsyncIterator()
+        _ = await iterator.next()
+        run.cancel()
+        // Blocks until sh opens the fifo to read it; a stopped sh never would, and the suite's limit fails the test.
+        let writer = open(fifo, O_WRONLY)
+        try #require(writer >= 0)
+        _ = "done\n".withCString { write(writer, $0, 5) }
+        close(writer)
+        let outcome = try await run.value
+        #expect(outcome.succeeded)
+        #expect(outcome.text == "done")
+    }
+
+    @MainActor @Test func aMainActorCallerNeverSpawnsOnTheMainThread() async throws {
+        // AsyncProcess.run is @concurrent: with NonisolatedNonsendingByDefault a plain async function would
+        // run its setup and posix_spawn on the caller's actor, here the main thread.
+        let onMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/true"), onLaunch: { _ in
+            onMain.withLock { $0 = pthread_main_np() != 0 }
+        })
+        let outcome = try await processes.run(request)
+        #expect(outcome.succeeded)
+        #expect(onMain.withLock { $0 } == false)
     }
 
     @Test func aCallerCancelledAsItStartsEndsAtOnce() async {
@@ -95,14 +155,15 @@ import Testing
         for run in runs { _ = try? await run.value }
     }
 
-    @MainActor @Test func aMainActorCallerNeverSpawnsOnTheMainThread() async throws {
-        // A fork and exec can take hundreds of ms under memory pressure (807 ms in STRESS, PL-main): the
-        // main actor awaits the run, and the spawn itself happens on another thread.
-        let spawnedOnMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
-        let processes = AsyncProcess { process in
-            spawnedOnMain.withLock { $0 = Thread.isMainThread }
-            try process.run()
-        }
+    @Test func theSpawnRunsOnTheRunsOwnQueueNotTheCooperativePool() async throws {
+        // A spawn can block for hundreds of ms: on the cooperative pool it would hold a pool thread.
+        let queue = OSAllocatedUnfairLock<String?>(initialState: nil)
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/true"), onLaunch: { _ in
+            queue.withLock { $0 = String(cString: __dispatch_queue_get_label(nil)) }
+        })
+        #expect(try await processes.run(request).succeeded)
+        #expect(queue.withLock { $0 } == "com.cmuxterm.next.process.true")
+    }
         let outcome = try await processes.run(Self.tool("/usr/bin/true"))
         #expect(outcome.succeeded)
         #expect(spawnedOnMain.withLock { $0 } == false)
