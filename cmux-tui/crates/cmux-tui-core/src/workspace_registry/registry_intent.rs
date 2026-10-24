@@ -74,15 +74,6 @@ impl RegistryIntent {
 }
 
 impl RegistryReceipt {
-    /// The resource revision this commit installed, if it advanced one.
-    pub(crate) fn resource_revision(&self) -> Option<u64> {
-        match self {
-            Self::Effect(receipt) => Some(receipt.revision()),
-            Self::Terminal(_) => None,
-            Self::Workspace(receipt) => receipt.resource_revision,
-        }
-    }
-
     pub(crate) fn into_effect(self) -> anyhow::Result<EffectCommitReceipt> {
         match self {
             Self::Effect(receipt) => Ok(receipt),
