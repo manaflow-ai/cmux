@@ -9,7 +9,8 @@ public enum BlockingLane: Int, Sendable, CaseIterable, CustomStringConvertible {
     /// Serial per ``WorkPriority``: at most one item of each priority at a time.
     case files
     /// Synchronous system calls that wait on something outside the process: `getaddrinfo`, Security,
-    /// Launch Services, AX. Serial per ``WorkPriority``.
+    /// Launch Services, AX. Concurrent up to ``BackgroundWork/systemWidth`` items, highest priority first:
+    /// such a call can hang for its own timeout, and one hung call must not hold every later one.
     case system
     /// CPU-bound work too long for the pool (a big parse, an index build): it does not block, but it
     /// must not fill the pool. Concurrent up to ``BackgroundWork/cpuWidth`` items, highest priority first.

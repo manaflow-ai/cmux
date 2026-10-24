@@ -63,7 +63,7 @@ import Testing
                 release.wait()
             }
         }
-        // Wait until every slot (4 priorities on 2 lanes) holds a blocked item.
+        // Wait until at least eight lane threads (files: one per priority; system: up to its width) are blocked.
         await started.wait(2 * levels)
         // The pool still runs a burst of short tasks (one per core and more) while every lane slot is blocked.
         let count = ProcessInfo.processInfo.activeProcessorCount * 4

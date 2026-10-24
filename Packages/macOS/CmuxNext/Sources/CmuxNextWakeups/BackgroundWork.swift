@@ -52,11 +52,17 @@ public final class BackgroundWork: Sendable {
         self.label = label
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
-            case .files, .system: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
+            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
+            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth))
             case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)))
             }
         }
     }
+
+    /// How many ``BlockingLane/system`` items run at once: Chrome's limit for concurrent system DNS
+    /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
+    /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
+    public static let systemWidth = 6
 
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
     /// leaves a performance core to the main thread and the render threads.
