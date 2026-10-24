@@ -205,4 +205,62 @@ import Testing
         #expect(largeCost.p90 < calibration.budget(8),
                 "a toggle at 10,000 workspaces took \(largeCost.p90) ms (p90), over one 8 ms frame scaled to \(calibration.budget(8)) ms")
     }
+
+    /// The first fold after loading sections must not prepare every other group's lookup before the list can
+    /// start moving. The warm-click harness above deliberately warms both directions and would miss that delay.
+    @Test(arguments: [false, true])
+    func firstFoldDoesNotScanOtherGroups(replacingSections: Bool) {
+        let target = GroupID("first-fold-9999")
+        func sections() -> [SidebarSection] {
+            let nodes = (0..<10_000).map { index in
+                SidebarNode.group(SidebarGroup(id: GroupID("first-fold-\(index)"), name: "Group \(index)", workspaces: []))
+            }
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            return [SidebarSection(kind: .machine(machine), nodes: nodes)]
+        }
+        var first: [Double] = [], warm: [Double] = []
+        var calibration = FrameBudgetCalibration()
+        calibration.checkpoint()
+        for _ in 0..<9 {
+            let model = SidebarModel(sections: replacingSections ? [] : sections())
+            if replacingSections { model.sections = sections() }
+            // The callback is where the list starts its fold. No layout or animation work is included here.
+            var reachedList = false
+            model.onGroupFolded = { id in reachedList = id == target }
+            first.append(FrameBudgetCalibration.cpuMs { model.setGroupCollapsed(target, true) })
+            #expect(reachedList, "the first fold never reached the list")
+            #expect(model.group(target)?.isCollapsed == true)
+            warm.append(FrameBudgetCalibration.cpuMs { model.setGroupCollapsed(target, false) })
+            model.onGroupFolded = nil
+        }
+        calibration.checkpoint()
+        let coldMs = SidebarScrollBench.percentile(first, 0.5)
+        let warmMs = SidebarScrollBench.percentile(warm, 0.5)
+        print("group-first-fold replaced=\(replacingSections) n=10000 first=\(coldMs)ms warm=\(warmMs)ms | \(calibration.summary)")
+        if let reason = calibration.skipReason { return print("group-first-fold skipped budget: \(reason)") }
+        #expect(coldMs < max(warmMs * 1.5, calibration.budget(0.075)),
+                "the first fold spent \(coldMs) ms before the list, compared with \(warmMs) ms once warm")
+    }
+
+    @Test func firstFoldFindsTheGroupAfterSectionsMoveOrRemoveIt() {
+        let a = GroupID("fold-a"), b = GroupID("fold-b")
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        func section(_ ids: [GroupID]) -> [SidebarSection] {
+            [SidebarSection(kind: .machine(machine), nodes: ids.map {
+                .group(SidebarGroup(id: $0, name: $0.rawValue, workspaces: []))
+            })]
+        }
+        let model = SidebarModel(sections: section([a, b]))
+        #expect(model.group(a)?.id == a)
+        model.sections = section([b, a])
+        #expect(model.group(a)?.id == a)
+        #expect(model.setGroupCollapsed(a, true))
+        #expect(model.group(a)?.isCollapsed == true)
+        #expect(model.group(b)?.isCollapsed == false)
+        model.sections = section([b])
+        #expect(model.group(a) == nil)
+        #expect(!model.setGroupCollapsed(a, true))
+        #expect(model.setGroupCollapsed(b, true))
+        #expect(model.group(b)?.isCollapsed == true)
+    }
 }
