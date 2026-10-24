@@ -1136,6 +1136,7 @@ dependencies = [
 name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
  "libc",
 ]
 
@@ -1280,6 +1281,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
