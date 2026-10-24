@@ -437,7 +437,7 @@
 				"$(SRCROOT)/scripts/cmux-next/build-optchat-chief.sh",
 				"$(SRCROOT)/scripts/cmux-next/fetch-chief-codex.sh",
 				"$(SRCROOT)/scripts/cmux-next/optchat-chief-input-key.py",
-				"$(SRCROOT)/rust-toolchain.toml",
+				"$(SRCROOT)/cmux-tui/rust-toolchain.toml",
 				"$(SRCROOT)/Native/OptChat",
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(SRCROOT)/cmux-tui/Cargo.lock",
