@@ -52,6 +52,12 @@ extension DaemonStore {
             case .gone:
                 throw CreateTargetGone(pane: handle)
             case .pending:
+                // No pane will come on a transport that ended: the create is refused (its overlay leaves) and
+                // the creates queued after it go on.
+                switch connectionState {
+                case .disconnected, .failed: throw CreateTargetGone(pane: handle)
+                case .connecting, .connected: break
+                }
                 await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
                     standInWaiters.append((handle: handle, resume: resume))
                 }
@@ -59,8 +65,9 @@ extension DaemonStore {
         }
     }
 
-    /// Every lift can give a stand-in its daemon pane, cancel it or refuse it: the waiting creates
-    /// look again (each one waits again while its stand-in is still pending).
+    /// Every lift can give a stand-in its daemon pane, cancel it or refuse it, and a lost connection ends them all:
+    /// the waiting creates look again (each one waits again while its stand-in is still pending and the
+    /// connection is up; ``daemonTarget(for:)`` throws once it is not).
     func resumeStandInWaiters() {
         guard !standInWaiters.isEmpty else { return }
         let waiters = standInWaiters

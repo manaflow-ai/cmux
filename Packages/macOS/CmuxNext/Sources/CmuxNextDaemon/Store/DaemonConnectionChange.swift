@@ -22,12 +22,14 @@ enum DaemonConnectionChange {
             // Nothing newer will arrive for commands sent on this transport.
             store.drainAppliedWaiters = true
             store.flushAppliedWaiters()
+            store.resumeStandInWaiters()
             return .none
         case .shutdown:
             store.sideEvents.noteControl(nil)
             store.clearPresence()
             store.connectionState = .disconnected("daemon shut down")
             store.onDisconnected?()
+            store.resumeStandInWaiters()
             return .none
         }
     }
