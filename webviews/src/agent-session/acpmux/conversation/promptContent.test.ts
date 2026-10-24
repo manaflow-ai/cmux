@@ -31,3 +31,33 @@ test("normalizes ACP type discriminators and leaves legacy rows to the fallback"
   expect(promptContentParts(row(undefined))).toEqual([]);
   expect(promptContentParts(row([]))).toEqual([]);
 });
+
+test("keeps durable image identity when the daemon could not persist a middle image", () => {
+  const parts = promptContentParts(
+    row([
+      { kind: "image", id: "sha-first", mimeType: "image/png" },
+      { kind: "text", text: "caption" },
+      { kind: "image", id: "sha-middle", mimeType: "image/png", persisted: false },
+      { kind: "image", id: "sha-last", mimeType: "image/png" },
+    ]),
+  );
+  expect(parts.filter((part) => part.kind === "image").map((part) => part.id)).toEqual([
+    "sha-first",
+    "sha-middle",
+    "sha-last",
+  ]);
+  expect(parts[2]).toMatchObject({ kind: "image", id: "sha-middle", persisted: false });
+});
+
+test("rehydrates text-file and pasted chips with their durable block text", () => {
+  const parts = promptContentParts(
+    row([
+      { kind: "file", name: "notes.txt", mimeType: "text/plain", text: "notes.txt\n```\nbody\n```" },
+      { kind: "pasted", name: "Pasted text", text: "a large paste" },
+    ]),
+  );
+  expect(parts).toEqual([
+    expect.objectContaining({ kind: "file", name: "notes.txt", text: "notes.txt\n```\nbody\n```" }),
+    expect.objectContaining({ kind: "pasted", name: "Pasted text", text: "a large paste" }),
+  ]);
+});

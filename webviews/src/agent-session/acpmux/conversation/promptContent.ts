@@ -8,6 +8,8 @@ const isRecord = (value: unknown): value is RawPart =>
 
 const positiveInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
+const nonnegativeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0;
 
 /**
  * Normalizes the provisional `inlineParts` row field. ACP calls the discriminator `type` in
@@ -18,8 +20,7 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
   if (!isRecord(value)) return undefined;
   const kind = typeof value.kind === "string" ? value.kind : value.type;
   if (kind === "text" && typeof value.text === "string") {
-    if (value.pasted === true)
-      return { kind: "pasted", name: pasteName(value.text), text: value.text };
+    if (value.pasted === true) return { kind: "pasted", name: pasteName(value.text), text: value.text };
     return {
       kind: "text",
       text: value.text,
@@ -34,24 +35,37 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
       ...(typeof value.name === "string" && { name: value.name }),
       ...(positiveInteger(value.width) && { width: value.width }),
       ...(positiveInteger(value.height) && { height: value.height }),
+      ...(value.persisted === false && { persisted: false as const }),
       ...(typeof value.src === "string" && { src: value.src }),
       ...(typeof value.data === "string" && { src: `data:${value.mimeType};base64,${value.data}` }),
     };
     return image;
   }
   if (
-    (kind === "file" || kind === "document" || kind === "audio" || kind === "recording" || kind === "pasted" || kind === "resource_link") &&
+    (kind === "file" ||
+      kind === "document" ||
+      kind === "audio" ||
+      kind === "recording" ||
+      kind === "pasted" ||
+      kind === "resource_link") &&
     (typeof value.name === "string" || typeof value.uri === "string" || kind === "audio" || kind === "recording")
   ) {
     return {
       kind: kind === "resource_link" ? "file" : kind,
-      name: typeof value.name === "string" && value.name.length > 0 ? value.name : typeof value.uri === "string" ? value.uri : kind,
+      name:
+        typeof value.name === "string" && value.name.length > 0
+          ? value.name
+          : typeof value.uri === "string"
+            ? value.uri
+            : kind,
       ...(typeof value.id === "string" && { id: value.id }),
       ...(typeof value.mimeType === "string" && { mimeType: value.mimeType }),
       ...(positiveInteger(value.size) && { size: value.size }),
       ...(typeof value.text === "string" && { text: value.text }),
       ...(positiveInteger(value.pageCount) && { pageCount: value.pageCount }),
       ...(typeof value.uri === "string" && { uri: value.uri }),
+      ...(nonnegativeInteger(value.start) && { start: value.start }),
+      ...(nonnegativeInteger(value.end) && { end: value.end }),
     };
   }
   return undefined;

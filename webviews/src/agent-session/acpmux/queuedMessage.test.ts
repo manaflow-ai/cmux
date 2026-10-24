@@ -71,3 +71,27 @@ test("acpmux's queue list keeps the message its record gave", () => {
     { id: "p1", prompt: "Rebase first", message },
   ]);
 });
+
+test("a queue list's fresh ordered metadata replaces stale optimistic parts", () => {
+  const current = [
+    {
+      id: "p1",
+      prompt: "caption",
+      inlineParts: [{ kind: "text" as const, text: "old" }],
+    },
+  ];
+  const listed = mergeQueue(current, [
+    {
+      promptId: "p1",
+      prompt: "caption",
+      inlineParts: [
+        { kind: "image", id: "sha", mimeType: "image/png" },
+        { kind: "text", text: "new" },
+      ],
+    },
+  ]);
+  expect(listed[0]?.inlineParts).toEqual([
+    { kind: "image", id: "sha", mimeType: "image/png" },
+    { kind: "text", text: "new" },
+  ]);
+});

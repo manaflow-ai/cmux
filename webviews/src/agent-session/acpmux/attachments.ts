@@ -42,14 +42,12 @@ export type PromptBlock =
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
   | { type: "resource_link"; uri: string; name: string }
-  | { type: "audio"; mimeType: string; data: string };
+  | { type: "audio"; mimeType: string; data: string; name?: string };
 
 /** The replacement character stored in the editor for one inline attachment. */
 export const INLINE_ATTACHMENT_MARK = "\uFFFC";
 
-export type OrderedDraftPart =
-  | { type: "text"; text: string }
-  | { type: "attachment"; attachment: ComposerAttachment };
+export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -107,7 +105,7 @@ export async function readAttachments(
 export async function readAttachment(
   file: File,
   allowImages: boolean,
-  id = crypto.randomUUID(),
+  id: string = crypto.randomUUID(),
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
   if (isPdf(file)) {
@@ -306,7 +304,10 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
 export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
   if (!input.includes(INLINE_ATTACHMENT_MARK))
     return input
-      ? [{ type: "text", text: input }, ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }))]
+      ? [
+          { type: "text", text: input },
+          ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment })),
+        ]
       : chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }));
   const parts: OrderedDraftPart[] = [];
   let start = 0;
@@ -324,18 +325,22 @@ export function orderedDraftParts(input: string, chips: readonly ComposerAttachm
   return parts;
 }
 
-function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
+export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   if (attachment.kind === "image" && attachment.data)
     blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
   else if (attachment.kind === "document" && attachment.data)
     blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
   else if (attachment.kind === "audio" && attachment.data)
-    blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
+    blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
   else if (attachment.kind === "link" && attachment.path)
     blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
   if (attachment.kind === "image" && attachment.originalPath)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.originalPath), name: attachment.originalName ?? attachment.name });
+    blocks.push({
+      type: "resource_link",
+      uri: fileUri(attachment.originalPath),
+      name: attachment.originalName ?? attachment.name,
+    });
   return blocks;
 }
 
