@@ -85,7 +85,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
-from bench_launch import LaunchError, launch_app  # noqa: E402
+from bench_launch import LaunchError, crash_reports, crash_summary, launch_app  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -294,6 +294,35 @@ class App:
     def relaunch(self):
         self.stop()
         self.launch()
+
+    def why_unresponsive(self, since):
+        """Why the app stopped answering, before it is relaunched: it exited (code or signal, and the crash
+        report written since `since`, copied to OUT/crashes) or it is alive and stuck (a 3 s `sample` of it,
+        kept in OUT/hangs). Never signals the app. One dict for the row's `stopped` field."""
+        process = self.process
+        if process is None:
+            return {"state": "unknown"}
+        code = process.poll()
+        if code is not None:
+            out = {"state": "exited", "code": code, "signal": -code if code < 0 else None}
+            reports = crash_reports(since, pid=process.pid)
+            if reports:
+                os.makedirs(os.path.join(OUT, "crashes"), exist_ok=True)
+                kept = os.path.join(OUT, "crashes", os.path.basename(reports[-1]))
+                try:
+                    with open(reports[-1], "rb") as src, open(kept, "wb") as dst:
+                        dst.write(src.read())
+                except OSError:
+                    kept = reports[-1]
+                out.update(report=kept, summary=crash_summary(reports[-1])[:1500])
+            return out
+        os.makedirs(os.path.join(OUT, "hangs"), exist_ok=True)
+        path = os.path.join(OUT, "hangs", f"sample-{process.pid}-{int(time.time())}.txt")
+        try:
+            subprocess.run(["/usr/bin/sample", str(process.pid), "3", "-file", path], capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return {"state": "alive", "sample": None}
+        return {"state": "alive", "sample": path}
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -1356,6 +1385,7 @@ class Sweep:
             if re.match(WINDOW_CLOSERS, action["id"]) and self.session == "light":
                 later.append(action)
                 continue
+            started_at = time.time()
             try:
                 row = self.run_action(action)
             except SessionShapeError:
@@ -1372,6 +1402,9 @@ class Sweep:
                 self.relaunch_session(f"a harness failure in {action['id']} (its restore or a builder step)")
             elif (rpc("system.ping", timeout=10) or {}).get("pong") is not True:
                 self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
+                # The cause, before the relaunch erases it: a crash report, or a sample of the stuck app.
+                self.rows[-1]["stopped"] = self.app.why_unresponsive(started_at)
+                note(f"every-action: {self.session}: {action['id']}: stopped {json.dumps(self.rows[-1]['stopped'])[:600]}")
                 self.relaunch_session(f"the app stopped answering after {action['id']}")
         if not opts.no_interactions and (not opts.shard or "1" in opts.shard.split("/")[0].split(",")):
             self.run_interactions()
