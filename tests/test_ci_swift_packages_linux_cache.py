@@ -86,9 +86,11 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
 
         for event, succeeded, expected in [("push", True, True), ("push", False, False),
                                            ("pull_request", True, False), ("workflow_dispatch", True, False)]:
-            with self.subTest(event=event, job_succeeded=succeeded):
-                context = {"github.event_name": event, "job_succeeded": succeeded}
-                self.assertIs(WithJobStatus(condition, context).evaluate(), expected)
+            for hit in ["true", "false", ""]:
+                with self.subTest(event=event, job_succeeded=succeeded, cache_hit=hit):
+                    context = {"github.event_name": event, "job_succeeded": succeeded,
+                               "steps.build_cache.outputs.cache-hit": hit}
+                    self.assertIs(WithJobStatus(condition, context).evaluate(), expected and hit != "true")
 
     def test_comment_documents_immutable_seed_semantics(self):
         text = WORKFLOW.read_text(encoding="utf-8")
