@@ -5297,6 +5297,9 @@ mod shell_activity_restart;
 #[path = "terminal_host_recovery/bell_notification.rs"]
 mod bell_notification;
 
+#[path = "terminal_host_recovery/attach_stream_acceptance.rs"]
+mod attach_stream_acceptance;
+
 #[path = "terminal_host_recovery/command_activity.rs"]
 mod command_activity;
 
