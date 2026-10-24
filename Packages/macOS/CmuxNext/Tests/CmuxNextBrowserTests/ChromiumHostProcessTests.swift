@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
 import Darwin
 import Foundation
@@ -56,6 +58,50 @@ import Testing
         ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD).close()
     }
 
+    // Before the fix the host got the spawning thread's signal mask: the shell's
+    // SIGUSR1 to itself stayed pending, and it printed "alive" and exited 0.
+    @Test func aHostStartsWithNoBlockedSignals() async throws {
+        let launcher = ChromiumHostLauncher()
+        var blocked = sigset_t()
+        sigemptyset(&blocked)
+        sigaddset(&blocked, SIGUSR1)
+        var previous = sigset_t()
+        // posix_spawn gives the child the calling thread's mask unless told otherwise.
+        // No await until the mask is restored, so this thread runs nothing else meanwhile.
+        pthread_sigmask(SIG_BLOCK, &blocked, &previous)
+        let launched = Result { try launcher.launch(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"]) }
+        pthread_sigmask(SIG_SETMASK, &previous, nil)
+        let handle = try launched.get()
+        let exit = await launcher.exit(of: handle.pid)
+        launcher.reap(handle.pid)
+        var output = [UInt8](repeating: 0, count: 64)
+        let count = read(handle.readFD, &output, output.count)
+        [handle.readFD, handle.writeFD].forEach { _ = Darwin.close($0) }
+        #expect(exit == ChromiumHostExit(signal: SIGUSR1, status: nil))
+        #expect(count == 0)  // EOF: the shell ended at the signal, before it printed
+    }
+
+    @Test func aConnectionDroppedWithoutCloseEndsTheWire() async throws {
+        var pair: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        var back: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &back) == 0)
+        defer { [pair[1], back[0]].forEach { _ = Darwin.close($0) } }
+        // cmux's end reads back[1] and writes pair[0]; the test plays the host on pair[1] and back[0].
+        do {
+            let connection = ChromiumHostConnection(readFD: back[1], writeFD: pair[0])
+            #expect(connection.send(ChromiumHostFrame(.ping)))
+        }
+        // The connection is gone (its reader thread does not keep it): the host reads its frame, then EOF.
+        var byte = [UInt8](repeating: 0, count: ChromiumHostFrame.headerSize)
+        #expect(read(pair[1], &byte, byte.count) == ChromiumHostFrame.headerSize)
+        var poller = pollfd(fd: pair[1], events: Int16(POLLIN), revents: 0)
+        // Bound of a test wait: EOF arrives at once after the fix; before it the connection never ended.
+        let readable = poll(&poller, 1, 10_000)
+        #expect(readable == 1)
+        if readable == 1 { #expect(read(pair[1], &byte, byte.count) == 0) }
+    }
+
     @Test func aHostThatStopsReadingEndsTheConnection() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.
@@ -77,3 +123,4 @@ import Testing
         launcher.reap(handle.pid)
     }
 }
+#endif
