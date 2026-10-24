@@ -39,7 +39,7 @@ struct NewChatAfterItsDockClosedTests {
                 "chats \(chats().map { "\($0.tab.id)@\($0.pane.handle.rawValue)" }), pane \(pane.pane.handle.rawValue), "
                     + "focused \(String(describing: content.focusedPane?.pane.handle.rawValue)), on its way \(pane.pendingDock)"
             }
-            try #require(chats().isEmpty, "the launch workspace holds no chat")
+            try #require(chats().isEmpty, "the launch workspace holds no chat: \(describe()) titles \(chats().map { "\($0.tab.id) kind=\($0.tab.kind) title=\($0.tab.title) conv=\(String(describing: $0.tab.conversation))" })")
 
             // Cmd-I: the chat opens hidden here, docks left, and takes the focus there (after
             // the pane is told the dock answered: `dockFinished`, then `focusWhenShown`).
