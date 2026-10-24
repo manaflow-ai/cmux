@@ -21,19 +21,31 @@ public enum ClaudeAccountSwitchRefusal: Error, Equatable, Sendable {
     case missingWorkingDirectory
     case unknownAccount(String)
     case sameAccount(String)
-    /// The session has no conversation to resume yet: nobody has sent it a message, so Claude
-    /// Code has written no conversation record and `claude --resume` on the target would fail.
+    /// The source account holds no conversation record for the session, so `claude --resume` on
+    /// the target would fail. Usually nobody has sent it a message yet; a transcript missing from
+    /// the account directory cmux expected lands here too.
     case noConversationYet
+    /// Both accounts have a copy of the conversation and each went on without the other, so
+    /// neither can replace the other without losing turns. `newerAccount` names the account whose
+    /// copy was written last.
+    case transcriptDiverged(newerAccount: String)
 }
 
 extension ClaudeAccountSwitchRefusal {
     /// The refusal a failed transcript preflight means, or `nil` when the failure says nothing
     /// about the conversation (an unusable session id, or an I/O error) and the switch reports
     /// the transcript as unavailable instead.
-    public init?(transcriptSyncError error: any Error) {
+    ///
+    /// - Parameters:
+    ///   - error: What ``ClaudeTranscriptAccountSync/sync(_:)`` threw.
+    ///   - sourceAccountName: The account the pane runs on now, named when the copies diverged.
+    ///   - targetAccountName: The account the switch moves to, named when the copies diverged.
+    public init?(transcriptSyncError error: any Error, sourceAccountName: String, targetAccountName: String) {
         switch error as? ClaudeTranscriptAccountSyncError {
         case .transcriptNotFound?, .noConversation?:
             self = .noConversationYet
+        case .diverged(let targetIsNewer)?:
+            self = .transcriptDiverged(newerAccount: targetIsNewer ? targetAccountName : sourceAccountName)
         case .invalidSessionID?, nil:
             return nil
         }

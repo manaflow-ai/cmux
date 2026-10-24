@@ -58,6 +58,8 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
             code = "missing_working_directory"
         case .refused(.noConversationYet):
             code = "no_conversation_yet"
+        case .refused(.transcriptDiverged):
+            code = "transcript_diverged"
         case .notClaude:
             code = "not_claude"
         case .remoteUnsupported:

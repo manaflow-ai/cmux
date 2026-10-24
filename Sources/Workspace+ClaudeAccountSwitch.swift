@@ -135,8 +135,13 @@ extension Workspace {
             preflight = try await sync.sync(request)
         } catch {
             // A session nobody has sent a message to has nothing to resume, and the resume
-            // would exit with "No conversation found", leaving the pane at a bare shell.
-            if let refusal = ClaudeAccountSwitchRefusal(transcriptSyncError: error) {
+            // would exit with "No conversation found", leaving the pane at a bare shell. Copies
+            // that went on under both accounts are never overwritten.
+            if let refusal = ClaudeAccountSwitchRefusal(
+                transcriptSyncError: error,
+                sourceAccountName: plan.source.name,
+                targetAccountName: plan.target.name
+            ) {
                 return .refused(refusal)
             }
             return .transcriptUnavailable

@@ -18,6 +18,9 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case missingWorkingDirectory
     /// Nobody has sent the session a message yet, so there is no conversation to continue.
     case noConversationYet
+    /// The conversation went on separately under both accounts; `newerAccount` has the copy
+    /// written last. cmux does not merge them, so the pane was left alone.
+    case transcriptDiverged(newerAccount: String)
     /// The pane is not running Claude.
     case notClaude
     /// The pane runs on another machine.
@@ -50,6 +53,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             self = .missingWorkingDirectory
         case .refused(.noConversationYet):
             self = .noConversationYet
+        case .refused(.transcriptDiverged(let newerAccount)):
+            self = .transcriptDiverged(newerAccount: newerAccount)
         case .refused(.unknownAccount(let name)):
             self = .unknownAccount(name)
         case .refused(.sameAccount(let name)):
@@ -161,6 +166,14 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 localized: "dialog.claudeAccountSwitch.noConversationYet.message",
                 defaultValue: "This Claude session has no messages yet, so there's nothing to continue on another account. Send at least one message, then switch."
+            )
+        case .transcriptDiverged(let newerAccount):
+            return String(
+                format: String(
+                    localized: "dialog.claudeAccountSwitch.transcriptDiverged.message",
+                    defaultValue: "This conversation was continued separately on both accounts, and the newer copy is on %@. cmux can't merge the two copies, so the terminal was left unchanged."
+                ),
+                newerAccount
             )
         case .notClaude:
             return String(

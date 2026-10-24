@@ -81,6 +81,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .refused(.noClaudeSession),
             .refused(.missingWorkingDirectory),
             .refused(.noConversationYet),
+            .refused(.transcriptDiverged(newerAccount: "work")),
             .refused(.unknownAccount("ghost")),
             .refused(.sameAccount("work")),
             .notClaude,
@@ -96,6 +97,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .noClaudeSession,
             .missingWorkingDirectory,
             .noConversationYet,
+            .transcriptDiverged(newerAccount: "work"),
             .unknownAccount("ghost"),
             .alreadyOnAccount("work"),
             .notClaude,
@@ -110,6 +112,7 @@ struct ClaudeAccountSwitchNoticeTests {
         #expect(ClaudeAccountSwitchNotice.unknownAccount("ghost").message.contains("ghost"))
         #expect(ClaudeAccountSwitchNotice.alreadyOnAccount("work").message.contains("work"))
         #expect(ClaudeAccountSwitchNotice.transcriptUnavailable(accountName: "work").message.contains("work"))
+        #expect(ClaudeAccountSwitchNotice.transcriptDiverged(newerAccount: "qa").message.contains("qa"))
     }
 
     /// The resume a switch from `work` to the default account builds, as

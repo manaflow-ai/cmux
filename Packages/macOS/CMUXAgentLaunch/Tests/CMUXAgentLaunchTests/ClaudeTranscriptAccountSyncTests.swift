@@ -137,6 +137,11 @@ import Testing
         await #expect(throws: (any Error).self) {
             try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
         }
+        let error = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(error as? ClaudeTranscriptAccountSyncError == .diverged(targetIsNewer: targetIsNewer))
+        // The switch names the account whose copy was written last.
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: error, sourceAccountName: "a", targetAccountName: "b")
+                == .transcriptDiverged(newerAccount: targetIsNewer ? "b" : "a"))
 
         #expect(try String(contentsOfFile: "\(dstProject)/s1.jsonl", encoding: .utf8) == targetBody)
         #expect(try String(contentsOfFile: src, encoding: .utf8) == sourceBody)
@@ -280,16 +285,19 @@ import Testing
     /// other failure stays an unavailable transcript.
     @Test func switchRefusesOnlyTheNoConversationFailures() async throws {
         let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        func refusal(_ error: any Error) -> ClaudeAccountSwitchRefusal? {
+            ClaudeAccountSwitchRefusal(transcriptSyncError: error, sourceAccountName: "a", targetAccountName: "b")
+        }
         let missing = try #require(await syncError(request(root: root, cwd: "/p")))
-        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: missing) == .noConversationYet)
+        #expect(refusal(missing) == .noConversationYet)
 
         try seedSource(root: root, cwd: "/p", body: Self.metadataOnly)
         let metadataOnly = try #require(await syncError(request(root: root, cwd: "/p")))
-        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: metadataOnly) == .noConversationYet)
+        #expect(refusal(metadataOnly) == .noConversationYet)
 
         let unsafeSessionID = try #require(await syncError(request(root: root, cwd: "/p", sid: "../x")))
-        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: unsafeSessionID) == nil)
-        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: CocoaError(.fileReadNoPermission)) == nil)
+        #expect(refusal(unsafeSessionID) == nil)
+        #expect(refusal(CocoaError(.fileReadNoPermission)) == nil)
     }
 
     @Test func rejectsUnsafeSessionID() async throws {

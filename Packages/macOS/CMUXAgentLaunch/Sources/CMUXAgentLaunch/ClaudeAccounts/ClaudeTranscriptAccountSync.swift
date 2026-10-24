@@ -24,9 +24,10 @@ public struct ClaudeTranscriptAccountSyncRequest: Sendable {
 public enum ClaudeTranscriptAccountSyncOutcome: String, Equatable, Sendable {
     /// The target had no transcript; it was copied in.
     case copied
-    /// The target was older than the source (or missing its sidecar); it was replaced.
+    /// The target's transcript was a strict byte prefix of the source's and was replaced, or the
+    /// copies were identical and only the source's sidecar was missing from the target.
     case refreshed
-    /// The target was at least as new as the source; nothing was changed.
+    /// The target's transcript already holds every byte of the source's; nothing was changed.
     case alreadyCurrent
 }
 
@@ -39,6 +40,10 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
     /// The source transcript has no conversation record, only session metadata, so
     /// `claude --resume` would find no conversation in it.
     case noConversation
+    /// Both accounts have a copy and neither is a prefix of the other: the conversation went on
+    /// separately under each account, and cmux does not merge them. `targetIsNewer` tells which
+    /// copy was written last, by modification time.
+    case diverged(targetIsNewer: Bool)
 }
 
 /// Copies or refreshes a Claude transcript (and its sidecar directory) from one account config dir
@@ -47,13 +52,21 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
 /// would fail (``ClaudeTranscriptAccountSyncError/transcriptNotFound`` and
 /// ``ClaudeTranscriptAccountSyncError/noConversation``).
 ///
-/// Nothing is ever deleted from the source, and a newer target is never overwritten. The transcript
-/// and the sidecar are each staged as a temporary sibling in the target directory and then swapped
-/// in, so a failure never leaves a partial file at the final path. Files use
-/// `FileManager.replaceItemAt` (atomic exchange). The sidecar directory uses `replaceItemAt` too,
-/// which supports directories and swaps the whole tree in one step, so there is no window where
-/// the sidecar is absent. The sidecar is replaced before the transcript: if the process dies in
-/// between, the transcript's mtime still looks stale and the next sync repeats the refresh.
+/// The copies are compared by content, never by mtime (``ClaudeTranscriptCopyRelation``): Claude
+/// Code only appends, so a target that is a prefix of the source is refreshed, a target that
+/// already holds the whole source is kept, and copies that diverged are refused with
+/// ``ClaudeTranscriptAccountSyncError/diverged(targetIsNewer:)`` without touching either one.
+/// The target's sidecar follows its transcript: it is replaced only on a refresh, or filled in
+/// when the copies are identical and the target has none.
+///
+/// Nothing is ever deleted from the source, and a target with turns the source lacks is never
+/// overwritten. The transcript and the sidecar are each staged as a temporary sibling in the
+/// target directory and then swapped in, so a failure never leaves a partial file at the final
+/// path. Files use `FileManager.replaceItemAt` (atomic exchange). The sidecar directory uses
+/// `replaceItemAt` too, which supports directories and swaps the whole tree in one step, so there
+/// is no window where the sidecar is absent. The sidecar is replaced before the transcript: if the
+/// process dies in between, the target transcript is still a prefix of the source and the next
+/// sync repeats the refresh.
 public struct ClaudeTranscriptAccountSync: Sendable {
     public init() {}
 
@@ -96,26 +109,28 @@ public struct ClaudeTranscriptAccountSync: Sendable {
         let hasSourceSidecar = fileManager.fileExists(atPath: sourceSidecar, isDirectory: &isDirectory)
             && isDirectory.boolValue
         let hasTargetTranscript = fileManager.fileExists(atPath: targetTranscript)
-        let sourceDate = try modificationDate(source.path, fileManager)
 
-        var outcome = ClaudeTranscriptAccountSyncOutcome.copied
-        let needsSidecar = hasSourceSidecar
         if hasTargetTranscript {
-            let targetDate = try modificationDate(targetTranscript, fileManager)
-            // 1 ms slack absorbs Date/timespec rounding when we stamp the copy with the source mtime.
-            let isStale = sourceDate.timeIntervalSince(targetDate) > 0.001
-            let missingSidecar = hasSourceSidecar && !fileManager.fileExists(atPath: targetSidecar)
-            guard isStale || missingSidecar else { return .alreadyCurrent }
-            outcome = .refreshed
-            if !isStale {
+            switch try ClaudeTranscriptCopyRelation(sourcePath: source.path, targetPath: targetTranscript) {
+            case .sourceIsAhead:
+                break
+            case .targetIsAhead:
+                return .alreadyCurrent
+            case .identical:
+                // Same conversation state, so a sidecar only the source has can only fill a gap.
+                guard hasSourceSidecar, !fileManager.fileExists(atPath: targetSidecar) else { return .alreadyCurrent }
                 try replace(sourceSidecar, with: targetSidecar, fileManager)
-                return outcome
+                return .refreshed
+            case .diverged:
+                let targetIsNewer = try modificationDate(targetTranscript, fileManager)
+                    > modificationDate(source.path, fileManager)
+                throw ClaudeTranscriptAccountSyncError.diverged(targetIsNewer: targetIsNewer)
             }
         }
         try fileManager.createDirectory(atPath: targetProject, withIntermediateDirectories: true)
-        if needsSidecar { try replace(sourceSidecar, with: targetSidecar, fileManager) }
-        try replace(source.path, with: targetTranscript, fileManager, modificationDate: sourceDate)
-        return outcome
+        if hasSourceSidecar { try replace(sourceSidecar, with: targetSidecar, fileManager) }
+        try replace(source.path, with: targetTranscript, fileManager)
+        return hasTargetTranscript ? .refreshed : .copied
     }
 
     private static func modificationDate(_ path: String, _ fileManager: FileManager) throws -> Date {
@@ -123,18 +138,12 @@ public struct ClaudeTranscriptAccountSync: Sendable {
     }
 
     /// Stages `source` as a temp sibling of `destination`, then swaps it in; cleans the temp on failure.
-    private static func replace(
-        _ source: String, with destination: String, _ fileManager: FileManager, modificationDate: Date? = nil
-    ) throws {
+    private static func replace(_ source: String, with destination: String, _ fileManager: FileManager) throws {
         let parent = (destination as NSString).deletingLastPathComponent
         try fileManager.createDirectory(atPath: parent, withIntermediateDirectories: true)
         let temporary = "\(destination).tmp-\(UUID().uuidString)"
         defer { try? fileManager.removeItem(atPath: temporary) }
         try fileManager.copyItem(atPath: source, toPath: temporary)
-        if let modificationDate {
-            // Keep the source's mtime so the next sync sees the target as current.
-            try fileManager.setAttributes([.modificationDate: modificationDate], ofItemAtPath: temporary)
-        }
         if fileManager.fileExists(atPath: destination) {
             _ = try fileManager.replaceItemAt(
                 URL(fileURLWithPath: destination), withItemAt: URL(fileURLWithPath: temporary)

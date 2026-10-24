@@ -672582,6 +672582,65 @@
           }
         }
       }
+    },
+    "dialog.claudeAccountSwitch.transcriptDiverged.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation was continued separately on both accounts, and the newer copy is on %@. cmux can't merge the two copies, so the terminal was left unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استُكملت هذه المحادثة بشكل منفصل على كلا الحسابين، والنسخة الأحدث موجودة على %@. لا يستطيع cmux دمج النسختين، لذا تُركت الطرفية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Unterhaltung wurde in beiden Konten getrennt fortgesetzt, die neuere Kopie liegt in %@. cmux kann die beiden Kopien nicht zusammenführen, daher wurde das Terminal nicht verändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversación se continuó por separado en ambas cuentas y la copia más reciente está en %@. cmux no puede combinar las dos copias, así que la terminal no se modificó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation a été poursuivie séparément sur les deux comptes, et la copie la plus récente se trouve sur %@. cmux ne peut pas fusionner les deux copies ; le terminal n'a donc pas été modifié."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話は両方のアカウントで別々に続けられており、新しいほうのコピーは %@ にあります。cmux は 2 つのコピーを統合できないため、ターミナルは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 대화는 두 계정에서 따로 이어졌고, 더 최근 사본은 %@에 있습니다. cmux는 두 사본을 합칠 수 없어 터미널을 변경하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话已在两个账号中各自继续，较新的副本在 %@。cmux 无法合并两份副本，因此终端保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話已在兩個帳號中各自繼續，較新的副本在 %@。cmux 無法合併兩份副本，因此終端機維持不變。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
