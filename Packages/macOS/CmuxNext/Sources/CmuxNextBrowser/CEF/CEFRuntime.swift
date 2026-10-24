@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import ImageIO
 import Foundation
@@ -104,6 +105,9 @@ final class CEFRuntime {
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
+    /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
+    /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
+    private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -257,6 +261,7 @@ final class CEFRuntime {
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                observeDisplays()
                 ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
                 onReady?()
             }
@@ -482,4 +487,20 @@ nonisolated struct CEFPaneKey: Hashable, Sendable {
 nonisolated struct CEFDevToolsKey: Hashable, Sendable {
     var browser: Int32
     var message: Int32
+}
+
+extension CEFRuntime {
+    /// Starts the one display-change observer (no effect when it exists): a display added, removed or with
+    /// another rate reaches every pane's and every docked DevTools' host view.
+    func observeDisplays() {
+        guard displayObservation == nil else { return }
+        displayObservation = MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in
+            self?.displaysChanged()
+        }
+    }
+
+    private func displaysChanged() {
+        for host in hosts.values { host.hostView.layerHosting.displaysChanged() }
+        for tab in tabsByBrowser.values { tab.devToolsController.views?.host.layerHosting.displaysChanged() }
+    }
 }

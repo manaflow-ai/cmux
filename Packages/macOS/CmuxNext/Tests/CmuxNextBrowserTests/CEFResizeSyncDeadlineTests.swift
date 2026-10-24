@@ -38,8 +38,6 @@ import Testing
     let fake = CEFLayerHostingTests.FakeFork()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
 
-    let center = NotificationCenter()
-
     func makeHosting(enabled: Bool = true, deadline: @escaping () -> Int32,
                      refreshInterval: @escaping () -> Double?) -> CEFLayerHosting {
         makeHosting(enabled: enabled, deadline: deadline, refreshIntervals: { refreshInterval().map { [$0] } ?? [] })
@@ -49,7 +47,7 @@ import Testing
                      refreshIntervals: @escaping () -> [Double]) -> CEFLayerHosting {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
                                       makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
-                                      resizeDeadlineMs: deadline, refreshIntervals: refreshIntervals, center: center)
+                                      resizeDeadlineMs: deadline, refreshIntervals: refreshIntervals)
         hosting.view = view
         return hosting
     }
@@ -82,9 +80,9 @@ import Testing
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
         // A 120 Hz display joins: the process's commit now has a 120 Hz frame to keep.
         intervals = [1.0 / 60, 1.0 / 120]
-        center.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        hosting.displaysChanged()
         #expect(fake.syncs.map { $0.timeoutMs } == [8, 4])
-        center.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        hosting.displaysChanged()
         #expect(fake.syncs.count == 2)
     }
 
@@ -120,13 +118,13 @@ import Testing
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
         hosting.windowBrowsersChanged([5, 6])
         deadline = 2
-        center.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        hosting.displaysChanged()
         #expect(fake.syncs.map { $0.browser } == [3, 5])
         #expect(fake.syncs.map { $0.timeoutMs } == [8, 2])
         // A live browser stays.
         hosting.windowBrowsersChanged([6, 5])
         deadline = 1
-        center.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        hosting.displaysChanged()
         #expect(fake.syncs.last?.browser == 5)
     }
 
