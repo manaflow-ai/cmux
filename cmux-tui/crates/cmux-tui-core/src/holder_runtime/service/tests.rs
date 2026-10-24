@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use cmux_holder::client::{Event, HolderClient};
 use cmux_holder::wire::Kind;
 
-use self::harness::{TOKEN, Verdict, World};
-use super::super::sink::SinkReader;
+use self::harness::{TOKEN, Verdict, World, open_fds};
+use super::super::sink::{SinkEnd, SinkReader};
 use super::*;
 
 mod harness;
@@ -296,4 +296,55 @@ fn a_holder_that_refuses_the_hello_is_not_replaced_by_a_second_holder() {
         1,
         "the service started a second holder beside the one that answered"
     );
+}
+
+/// Holder-core deep review: a holder that could not take an adoption's
+/// descriptors (it ended the link with a NO_DESCRIPTORS stream fault) gets
+/// no descriptor on the next link. The terminal it could not take ends
+/// lost, the one it took streams on, and no ADOPT goes again. Before, every
+/// new link ADOPTed the same terminal, the holder faulted again, and the
+/// daemon reconnected at once: links in a loop for as long as the holder
+/// stayed full. The holder after a crash starts with one descriptor more
+/// than its first adoption (a master and a ring) takes.
+#[test]
+fn after_a_descriptor_fault_the_next_link_ends_what_the_holder_could_not_take_and_adopts_nothing() {
+    let world = World::new();
+    // The base: a holder with the service's link and no terminal.
+    world.service.link().unwrap();
+    let base = open_fds(world.holders.serving_pid());
+    let one = world.service.spawn(&shell(1), b"").unwrap();
+    let two = world.service.spawn(&shell(2), b"").unwrap();
+    read_until(&one.sink, "ready-1");
+    read_until(&two.sink, "ready-2");
+
+    world.holders.set_limit(Some(base as u64 + 3));
+    world.holders.crash();
+    let frames = world.proxy.frames_until("the next holder's stream fault", |seen| {
+        !seen.to_holder && seen.kind == Some(Kind::Error) && seen.chan == 0
+    });
+    let faulted = frames.last().unwrap().conn;
+    // The first ADOPT fit; the second did not.
+    let adopted = frames
+        .iter()
+        .find(|seen| seen.conn == faulted && seen.to_holder && seen.kind == Some(Kind::Adopt))
+        .expect("the faulted link carried no ADOPT")
+        .chan;
+    let (kept, lost) = if adopted == one.chan { (&one, &two) } else { (&two, &one) };
+
+    // The next link resumes the adopted terminal and sends no ADOPT. It is
+    // published after its pass, so a WRITE on it follows every frame of it.
+    let mut frames =
+        world.proxy.frames_until("the adopted terminal's ATTACH on the next link", |seen| {
+            seen.conn > faulted && seen.sent(Kind::Attach, kept.chan)
+        });
+    world.service.link().unwrap().write(kept.chan, b"after-fault\n").unwrap();
+    frames.extend(world.proxy.frames_until("the WRITE after the next pass", |seen| {
+        seen.conn > faulted && seen.sent(Kind::Write, kept.chan)
+    }));
+    assert!(
+        !frames.iter().any(|seen| seen.conn > faulted && seen.sent(Kind::Adopt, lost.chan)),
+        "the next link handed the full holder the terminal it could not take: {frames:?}"
+    );
+    read_until(&kept.sink, "after-fault");
+    assert_eq!(lost.sink.wait_end(), SinkEnd::Lost, "the terminal the holder could not take");
 }

@@ -11,6 +11,7 @@
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -41,11 +42,29 @@ pub(super) struct Holders {
     started: Mutex<Vec<Child>>,
     /// Every start, the ones that failed too.
     launches: AtomicUsize,
+    /// The soft `RLIMIT_NOFILE` the next holders start with (`None`: this
+    /// process's).
+    limit: Mutex<Option<u64>>,
 }
 
 impl Holders {
     fn new(socket: PathBuf) -> Arc<Self> {
-        Arc::new(Self { socket, started: Mutex::default(), launches: AtomicUsize::new(0) })
+        Arc::new(Self {
+            socket,
+            started: Mutex::default(),
+            launches: AtomicUsize::new(0),
+            limit: Mutex::default(),
+        })
+    }
+
+    /// Start every later holder with the soft `RLIMIT_NOFILE` `limit`.
+    pub(super) fn set_limit(&self, limit: Option<u64>) {
+        *self.limit.lock().unwrap() = limit;
+    }
+
+    /// The pid of the holder that serves the socket (the newest).
+    pub(super) fn serving_pid(&self) -> i32 {
+        self.started.lock().unwrap().last().expect("a holder runs").id() as i32
     }
 
     /// How many holders were started (by the test or the service), the ones
@@ -58,13 +77,32 @@ impl Holders {
     /// service's launcher.
     pub(super) fn start(&self, token: &[u8; 32]) -> io::Result<()> {
         self.launches.fetch_add(1, Ordering::AcqRel);
-        let mut child = Command::new(std::env::current_exe()?)
+        let mut command = Command::new(std::env::current_exe()?);
+        command
             .args([HOLDER_PROCESS_TEST, "--exact", "--nocapture", "--quiet"])
             .env(HOLDER_SOCKET_ENV, &self.socket)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+            .stderr(Stdio::inherit());
+        if let Some(limit) = *self.limit.lock().unwrap() {
+            let mut current = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            // SAFETY: getrlimit fills one rlimit.
+            if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut current) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let low = libc::rlimit { rlim_cur: limit as libc::rlim_t, rlim_max: current.rlim_max };
+            // SAFETY: setrlimit is async-signal-safe; it runs in the forked
+            // child before exec and touches nothing else.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::setrlimit(libc::RLIMIT_NOFILE, &low) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+        let mut child = command.spawn()?;
         let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
         let started = child
             .stdin
@@ -329,4 +367,33 @@ impl Drop for World {
         self.holders.kill_all();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
+}
+
+/// How many descriptors `pid` has open.
+#[cfg(target_vendor = "apple")]
+pub(super) fn open_fds(pid: i32) -> usize {
+    let entry = size_of::<libc::proc_fdinfo>();
+    // SAFETY: a null buffer asks how many bytes the list needs.
+    let needed =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    assert!(needed > 0, "list the holder's descriptors: {}", io::Error::last_os_error());
+    let mut list: Vec<libc::proc_fdinfo> = Vec::with_capacity(needed as usize / entry + 64);
+    // SAFETY: the buffer has room for `capacity` records; only the count
+    // of records written is read back.
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDLISTFDS,
+            0,
+            list.as_mut_ptr().cast(),
+            (list.capacity() * entry) as libc::c_int,
+        )
+    };
+    assert!(filled >= 0, "list the holder's descriptors: {}", io::Error::last_os_error());
+    filled as usize / entry
+}
+
+#[cfg(not(target_vendor = "apple"))]
+pub(super) fn open_fds(pid: i32) -> usize {
+    std::fs::read_dir(format!("/proc/{pid}/fd")).unwrap().count()
 }
