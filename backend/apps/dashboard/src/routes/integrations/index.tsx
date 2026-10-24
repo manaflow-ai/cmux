@@ -4,6 +4,7 @@ import { useLoad } from "../../lib/hooks"
 import { useTeamApi } from "../../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../../lib/session"
 import { IntegrationApprovals } from "./-approvals"
+import { integrationReturnTeamKey } from "./-return"
 
 export const Route = createFileRoute("/integrations/")({ component: Integrations })
 
@@ -54,6 +55,14 @@ function Integrations() {
     if (r.status === 401) return setSignedIn(false)
     const value = r.body.value as unknown as { authorize_url?: string } | undefined
     if (!r.body.ok || !value?.authorize_url) return setError(`${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? "connect failed"}`)
+    // The provider callback is a fresh navigation. Remember the selected team so
+    // the user lands back in the scope where they started the connection.
+    try {
+      const state = new URL(value.authorize_url).searchParams.get("state")
+      sessionStorage.setItem(integrationReturnTeamKey(state ?? undefined), team ?? "")
+    } catch {
+      // A blocked storage policy should not prevent opening the provider.
+    }
     // The provider asks the human to approve, then redirects to /integrations/callback.
     window.location.assign(value.authorize_url)
   }
