@@ -15,7 +15,16 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
+const GLOBALS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "HTMLInputElement",
+  "Element",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -100,6 +109,7 @@ async function renderCard(question: AgentQuestion) {
     navigator: dom.window.navigator,
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
     Element: dom.window.Element,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
@@ -186,6 +196,35 @@ test("the arrows move the choice, and Submit sends the row the person sees", asy
   expect(replies).toEqual([]);
   await click(submit(container));
   expect(replies[0]?.answers).toEqual({ [PROMPT]: "API keys" });
+});
+
+test("arrowing onto Other leaves no option chosen, so ⌘↩ opens the field instead of sending", async () => {
+  const { container, replies } = await renderCard(askSingle);
+  await click(row(container, "API keys"));
+  await press(row(container, "API keys"), "ArrowDown");
+  await press(row(container, "OAuth"), "ArrowDown");
+  expect(checked(container)).toEqual([]);
+  expect(submit(container).disabled).toBe(true);
+  await press(container.querySelector(".acpmux-question-other-choice")!, "Enter", { metaKey: true });
+  expect(replies).toEqual([]);
+  expect(container.querySelector(".acpmux-question-other input")).not.toBeNull();
+});
+
+test("an option clicked while the Other field is open closes the field and takes the keyboard", async () => {
+  const { container, replies } = await renderCard(askSingle);
+  await click(container.querySelector<HTMLElement>(".acpmux-question-other-choice")!);
+  const field = container.querySelector<HTMLInputElement>(".acpmux-question-other input")!;
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setValue.call(field, "custom");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await click(row(container, "Passkeys"));
+  expect(container.querySelector(".acpmux-question-other input")).toBeNull();
+  expect(dom!.window.document.activeElement).toBe(row(container, "Passkeys"));
+  expect(checked(container)).toEqual(["Passkeys"]);
+  await press(row(container, "Passkeys"), "Enter", { metaKey: true });
+  expect(replies[0]?.answers).toEqual({ [PROMPT]: "Passkeys" });
 });
 
 test("Enter sends the highlighted row", async () => {

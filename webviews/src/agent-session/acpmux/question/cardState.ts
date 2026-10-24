@@ -196,13 +196,14 @@ const withChosen = (state: CardState, item: Item, ids: readonly string[]): CardS
   chosen: { ...state.chosen, [item.id]: ids },
 });
 
-/// Moves the highlight to `row`. On a single-choice question it chooses an option row too, so the
-/// highlight and the answer Submit sends are the same row; it never opens Other or drops typed Other
-/// text (that row's answer stays until a click or key picks another).
+/// Moves the highlight to `row`. On a single-choice question the choice moves with it, as in a
+/// radio group, so Submit and ⌘↩ send the highlighted row: an option row chooses that option (and
+/// drops typed Other text, as a click on it does), and the Other row chooses Other (its typed text,
+/// if any) without opening the field.
 function move(state: CardState, item: Item, row: number): Step {
   const next: CardState = { ...state, highlighted: { ...state.highlighted, [item.id]: row } };
-  if (item.multiSelect || isOtherRow(row, item) || (state.otherDrafts[item.id] ?? "").trim())
-    return { state: next, effect: NONE };
+  if (item.multiSelect) return { state: next, effect: NONE };
+  if (isOtherRow(row, item)) return { state: withChosen(next, item, []), effect: NONE };
   return choose(next, row, item, false);
 }
 
@@ -224,6 +225,8 @@ function choose(state: CardState, row: number, item: Item, shouldAdvance: boolea
     const { [item.id]: _dropped, ...drafts } = state.otherDrafts;
     next = { ...withChosen(state, item, [option]), otherDrafts: drafts };
   }
+  // An option chosen while the Other field is open closes it, so the keyboard goes to that row.
+  next = { ...next, editingOther: false };
   return shouldAdvance ? advance(next) : { state: next, effect: NONE };
 }
 
