@@ -37,4 +37,26 @@ import Testing
         #expect(slowColor != nil && fastColor != nil)
         #expect(slowColor != fastColor, "the over-budget run is not marked")
     }
+
+    /// Closing the panel with its title bar's button hides it like the action does: the HUD stops
+    /// reading, and the monitor forgets its every-run reader, so a closed HUD costs the always-on
+    /// path nothing. Before the fix the close left the reader registered for the app's lifetime.
+    @Test func closingThePanelWithItsCloseButtonEndsTheReader() async throws {
+        let monitor = ActionBudgetMonitor()
+        let hud = ActionLatencyHUD(monitor: monitor)
+        hud.show(over: nil)
+        defer { hud.hide() }
+        #expect(monitor.readerCount == 1)
+        // The reading task was enqueued on the main actor by `show`: one turn lets it reach its
+        // first wait on the stream, so the cancel below ends a stream that is being read.
+        await Task.yield()
+        let panel = try #require(hud.window)
+        panel.performClose(nil)
+        #expect(!hud.isShown)
+        #expect(!hud.isReading, "the close button left the HUD reading every run")
+        #expect(monitor.readerCount == 0, "the monitor still has the closed HUD's reader")
+        // Shown again, it reads again.
+        hud.show(over: nil)
+        #expect(hud.isShown && hud.isReading && monitor.readerCount == 1)
+    }
 }
