@@ -19,6 +19,8 @@ const TOKEN: [u8; 32] = [0x33; 32];
 struct Collect {
     bytes: Mutex<Vec<u8>>,
     exit: Mutex<Option<ExitStatus>>,
+    /// Each ADOPTED answer's ring end, with the bytes received before it.
+    adopted: Mutex<Vec<(u64, usize)>>,
 }
 
 impl TerminalSink for Collect {
@@ -32,6 +34,10 @@ impl TerminalSink for Collect {
     }
     fn exit(&self, status: ExitStatus, _end: u64) {
         *self.exit.lock().unwrap() = Some(status);
+    }
+    fn adopted(&self, end: u64) {
+        let received = self.bytes.lock().unwrap().len();
+        self.adopted.lock().unwrap().push((end, received));
     }
 }
 
@@ -179,6 +185,14 @@ fn an_adoption_answers_with_the_segment_the_new_holder_writes() {
         .unwrap();
     let written = answer.wait().unwrap().expect("the holder names the fresh segment it writes");
     assert_eq!(cmux_holder::ring::segment_end(&written).unwrap(), received);
+    // Review 2 of pl-holder-11: the sink hears where the ring it writes
+    // ends (a fresh ring: at `resume`) before any output of the adopted
+    // stream, so the daemon marks its loss at the right offset.
+    assert_eq!(
+        *sink.adopted.lock().unwrap(),
+        vec![(received, received as usize)],
+        "the ADOPTED answer reaches the sink once, before the new output"
+    );
     std::fs::File::from(spawned.master.try_clone().unwrap()).write_all(b"after\n").unwrap();
     wait_for("the echo on the new holder", || {
         String::from_utf8_lossy(&sink.bytes.lock().unwrap()).contains("after\r\nafter")

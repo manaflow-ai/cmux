@@ -35,6 +35,14 @@ pub trait TerminalSink: Send + Sync {
     fn acks_itself(&self) -> bool {
         false
     }
+    /// The holder adopted this terminal ([`HolderLink::adopt`]) and writes
+    /// its output to a ring whose newest byte ends at `end` (its
+    /// [`Kind::Adopted`] answer): the end of the segment the ADOPT handed
+    /// over when the holder continues it, the `resume` offset when it
+    /// started a fresh ring instead. Called on the reader thread before
+    /// any output of the adopted stream, so a sink can tell where output
+    /// the dead holder read was lost before the first new byte arrives.
+    fn adopted(&self, _end: u64) {}
 }
 
 /// Why a link ended.
@@ -465,6 +473,15 @@ fn read_loop(
                 }
                 Some(Kind::Adopted) => {
                     let segment = std::mem::take(&mut frame.fds).into_iter().next();
+                    // The ring the holder writes: `oldest`, then `end`. Before
+                    // the answer goes to its waiter and before any DATA of
+                    // the channel (the holder queues ADOPTED ahead of them).
+                    let _oldest = input.u64();
+                    if let Ok(end) = input.u64()
+                        && let Some(sink) = link.lock().sinks.get(&chan).cloned()
+                    {
+                        sink.adopted(end);
+                    }
                     if let Some(waiter) = link.lock().adopts.remove(&chan) {
                         let _ = waiter.try_send(Ok(segment));
                     }

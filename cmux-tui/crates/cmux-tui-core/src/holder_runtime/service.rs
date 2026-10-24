@@ -399,6 +399,8 @@ impl HolderService {
         let mut answers = Vec::new();
         for terminal in live {
             if still_held.get(&terminal.chan) == Some(&terminal.id) {
+                // Its own ring holds every byte it read: nothing is lost.
+                terminal.sink.forget_adoption();
                 let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
                 let at = (terminal.sink.received(), terminal.sink.confirmed());
                 if let Err(error) = link.resume(terminal.chan, at, sink) {
@@ -418,8 +420,10 @@ impl HolderService {
             ) {
                 Ok(answer) => answers.push((terminal, answer)),
                 // The ADOPT did not go out whole, so the holder never
-                // adopted the terminal: the custody segment stays.
+                // adopted the terminal: the custody segment stays, and the
+                // next adoption plans its loss again.
                 Err(error) => {
+                    terminal.sink.forget_adoption();
                     eprintln!(
                         "cmux-tui: hand terminal {} to the new holder: {error}",
                         terminal.chan

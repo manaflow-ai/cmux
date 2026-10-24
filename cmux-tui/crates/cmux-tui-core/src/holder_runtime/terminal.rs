@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cmux_holder::ExitStatus;
 use cmux_pty::ChildKiller;
 
-use super::sink::{Pending, SinkEnd, SnapshottingReader};
+use super::sink::{AdoptionCuts, Pending, SinkEnd, SnapshottingReader};
 use super::{HolderService, HolderSink};
 use crate::surface::spawn::LocalLaunch;
 use crate::terminal_end::TerminalEnd;
@@ -133,6 +133,8 @@ impl HolderTerminal {
     /// segment does not change here: the new holder's answer says which
     /// segment it writes ([`Self::keep_ring`]).
     pub(super) fn adoption(&self, rings: bool, max_bytes: usize) -> Adoption {
+        // An earlier adoption nobody answered left its segment with nobody.
+        self.sink.settle_unanswered_adoption();
         // No new output arrives meanwhile (the old link ended), so what is
         // pending now bounds what is pending at the replay's instant.
         let estimate = self.sink.pending();
@@ -154,9 +156,7 @@ impl HolderTerminal {
             .and_then(|segment| segment.try_clone().ok());
         // Before the replay's instant, so a prologue that carries every
         // pending byte carries the CAN too.
-        if let Some(segment) = &custody {
-            self.mark_lost_output(segment, kept.is_some(), estimate.received);
-        }
+        self.mark_lost_output(custody.as_ref(), kept.is_some(), rings, estimate.received);
         let extra = if kept.is_some() { estimate.head.len() } else { estimate.all.len() };
         let mut pending = None;
         let mut replay = self.replay_at(max_bytes.saturating_sub(extra), &mut || {
@@ -183,26 +183,40 @@ impl HolderTerminal {
     /// Output the dead holder took from the PTY that no holder hands on is
     /// lost, and the sink is told where ([`super::HolderSink::cut_at`]), so
     /// the stream is never spliced silently there. `segment` is the custody
-    /// copy of the dead holder's ring, `kept` whether it goes to the new
-    /// holder, `received` the newest byte this daemon has:
+    /// copy of the dead holder's ring, `kept` whether the ADOPT hands it to
+    /// the new holder, `received` the newest byte this daemon has:
     ///
-    /// - kept: only a read the dead holder died inside is lost, at the end
-    ///   of its ring (`cmux_holder::ring::interrupted_read`);
-    /// - not kept (the new holder takes no segment): a fresh ring starts at
-    ///   `received`, so everything the dead holder read past it is lost too.
+    /// - a new holder that continues the segment loses only a read the dead
+    ///   holder died inside, at the end of its ring
+    ///   (`cmux_holder::ring::interrupted_read`);
+    /// - a fresh ring (the new holder takes no segment, or refuses the one
+    ///   it is handed) starts at `received`, so everything the dead holder
+    ///   read past it is lost too.
     ///
-    /// A stale segment (one that ends before `received`) names no loss.
-    fn mark_lost_output(&self, segment: &OwnedFd, kept: bool, received: u64) {
-        let interrupted = cmux_holder::ring::interrupted_read(segment).ok().flatten();
-        if kept {
-            if let Some(at) = interrupted {
-                self.sink.cut_at(at);
-            }
-            return;
+    /// Not kept, the loss is marked now. Kept, the new holder may still
+    /// refuse the segment: the sink marks the loss its ADOPTED answer names
+    /// ([`super::HolderSink::expect_adoption`]). On a holder that answers
+    /// (`rings`) the plan is made either way, so an adoption whose answer
+    /// never comes is cut at `received` by the next one. A stale segment
+    /// (one that ends before `received`) names no loss.
+    fn mark_lost_output(&self, segment: Option<&OwnedFd>, kept: bool, rings: bool, received: u64) {
+        let interrupted =
+            segment.and_then(|segment| cmux_holder::ring::interrupted_read(segment).ok().flatten());
+        let end =
+            segment.map(|segment| cmux_holder::ring::segment_end(segment).unwrap_or(received));
+        let fresh = (end.is_some_and(|end| end > received)
+            || interrupted.is_some_and(|at| at >= received))
+        .then_some(received);
+        if !kept && let Some(at) = fresh {
+            self.sink.cut_at(at);
         }
-        let end = cmux_holder::ring::segment_end(segment).unwrap_or(received);
-        if end > received || interrupted.is_some_and(|at| at >= received) {
-            self.sink.cut_at(received);
+        if rings {
+            self.sink.expect_adoption(AdoptionCuts {
+                resume: received,
+                handed_end: end.filter(|_| kept),
+                continued: interrupted.filter(|_| kept),
+                fresh: fresh.filter(|_| kept),
+            });
         }
     }
 
@@ -543,6 +557,8 @@ mod tests {
             assert_eq!(adoption.resume, 10);
             3
         });
+        // The new holder continues the segment: its ADOPTED names its end.
+        terminal.sink.adopted(10);
         terminal.sink.data(10, b"new");
         assert_eq!(parsed(&terminal, 13), b"0123456789\x18new", "the lost read was spliced");
         let _ = std::fs::remove_dir_all(&root);
@@ -559,6 +575,68 @@ mod tests {
         assert_eq!(adoption.resume, 5);
         terminal.sink.data(5, b"new");
         assert_eq!(parsed(&terminal, 8), b"01234\x18new", "the unsent bytes were spliced");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A dead holder's segment with 10 bytes published and a read in
+    /// flight at 10, for a terminal that received the first 5: the
+    /// adoption hands the segment on, resuming at 5.
+    fn adoption_past_what_was_received(name: &str) -> (Arc<HolderTerminal>, std::path::PathBuf) {
+        let mut ring = cmux_holder::ring::Ring::new(0, 4096);
+        let segment = ring.segment().expect("a shared ring").try_clone().unwrap();
+        ring.push(b"0123456789");
+        let mut handed = None;
+        ring.read_with(64, |room| {
+            room[..3].copy_from_slice(b"lst");
+            // The holder dies inside this read.
+            let (terminal, root) = orphaned_terminal(name, segment.try_clone().unwrap(), b"01234");
+            let adoption = terminal.adoption(true, ADOPT_PROLOGUE_MAX_BYTES);
+            assert!(adoption.ring.is_some(), "the segment goes to the new holder");
+            assert_eq!(adoption.resume, 5);
+            handed = Some((terminal, root));
+            3
+        });
+        handed.unwrap()
+    }
+
+    /// Review 2 of pl-holder-11: which loss an adoption marks follows the
+    /// new holder's ADOPTED answer, not a guess made before the ADOPT. The
+    /// dead holder read past what the daemon received (10 bytes published,
+    /// 5 received) and died inside a read at 10:
+    ///
+    /// - the new holder refuses the segment and starts a fresh ring at 5
+    ///   (its answer ends at 5): bytes 5..10 are gone, so the parser gets
+    ///   one CAN at 5 and none at 10, where the new stream is valid output;
+    /// - it continues the segment (its answer ends at 10): it resends 5..10
+    ///   from the ring and only the read at 10 is lost: one CAN at 10;
+    /// - nobody answers (the link ended) and the next adoption has no
+    ///   segment: a fresh ring at 5 again, one CAN at 5.
+    ///
+    /// Before, the cut was always at 10 for a handed segment: the refused
+    /// case spliced 5..10 silently and put a false CAN inside new output.
+    #[test]
+    fn the_new_holders_answer_decides_where_lost_output_is_cancelled() {
+        use cmux_holder::link::TerminalSink;
+        let (terminal, root) = adoption_past_what_was_received("cmux-holder-cut-refused");
+        terminal.sink.adopted(5);
+        terminal.sink.data(5, b"abcdefgh");
+        assert_eq!(parsed(&terminal, 13), b"01234\x18abcdefgh", "a refused segment");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let (terminal, root) = adoption_past_what_was_received("cmux-holder-cut-continued");
+        terminal.sink.adopted(10);
+        terminal.sink.data(5, b"56789");
+        terminal.sink.data(10, b"new");
+        assert_eq!(parsed(&terminal, 13), b"0123456789\x18new", "a continued segment");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let (terminal, root) = adoption_past_what_was_received("cmux-holder-cut-unanswered");
+        // readopt keeps no custody segment when no answer came.
+        terminal.keep_ring(None);
+        let adoption = terminal.adoption(true, ADOPT_PROLOGUE_MAX_BYTES);
+        assert_eq!(adoption.resume, 5);
+        terminal.sink.data(5, b"abcdefgh");
+        assert_eq!(parsed(&terminal, 13), b"01234\x18abcdefgh", "an unanswered adoption");
         let _ = std::fs::remove_dir_all(&root);
     }
 

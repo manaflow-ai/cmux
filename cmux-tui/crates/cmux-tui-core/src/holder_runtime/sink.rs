@@ -55,6 +55,30 @@ struct SinkState {
     /// splice the bytes before and after it, so the prologue must move past
     /// it ([`HolderSink::snapshot_due`]).
     cut_unsnapshotted: Option<u64>,
+    /// Where output is lost if the holder an ADOPT went to continues the
+    /// dead holder's segment, and where if it starts a fresh ring instead:
+    /// its ADOPTED answer says which ([`HolderSink::expect_adoption`]).
+    adoption: Option<AdoptionCuts>,
+}
+
+/// The possible losses of one adoption sent to a holder that answers it
+/// with ADOPTED ([`HolderSink::expect_adoption`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AdoptionCuts {
+    /// Where the adopted stream continues (the newest byte received).
+    pub(super) resume: u64,
+    /// The end of the dead holder's segment the ADOPT handed on, if it
+    /// handed one: an answered ring that ends there (or past it) is that
+    /// segment, continued.
+    pub(super) handed_end: Option<u64>,
+    /// The cut when the holder continues the handed segment: a read the
+    /// dead holder died inside, at the segment's end.
+    pub(super) continued: Option<u64>,
+    /// The cut when the holder writes a fresh ring from `resume` instead of
+    /// the handed segment: everything the dead holder read past it is lost
+    /// too. `None` when nothing is lost then, or when it was marked already
+    /// (the ADOPT handed no segment of the dead holder's).
+    pub(super) fresh: Option<u64>,
 }
 
 /// Bytes the holder streamed for one terminal, waiting for the terminal's
@@ -158,6 +182,15 @@ impl SinkState {
                 self.cut_unsnapshotted = Some(cut);
             }
         }
+    }
+
+    /// [`HolderSink::cut_at`] under the lock.
+    fn cut(&mut self, at: u64) {
+        if at < self.received {
+            return;
+        }
+        self.cuts.insert(at);
+        self.take_cut_at_received();
     }
 
     fn has_unnumbered(&self) -> bool {
@@ -307,14 +340,44 @@ impl HolderSink {
     /// splice. An offset before what the sink received is ignored: no holder
     /// can have sent a byte past a read it never published.
     pub(crate) fn cut_at(&self, at: u64) {
-        let mut state = self.state.lock().recover_poison();
-        if at < state.received {
-            return;
-        }
-        state.cuts.insert(at);
-        state.take_cut_at_received();
-        drop(state);
+        self.state.lock().recover_poison().cut(at);
         self.changed.notify_all();
+    }
+
+    /// An ADOPT goes to a holder that answers it with ADOPTED. When it
+    /// hands the dead holder's ring segment on, the new holder may continue
+    /// it or, when it cannot (a segment it refuses), start a fresh ring at
+    /// the resume offset. Which loss to mark depends on that: `continued`
+    /// when it continues the segment, `fresh` when it does not. Its ADOPTED
+    /// answer decides ([`TerminalSink::adopted`], before any output of the
+    /// adopted stream); a cut chosen before the answer would be wrong for
+    /// one of the two (a silent splice at the resume offset, and a false
+    /// CAN inside valid output at the segment's end).
+    pub(super) fn expect_adoption(&self, cuts: AdoptionCuts) {
+        self.state.lock().recover_poison().adoption = Some(cuts);
+    }
+
+    /// The plan of [`Self::expect_adoption`] names no loss: its ADOPT never
+    /// reached the holder whole (nothing continues the segment, which stays
+    /// the custody copy and is planned again with the next adoption), or
+    /// the holder it went to still runs the terminal after a reconnect and
+    /// resumes it from its own ring.
+    pub(super) fn forget_adoption(&self) {
+        self.state.lock().recover_poison().adoption = None;
+    }
+
+    /// Before a new adoption: an earlier one whose answer never came (the
+    /// link ended first, or the holder refused it) leaves the daemon no
+    /// custody segment, so nobody can say what that holder read from the
+    /// PTY before it went away: the next holder starts at the resume
+    /// offset, and the stream is cut there.
+    pub(super) fn settle_unanswered_adoption(&self) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(cuts) = state.adoption.take() {
+            state.cut(cuts.resume);
+            drop(state);
+            self.changed.notify_all();
+        }
     }
 
     /// The holder is gone for good: the reader drains and the wait ends lost.
@@ -468,6 +531,17 @@ impl TerminalSink for HolderSink {
 
     fn acks_itself(&self) -> bool {
         true
+    }
+
+    fn adopted(&self, end: u64) {
+        let mut state = self.state.lock().recover_poison();
+        let Some(cuts) = state.adoption.take() else { return };
+        let continued = cuts.handed_end.is_some_and(|handed| end >= handed);
+        if let Some(at) = if continued { cuts.continued } else { cuts.fresh } {
+            state.cut(at);
+            drop(state);
+            self.changed.notify_all();
+        }
     }
 
     fn exit(&self, status: ExitStatus, _end: u64) {
