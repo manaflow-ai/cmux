@@ -413,14 +413,18 @@ export class HoverBridge {
   }
 
   private setRect(region: HoverBridgeRegion, rect: Rect | undefined): void {
-    if (region === "trigger") this.triggerRect = rect;
-    else this.cardRect = rect;
+    const usable = validRect(rect) ? rect : undefined;
+    if (region === "trigger") this.triggerRect = usable;
+    else this.cardRect = usable;
   }
 
   private inSafeZone(point: Point | undefined): boolean {
     if (!point) return false;
-    const trigger = this.triggerRect;
-    const card = this.cardRect;
+    // A JSDOM element (and a detached portal during teardown) reports an all-zero
+    // rect. It is not a safe zone: treating it as one makes a pointerdown at the
+    // default (0, 0) look like it is still on a pinned card forever.
+    const trigger = validRect(this.triggerRect) ? this.triggerRect : undefined;
+    const card = validRect(this.cardRect) ? this.cardRect : undefined;
     if (containsRect(trigger, point, HOVER_BRIDGE_PADDING) || containsRect(card, point, HOVER_BRIDGE_PADDING)) return true;
     if (!trigger || !card) return false;
     const from = nearestPoint(trigger, card);
@@ -433,11 +437,23 @@ const HOVER_BRIDGE_PADDING = 10;
 
 function containsRect(rect: Rect | undefined, point: Point, padding: number): boolean {
   return Boolean(
-    rect &&
+    validRect(rect) &&
       point.x >= rect.left - padding &&
       point.x <= rect.right + padding &&
       point.y >= rect.top - padding &&
       point.y <= rect.bottom + padding,
+  );
+}
+
+function validRect(rect: Rect | undefined): rect is Rect {
+  return Boolean(
+    rect &&
+      Number.isFinite(rect.left) &&
+      Number.isFinite(rect.top) &&
+      Number.isFinite(rect.right) &&
+      Number.isFinite(rect.bottom) &&
+      rect.right > rect.left &&
+      rect.bottom > rect.top,
   );
 }
 
