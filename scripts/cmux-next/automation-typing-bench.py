@@ -123,7 +123,8 @@ def terminal_of(workspace_name):
             for pane in screen.get("panes") or []:
                 for tab in pane.get("tabs") or []:
                     if tab.get("kind") == "terminal":
-                        return tab.get("id")
+                        # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
+                        return tab.get("terminal") or tab.get("id")
     return None
 
 
@@ -160,7 +161,7 @@ class Load(threading.Thread):
 def terminal_agents(tabs):
     def step(index):
         tab = tabs[index % len(tabs)]
-        done = cli("terminal", tab, "write", f"agent line {index} {'x' * 40}\n", timeout=20)
+        done = cli("terminal", tab, "write", "--text", f"agent line {index} {'x' * 40}\n", timeout=20)
         return done.returncode == 0
     return Load("terminals", step, opts.agent_hz)
 
