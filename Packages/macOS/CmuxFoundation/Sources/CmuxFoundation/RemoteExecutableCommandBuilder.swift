@@ -8,15 +8,20 @@ internal import Foundation
 public struct RemoteExecutableCommandBuilder: Sendable {
     private let executableName: String
     private let notFoundSentinel: String
+    private let executionPrologue: String
 
     /// Creates a resolver for one executable name.
     ///
     /// - Parameters:
     ///   - executableName: Basename to resolve, such as tmux or mosh-server.
     ///   - notFoundSentinel: Stable stderr text emitted with exit status 127.
-    public init(executableName: String, notFoundSentinel: String) {
+    ///   - executionPrologue: A `/bin/sh` fragment that runs after resolution and
+    ///     before the executable is `exec`ed, with the resolved path in
+    ///     `$cmux_executable_path`. One physical line, `;`-terminated, or empty.
+    public init(executableName: String, notFoundSentinel: String, executionPrologue: String = "") {
         self.executableName = executableName
         self.notFoundSentinel = notFoundSentinel
+        self.executionPrologue = executionPrologue
     }
 
     /// Returns argv that resolves the executable and runs it with the supplied arguments.
@@ -27,7 +32,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
         [
             "/bin/sh",
             "-c",
-            Self.executionShellScript,
+            executionShellScript,
             "cmux-remote-executable",
             executableName,
             notFoundSentinel,
@@ -43,7 +48,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
     /// - Returns: A command suitable for an OpenSSH remote-command string.
     public func remoteShellCommand(arguments: [String]) -> String {
         Self.remoteShellCommand(
-            script: Self.executionShellScript,
+            script: executionShellScript,
             arguments: ["cmux-remote-executable", executableName, notFoundSentinel] + arguments
         )
     }
@@ -66,7 +71,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
     /// server executable unchanged.
     public var remoteExecPrefixShellCommand: String {
         Self.remoteShellCommand(
-            script: Self.executionShellScript,
+            script: executionShellScript,
             arguments: ["cmux-remote-executable", executableName, notFoundSentinel]
         )
     }
@@ -76,10 +81,12 @@ public struct RemoteExecutableCommandBuilder: Sendable {
         "if [ -n \"$cmux_executable_path\" ]; then printf '%s\\n' \"$cmux_executable_path\"; exit 0; fi; " +
         "printf '%s\\n' \"$cmux_not_found_sentinel\" >&2; exit 127"
 
-    private static let executionShellScript =
-        resolverPrefix +
-        "if [ -n \"$cmux_executable_path\" ]; then exec \"$cmux_executable_path\" \"$@\"; fi; " +
+    private var executionShellScript: String {
+        Self.resolverPrefix +
+        "if [ -n \"$cmux_executable_path\" ]; then " + executionPrologue +
+        "exec \"$cmux_executable_path\" \"$@\"; fi; " +
         "printf '%s\\n' \"$cmux_not_found_sentinel\" >&2; exit 127"
+    }
 
     // Keep the resolver on one physical shell line so it is safe inside a
     // host-configured remote login shell before /bin/sh -c receives it.
