@@ -158,6 +158,30 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });
 
+  // The shimmer look rests a running row's words in the dim color only where ToolText mounts its
+  // band over them. A running row that draws its words some other way (a raw `cv-tool__text` span
+  // next to the spinner, as the dispatch card's line once did) keeps its own color: it has no band,
+  // so dimming it made the row look idle in the look whose purpose is to show work.
+  test("the shimmer look dims only words that carry its band", async () => {
+    const spinner =
+      `<span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
+      `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>`;
+    const body =
+      `<div class="cv-tool" id="plain">${spinner}<span class="cv-tool__text">Dispatching</span></div>` +
+      working("shimmer").replace('<div class="cv-tool">', '<div class="cv-tool" id="banded">') +
+      `<div class="cv-tool" id="idle"><span class="cv-tool__icon"></span><span class="cv-tool__text">Read</span></div>`;
+    // Distinct theme text colors, so dim and normal words read apart.
+    const theme = `:root { --agent-text: rgb(240, 240, 230); --agent-soft: rgb(120, 120, 110); }`;
+    const p = await inLook(await page(`${desktop}${pane}${theme}`, body, "no-preference"), "shimmer");
+    const color = (id: string) =>
+      p.evaluate((row) => getComputedStyle(document.querySelector(`#${row} .cv-tool__text`)!).color, id);
+    const [plain, banded, idle] = [await color("plain"), await color("banded"), await color("idle")];
+    await p.close();
+    expect(banded).toBe("rgb(120, 120, 110)");
+    expect(idle).not.toBe(banded);
+    expect(plain).toBe(idle);
+  });
+
   /** Every running endless animation that moves more than the compositor can (transform,
    * opacity): `<element> <keyframes>: <properties>`. */
   async function paintingLoops(p: Page): Promise<string[]> {
