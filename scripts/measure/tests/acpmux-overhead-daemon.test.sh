@@ -13,13 +13,25 @@ cp "$ROOT/scripts/measure/acpmux-overhead.sh" "$TMP/repo/scripts/measure/"
 echo '[workspace]' > "$TMP/repo/cmux-tui/Cargo.toml"  # the before worktree needs the directory
 for tool in scutil sw_vers; do printf '#!/bin/bash\necho stub\n' > "$TMP/bin/$tool"; done
 printf '#!/bin/bash\ncase "$2" in hw.ncpu) echo 8 ;; *) echo stub ;; esac\n' > "$TMP/bin/sysctl"
-# The stub cargo: STUB_BEFORE / STUB_AFTER pick what each side does (ok, over: a missed budget, broken: no build).
+# The stub cargo: STUB_BEFORE / STUB_AFTER pick what each side does (ok, over: a missed budget, broken: no build,
+# compile: perf_ops.rs does not compile, and rustc's error quotes the budget assert's line).
 cat > "$TMP/bin/cargo" <<'STUB'
 #!/bin/bash
 case "$PWD" in */before-src/*) side=before; mode="${STUB_BEFORE:-ok}" ;; *) side=after; mode="${STUB_AFTER:-ok}" ;; esac
 echo "   Compiling acpmux v0.1.0 ($side)"
 if [[ "$mode" == broken ]]; then
   echo "error: no test target named \`perf_ops\` in \`acpmux\` package" >&2
+  exit 101
+fi
+if [[ "$mode" == compile ]]; then
+  cat >&2 <<'RUSTC'
+error[E0609]: no field `over` on type `Report`
+   --> crates/acpmux/tests/perf_ops.rs:634:20
+    |
+634 |     assert!(report.over.is_empty(), "over the daemon budgets: {:#?}", report.over);
+    |                    ^^^^ unknown field
+error: could not compile `acpmux` (test "perf_ops") due to 1 previous error
+RUSTC
   exit 101
 fi
 echo "ACPMUX-PERF light._acpmux/status p50_ms=0.10 p95_ms=0.20 max_ms=0.30 n=100" >&2
@@ -72,5 +84,13 @@ run STUB_AFTER=broken --
 [[ "$code" -eq 1 ]] || fail "an after side that did not build exited $code: $out"
 grep -q '^ACPMUX-PERF-STATUS after exit=101' <<<"$out" || fail "no exit status for the broken after side: $out"
 grep -q "no test target named .perf_ops." <<<"$out" || fail "the after side's error is not in the step log: $out"
+
+# 5. A before side whose perf_ops.rs does not compile is a side that did not build, even though rustc's error
+#    quotes the budget assert's text: exit 3 (no comparison), and the compile log stays behind its label.
+run STUB_BEFORE=compile -- "before=$BEFORE"
+[[ "$code" -eq 3 ]] || fail "a before side that did not compile exited $code (read as over its budgets): $out"
+grep -q '^ACPMUX-PERF-STATUS before exit=101 result=failed' <<<"$out" || fail "the before side is not result=failed: $out"
+grep -q '^634 |' <<<"$out" && fail "the compile error spilled into the step log without its label: $out"
+grep -q '^ACPMUX-PERF-LOG before error\[E0609\]' <<<"$out" || fail "the before side's compile error is not in its log tail: $out"
 
 echo "PASS acpmux-overhead-daemon"
