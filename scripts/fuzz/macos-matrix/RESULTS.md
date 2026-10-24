@@ -10,7 +10,9 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
 |------------|-------------------|-----------------|--------|--------------|---------|--------------|--------|------|
 | 2026-10-24 | perf-1023-2138-v1 | 14.8.7 (23J520) | PASS   | -            | 0       | 0            | 0      |      |
 | 2026-10-24 | perf-1023-2138-v1 | 15.7.7 (24G720) | PASS   | -            | 0       | 0            | 0      | the image's "Allow sshd-session to find devices on local networks?" prompt is the guest SSH session, not cmux |
-| 2026-10-24 | perf-1023-2138-v1 | 26.6.2          | PASS   | -            | 0       | 0            | 0      | reference major |
+| 2026-10-24 | perf-1023-2138-v1 | 26.6.2          | PASS   | -            | 0       | 0            | 0      | reference major; same sshd-session prompt |
+| 2026-10-24 | perf-1023-2138-v1 | 14.8.7          | PASS   | -            | 0       | 0            | 0      | second run, hardened smoke (engine check, exit status 0 at quit, required steps) |
+| 2026-10-24 | perf-1023-2138-v1 | 15.7.7          | PASS   | -            | 0       | 0            | 0      | second run, hardened smoke |
 
 ## Fuzz (fuzz.py)
 
@@ -36,6 +38,8 @@ the two commits before their rebase (70a778e94d7 = 13a59eca442, 5babe8fcde1 = a9
 | 2026-10-20 | 5babe8fcde1 (fix, DEV) | 14.8.7 | replay seed 3, steps 0-113      | 114   | 0       | 0           | 0    | 0      | fixed |
 | 2026-10-20 | 5babe8fcde1 (fix, DEV) | 14.8.7 | 6                               | 816   | 0       | 0           | 0    | 0      | 1 disk-write report (see below) |
 | 2026-10-20 | nightly                | 15.7.7 | 8 (default browser skipped)     | 616   | 0       | 0           | 0    | 0      |      |
+| 2026-10-24 | perf-1023-2138-v1 (DEV, aws-m4pro-6, Tart 2.40.1, base images) | 14.8.7 | 11, `--minutes 15` | 616 | 0 | 0 | 0 | 0 | max ping 34 ms (VM, not comparable) |
+| 2026-10-24 | perf-1023-2138-v1 (DEV, aws-m4pro-6, Tart 2.40.1, base images) | 15.7.7 | 11, `--minutes 15` | 616 | 0 | 0 | 0 | 0 | max ping 35 ms (VM, not comparable) |
 
 ## Crash A: macOS 14, swift_task_dealloc abort on Close Window
 

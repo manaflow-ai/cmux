@@ -168,19 +168,28 @@ class Guest:
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "winfo.js")).read()
         subprocess.run(self.base + ["cat > /tmp/fuzz-winfo.js"], input=src, text=True, capture_output=True, timeout=30)
 
-    def launch(self, deadline: float = 180) -> bool:
-        """Start the app with the automation socket open to SSH clients; wait for a ping."""
+    def launch(self, deadline: float = 180, exit_file: str | None = None) -> bool:
+        """Start the app with the automation socket open to SSH clients; wait for a ping.
+
+        With `exit_file`, the guest shell waits for the app and writes its exit status there
+        (128 + the signal for a signal death), so a caller can tell a clean quit from a crash.
+        """
         plist = self.sh(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' {shlex.quote(self.app + '/Contents/Info.plist')}")
         self.binary = f"{self.app}/Contents/MacOS/{plist.stdout.strip()}"
         before = time.time()
         # Not `nohup`: dyld strips DYLD_* variables from SIP-protected binaries and their
-        # children, so the shell exports them and execs the app itself (ignoring SIGHUP).
-        self.sh(f"( trap '' HUP; export {self.env}; exec {shlex.quote(self.binary)} "
-                f">>/tmp/cmux-fuzz-app.log 2>&1 </dev/null ) & disown; true")
+        # children, so the shell exports them and starts the app itself (ignoring SIGHUP).
+        run = (f"{shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null; echo $? >{shlex.quote(exit_file)}"
+               if exit_file else f"exec {shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null")
+        if exit_file:
+            self.sh(f"rm -f {shlex.quote(exit_file)}")
+        self.sh(f"( trap '' HUP; export {self.env}; {run} ) & disown; true")
         while time.time() - before < deadline:
             r = self.sh("ls -t /tmp/cmux-*.sock 2>/dev/null | head -1")
             self.socket = r.stdout.strip()
-            if self.socket and self.ping_ms(3) is not None:
+            ms = self.ping_ms(3) if self.socket else None
+            # A ping that ran into its timeout is a hung app, not a launched one.
+            if ms is not None and ms < 3000:
                 # Bring the window forward so VNC keys reach it.
                 self.sh(f"open -a {shlex.quote(self.app)}")
                 return True

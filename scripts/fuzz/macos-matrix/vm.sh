@@ -18,8 +18,10 @@
 # Images, Tart, TART_HOME, the fleet host lock and the keychain rules are defined
 # by this script's images.json and the host environment. Env: FUZZ_HOST_LOCK (none: no lock),
 # FUZZ_ALLOW_PULL=1 (pull an image the Tart cache lacks; off by default, each is about 25 GB),
-# FUZZ_KEYCHAIN_PASSWORD_FILE (0600 file with the login password: unlocks a locked login
-# keychain for each VM, relocks after; Virtualization.framework keeps its host key there).
+# FUZZ_KEYCHAIN_PASSWORD_FILE (0600 file with the login password, read on stdin: run without a
+# tty, e.g. nohup ... </dev/null; unlocks a locked login keychain for each VM, relocks after;
+# Virtualization.framework keeps its host key there. A fleet step gets the keychain unlocked
+# by the worker instead).
 # For each major: clone the pinned image, boot headless with Virtualization.framework's
 # VNC server, copy the build in, run the suite (input over VNC, CLI over SSH), copy the
 # findings out, stop and delete the clone. Majors run one at a time under the host lock.
@@ -43,7 +45,7 @@ while [[ $# -gt 0 ]]; do
     --repro) REPRO=$2; shift 2 ;;
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
@@ -202,7 +204,9 @@ json.dump(rows, open(os.path.join(run, "matrix.json"), "w"), indent=2)
 print("artifacts:", run)
 print("MATRIX VERDICT", "FAIL" if bad else "PASS")
 if results:
-    with tarfile.open(results, "w:gz") as tar:
+    # A new file only, never through a link: the run has the account HOME.
+    fd = os.open(results, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as out, tarfile.open(fileobj=out, mode="w:gz") as tar:
         for name in sorted(os.listdir(run)):
             if name not in ("build.zip", "askpass.sh"):
                 tar.add(os.path.join(run, name), arcname=name)

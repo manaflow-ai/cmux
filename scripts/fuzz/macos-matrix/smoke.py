@@ -14,13 +14,16 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
              the terminal shows the output line cmux-matrix-42 (debug.surfaces text)
   split      Split Right makes a second pane (debug.focus topology)
   chromium   a Chromium tab loads a page served in the guest; debug.cef says Chromium is
-             ready with no unavailable reason and no WebKit fallback
-  webkit     a WebKit tab loads the same page
+             ready with no unavailable reason and no WebKit fallback; debug.layers shows a
+             cef page
+  webkit     a WebKit tab loads the same page; debug.layers shows a webkit page
   settings   Settings opens and paints (debug.page cmux.settings)
-  alive      the app still answers after the steps
-  quit       quitEndEverything ends the process within 30 s
+  alive      the app still answers a ping, within 10 s, after the steps
+  quit       quitEndEverything ends the process within 30 s with exit status 0 (the guest shell
+             that started the app records the status; a crash at quit is a signal status)
 Then it copies the app's crash (.ips), hang (.hang) and resource (.diag) reports, the app log
-and the unified-log faults of the cmux processes. A crash report fails the run.
+and the unified-log faults of the cmux processes. A crash report fails the run, and so does a
+missing step (a run that stopped early).
 
 Main-thread stalls of 1 s or more (debug.hangs) are recorded as a finding with the label
 "VM, not comparable": a VM has a paravirtual GPU and no ProMotion, so no timing from it is
@@ -51,6 +54,10 @@ QUIT_DEADLINE = 30  # s
 PAGE_PORT = 8737
 ECHO_COMMAND = "echo cmux-matrix-$((6*7)); touch /tmp/cmux-matrix-typed"
 ECHO_OUTPUT = "cmux-matrix-42"
+EXIT_FILE = "/tmp/cmux-matrix-app-exit"
+REPORT_DEADLINE = 30  # s: ReportCrash writes a report up to ~20 s after a death; it sends no signal over SSH
+# Every step a PASS needs: a run that stopped early (a death, a refused call) is never a PASS.
+REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit", "settings", "alive", "quit")
 
 
 class Smoke:
@@ -116,6 +123,11 @@ class Smoke:
         window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
         return len(window.get("topology") or [])
 
+    def engines(self) -> list[str]:
+        """Engines of the pages shown in the app's panes (debug.layers): "cef" or "webkit"."""
+        return [b.get("engine") for w in self.call("debug.layers").get("windows") or []
+                for b in w.get("browsers") or []]
+
     def page_state(self, url: str) -> dict | None:
         state = self.call("browser.page.state")
         return state if state.get("title") == TITLE and str(state.get("url", "")).startswith(url) else None
@@ -127,7 +139,7 @@ class Smoke:
         self.result["build"] = g.sh("sw_vers -buildVersion").stdout.strip()
         g.sh(": >/tmp/cmux-fuzz-app.log")
         started = time.time()
-        if not self.step("launch", g.launch(LAUNCH_DEADLINE), {"seconds_vm": round(time.time() - started, 1),
+        if not self.step("launch", g.launch(LAUNCH_DEADLINE, exit_file=EXIT_FILE), {"seconds_vm": round(time.time() - started, 1),
                                                                "socket": g.socket}):
             return
         if "error" in self.call("system.identify"):
@@ -171,15 +183,19 @@ class Smoke:
                                           "focus": True}, timeout=STEP_DEADLINE)
         state = self.wait(lambda: self.page_state(page + "?chromium"), STEP_DEADLINE)
         cef = self.call("debug.cef")
-        engine_ok = cef.get("state") == "ready" and not cef.get("unavailable") and not cef.get("fallback")
+        engines = self.engines()
+        engine_ok = (cef.get("state") == "ready" and not cef.get("unavailable") and not cef.get("fallback")
+                     and "cef" in engines)
         self.step("chromium", bool(state) and engine_ok and "error" not in opened,
-                  {"run": opened, "state": state or self.call("browser.page.state"),
+                  {"run": opened, "state": state or self.call("browser.page.state"), "engines": engines,
                    "cef": {k: cef.get(k) for k in ("state", "unavailable", "fallback", "default_engine", "error")}})
 
         opened = self.call("action.run", {"action": "openBrowser", "args": {"url": page + "?webkit", "engine": "webkit"},
                                           "focus": True})
         state = self.wait(lambda: self.page_state(page + "?webkit"), STEP_DEADLINE)
-        self.step("webkit", bool(state) and "error" not in opened, {"run": opened, "state": state or self.call("browser.page.state")})
+        engines = self.engines()
+        self.step("webkit", bool(state) and "webkit" in engines and "error" not in opened,
+                  {"run": opened, "state": state or self.call("browser.page.state"), "engines": engines})
 
         opened = self.call("settings.open", {"focus": True})
         painted = self.wait(lambda: self.call("debug.page", {"page": "cmux.settings"}).get("painted"), STEP_DEADLINE)
@@ -191,7 +207,13 @@ class Smoke:
         if stalls:
             self.result["findings"].append({"kind": "main-thread-stalls-over-1s", "label": "VM, not comparable",
                                             "stalls": stalls[:10]})
-        self.step("alive", g.ping_ms(10) is not None, {"pid": g.pid()})
+        ms = g.ping_ms(10)
+        # ping_ms gives its timeout for a hung app: only an answer before it counts.
+        self.step("alive", ms is not None and ms < 10000, {"pid": g.pid(), "ping_answered": ms is not None and ms < 10000})
+
+    def exit_status(self) -> int | None:
+        r = self.g.sh(f"cat {EXIT_FILE} 2>/dev/null")
+        return int(r.stdout.strip()) if r.stdout.strip().lstrip("-").isdigit() else None
 
     def finish(self) -> None:
         g = self.g
@@ -205,15 +227,28 @@ class Smoke:
             if not gone:
                 g.sh(f"sample {pid} 3 -file /tmp/cmux-matrix-quit.sample.txt >/dev/null 2>&1; kill -9 {pid}", timeout=30)
                 open(os.path.join(self.out, "quit-hang.sample.txt"), "w").write(g.sh("cat /tmp/cmux-matrix-quit.sample.txt").stdout)
-            self.step("quit", gone, {"run": reply, "detail": None if gone else f"still running {QUIT_DEADLINE} s after quit; sampled, killed"})
+            status = self.exit_status()
+            self.step("quit", gone and status == 0,
+                      {"run": reply, "exit_status": status,
+                       "detail": None if gone else f"still running {QUIT_DEADLINE} s after quit; sampled, killed"})
+        elif "launch" in self.result["steps"]:
+            self.step("quit", False, {"detail": "the app was gone before the quit", "exit_status": self.exit_status()})
         g.sh("kill $(cat /tmp/cmux-matrix-www.pid 2>/dev/null) 2>/dev/null; true")
-        # ReportCrash writes a report up to ~20 s after the exit: one bounded look after a pause.
-        time.sleep(5)
-        reports = []
-        for path in new_reports(g, self.since, set()):
-            name = os.path.basename(path)
-            open(os.path.join(self.out, name), "w").write(g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout)
-            reports.append({"kind": report_kind(name), "report": name})
+        # ReportCrash writes a report up to ~20 s after a death and sends no signal over SSH: after a
+        # death (exit status not 0) look until a report appears or the deadline passes.
+        reports: list[dict] = []
+        seen: set[str] = set()
+        died = self.exit_status() not in (0, None) or not self.result["steps"].get("quit", {}).get("ok", False)
+        end = time.time() + (REPORT_DEADLINE if died else 0)
+        while True:
+            for path in new_reports(g, self.since, seen):
+                seen.add(path)
+                name = os.path.basename(path)
+                open(os.path.join(self.out, name), "w").write(g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout)
+                reports.append({"kind": report_kind(name), "report": name})
+            if reports or time.time() >= end:
+                break
+            time.sleep(2)
         self.result["reports"] = reports
         open(os.path.join(self.out, "app.log"), "w").write(g.sh("cat /tmp/cmux-fuzz-app.log", timeout=30).stdout)
         faults = g.sh(f"log show --style ndjson --start '@{int(self.since)}' --predicate "
@@ -221,13 +256,14 @@ class Smoke:
         open(os.path.join(self.out, "faults.ndjson"), "w").write(faults.stdout)
         self.result["faults"] = sum(1 for line in faults.stdout.splitlines() if line.startswith("{"))
         failed = [name for name, s in self.result["steps"].items() if not s["ok"]]
+        missing = [name for name in REQUIRED_STEPS if name not in self.result["steps"]]
         crashes = [r for r in reports if r["kind"] == "crash"]
-        self.result.update(failed_steps=failed, crashes=len(crashes),
+        self.result.update(failed_steps=failed + [f"{name} (not run)" for name in missing], crashes=len(crashes),
                            hang_reports=sum(1 for r in reports if r["kind"] == "hang-report"),
-                           ok=bool(self.result["steps"]) and not failed and not crashes)
+                           ok=not failed and not missing and not crashes)
         json.dump(self.result, open(os.path.join(self.out, "result.json"), "w"), indent=1)
         print("SMOKE %s os=%s failed=%s crashes=%d" % ("PASS" if self.result["ok"] else "FAIL", self.result.get("os"),
-                                                       ",".join(failed) or "-", len(crashes)), flush=True)
+                                                       ",".join(self.result["failed_steps"]) or "-", len(crashes)), flush=True)
 
 
 # A one-file HTTP server in the guest's system perl (a base image's python3 may be the CLT stub).

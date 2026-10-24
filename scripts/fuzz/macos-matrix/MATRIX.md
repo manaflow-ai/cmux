@@ -69,21 +69,32 @@ fallback), `webkit` (a WebKit tab loads the same page), `settings` (Settings ope
 
 ### cmux-unit and xctrace in the guest
 
-Not supported. The base images have no Xcode, so neither Swift Testing (`swift test`, `xcodebuild test`) nor
-`xctrace` runs in the guest. The Cirrus Labs `macos-sequoia-xcode` image has Xcode, but it is a much larger image:
-aws-m4pro-6's old tart-ci home (`/Volumes/ephemeral0/cmux-ci/tart-home`) holds a `macos-sequoia-xcode:26.3`
-digest whose files are gone (a dangling tag), so it would be a new pull. There is no Sonoma image with Xcode 26
-(Xcode 26 needs macOS 15.6 or later), so cmux-unit on 14 needs a test bundle built on the fleet and run in the
-guest with `xctest`, which also needs Xcode or the Command Line Tools in the guest. Adding either is a decision
-for the fleet owner (disk and pull time).
+Not supported by the pinned base images: they have no Xcode, so neither Swift Testing (`swift test`,
+`xcodebuild test`) nor `xctrace` runs in them. A guest with Xcode can do both. Measured 2026-10-24 on
+aws-m4pro-6 with a CoW clone of the local `cmux-ci-sequoia-xcode-26-3` VM (macOS 15.7.3, Xcode 26.3, Swift
+6.2.4): `xctrace record --template "Time Profiler" --launch` records and `xctrace export` reads the
+`time-profile` table (4960 rows in 5 s); `CPU Counters` fails (a VM has no CPU performance counters).
+Images: `ghcr.io/cirruslabs/macos-sequoia-xcode` (Xcode 26.x, about 68 GB compressed, 140 GB disk) and
+`macos-sonoma-xcode` (newest Xcode 16.2 beta 3, about 63 GB compressed). Xcode 26 needs macOS 15.6 or later,
+so a macOS 14 guest has only Xcode 16, which cannot build cmux-next (Swift tools 6.2); there it could run
+a test bundle built on the fleet (`xctest`) or record with xctrace 16. A Time Profiler trace from a VM is
+correctness evidence (where the time goes), never a timing number. Adding an Xcode image is a decision for the
+fleet owner (disk and pull time).
 
 ### Host keychain
 
 Virtualization.framework keeps a host key in the login keychain. Tart fails with "Failed to get current host
 key" in a session without a keychain search list (Tailscale SSH) or with a locked keychain (OpenSSH without a
-GUI login, as a fleet step). vm.sh unlocks the login keychain for each VM from `FUZZ_KEYCHAIN_PASSWORD_FILE`
-(a 0600 file; the worker passes `CMUX_CI_TART_KEYCHAIN_PASSWORD_FILE`) when it is locked, and locks it again
-after the VM. So the worker has one VM token: a second VM could lose the keychain while it boots.
+GUI login, as a fleet step). On the fleet the worker unlocks the login keychain from `CMUX_CI_TART_KEYCHAIN_PASSWORD_FILE` when it is locked
+and locks it again in its cleanup (also after a cancel or a timeout). By hand, vm.sh does the same for each VM
+from `FUZZ_KEYCHAIN_PASSWORD_FILE` (a 0600 file, read on stdin: run without a tty). So the worker has one VM
+token: a second VM could lose the keychain while it boots.
+
+### Guest prompts that are not cmux
+
+The macOS 15 and 26 images show "Allow sshd-session to find devices on local networks?" over the app: the
+guest SSH session that drives the run asks for Local Network access. It is not cmux, and the smoke and the fuzz
+drive the app through the control socket, so it does not change a verdict. It covers part of the screenshots.
 
 
 ## Fuzzer
