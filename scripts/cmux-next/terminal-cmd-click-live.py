@@ -24,10 +24,11 @@ and in a full-screen program that reads the mouse (a fixture TUI, as Claude Code
      hover reports the whole URL;
   9. `src/app.ts:3:5` opens the code editor at line 3, column 5;
 
-and, with --agent PATH, in real Codex (it reads the mouse and wraps its own lines):
+and, with --agent codex=PATH / claude=PATH, in real Codex or Claude Code:
 
- 10. a URL Codex printed, wrapped onto rows by Codex, shows and opens whole with Command;
- 11. a path:line Codex printed opens the file at that line.
+ 10. a long URL the agent printed, on several rows, shows whole with the hand and every row
+     underlined, and a Cmd-click on its first or last row opens it whole;
+ 11. a path:line the agent printed opens the file at that line.
 
 Window snapshots go to --out. GUI host only (a capture mini). Exits 1 when a check fails.
 """
@@ -40,7 +41,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="terminal-cmd-click-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
-parser.add_argument("--agent", help="also run a real agent CLI at this path (Codex) that prints a long URL and a path")
+parser.add_argument("--agent", action="append", default=[],
+                    help="KIND=PATH (codex or claude, repeatable): also run that real agent CLI, which prints a long URL and a path")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -196,7 +198,8 @@ def presses():
     return len(re.findall(r"\x1b\[<0;\d+;\d+[Mm]", data))
 
 
-AGENT_URL = "https://example.com/codex-check/" + "-".join(f"part{i:02d}" for i in range(24)) + "/end?ok=1"
+def agent_url(kind):
+    return f"https://example.com/{kind}-check/" + "-".join(f"part{i:02d}" for i in range(24)) + f"/end?{kind}=1"
 
 
 def viewport_rows(marker):
@@ -209,61 +212,87 @@ def viewport_rows(marker):
     return None
 
 
-def run_agent():
-    """Real Codex prints a long URL and a path; Command over each shows and opens it."""
+AGENT_NAMES = {"codex": "Codex", "claude": "Claude Code"}
+
+
+def run_agent(kind, path):
+    """A real agent prints a long URL and a path; Command over each shows and opens it."""
+    name, url, marker = AGENT_NAMES[kind], agent_url(kind), f"{kind}=1"
     links(modifiers=[])
-    prompt = f"Reply with exactly these two lines and nothing else. Line 1: {AGENT_URL} Line 2: Edited src/app.ts:3:5"
-    send(f"clear && cd {REPO} && {opts.agent} -a never -s read-only '{prompt}'\n")
-    rows = wait_for(lambda: (lambda r: r if r and any("ok=1" in row for row in r) and any("src/app.ts:3:5" in row and "Line" not in row for row in r) else None)(viewport_rows("ok=1")),
-                    "Codex printed the URL and the path", 180)
-    time.sleep(2)  # test harness: Codex finishes drawing its turn
-    rows = viewport_rows("ok=1") or rows or []
-    with open(os.path.join(opts.out, "agent-viewport.txt"), "w") as f:
+    prompt = f"Reply with exactly these two lines and nothing else. Line 1: {url} Line 2: Edited src/app.ts:3:5"
+    flags = "-a never -s read-only" if kind == "codex" else "--permission-mode plan"
+    send(f"clear && cd {REPO} && {path} {flags} '{prompt}'\n")
+    if kind == "claude":
+        # A new folder asks whether to trust it: Down to "Yes, I trust this folder", then Return, as keys.
+        if quiet_wait(lambda: viewport_rows("trust this folder"), 60):
+            rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
+            time.sleep(0.5)  # test harness: the terminal takes focus
+            rpc("debug.key", {"key": "down"})
+            rpc("debug.key", {"key": "return"})
+    # The reply, not the echoed prompt: the URL's end and a path line without "Line 2:".
+    rows = wait_for(lambda: (lambda r: r if r and sum(marker in row for row in r) >= 2
+                             and any("src/app.ts:3:5" in row and "Line" not in row for row in r) else None)(viewport_rows(marker)),
+                    f"{name} printed the URL and the path", 240)
+    if not rows:
+        texts = [pane.get("text") or "" for window in rpc("debug.surfaces", {"text": True}).get("windows") or []
+                 for pane in window.get("panes") or []]
+        with open(os.path.join(opts.out, f"{kind}-screen.txt"), "w") as f:
+            f.write("\n=====\n".join(texts))
+        snapshot(f"{kind}-no-reply")
+        return
+    time.sleep(3)  # test harness: the agent finishes drawing its turn
+    rows = viewport_rows(marker) or rows or []
+    with open(os.path.join(opts.out, f"{kind}-viewport.txt"), "w") as f:
         f.write("\n".join(rows))
-    start = next((i for i, row in enumerate(rows) if "https://example.com/codex-check" in row and "Line" not in row.split("https")[0]), None)
-    end = next((i for i, row in enumerate(rows) if "ok=1" in row and (start is None or i >= start)), None)
-    check(start is not None and end is not None, f"found the URL Codex drew (rows {start}..{end})")
+    # The last copy of the URL on screen: the agent's reply.
+    end = max((i for i, row in enumerate(rows) if marker in row), default=None)
+    start = None
+    if end is not None:
+        start = max((i for i in range(end + 1) if f"https://example.com/{kind}-check" in rows[i]), default=None)
+    check(start is not None and end is not None, f"found the URL {name} drew (rows {start}..{end})")
     if start is None or end is None:
         return
-    report["agent_rows"] = [start, end]
-    check(end > start, f"Codex broke the URL onto {end - start + 1} rows itself")
+    report[f"{kind}_rows"] = [start, end]
+    check(end > start, f"{name} drew the URL on {end - start + 1} rows")
     col = rows[start].index("https://") + 10
     hover(col, start, keys=())
     links(modifiers=["command"])
     settle()
     state = hover(col + 1, start)
-    print(f"pointer over Codex's URL: hovered={state.get('hovered')!r} wrapped={(state.get('wrapped') or '')[:40]!r} hand={state.get('pointingHand')}", flush=True)
+    print(f"pointer over {name}'s URL: hovered={state.get('hovered')!r} wrapped={(state.get('wrapped') or '')[:40]!r} hand={state.get('pointingHand')}", flush=True)
     time.sleep(2)  # test harness: a later shape change from Ghostty or the program would show here
     later = links()
     print(f"2 s later: hovered={later.get('hovered')!r} wrapped={(later.get('wrapped') or '')[:40]!r} hand={later.get('pointingHand')}", flush=True)
     shown = state.get("wrapped") or state.get("hovered")
-    check(shown == AGENT_URL, f"Command over Codex's URL shows the whole URL ({(shown or '')[:70]!r})")
-    check(state.get("pointingHand") is True, f"the pointer shows the pointing hand over Codex's URL ({state.get('pointingHand')!r})")
-    check(state.get("wrapped") == AGENT_URL, f"every row of Codex's URL is underlined ({(state.get('wrapped') or '')[:50]!r})")
-    snapshot("codex-url-hover")
+    check(shown == url, f"Command over {name}'s URL shows the whole URL ({(shown or '')[:70]!r})")
+    check(state.get("pointingHand") is True, f"the pointer shows the pointing hand over {name}'s URL ({state.get('pointingHand')!r})")
+    if end > start:
+        check(state.get("wrapped") == url, f"every row of {name}'s URL is underlined ({(state.get('wrapped') or '')[:50]!r})")
+    snapshot(f"{kind}-url-hover")
     opened = click(col + 1, start)
-    check(opened == [f"system:{AGENT_URL}"], f"Cmd-click on Codex's URL opens it whole ({[o[:80] for o in opened]})")
+    check(opened == [f"system:{url}"], f"Cmd-click on {name}'s URL opens it whole ({[o[:80] for o in opened]})")
     if end > start:
         last = rows[end]
-        lcol = max(0, last.index("ok=1") - 2)
+        lcol = max(0, last.index(marker) - 2)
         hover(lcol, end)
         opened = click(lcol, end)
-        check(opened == [f"system:{AGENT_URL}"], f"Cmd-click on the URL's last row opens it whole ({[o[:80] for o in opened]})")
-    prow = next((i for i, row in enumerate(rows) if "src/app.ts:3:5" in row and "Line" not in row), None)
-    if check(prow is not None, "found the path Codex drew"):
+        check(opened == [f"system:{url}"], f"Cmd-click on the URL's last row opens it whole ({[o[:80] for o in opened]})")
+    prow = max((i for i, row in enumerate(rows) if "src/app.ts:3:5" in row and "Line" not in row), default=None)
+    if check(prow is not None, f"found the path {name} drew"):
         pcol = rows[prow].index("src/app.ts:3:5") + 4
         hover(pcol, prow)
         hover(pcol + 1, prow)
         state = links()
-        snapshot("codex-path-hover")
+        snapshot(f"{kind}-path-hover")
         opened = click(pcol + 1, prow)
         check(any(entry.startswith("file:") and entry.endswith("src/app.ts:3:5") for entry in opened),
-              f"Cmd-click on Codex's src/app.ts:3:5 opens the file at line 3, column 5 ({opened}; hovered {state.get('hovered')!r})")
+              f"Cmd-click on {name}'s src/app.ts:3:5 opens the file at line 3, column 5 ({opened}; hovered {state.get('hovered')!r})")
         time.sleep(2)  # test harness: the editor page loads
-        snapshot("codex-editor-at-line")
+        snapshot(f"{kind}-editor-at-line")
     links(modifiers=[])
-    send("\x03")
-    send("\x03")
+    for _ in range(3):  # the agent quits on a second Ctrl-C
+        send("\x03")
+        time.sleep(1)  # test harness: the agent handles each Ctrl-C
 
 
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
@@ -453,8 +482,9 @@ try:
     snapshot("editor-at-line")
     send("q")
     time.sleep(1)  # test harness: the fixture TUI leaves the alternate screen
-    if opts.agent:
-        run_agent()
+    for spec in opts.agent:
+        kind, _, path = spec.partition("=")
+        run_agent(kind, path)
 finally:
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         report["failures"] = failures
