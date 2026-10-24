@@ -243,6 +243,22 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(executor.indices.isEmpty)
     }
 
+    /// An op's member at the batch level (`origin`, `target`, `focus`) is refused, as `action.run`
+    /// refuses an unknown argument: ignored, every op would run with its default (origin `cli`).
+    @Test(arguments: ["origin", "target", "focus"])
+    func anOpMemberAtTheBatchLevelIsRefusedNotIgnored(member: String) async {
+        let executor = IndexRecordingExecutor()
+        let value: JSONValue = member == "focus" ? false : (member == "origin" ? "script" : "tab:1")
+        guard case .failure(let error) = await batch(router(executor), ["ops": ops([1]), member: value]) else {
+            Issue.record("a batch-level \(member) was ignored")
+            return
+        }
+        #expect(error.code == "invalid_params", "\(error)")
+        #expect(error.message.contains(member))
+        #expect(error.data?["not_run"] == true)
+        #expect(executor.indices.isEmpty)
+    }
+
     @Test func aRetryWithTheKeyReplaysAndAnotherBatchWithItConflicts() async throws {
         let executor = IndexRecordingExecutor()
         let router = router(executor)
