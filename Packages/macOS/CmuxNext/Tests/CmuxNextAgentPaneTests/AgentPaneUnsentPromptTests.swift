@@ -134,6 +134,7 @@ struct AgentPaneUnsentPromptTests {
         let replacement = AcpmuxStandInServer()
         try await replacement.start()
         defer { replacement.stop() }
+        replacement.hold("session/prompt")
         let run2 = try await Self.pane(replacement, journal: AgentPanePromptJournal(url: url))
         await Self.barrier(run2, id: 2)
         let resent = Self.prompts(replacement, peer: 0)
