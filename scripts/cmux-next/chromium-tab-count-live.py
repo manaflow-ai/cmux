@@ -171,6 +171,23 @@ class Sampler:
             self.thread.join(60)
 
 
+def app_specific_vm(pid):
+    """The app's VM regions by tag from `vmmap -summary` (PartitionAlloc is App-Specific Tag 14, VM tag 253):
+    the deaths at 143 tabs (2026-10-24, cmux7s and cmux10s) trapped in Chromium's allocator with ~41 GB and
+    ~39,000 regions of that tag, while memory was free."""
+    try:
+        out = subprocess.run(["/usr/bin/vmmap", "-summary", str(pid)], capture_output=True, text=True, timeout=120).stdout
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": repr(error)[:120]}
+    rows = {}
+    for line in out.splitlines():
+        if line.startswith("App-Specific Tag") or line.startswith("Guard ") or line.startswith("TOTAL") or line.startswith("Malloc "):
+            name = line[:33].strip()
+            fields = line[33:].split()
+            rows[name] = fields[:2]
+    return rows
+
+
 def main():
     started = time.time()
     cap = report_cap()
@@ -197,7 +214,7 @@ def main():
                 cef = bench.rpc("debug.cef", timeout=30) or {}
                 alive = bench.process.poll() is None and "error" not in cef
                 row = {"tabs": opened, "alive": alive, "open_files": open_files(pid), "footprint_mb": cef.get("footprint_mb"),
-                       **process_stats(pid)}
+                       **process_stats(pid), "vm": app_specific_vm(pid) if alive else None}
                 rows.append(row)
                 print("COUNT " + json.dumps(row), flush=True)
                 if not alive:
