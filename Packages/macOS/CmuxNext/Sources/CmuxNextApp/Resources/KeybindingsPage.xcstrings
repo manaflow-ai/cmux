@@ -5372,395 +5372,133 @@
         }
       }
     },
-    "keybindings.page.recorder.alsoUsedBy": {
+    "keybindings.page.recorder.keepBoth": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Also used by %@"
+            "value": "Keep Both"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ でも使用中"
+            "value": "両方を保持"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مستخدم أيضًا بواسطة %@"
+            "value": "الاحتفاظ بالاثنين"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Također koristi: %@"
+            "value": "Zadrži oba"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bruges også af %@"
+            "value": "Behold begge"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Auch belegt durch %@"
+            "value": "Beide behalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "También lo usa %@"
+            "value": "Conservar ambos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Également utilisé par %@"
+            "value": "Garder les deux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usato anche da %@"
+            "value": "Mantieni entrambi"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ក៏ត្រូវបានប្រើដោយ %@"
+            "value": "រក្សាទុកទាំងពីរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@에서도 사용 중"
+            "value": "둘 다 유지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brukes også av %@"
+            "value": "Behold begge"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Używane także przez: %@"
+            "value": "Zachowaj oba"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Também usado por %@"
+            "value": "Manter ambos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Также используется: %@"
+            "value": "Оставить оба"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้โดย %@ ด้วย"
+            "value": "เก็บทั้งสอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ tarafından da kullanılıyor"
+            "value": "İkisini de koru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Також використовується: %@"
+            "value": "Залишити обидва"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cũng được dùng bởi %@"
+            "value": "Giữ cả hai"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "也被“%@”使用"
+            "value": "保留两者"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "也被「%@」使用"
-          }
-        }
-      }
-    },
-    "keybindings.page.recorder.keepsBoth": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ takes it where it runs. %2$@ keeps it everywhere else."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ は実行できる場所で使い、%2$@ はそれ以外の場所で使い続けます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يستخدمه %1$@ حيث يعمل، ويحتفظ به %2$@ في كل مكان آخر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ ga koristi gdje radi. %2$@ ga zadržava svugdje drugdje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ bruger den, hvor den kører. %2$@ beholder den alle andre steder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ nutzt ihn, wo es läuft. %2$@ behält ihn überall sonst."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ lo usa donde funciona. %2$@ lo conserva en el resto."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ le prend là où il s’exécute. %2$@ le garde partout ailleurs."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ lo usa dove funziona. %2$@ lo mantiene ovunque altrove."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ ប្រើវានៅកន្លែងដែលវាដំណើរការ។ %2$@ រក្សាវានៅកន្លែងផ្សេងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@은(는) 실행되는 곳에서 사용하고, %2$@은(는) 그 밖의 모든 곳에서 유지합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ bruker den der den kjører. %2$@ beholder den alle andre steder."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ używa go tam, gdzie działa. %2$@ zachowuje go wszędzie indziej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ usa onde funciona. %2$@ mantém em todos os outros lugares."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ использует его там, где работает. %2$@ сохраняет его во всех остальных местах."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ ใช้ในที่ที่ทำงานได้ %2$@ ยังใช้ในที่อื่นทั้งหมด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ çalıştığı yerde kullanır. %2$@ diğer her yerde korur."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ використовує його там, де працює. %2$@ зберігає його в усіх інших місцях."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ dùng phím này ở nơi nó chạy. %2$@ giữ nó ở mọi nơi khác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ 在其可运行的地方使用，%2$@ 在其他地方保留。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ 在其可執行的地方使用，%2$@ 在其他地方保留。"
-          }
-        }
-      }
-    },
-    "keybindings.page.recorder.save": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存 %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "حفظ %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sačuvaj %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gem %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sichern %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Guardar %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Enregistrer %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Salva %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រក្សាទុក %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "저장 %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lagre %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapisz %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Salvar %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сохранить %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "บันทึก %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaydet %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Зберегти %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lưu %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "保存 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "儲存 %@"
+            "value": "保留兩者"
           }
         }
       }

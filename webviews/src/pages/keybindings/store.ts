@@ -59,7 +59,7 @@ export interface ConflictPrompt {
   display: string;
   /** The entries the keys would take (`cmux.keybindings.conflicts`). */
   conflicts: Binding[];
-  /** The others keep the keys where only they run: Save keeps both (else Overwrite takes them). */
+  /** The app lets both keep the keys (they share some contexts only): the recorder offers Keep both. */
   keepBoth: boolean;
   /** After the answer: the recording goes on (a release asked), or closes (Close or Return). */
   after: "continue" | "close";
@@ -319,9 +319,9 @@ export class KeybindingsStore {
   }
 
   /** The recorder's answer to keys another action has: `overwrite` takes them from the other
-   *  actions first, then saves them (a key that action always runs is free then); `close` saves
+   *  actions first, then saves them; `keep` saves them and leaves the others theirs; `close` saves
    *  nothing and closes. A new shortcut instead drops the question (onRecorded). */
-  async resolveConflict(choice: "overwrite" | "save" | "close"): Promise<void> {
+  async resolveConflict(choice: "overwrite" | "keep" | "close"): Promise<void> {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row" || !recording.prompt) return;
     const { prompt } = recording;
@@ -340,8 +340,8 @@ export class KeybindingsStore {
     // While the writes run the recorder holds no keys of its own: Return's release (the key
     // that answered) must not commit these keys a second time.
     this.set({ recording: { ...asked, key: "" } });
-    // Save keeps the other actions' keys (they keep them where only they run).
-    for (const other of choice === "save" ? [] : prompt.conflicts) {
+    // Keep both leaves the other actions their keys (where only they run, they still do).
+    for (const other of choice === "keep" ? [] : prompt.conflicts) {
       try {
         await this.client?.call(KeybindingOps.remove, {
           command: other.command,
@@ -412,7 +412,7 @@ export class KeybindingsStore {
         return;
       }
       if (only.length === 1 && (only[0] === "return" || only[0] === "enter")) {
-        void this.resolveConflict(recording.prompt.keepBoth ? "save" : "overwrite");
+        void this.resolveConflict("overwrite");
         return;
       }
       if (event.released || !event.key) return;
@@ -495,8 +495,7 @@ export class KeybindingsStore {
         key,
         display,
         held: "",
-        // The red light is for keys one of the two would lose everywhere they share.
-        warned: keepBoth ? current.warned : warned,
+        warned,
         prompt: { key, display, conflicts, keepBoth, after },
       });
       return;
