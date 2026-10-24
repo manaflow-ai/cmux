@@ -298,25 +298,12 @@ class RuleTests(Fixture):
 
     def test_a_new_block_opened_around_old_debt_adds_none(self):
         # A context rule judges an unchanged line again when one of its openers changed. The base copy of that
-        # line is judged too: a static of a class that a new nested class now wraps was debt before and after.
-        body = "    let a = 0\n    let b = 0\n    static let live = 1\n}\n"
-        self.rebase_on({f"{KIT}/Cache.swift": "final class Cache {\n" + body}, "old debt")
-        self.write(f"{KIT}/Cache.swift", "final class Cache {\nfinal class Store {\n" + body + "}\n")
-        self.commit("a nested class around the old static")
+        # line is judged too: a store in a row that a new nested row now wraps was debt before and after.
+        body = "    let a = 0\n    let b = 0\n    @Environment(SidebarStore.self) private var store\n}\n"
+        self.rebase_on({f"{KIT}/Entry.swift": "import SwiftUI\nstruct EntryRow: View {\n" + body}, "old debt")
+        self.write(f"{KIT}/Entry.swift", "import SwiftUI\nstruct EntryRow: View {\nstruct InnerRow: View {\n" + body + "}\n")
+        self.commit("a nested row around the old store")
         self.assertEqual(self.refused(), [])
-
-    def test_a_struct_that_becomes_a_class_around_a_named_static_is_refused(self):
-        start = self.base
-        for name, after in (
-            ("static unchanged", "final class Prefs {\n    static let standard = Prefs()\n}\n"),
-            ("static edited", "final class Prefs {\n    static let standard = Prefs(suite: 2)\n}\n"),
-        ):
-            with self.subTest(name):
-                self.git("reset", "--quiet", "--hard", start)
-                self.rebase_on({f"{KIT}/Prefs.swift": "struct Prefs {\n    static let standard = Prefs()\n}\n"})
-                self.write(f"{KIT}/Prefs.swift", after)
-                self.commit("struct -> class")
-                self.assertEqual([rule for rule, _ in self.refused()], ["singleton"])
 
     def test_an_edit_of_the_opener_around_old_debt_adds_none(self):
         row = ("import SwiftUI\nstruct EntryRow: View {\n    @Environment(SidebarStore.self) private var store\n"
@@ -2156,10 +2143,9 @@ class SleepRuleTests(unittest.TestCase):
 class BlobReadTests(Fixture):
     """The file texts come from one `git cat-file --batch`; a failed read must stop the check, not judge lines alone."""
 
-    # A value constant (passes) and an escaped singleton (passes): both need the file's text to be judged.
-    TEXT = ("struct Style {\n    static let standard = Style()\n}\n"
-            "final class Hub {\n    // singleton-allow: the process has one memory-pressure source\n"
-            "    static let shared = Hub()\n}\n")
+    # An escaped main hop (passes): its escape is on the line above, so judging it needs the file's text.
+    TEXT = ("func f() {\n    // main-async-allow: AppKit's sheet callback API forces a GCD hop\n"
+            "    DispatchQueue.main.async { print(1) }\n}\n")
 
     def fake_git(self, body):
         """Put a `git` first on PATH whose `cat-file` runs BODY (sh) and whose other commands are the real git."""
@@ -2179,13 +2165,13 @@ class BlobReadTests(Fixture):
         # there is a push that never returns. This git refuses a piped request instead of hanging the test.
         self.fake_git("    if [ -p /dev/stdin ]; then echo 'fake git: piped stdin hangs here' >&2; exit 1; fi")
         self.write(f"{KIT}/Added.swift", self.TEXT)
-        self.commit("a value constant and an escaped singleton")
+        self.commit("an escaped main hop")
         self.assertEqual(self.refused(), [])
 
     def test_a_failed_blob_read_stops_the_check_and_the_hook_fails_open(self):
         self.fake_git("    echo 'fake git: cat-file failed' >&2; exit 1")
         self.write(f"{KIT}/Added.swift", self.TEXT)
-        self.commit("a value constant and an escaped singleton")
+        self.commit("an escaped main hop")
         with self.assertRaises(Exception):
             self.check()
         spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
@@ -2195,13 +2181,14 @@ class BlobReadTests(Fixture):
         stderr = io.StringIO()
         try:
             with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()) as stdout:
-                refused = gate.guardrails(self.repo, [(self.base, "HEAD")], SOURCE / "scripts/cmux-next")
+                ranges = [(self.base, "HEAD")]
+                refused = gate.guardrails(self.repo, ranges, gate.start_guardrails(self.repo, ranges, SOURCE / "scripts/cmux-next"))
         finally:
             os.environ.update(saved)
             sys.modules[_spec.name] = guardrails
         self.assertFalse(refused, stdout.getvalue())
         self.assertIn("guardrails.py failed", stderr.getvalue())
-        self.assertNotIn("[singleton]", stdout.getvalue())
+        self.assertNotIn("[main-async]", stdout.getvalue())
 
 
 class GateWrapperTests(Fixture):
