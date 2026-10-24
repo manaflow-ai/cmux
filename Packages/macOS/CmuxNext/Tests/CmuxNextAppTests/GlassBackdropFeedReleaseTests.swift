@@ -13,7 +13,9 @@ import Testing
 /// is the control; only the off-main case is red before the fix.
 ///
 /// It lives in CmuxNextAppTests (not CmuxNextDesignTests, with the other Design release tests)
-/// because it builds a ``FrameScheduler`` and this target already links CmuxNextWakeups.
+/// because it builds a ``FrameScheduler``: this target lists CmuxNextWakeups as a dependency, and
+/// CmuxNextDesignTests does not (it would import it only through CmuxNextDesign's own dependency).
+/// Moving it there means adding CmuxNextWakeups to that test target in Package.swift.
 @MainActor @Suite
 struct GlassBackdropFeedReleaseTests {
     /// A display link that never fires: a ``FrameScheduler`` built on it ticks only when told.
