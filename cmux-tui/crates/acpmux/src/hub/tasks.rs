@@ -109,8 +109,9 @@ pub(crate) fn brief_text(row: &Value) -> String {
     )
 }
 
-/// The card's text: the result as the giver reads it.
-fn card_text(row: &Value, result: &Value) -> String {
+/// The card's text: the result as the giver reads it, and who ended the task when its lane
+/// (named `lane`) did not.
+fn card_text(row: &Value, result: &Value, lane: &str) -> String {
     fn field<'a>(v: &'a Value, key: &str) -> &'a str {
         v.get(key).and_then(Value::as_str).unwrap_or_default()
     }
@@ -129,6 +130,10 @@ fn card_text(row: &Value, result: &Value) -> String {
     if let Some(why) = result.get("why").and_then(Value::as_str) {
         text.push_str(&format!("\nWhy: {why}"));
     }
+    let by = field(result, "by");
+    if !by.is_empty() && by != lane {
+        text.push_str(&format!("\nEnded by: {by}"));
+    }
     text
 }
 
@@ -144,9 +149,10 @@ impl Hub {
         let Ok(giver) = self.resolve(to) else { return };
         let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
         let (id, lane, result) = (field("briefId"), field("sessionId"), &row["result"]);
+        let lane_name = self.session_name(lane);
         let provenance = crate::prompt_provenance::task_result(
             lane,
-            &self.session_name(lane),
+            &lane_name,
             &giver.id,
             id,
             result["state"].as_str().unwrap_or_default(),
@@ -157,7 +163,7 @@ impl Hub {
             provenance: Some(provenance),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": card_text(row, result)})];
+        let blocks = vec![json!({"type": "text", "text": card_text(row, result, &lane_name)})];
         let hub = self.clone();
         // Off the report's path: the call returns, and the giver's turn runs.
         tokio::spawn(async move {

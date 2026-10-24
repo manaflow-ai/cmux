@@ -32,9 +32,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn open(hub: &Arc<Hub>) -> Self {
+        Self::from(hub, Origin::Local)
+    }
+
+    fn from(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Self(in_tx, out_rx, 0)
     }
 
@@ -199,6 +203,11 @@ async fn a_blocked_task_says_why_and_a_task_is_given_only_to_a_session_here() {
     assert_eq!(refused.pointer("/error/data/reason"), Some(&json!("task.result_invalid")));
     let mut blocked = blocked;
     blocked["why"] = json!("every runner is offline");
+    // A Web or peer connection proves no session: its result would read as the lane's.
+    for origin in [Origin::Web, Origin::Peer] {
+        let refused = Client::from(&hub, origin).reply("_acpmux/report", blocked.clone()).await;
+        assert_eq!(refused.pointer("/error/data/reason"), Some(&json!("task.not_yours")));
+    }
     from_lane.call("_acpmux/report", blocked).await;
     let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await.remove(0);
     assert_eq!(
@@ -216,4 +225,20 @@ async fn a_blocked_task_says_why_and_a_task_is_given_only_to_a_session_here() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let cards = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
     assert_eq!(cards.len(), 1, "{cards:?}");
+
+    // The person at this machine's terminal may end a task; the card says it was not the lane.
+    let given = from_coordinator
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Rerun the nightly"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    let done = json!({"briefId": id, "status": "done", "summary": "Reran it by hand"});
+    person.call("_acpmux/report", done).await;
+    let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await.remove(0);
+    let text = card["text"].as_str().unwrap();
+    assert!(
+        text.starts_with(&format!(
+            "Task {id} \"Rerun the nightly\" done: Reran it by hand\nEnded by: "
+        )),
+        "{text}"
+    );
 }

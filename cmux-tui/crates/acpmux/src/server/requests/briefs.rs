@@ -189,14 +189,23 @@ pub(super) async fn report(
 /// Refused unless the caller may end task `id` (`row`): its own session, the chat that gave it,
 /// or a client that runs in no session (the person at a shell).
 fn task_reporter(conn: &Conn, id: &str, row: &Value) -> Result<(), RpcError> {
-    let Some(caller) = conn.caller() else { return Ok(()) };
+    let not_yours = |message: String| {
+        Err(RpcError::invalid_params(message).with_data(json!({"reason": "task.not_yours"})))
+    };
+    let Some(caller) = conn.caller() else {
+        // The person on this machine (its socket, or the app's pane) may end it; a Web or peer
+        // connection proves no session, and its result would read as the lane's.
+        if conn.origin.web_class() {
+            return not_yours(format!("task {id} is ended on this machine only"));
+        }
+        return Ok(());
+    };
     if [&row["sessionId"], &row["fromSession"]].iter().any(|owner| owner.as_str() == Some(caller)) {
         return Ok(());
     }
-    Err(RpcError::invalid_params(format!(
+    not_yours(format!(
         "task {id} is not this session's: only its own session or the chat that gave it ends it"
     ))
-    .with_data(json!({"reason": "task.not_yours"})))
 }
 
 /// `_acpmux/task_new`: a brief for session `sessionId` on this daemon, sent to it as the caller's
