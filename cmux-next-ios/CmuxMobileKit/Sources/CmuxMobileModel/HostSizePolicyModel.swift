@@ -52,7 +52,7 @@ public final class HostSizePolicyModel {
     @ObservationIgnored private var saveEpoch = 0
 
     /// What a Mac that lets no phone change its policy refuses with.
-    public static let phoneRefusedMessage = "This Mac's cmux doesn't allow changing it from a phone."
+    public nonisolated static let phoneRefusedMessage = "This Mac's cmux doesn't allow changing it from a phone."
 
     public init(macID: String, surface: Int? = nil, service: (any TerminalSizingService)?) {
         self.macID = macID
