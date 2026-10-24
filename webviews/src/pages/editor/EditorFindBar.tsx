@@ -1,18 +1,42 @@
 // The code editor's Cmd-F bar: the shared find pill (ui/FindPill.tsx) over Monaco's top right,
 // where every pane's find pill sits, driven by EditorFind. Monaco's own find widget never shows.
-import { useEffect, useRef, useSyncExternalStore } from "react";
-import { Icon } from "../../icons";
-import { FindPill } from "../../ui/FindPill";
+import { lazy, Suspense, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import type { FindPillProps } from "../../ui/FindPill";
 import type { Strings } from "../shared/i18n";
 import type { EditorFind } from "./editorFind";
 import { L } from "./strings";
 
-/** The same icons as the diff viewer's pill. */
+// Cmd-F is the only path that renders this control. Keep the pill out of the editor's first-load
+// closure; the editor can paint its file before a user asks for search, then fetch this small chunk
+// when the find state opens.
 const ICONS = { search: "search", previous: "chevronUp", next: "chevronDown", close: "close" } as const;
+
+const LazyFindPill = lazy(async () => {
+  const [{ FindPill }, { Icon }] = await Promise.all([import("../../ui/FindPill"), import("../../icons")]);
+  const EditorFindPill = (props: Omit<FindPillProps, "icon">) => (
+    <FindPill {...props} icon={(role) => <Icon name={ICONS[role]} />} />
+  );
+  return { default: EditorFindPill };
+});
+
+/** Gallery-only warm-up: the production editor still loads the pill on first Cmd-F. */
+export async function preloadEditorFindBar(): Promise<void> {
+  await Promise.all([import("../../ui/FindPill"), import("../../icons")]);
+}
 
 export function EditorFindBar({ find, strings }: { find: EditorFind; strings: Strings }) {
   const state = useSyncExternalStore(find.subscribe, find.getState);
   const field = useRef<HTMLInputElement>(null);
+  const setField = useCallback(
+    (node: HTMLInputElement | null) => {
+      field.current = node;
+      if (node && state.open) {
+        node.focus();
+        node.select();
+      }
+    },
+    [state.open],
+  );
   useEffect(() => {
     if (!state.open) return;
     field.current?.focus();
@@ -28,41 +52,42 @@ export function EditorFindBar({ find, strings }: { find: EditorFind; strings: St
       : t(L.findNoMatches);
   return (
     <div className="ed-find">
-      <FindPill
-        query={state.query}
-        onQueryChange={find.setQuery}
-        status={status}
-        noMatches={Boolean(state.query) && count === 0}
-        canStep={count > 0}
-        onNext={find.next}
-        onPrevious={find.previous}
-        onClose={find.hide}
-        matchCase={state.matchCase}
-        onMatchCaseChange={find.setMatchCase}
-        inputRef={field}
-        labels={{
-          placeholder: t(L.findPlaceholder),
-          previous: t(L.findPrevious),
-          next: t(L.findNext),
-          close: t(L.findClose),
-          matchCase: t(L.findMatchCase),
-        }}
-        icon={(role) => <Icon name={ICONS[role]} />}
-        replace={{
-          open: state.replaceOpen,
-          value: state.replacement,
-          onChange: find.setReplacement,
-          onReplace: find.replace,
-          onReplaceAll: find.replaceAll,
-          onToggle: find.toggleReplace,
-          labels: {
-            field: t(L.findReplaceWith),
-            replace: t(L.findReplace),
-            replaceAll: t(L.findReplaceAll),
-            toggle: t(L.findToggleReplace),
-          },
-        }}
-      />
+      <Suspense fallback={null}>
+        <LazyFindPill
+          query={state.query}
+          onQueryChange={find.setQuery}
+          status={status}
+          noMatches={Boolean(state.query) && count === 0}
+          canStep={count > 0}
+          onNext={find.next}
+          onPrevious={find.previous}
+          onClose={find.hide}
+          matchCase={state.matchCase}
+          onMatchCaseChange={find.setMatchCase}
+          inputRef={setField}
+          labels={{
+            placeholder: t(L.findPlaceholder),
+            previous: t(L.findPrevious),
+            next: t(L.findNext),
+            close: t(L.findClose),
+            matchCase: t(L.findMatchCase),
+          }}
+          replace={{
+            open: state.replaceOpen,
+            value: state.replacement,
+            onChange: find.setReplacement,
+            onReplace: find.replace,
+            onReplaceAll: find.replaceAll,
+            onToggle: find.toggleReplace,
+            labels: {
+              field: t(L.findReplaceWith),
+              replace: t(L.findReplace),
+              replaceAll: t(L.findReplaceAll),
+              toggle: t(L.findToggleReplace),
+            },
+          }}
+        />
+      </Suspense>
     </div>
   );
 }

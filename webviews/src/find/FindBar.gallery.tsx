@@ -3,7 +3,7 @@ import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { FindMatch } from "./model";
-import { FindBar } from "./FindBar";
+import { FindBar, preloadFindBar } from "./FindBar";
 import type { DiffFindController } from "./useDiffFind";
 
 type Props = {
@@ -72,16 +72,19 @@ function GalleryFindBar({ initialQuery, initialMatches, requestToken: initialReq
 }
 
 const next: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Next match"]'), { capMs: 30_000 });
   await ctx.click({ role: "button", name: "Next match" });
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
 };
 
 const previous: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Previous match"]'), { capMs: 30_000 });
   await ctx.click({ role: "button", name: "Previous match" });
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "3 of 3");
 };
 
 const keyboard: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("#diff-find-input"), { capMs: 30_000 });
   await ctx.focus({ role: "searchbox", name: "Find in diff" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
@@ -92,6 +95,7 @@ const keyboard: Play = async (ctx) => {
 };
 
 const refocus: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("#diff-find-input"), { capMs: 30_000 });
   await ctx.click({ role: "button", name: "Refocus find" });
   await ctx.waitFor(() => ctx.document.activeElement?.id === "diff-find-input");
 };
@@ -123,7 +127,10 @@ export default componentEntry<Props>({
   },
   styles: () => import("../styles.css"),
   covers: ["find/FindBar.tsx#FindBar", "ui/FindPill.tsx#FindPill"],
-  load: async () => GalleryFindBar,
+  load: async () => {
+    await preloadFindBar();
+    return GalleryFindBar;
+  },
   variants: {
     empty: { props: { initialQuery: "", initialMatches: 3, requestToken: 1 } },
     matches: { props: { initialQuery: "needle", initialMatches: 3, requestToken: 1 } },
