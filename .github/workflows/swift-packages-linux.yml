@@ -121,7 +121,7 @@ jobs:
           fi
 
       - name: Save .build
-        if: always() && github.event_name == 'push'
+        if: success() && github.event_name == 'push'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: Packages/**/.build
