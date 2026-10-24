@@ -184,5 +184,34 @@ class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
         self.assertIn("GITHUB_PATH", runs)
 
 
+class TheGuardGroupRunsOnThe32VcpuSize(unittest.TestCase):
+    """The job runs every routed guard group twice (the head, then the base) with a worker per core, and runs on
+    every feat-cmux-next pull request and push. On 4 vCPU with 8 workers it took 175-359 s (runs 39873974117,
+    39873712114). Leo, 2026-10-21: "IF WE HAVE 256 OF 32 THEN JUST USE 32." So it takes the 32 vCPU size, with
+    the Blacksmith outage guard the compile jobs use (tests/test_ci_linux_compile_runners.py), and as many workers
+    as the runner has cores."""
+
+    def job(self) -> dict:
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        return workflow["jobs"]["ci-guard-group"]
+
+    def test_the_job_runs_on_32_vcpu_and_follows_the_outage_switch(self):
+        self.assertEqual(
+            self.job()["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
+            " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
+            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}",
+        )
+
+    def test_each_guard_pass_uses_a_worker_per_core(self):
+        run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
+        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        self.assertEqual(len(calls), 2, calls)
+        for call in calls:
+            with self.subTest(call=call):
+                self.assertIn('--jobs "$(nproc)"', call)
+                self.assertNotIn("--jobs 8", call)
+
+
 if __name__ == "__main__":
     unittest.main()
