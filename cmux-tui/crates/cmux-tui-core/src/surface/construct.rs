@@ -96,6 +96,14 @@ impl Surface {
         Option<TerminalPublicId>,
         Option<crate::mux::KittyImageBudgetReservation>,
     )> {
+        // The launch open-file limit is for cmux's own processes (the
+        // daemon, holder and hosts); a caller's per-terminal env that still
+        // carries it (an older app, a shell that inherited it) must not hand
+        // it to the shell, where a cmux started inside would take it as its
+        // own launch limit. Every spawn path (holder, host, daemon-local)
+        // starts here.
+        #[cfg(unix)]
+        opts.extra_env.retain(|(key, _)| key != cmux_pty::LAUNCH_SOFT_LIMIT_ENV);
         let terminal_public_id = resource_identity
             .map(|identity| {
                 terminal_public_id_from_resource_identity(
