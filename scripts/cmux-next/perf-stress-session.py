@@ -609,7 +609,8 @@ def window_problem(reply):
     if not frame:
         return f"the app gave no window frame ({str(reply)[:120]})"
     if abs(frame[2] - WINDOW_SIZE[0]) > 1 or abs(frame[3] - WINDOW_SIZE[1]) > 1:
-        return f"the window is {frame[2:]} pt, not {list(WINDOW_SIZE)}: the display ({screen}) cannot hold STRESS"
+        return (f"the window is {frame[2:]} pt, not {list(WINDOW_SIZE)}: the display ({screen}) cannot hold STRESS "
+                f"(frame {frame}, visible frame {visible}, screen {reply.get('screen_frame')})")
     if not visible:
         return None
     x, y, w, h = frame

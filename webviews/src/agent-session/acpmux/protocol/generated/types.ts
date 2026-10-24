@@ -216,10 +216,10 @@ export interface MailSendParams {
   body: string;
   id: string;
   metadata?: (Record<string, unknown> | null);
-  /** Session recipient for ordinary mail. Omit when target is supplied. */
+  /** Session recipient for ordinary mail. Omit when `target` is supplied. */
   recipient?: (string | null);
   sender: string;
-  /** Quiet reports alias (reports:<person>). Omit for session mail. */
+  /** Quiet reports alias (`reports:<person>`). Omit for session mail. */
   target?: (string | null);
 }
 

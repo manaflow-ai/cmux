@@ -26,6 +26,8 @@ public final class ImportSuggestionsCenter {
     public internal(set) var ledger = ImportJobLedger()
     /// A scan is running.
     public private(set) var isScanning = false
+    /// The cards' source app icons, rendered off the main thread when a scan lands.
+    let icons = ImportAppIconCache()
 
     /// cmux comes forward this long after the last scan before the next one.
     public static let rescanInterval: TimeInterval = 10 * 60
@@ -109,6 +111,7 @@ public final class ImportSuggestionsCenter {
             guard let self else { return }
             findings = found
             isScanning = false
+            icons.load(deck.list().cards.compactMap(\.app))
             then?()
         }
     }
@@ -150,7 +153,7 @@ public final class ImportSuggestionsCenter {
     /// Settings › Import's list for the page's host lists (`import_suggestions`), with its empty text; null while the cards are off.
     public var settingsJSON: JSONValue {
         guard isEnabled else { return .null }
-        var value = ImportCardJSON.value(list(), keepEmpty: true)
+        var value = ImportCardJSON.value(list(), icons: icons, keepEmpty: true)
         if case .object(var members) = value {
             members["empty"] = .string(ImportSuggestionStrings.settingsEmpty)
             members["scanning"] = .bool(isScanning)

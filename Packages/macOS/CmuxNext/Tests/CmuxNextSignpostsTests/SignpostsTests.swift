@@ -115,7 +115,7 @@ struct SignpostsTests {
         #expect(audit.late.isEmpty, "observers after the boundary: \(audit.late)")
     }
 
-    @Test("The audit reads observers from a run loop dump, once each, and flags late display observers")
+    @Test("The audit reads every observer from a run loop dump, once each, and flags the late ones")
     func auditReadsADump() {
         let dump = """
         observers = (
@@ -127,11 +127,32 @@ struct SignpostsTests {
         )
         """
         let audit = CommitBoundaryAudit(description: dump)
-        #expect(audit.observers.map(\.order) == [2_000_000, 2_001_000, 2_500_000], "\(audit.observers)")
+        #expect(audit.observers.map(\.order) == [-2_147_483_647, 2_000_000, 2_001_000, 2_500_000], "\(audit.observers)")
         #expect(audit.coreAnimation.map(\.activities) == [0xa0])
         // The display cycle observer after the boundary, at before-waiting, makes action.commit end
         // too early; the layout one fires only before timers, where the boundary never does.
         #expect(audit.late.map(\.callout) == ["_NSDisplayCycleObserverCallback"])
+    }
+
+    @Test("A late observer counts by its order and activities, whatever its callout's name")
+    func aLateBlockObserverIsLate() {
+        // CFCopyDescription prints a block observer (CFRunLoopObserverCreateWithHandler: SwiftUI's
+        // update cycle, an AppKit observer on a later major) as a trampoline, not a display symbol.
+        let dump = """
+        observers = (
+            "<CFRunLoopObserver 0x1 [0x2]>{valid = Yes, activities = 0xa0, repeats = Yes, order = 2000000, callout = _ZN2CA11Transaction17observer_callbackEP19__CFRunLoopObservermPv (0x3), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x4 [0x2]>{valid = Yes, activities = 0xa0, repeats = No, order = 2000001, callout = __CFRunLoopObserverCreateWithHandler_block_invoke (0x5), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x6 [0x2]>{valid = Yes, activities = 0x20, repeats = Yes, order = 2100000, callout = __CFRunLoopObserverCreateWithHandler_block_invoke (0x5), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x7 [0x2]>{valid = Yes, activities = 0xa0, repeats = Yes, order = 2200000, callout = ??? (0x8), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x9 [0x2]>{valid = Yes, activities = 0xa0, repeats = Yes, order = 2147483647, callout = _wrapRunLoopWithAutoreleasePoolHandler (0xa), context = <CFArray 0xb [0x2]>{type = mutable-small, count = 1, values = (\n\t0 : <0x0>\n)}}",
+        )
+        """
+        let audit = CommitBoundaryAudit(description: dump)
+        // Late: the trampoline at 2,100,000 (before waiting) and the unnamed one at 2,200,000. Not
+        // late: Core Animation's commit, the boundary's own observer (its order) and the autorelease
+        // pool pop at INT_MAX.
+        #expect(audit.late.map(\.order) == [2_100_000, 2_200_000], "\(audit.late)")
+        #expect(audit.late.allSatisfy { String(describing: $0).contains("valid = Yes") }, "a late observer prints its full dump text")
     }
 
     @Test("An interval runs its body and returns its value, with a text or an action message")

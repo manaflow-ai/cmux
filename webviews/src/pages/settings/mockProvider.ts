@@ -194,6 +194,8 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.server.restart": () => ({}),
+      "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
         const iphone = this.host.iphone;
         if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, phase: "connecting" } });
@@ -493,6 +495,8 @@ export class MockSettingsProvider {
       "cmux.settings.art.use",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
+      "cmux.settings.server.restart",
+      "cmux.settings.server.pair",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
       "cmux.app.clipboard.write",

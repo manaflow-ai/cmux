@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextSettings
 
 /// Which tabs stay awake beside each pane's shown tab

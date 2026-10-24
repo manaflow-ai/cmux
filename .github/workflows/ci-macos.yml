@@ -1791,8 +1791,9 @@ jobs:
             exit 1
           }
 
-          # Run one after another, these ~70 files took about seven minutes.
-          python3 scripts/ci/run_python_test_lane.py --jobs "$CMUX_SHELL_REGRESSION_JOBS" --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
+          # Portable regressions run in ci-guards.yml. Keep the Darwin, Bash
+          # 3.2, Ghostty, Nushell and built-helper cases in their existing lanes.
+          python3 scripts/ci/run_python_test_lane.py --jobs "$CMUX_SHELL_REGRESSION_JOBS" --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish
 
 
   swift-package-tests:

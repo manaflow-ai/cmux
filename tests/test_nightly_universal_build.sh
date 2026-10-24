@@ -745,11 +745,49 @@ if ! awk '
   in_outcome && /tag_status=updated/ { saw_updated=1 }
   in_outcome && /tag_status=stale/ { saw_stale=1 }
   in_outcome && /Published, tag marker stale/ { saw_summary=1 }
-  END { exit !(saw_action && saw_contents && saw_workflows && saw_outcome_id && saw_updated && saw_stale && saw_summary) }
+  in_outcome && /"\$TAG_MOVE_OUTCOME" != "failure"/ { saw_unpublished_branch=1 }
+  in_outcome && /tag_status=unpublished/ { saw_unpublished=1 }
+  in_outcome && /### Not published/ { saw_unpublished_summary=1 }
+  END { exit !(saw_action && saw_contents && saw_workflows && saw_outcome_id && saw_updated && saw_stale && saw_summary && saw_unpublished_branch && saw_unpublished && saw_unpublished_summary) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly tag publication must mint contents/workflows app permissions and record updated/stale outcomes"
+  echo "FAIL: nightly tag publication must mint contents/workflows app permissions and record updated/stale/unpublished outcomes (a skipped tag move is never reported as live)"
   exit 1
 fi
+
+# Run the outcome step's script: it must say what each publication part did,
+# and "Nothing is live" only when the asset upload stopped everything.
+outcome_dir="$(mktemp -d)"
+outcome_script="$outcome_dir/outcome.sh"
+python3 - "$WORKFLOW_FILE" "$outcome_script" <<'PY'
+import sys, yaml
+workflow = yaml.safe_load(open(sys.argv[1]))
+step = next(s for s in workflow["jobs"]["publish-nightly"]["steps"] if s.get("id") == "tag-outcome")
+open(sys.argv[2], "w").write(step["run"])
+PY
+run_outcome() {
+  : > "$outcome_dir/out"; : > "$outcome_dir/summary"
+  env TAG_MOVE_OUTCOME="$1" ASSETS_OUTCOME="$2" METADATA_OUTCOME="$3" APPCASTS_OUTCOME="$4" NEXT_APPCASTS_OUTCOME="$5" \
+    CHANNEL_RELEASE_TAG=nightly-next HEAD_SHA=abc123 GITHUB_OUTPUT="$outcome_dir/out" GITHUB_STEP_SUMMARY="$outcome_dir/summary" \
+    bash "$outcome_script"
+}
+expect_outcome() {
+  local want="$1" status="$2"; shift 2
+  local got
+  got="$(run_outcome "$@")"
+  if ! grep -qx "tag_status=$status" "$outcome_dir/out" || ! grep -Fq -- "$want" <<<"$got" \
+    || { [ "$status" = unpublished ] && ! grep -Fq -- "$want" "$outcome_dir/summary"; }; then
+    echo "FAIL: publication outcome for ($*) must report tag_status=$status and \"$want\", got: $got"
+    exit 1
+  fi
+}
+expect_outcome "Nothing is live for abc123 (release assets: failure; release metadata: skipped; appcasts: not uploaded, still serving the previous build; nightly-next tag: not moved)" unpublished skipped failure skipped skipped skipped
+expect_outcome "did not complete (release assets: success; release metadata: success; appcasts: failure, may be partly updated;" unpublished skipped success success skipped failure
+expect_outcome "Published assets, release metadata, and appcasts are live" stale failure success success skipped success
+if run_outcome skipped failure skipped skipped skipped | grep -Fq "are live"; then
+  echo "FAIL: a failed asset upload must never be reported as live"
+  exit 1
+fi
+rm -rf "$outcome_dir"
 
 for expected in \
   'cmux-published-sha:' \

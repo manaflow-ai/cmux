@@ -26,7 +26,7 @@ extension AppControl {
                 return .value(Self.encode(InputReplay.replay(entries)))
             },
         ])
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             // This app's own light/dark override (never the system's).
             .mainActor("debug.appearance") { call in .value(DebugAppearance.handle(call.params)) },

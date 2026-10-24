@@ -13,10 +13,15 @@ extension HoverCardCoordinator {
         }
     }
 
-    /// The window on top at a screen point, never the card.
+    /// The window on top at a screen point, never the card. Asks the window server (a round trip) only
+    /// when the point or a window changed since the last answer (``windowsEpoch``): content moving under a
+    /// still pointer (each relayout, each animation frame) reuses it.
     func topWindowNumber(at point: CGPoint) -> Int {
-        (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
+        if let cached = topWindowCache, cached.point == point, cached.epoch == windowsEpoch { return cached.number }
+        let number = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
             ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        topWindowCache = (point, windowsEpoch, number)
+        return number
     }
 
     /// The front one of this app's windows under a screen point. A

@@ -426,19 +426,35 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   opacity: 1;
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
-   composerLocation.css draws it around the strip's seam). Focus draws no ring (Leo 2026-10-19: the
-   focus ring flashed): a focused composer, the chat's and the New Tab's, its strip and its queue
-   keep the resting one-device-pixel rim in the resting tone (--acpmux-composer-edge-focus is the
-   resting edge), and over art the glass card's top-lit rim stays as it rests. The caret alone shows
-   focus. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+   composerLocation.css draws it around the strip's seam). Focus is the same hairline a step
+   brighter (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"; before it
+   the ring flashed, 10-19, and then drew nothing): a focused composer, the chat's and the New
+   Tab's, its strip and its queue keep the one-device-pixel rim and take
+   --acpmux-composer-edge-focus, 28% text where the resting edge is 18%. No ring, no glow, no wider
+   line, nothing moves. Over art the glass card's top-lit rim stays as it rests. The prompt itself
+   draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below). */
 .acpmux-composer,
-.nt-composer {
+.nt-composer,
+.nt-box {
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 28%, var(--agent-page-bg, var(--acpmux-base)));
+}
+/* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
+   focus: keep the resting edge there (the shared ring below marks a focused box). */
+@media (prefers-contrast: more) {
+  .acpmux-composer,
+  .nt-composer,
+  .nt-box {
+    --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
+  }
+}
+:root[data-page-inactive] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
 }
-:root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: transparent;
 }
-.acpmux-composer-box:has(:focus-visible) {
+.acpmux-composer-box:has(:focus-visible),
+.nt-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
@@ -474,8 +490,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    its hover wash (the row's own, --acpmux-row-hover in composerLocation.css, never the heavier pane
    wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
    circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
-   file). Increase Contrast keeps the shared offset ring. */
+   file). Increase Contrast keeps the shared offset ring. Elsewhere the pane draws no ring at all
+   (shared/styles.css): the wash alone marks the chip, so the pane's own focus pill stays off it. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible {
+  --acpmux-focus-pill: transparent;
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
@@ -541,8 +559,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   line-height: 18px;
   border: 0;
   border-radius: 6px;
+  /* The composer's focused hairline, never a ring (Leo 2026-10-21: the white rounded ring). */
   outline: none;
-  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
   background: var(--acpmux-base);
   color: var(--agent-text);
   font: inherit;

@@ -39,7 +39,15 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn start_daemon(home: &Path) -> Child {
-    let mut child = daemon_env::command(home, daemon_env::Agents::StandIn, &[])
+    start_daemon_with(home, &[])
+}
+
+fn start_daemon_with(home: &Path, env: &[(&str, &std::ffi::OsStr)]) -> Child {
+    let mut cmd = daemon_env::command(home, daemon_env::Agents::StandIn, &[]);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
@@ -212,6 +220,54 @@ async fn a_pooled_host_ends_with_its_daemon_and_a_taken_one_stays() {
     assert!(alive(taken_host), "the taken session's host must wait for the next daemon");
     std::fs::remove_dir_all(&home).unwrap();
     assert!(gone_within(taken_host, Duration::from_secs(10)), "taken host outlived its home");
+}
+
+/// A daemon SIGKILLed after it started a pooled host but before it attached
+/// to it: no controller ever said `Hello`, so controller loss cannot end the
+/// host, and no next daemon sweeps it. The host ends after its own wait for
+/// a first controller (`POOLED_OWNER_WAIT`, shortened here). Before, a host
+/// left like this ran until a daemon started again; in its own systemd scope
+/// (`agent_host/scope.rs`) not even the unit's stop ended it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pooled_host_no_daemon_attached_to_ends_after_its_wait() {
+    let home = scratch("unowned");
+    let stall = home.join("stall");
+    std::fs::create_dir_all(&stall).unwrap();
+    // The pooled host never answers hello, so its daemon never becomes its
+    // controller (debug builds' seam).
+    std::fs::write(stall.join("stall-0"), "").unwrap();
+    let daemon = start_daemon_with(
+        &home,
+        &[
+            ("ACPMUX_TEST_HOST_HELLO_STALL_DIR", stall.as_os_str()),
+            ("ACPMUX_TEST_POOLED_OWNER_WAIT_MS", "1500".as_ref()),
+        ],
+    );
+    let mut rpc = Rpc::connect(&home).await;
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": false})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    let pool = home.join("hosts").join("pool");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let host = loop {
+        let found = std::fs::read_dir(&pool).ok().and_then(|d| {
+            d.filter_map(|e| e.ok().map(|e| e.path()))
+                .find(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        });
+        if let Some(path) = found
+            && let Ok(bytes) = std::fs::read(&path)
+            && let Ok(record) = serde_json::from_slice::<Value>(&bytes)
+        {
+            break record["host_pid"].as_i64().unwrap();
+        }
+        assert!(Instant::now() < deadline, "no pooled host started");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    drop(rpc);
+    sigkill(daemon);
+    assert!(alive(host), "the pooled host ended with its daemon before its wait");
+    assert!(gone_within(host, Duration::from_secs(10)), "pooled host {host} outlived its wait");
+    std::fs::remove_dir_all(&home).unwrap();
 }
 
 /// Read syscalls and CPU ticks the process has used so far (Linux /proc).
