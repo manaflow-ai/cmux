@@ -115,6 +115,9 @@ public final class StatusIndicatorAppearance {
     /// Indicators a resync reached and checked again (`debug.layout_counters` `indicator_resyncs`):
     /// an app activation should touch the indicators on screen only, never every row and tab.
     public static var resyncs: UInt64 = 0
+    /// Clients a resync moment called at all (`statusIndicatorResync`), on screen or not: the
+    /// moment's own cost, which must follow what shows, not every indicator the app made.
+    public static var resyncVisits: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: MainActorObservation?
@@ -160,6 +163,7 @@ public final class StatusIndicatorAppearance {
     /// Tells every client to check its indicator again (`statusIndicatorResync`).
     public func resync() {
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
+            Self.resyncVisits &+= 1
             client.statusIndicatorResync()
         }
     }

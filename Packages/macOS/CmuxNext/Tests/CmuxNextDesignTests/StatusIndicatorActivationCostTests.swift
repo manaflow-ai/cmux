@@ -52,6 +52,16 @@ import Testing
         #expect(fixture.activate() == 4)
     }
 
+    /// The moment itself must not walk every indicator the app made: a parked workspace's rows
+    /// (most of a large session) are not reached at all, and still catch up when they show
+    /// (perf-lead.md cause 6, Cmd-Tab become notices).
+    @Test func anActivationReachesOnlyTheIndicatorsOnScreen() {
+        let fixture = Fixture(shown: 4, hidden: 300)
+        let before = StatusIndicatorAppearance.resyncVisits
+        _ = fixture.activate()
+        #expect(StatusIndicatorAppearance.resyncVisits - before == 4, "an activation walked indicators no one can see")
+    }
+
     @Test func aHiddenIndicatorCatchesUpWhenItShows() {
         let fixture = Fixture(shown: 2, hidden: 50)
         _ = fixture.activate()
