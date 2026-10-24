@@ -488,6 +488,14 @@
    glass, centered: "Press ⌫ to delete", the keys as large caps (a click starts over), "or click
    keys to edit further", a same-keys warning, then Close with its keys. Fills are tints over the
    glass, never opaque. */
+/* Chromium draws a backdrop blur over the page's own pixels, not in their place, so the text
+   under a see-through page's popup reads crisp through the glass (glass.css, CHROMIUM OVER THE
+   WINDOW GLASS). The recorder carries text over the rows: its underlay is the text floor
+   (desktop.css --surface-text-min), not a menu's, so the rows under it fade out. */
+.ui-popup.keys-recorder {
+  --glass-underlay: var(--surface-text-min, 92%);
+}
+
 .ui-popup.keys-recorder {
   display: flex;
   flex-direction: column;
@@ -569,10 +577,12 @@
     background-color var(--cmux-motion-standard, 180ms) ease-out;
 }
 
-/* The taken light: the green light's red twin, shining down through the whole glass. */
+/* The taken light: the green light's red twin, shining down through the whole glass, and it
+   stays on while the keys are taken (the green one only flashes). */
 .keys-recorder-light.danger {
   inset: 0;
   height: auto;
+  opacity: 1;
   background: radial-gradient(
     90% 70% at 50% 0%,
     color-mix(in srgb, var(--cmux-app-danger, #ff453a) 40%, transparent) 0%,
@@ -734,4 +744,15 @@
 /* The motion scale's ceiling (desktop.css `--cmux-motion-large`); Reduce Motion keeps it (a fade). */
 :root:not([data-cmux-motion="off"]) .keys-recorder-light {
   animation: keys-recorder-light var(--cmux-motion-large, 240ms) ease-out;
+}
+
+/* The taken light rises once, then holds. */
+@keyframes keys-recorder-light-on {
+  from {
+    opacity: 0;
+  }
+}
+
+:root:not([data-cmux-motion="off"]) .keys-recorder-light.danger {
+  animation: keys-recorder-light-on var(--cmux-motion-large, 240ms) ease-out;
 }
