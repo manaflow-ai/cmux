@@ -150,7 +150,8 @@ public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
 
 /// A page asks for its context menu. The host shows `items` (it may add its
 /// own) at `location` and calls `complete` exactly once with the chosen
-/// item's id, or nil when the menu was dismissed.
+/// item's id, or nil when the menu was dismissed. A request made with no
+/// `completion` owes the engine no answer, and `complete` does nothing.
 @MainActor
 public final class BrowserContextMenuRequest {
     public let items: [BrowserContextMenuItem]
@@ -161,22 +162,28 @@ public final class BrowserContextMenuRequest {
     /// leading rows here at once instead of presenting a menu.
     public let insertLeading: (([NSMenuItem]) -> Void)?
     /// A host that drops the request unanswered dismisses the menu: the token answers nil
-    /// when it is released with the request.
-    private let reply: BrowserContextMenuCompletion
+    /// when it is released with the request. Nil when the engine needs no answer, so a
+    /// released request queues nothing.
+    private let reply: BrowserContextMenuCompletion?
 
     /// - Parameter completion: Runs once on the main actor with the chosen item's id, or nil
-    ///   when the menu was dismissed or the request was released unanswered.
+    ///   when the menu was dismissed or the request was released unanswered. Pass nil when the
+    ///   engine waits for no answer (WebKit shows its own menu and takes `insertLeading`).
     public init(items: [BrowserContextMenuItem], target: BrowserContextMenuTarget, location: CGPoint,
                 insertLeading: (([NSMenuItem]) -> Void)? = nil,
-                completion: @escaping (Int?) -> Void) {
+                completion: ((Int?) -> Void)?) {
         self.items = items
         self.target = target
         self.location = location
         self.insertLeading = insertLeading
-        reply = BrowserContextMenuCompletion { completion($0) }
+        if let completion {
+            reply = BrowserContextMenuCompletion { completion($0) }
+        } else {
+            reply = nil
+        }
     }
 
     public func complete(_ id: Int?) {
-        reply.complete(id)
+        reply?.complete(id)
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import QuartzCore
 
@@ -102,11 +103,9 @@ extension TabCell: StatusIndicatorConfigClient {
         isSpinnerExiting = true
         layer.isHidden = false
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self, weak spinner] in
-            Task { @MainActor [weak self, weak spinner] in
-                guard let self, let spinner, self.spinnerLayer === spinner, !self.item.isBusy else { return }
-                self.removeSpinner(spinner)
-            }
+        CATransaction.setMainCompletion { [weak self, weak spinner] in
+            guard let self, let spinner, self.spinnerLayer === spinner, !self.item.isBusy else { return }
+            self.removeSpinner(spinner)
         }
         switch variant {
         case .fade:
