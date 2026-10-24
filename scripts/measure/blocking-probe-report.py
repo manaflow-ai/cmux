@@ -2,10 +2,11 @@
 """Ranks the main-thread blocking the probe recorded (scripts/measure/blocking-probe/probe.c).
 
 Reads the probe's dumps (TSV, one per app launch: probe-<pid>.tsv) and groups every entry by its first cmux
-frame: the first stack frame in the app's own executable or in an image of cmux's own code. The probe keys each
-entry by its whole call stack, so each cmux call site is its own row, with its exact count. Frames of the app
-executable are resolved with atos (against the app's dSYM when the build has one) so a stripped bench build
-names the right function. Prints the sites worst first by total main-thread time as Markdown and JSON, with
+frame: the first stack frame in an image of the app bundle (the executable, a Debug build's
+`<name>.debug.dylib`, cmux's own frameworks and dylibs). The probe keys each entry by its first 16 frames, so
+calls from different cmux call sites are different entries, with exact counts. Frames in the app's images are
+resolved with atos (against a dSYM when the build has one), so a stripped bench build and a Debug build's
+split .debug.dylib name the right function and line. Prints the sites worst first by total main-thread time as Markdown and JSON, with
 the owner area (plans/cmux-next/OWNERS.md) of the module the site's symbol names.
 
   scripts/measure/blocking-probe-report.py --app APP.app [--launches N] --out DIR dump1.tsv [dump2.tsv ...]
@@ -25,10 +26,13 @@ parser.add_argument("--launches", type=int, default=0, help="launches the sweep 
 parser.add_argument("--out", required=True)
 opts = parser.parse_args()
 
-app_binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), "")
-app_image = os.path.basename(app_binary)
-dsym = next(iter(glob.glob(opts.app + ".dSYM/Contents/Resources/DWARF/*")), "")
-CMUX_IMAGE = re.compile(r"^(libcmux|CmuxNext|Cmux|cmux)")
+# The app bundle's own images by file name: the executable, a Debug build's .debug.dylib, its frameworks.
+app_images = {}
+for pattern in ("Contents/MacOS/*", "Contents/Frameworks/*.dylib", "Contents/Frameworks/*.framework/Versions/A/*"):
+    for path in glob.glob(os.path.join(opts.app, pattern)):
+        if os.path.isfile(path) and os.access(path, os.X_OK) or path.endswith(".dylib"):
+            app_images.setdefault(os.path.basename(path), path)
+dsyms = {os.path.basename(p): p for p in glob.glob(os.path.join(os.path.dirname(opts.app), "*.dSYM/Contents/Resources/DWARF/*"))}
 MODULE = re.compile(r"^\$s(\d+)(\w+)")
 
 
@@ -38,10 +42,10 @@ def module_of(symbol):
 
 
 def first_cmux(frames):
-    """(image, offset, symbol) of the first frame in cmux's code; else the first frame."""
+    """(image, offset, symbol) of the first frame in an image of the app bundle; else the first frame."""
     for frame in frames:
         image, offset, symbol = (frame.split("|") + ["", "", ""])[:3]
-        if image == app_image or CMUX_IMAGE.match(image):
+        if image in app_images:
             return image, offset, symbol
     image, offset, symbol = ((frames[0].split("|") + ["", "", ""])[:3]) if frames else ("?", "?", "?")
     return image, offset, symbol
@@ -49,40 +53,48 @@ def first_cmux(frames):
 
 entries, dumps = [], {"final": 0, "periodic only": 0}
 overhead = collections.Counter()
+bad_lines = 0
 for path in opts.dumps:
     final = 0
-    with open(path) as f:
+    with open(path, errors="replace") as f:
         for line in f:
             line = line.rstrip("\n")
-            if line.startswith("#"):
-                key, _, value = line[1:].partition("\t")
-                if key == "final":
-                    final = int(value)
-                else:
-                    overhead[key] += int(value)
-                continue
-            kind, count, total, longest, frames = (line.split("\t") + [""])[:5]
-            if kind == "selftest":  # the probe's own load check (blocking-probe.sh verifies it)
-                continue
-            frames = [f for f in frames.split(";") if f]
-            entries.append((kind, int(count), int(total), int(longest), frames))
+            try:
+                if line.startswith("#"):
+                    key, _, value = line[1:].partition("\t")
+                    if key == "final":
+                        final = int(value)
+                    else:
+                        overhead[key] += int(value)
+                    continue
+                kind, count, total, longest, frames = line.split("\t")
+                if kind == "selftest":  # the probe's own load check (blocking-probe.sh verifies it)
+                    continue
+                entries.append((kind, int(count), int(total), int(longest), [f for f in frames.split(";") if f]))
+            except ValueError:
+                bad_lines += 1  # a torn line: counted, never fatal
     dumps["final" if final else "periodic only"] += 1
 
-# Resolve the app executable's offsets in one atos run (base 0x100000000: any base works, the offsets are
-# relative to the image's load address).
-offsets = sorted({first_cmux(frames)[1] for *_, frames in entries if first_cmux(frames)[0] == app_image})
+# Resolve each app image's offsets in one atos run per image (base 0x100000000: any base works, the offsets
+# are relative to the image's load address), against its dSYM when there is one.
+wanted = collections.defaultdict(set)
+for *_, frames in entries:
+    image, offset, _ = first_cmux(frames)
+    if image in app_images:
+        wanted[image].add(offset)
 resolved = {}
-if offsets and (dsym or app_binary):
+for image, offsets in wanted.items():
+    offsets = sorted(offsets)
     base = 0x100000000
-    run = subprocess.run(["atos", "-o", dsym or app_binary, "-l", hex(base)] + [hex(base + int(o, 16)) for o in offsets],
-                         capture_output=True, text=True)
-    resolved = dict(zip(offsets, run.stdout.splitlines()))
+    run = subprocess.run(["atos", "-o", dsyms.get(image, app_images[image]), "-l", hex(base)]
+                         + [hex(base + int(o, 16)) for o in offsets], capture_output=True, text=True)
+    resolved.update({(image, o): name for o, name in zip(offsets, run.stdout.splitlines())})
 
 sites = collections.defaultdict(lambda: {"count": 0, "total_ns": 0, "max_ns": 0, "kinds": collections.Counter(),
                                          "stack": "", "symbol": ""})
 for kind, count, total, longest, frames in entries:
     image, offset, symbol = first_cmux(frames)
-    name = resolved.get(offset) if image == app_image and resolved.get(offset) else (symbol if symbol != "?" else f"{image}+{offset}")
+    name = resolved.get((image, offset)) or (symbol if symbol != "?" else f"{image}+{offset}")
     site = sites[name]
     site["count"] += count
     site["total_ns"] += total
@@ -109,7 +121,8 @@ for name, site in sorted(sites.items(), key=lambda kv: -kv[1]["total_ns"]):
 os.makedirs(opts.out, exist_ok=True)
 # An estimate: two clock reads (about 20 ns each) per timed call, plus the measured recording time.
 overhead_ms = overhead["calls"] * 40e-6 + overhead["record_ns"] / 1e6
-summary = {"sites": len(report), "launches": opts.launches, "dumps": dumps, "calls_timed": overhead["calls"],
+summary = {"sites": len(report), "launches": opts.launches, "dumps": dumps, "bad_lines": bad_lines,
+           "calls_timed": overhead["calls"],
            "dropped": overhead["dropped"], "probe_overhead_ms_estimate": round(overhead_ms, 1),
            "main_thread_blocked_ms": round(sum(r["total_ms"] for r in report), 1),
            "by_owner": collections.Counter(r["owner"] for r in report),
@@ -119,9 +132,10 @@ with open(os.path.join(opts.out, "blocking-probe.md"), "w") as md:
     md.write(f"Main-thread blocking: {len(report)} sites, {summary['main_thread_blocked_ms']} ms in total. Launches "
              f"{opts.launches}, dumps {dumps['final']} at exit + {dumps['periodic only']} periodic only (a kill or a "
              f"crash: up to 10 s missing). Probe overhead, estimate: {overhead_ms:.0f} ms over {overhead['calls']} "
-             f"timed calls. Dropped entries: {overhead['dropped']}.\n\n"
-             "Known gaps: pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, mach_msg (sync XPC), "
-             "calls a system library makes to itself.\n\n")
+             f"timed calls. Dropped entries: {overhead['dropped']}. Torn dump lines skipped: {bad_lines}.\n\n"
+             "Known gaps (probe.c header): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, mach_msg "
+             "(sync XPC), renamex_np, ftruncate, xattrs, readv/writev, getdirentries64, copyfile/clonefile, "
+             "dispatch_async_and_wait, some $NOCANCEL forms, calls a system library makes to itself.\n\n")
     md.write("| # | total ms | max ms | calls | kinds | site | module | owner |\n|---|---|---|---|---|---|---|---|\n")
     for index, r in enumerate(report, 1):
         kinds = ", ".join(f"{k} {v}" for k, v in sorted(r["kinds"].items(), key=lambda kv: -kv[1]))

@@ -51,8 +51,43 @@ pack() {
 }
 trap pack EXIT
 
-# The probe (arm64e/arm64 slices as the host builds; the linker signs it ad hoc).
-clang -dynamiclib -O2 -Wall -o "$out/blocking-probe.dylib" scripts/measure/blocking-probe/probe.c
+# The probe (the host's architecture; the linker signs it ad hoc).
+clang -dynamiclib -O2 -Wall -framework CoreFoundation -o "$out/blocking-probe.dylib" scripts/measure/blocking-probe/probe.c
+
+# Preflight on this host, before any app: dyld refuses a library that interposes a name this host's system
+# libraries lack (then the app would not start), so check the $NOCANCEL names, then load the probe into a
+# small test program and require its self-test row in the final dump.
+xcrun nm -u "$out/blocking-probe.dylib" | awk '/NOCANCEL/ { print $NF }' >"$out/preflight-needs.txt"
+if dyld_info -exports /usr/lib/system/libsystem_kernel.dylib >"$out/preflight-exports.txt" 2>&1; then
+  while read -r name; do
+    if ! grep -qF -- "$name" "$out/preflight-exports.txt"; then
+      echo "blocking-probe: this host's libsystem_kernel does not export $name; dyld would refuse the probe" >&2
+      exit 1
+    fi
+  done <"$out/preflight-needs.txt"
+else
+  echo "blocking-probe: dyld_info is missing here; the test program below checks the names instead" >&2
+fi
+cat >"$out/preflight.c" <<'C'
+#include <dispatch/dispatch.h>
+#include <stdlib.h>
+int main(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ exit(0); });
+    dispatch_main();
+}
+C
+clang -O0 -o "$out/preflight" "$out/preflight.c"
+if ! DYLD_PRINT_INTERPOSING=1 DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" \
+     CMUX_BLOCKING_PROBE_OUT="$out/preflight.tsv" "$out/preflight" >>"$out/preflight.txt" 2>&1; then
+  echo "blocking-probe: the probe does not load on this host (dyld refused it); see $out/preflight.txt" >&2
+  tail -n 20 "$out/preflight.txt" >&2
+  exit 1
+fi
+if ! grep -q '^selftest' "$out/preflight.tsv" 2>/dev/null || ! grep -q '^#final	1' "$out/preflight.tsv"; then
+  echo "blocking-probe: the probe loaded but recorded no self-test row at exit; see $out/preflight.txt" >&2
+  exit 1
+fi
+echo "blocking-probe: preflight ok ($(grep -c 'interpos' "$out/preflight.txt") dyld interposing lines)"
 
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 \
   | tee "$out/reload.log" | tail -n 40
