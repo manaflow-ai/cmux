@@ -104,6 +104,8 @@ import Testing
         try await h.settings.setSetting(at: HangReportsSetting.path, to: .bool(false), by: .user)
         await until { await h.service.isEnabled == false }
         #expect(h.defaults.object(forKey: HangReportsController.consentKey) == nil)
+        #expect(h.defaults.bool(forKey: HangReportsController.askedKey), "the person's own write is their answer")
+        for _ in 0..<20 { await Task.yield() }
         #expect(h.asks.card == nil, "off is the person's answer; nothing asks again")
     }
 

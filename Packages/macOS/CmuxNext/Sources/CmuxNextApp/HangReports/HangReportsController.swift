@@ -189,6 +189,8 @@ final class HangReportsController {
     /// leaves no record that a later synced or edited file could use.
     static func recordUserWrite(defaults: UserDefaults, path: [String], value: CmuxNextSettings.JSONValue?) -> (@MainActor () -> Void)? {
         guard path == HangReportsSetting.path else { return nil }
+        // The person chose, on or off: the invitation never shows after that.
+        defaults.set(true, forKey: askedKey)
         guard value == .bool(true) else {
             // Off stays off even if the write fails: with no record nothing sends.
             defaults.removeObject(forKey: consentKey)
