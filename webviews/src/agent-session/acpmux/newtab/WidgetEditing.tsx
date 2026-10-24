@@ -21,15 +21,15 @@ export function useWidgetName(): (widget: PageWidget) => string {
           ? nt("widget.actions")
           : widget === "chats"
             ? nt("widget.chats")
-          : widget === "clock"
-            ? nt("widget.clock")
-            : widget === "timer"
-              ? nt("widget.timer")
-              : widget === "warmGreeting"
-                ? nt("widget.warmGreeting")
-                : widget === "quote"
-                  ? nt("widget.quote")
-                  : widget;
+            : widget === "clock"
+              ? nt("widget.clock")
+              : widget === "timer"
+                ? nt("widget.timer")
+                : widget === "warmGreeting"
+                  ? nt("widget.warmGreeting")
+                  : widget === "quote"
+                    ? nt("widget.quote")
+                    : widget;
 }
 
 /// Where a drag is: the widget held, and the one it would land before or after.
@@ -167,9 +167,26 @@ export function WidgetEditBar({ editing, onEdit }: { editing: WidgetEditing; onE
   return (
     <div className="nt-edit-bar">
       <details className="nt-edit-add">
-        <summary className="nt-edit-button" data-edit="add"><Icon name="action.add" size={12} /><span>{nt("edit.add")}</span></summary>
+        <summary className="nt-edit-button" data-edit="add">
+          <Icon name="action.add" size={12} />
+          <span>{nt("edit.add")}</span>
+        </summary>
         <div className="nt-edit-add-menu" role="menu">
-          {(["greeting", "clock", "timer", "warmGreeting", "quote", "projects", "actions", "chats", "styleDots", "weather", "machines"] as PageWidget[]).map((widget) => (
+          {(
+            [
+              "greeting",
+              "clock",
+              "timer",
+              "warmGreeting",
+              "quote",
+              "projects",
+              "actions",
+              "chats",
+              "styleDots",
+              "weather",
+              "machines",
+            ] as PageWidget[]
+          ).map((widget) => (
             <button key={widget} type="button" role="menuitem" onClick={() => onEdit({ edit: "show", widget })}>
               {widgetName(widget)}
             </button>

@@ -312,6 +312,8 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect([...shownPageWidgets("minimal")]).toEqual([]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
   expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(
-    PAGE_WIDGETS.filter((widget) => !["greeting", "weather", "machines", "clock", "timer", "warmGreeting", "quote"].includes(widget)),
+    PAGE_WIDGETS.filter(
+      (widget) => !["greeting", "weather", "machines", "clock", "timer", "warmGreeting", "quote"].includes(widget),
+    ),
   );
 });

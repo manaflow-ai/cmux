@@ -98,7 +98,14 @@ function snapshot(
     {
       id: run.harness,
       name: run.harness === "codex" ? "Codex" : "Claude Code",
-      models: [{ id: run.model, name: run.harness === "codex" ? "GPT-6 Astra" : "Claude Opus 5.5", fast: true, ...(run.harness === "codex" ? { inlineFast: true } : {}) }],
+      models: [
+        {
+          id: run.model,
+          name: run.harness === "codex" ? "GPT-6 Astra" : "Claude Opus 5.5",
+          fast: true,
+          ...(run.harness === "codex" ? { inlineFast: true } : {}),
+        },
+      ],
     },
   ];
   return {

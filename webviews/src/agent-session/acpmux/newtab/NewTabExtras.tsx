@@ -27,7 +27,8 @@ export function NewTabExtras({ widgets, now }: { widgets: ReadonlySet<string>; n
   const quote = useMemo(() => QUOTES[dayIndex(now)]!, [now]);
   const hour = new Date(now).getHours();
   const warm = nt(hour < 12 ? "extra.morning" : hour < 18 ? "extra.afternoon" : "extra.evening");
-  if (!widgets.has("clock") && !widgets.has("timer") && !widgets.has("warmGreeting") && !widgets.has("quote")) return null;
+  if (!widgets.has("clock") && !widgets.has("timer") && !widgets.has("warmGreeting") && !widgets.has("quote"))
+    return null;
   return (
     <div className="nt-extras" aria-label={nt("extra.widgets")}>
       {widgets.has("warmGreeting") && <div className="nt-extra-warm">{warm}</div>}
@@ -36,8 +37,17 @@ export function NewTabExtras({ widgets, now }: { widgets: ReadonlySet<string>; n
           {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(now)}
         </time>
       )}
-      {widgets.has("timer") && <div className="nt-extra-timer" role="timer">{nt("extra.stopwatch")} {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}</div>}
-      {widgets.has("quote") && <figure className="nt-extra-quote"><blockquote>“{nt(quote[0])}”</blockquote><figcaption>— {quote[1]}</figcaption></figure>}
+      {widgets.has("timer") && (
+        <div className="nt-extra-timer" role="timer">
+          {nt("extra.stopwatch")} {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
+        </div>
+      )}
+      {widgets.has("quote") && (
+        <figure className="nt-extra-quote">
+          <blockquote>“{nt(quote[0])}”</blockquote>
+          <figcaption>— {quote[1]}</figcaption>
+        </figure>
+      )}
     </div>
   );
 }

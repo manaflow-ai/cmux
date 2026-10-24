@@ -5,12 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import {
-  type AttachmentError,
-  type ComposerAttachment,
-  type DroppedKind,
-  type LinkItem,
-} from "./attachments";
+import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -591,9 +586,10 @@ export function Composer({
       wake(state) {
         const back = state.attachments ?? [];
         if (back.length)
-          setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))],
-          );
+          setAttachments((current) => [
+            ...back,
+            ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
+          ]);
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");

@@ -100,35 +100,37 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           <BoltIcon />
         </span>
       ) : (
-      <button
-        type="button"
-        className="acpmux-fast"
-        data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
-        aria-pressed={at >= 0}
-        aria-label={label}
-        {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
-        // Keep focus and the caret in the prompt, as the mic does; Tab still reaches it.
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!)}
-      >
-        <BoltIcon />
-        <span>{name(at < 0 ? 0 : at)}</span>
-      </button>
+        <button
+          type="button"
+          className="acpmux-fast"
+          data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
+          aria-pressed={at >= 0}
+          aria-label={label}
+          {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
+          // Keep focus and the caret in the prompt, as the mic does; Tab still reaches it.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!)}
+        >
+          <BoltIcon />
+          <span>{name(at < 0 ? 0 : at)}</span>
+        </button>
       )}
-      {!inline && <Menu>
-        <MenuButton className="acpmux-speed-choices" label={label} data-menu="Speed">
-          ⌄
-        </MenuButton>
-        <MenuPopup className="acpmux-menu" label={label}>
-          <MenuRadioGroup value={speed.current ?? speed.off} onValueChange={speed.onPick}>
-            {[speed.off, ...speed.tiers].map((value, index) => (
-              <MenuRadioItem key={value} value={value} closeOnClick>
-                {name(index - 1)}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuPopup>
-      </Menu>}
+      {!inline && (
+        <Menu>
+          <MenuButton className="acpmux-speed-choices" label={label} data-menu="Speed">
+            ⌄
+          </MenuButton>
+          <MenuPopup className="acpmux-menu" label={label}>
+            <MenuRadioGroup value={speed.current ?? speed.off} onValueChange={speed.onPick}>
+              {[speed.off, ...speed.tiers].map((value, index) => (
+                <MenuRadioItem key={value} value={value} closeOnClick>
+                  {name(index - 1)}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
+      )}
     </span>
   );
 }
