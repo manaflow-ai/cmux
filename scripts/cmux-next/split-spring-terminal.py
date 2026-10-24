@@ -70,7 +70,7 @@ if "--suite=budgets" in sys.argv:
 if "--suite=cef-pin-staging" in sys.argv:
     rest = [a for a in sys.argv[1:] if a != "--suite=cef-pin-staging"]
     named = {k: rest[i + 1] for i, k in enumerate(rest[:-1]) if k in ("--tag", "--app", "--out")}
-    parts = next((a.split("=", 1)[1] for a in rest if a.startswith("--parts=")), "verify,internal,restore")
+    parts = next((a.split("=", 1)[1] for a in rest if a.startswith("--parts=")), "verify,shim,internal,restore")
     env = dict(os.environ, NX_APP=named.get("--app", ""), NX_APP_TAG=named.get("--tag", ""),
                NX_ARTIFACTS=named.get("--out", "."), STAGING_PARTS=parts)
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

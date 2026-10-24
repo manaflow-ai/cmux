@@ -4,11 +4,11 @@
 # the Chromium page live checks (internal pages, restore). Run inside
 #   nx-remote --needs input --app-from-fleet cmux --tag T --ref SHA -- bash scripts/cmux-next/cef-pin-staging.sh
 # or through the allowlisted fleet entry: split-spring.sh --arg=--suite=cef-pin-staging.
-# STAGING_PARTS=verify,internal,restore picks parts (a baseline of the current pin runs internal,restore);
+# STAGING_PARTS=verify,shim,internal,restore picks parts (a baseline of the current pin runs internal,restore);
 # VERIFY_INPUT=debug sends debug.mouse/debug.key instead (proves nothing about the page window's input).
 set -u
 out="$NX_ARTIFACTS/staging"; mkdir -p "$out"
-parts=",${STAGING_PARTS:-verify,internal,restore},"
+parts=",${STAGING_PARTS:-verify,shim,internal,restore},"
 rc=0
 run() { # <name> <command...>: its log in $out/<name>.log, the PASS/FAIL rows, and its last lines when it fails
   local name=$1; shift
@@ -23,6 +23,9 @@ if [[ "$parts" == *",verify,"* ]]; then
     run "verify-$m" python3 scripts/cmux-next/cef-layer-verify.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$out/verify" \
       --mode $m --input "${VERIFY_INPUT:-hid}"
   done
+fi
+if [[ "$parts" == *",shim,"* ]]; then  # the shim's CEF-free C++ cases (one clang++ each)
+  for t in scripts/cmux-next/test-shim-*-cpp.sh; do run "shim-$(basename "$t" .sh)" bash "$t"; done
 fi
 [[ "$parts" == *",internal,"* ]] && run internal python3 scripts/cmux-next/chrome-internal-pages-live.py --tag "$NX_APP_TAG" --app "$NX_APP" --out "$out/internal"
 [[ "$parts" == *",restore,"* ]] && run restore python3 scripts/cmux-next/browser-restore-live.py --tag "$NX_APP_TAG" --app "$NX_APP" --out "$out/restore"
