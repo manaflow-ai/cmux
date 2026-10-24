@@ -87,6 +87,27 @@ CASES = {
         (UI, "func check() {\n    if ready {\n        _ = FileManager.checked.fileExists(atPath: path)\n    }\n}\n",
          "main-blocking"),
         (UI, "func save() {\n    try? data.write(to: url)\n}\n", "main-blocking"),
+        # Openers that run their body on main are judged in any target; other closures are not.
+        (SERVICE, "func f() {\n    DispatchQueue.main.async {\n        _ = FileManager.checked.fileExists(atPath: p)\n    }\n}\n",
+         "main-blocking"),
+        (SERVICE, "func f() async {\n    await MainActor.run {\n        semaphore.blockingWait()\n    }\n}\n", "main-blocking"),
+        (SERVICE, "func f() {\n    Task { @MainActor in\n        _ = try? Data(blockingContentsOf: url)\n    }\n}\n",
+         "main-blocking"),
+        (UI, "var body: some View {\n    Button(\"Go\") {\n        _ = FileManager.checked.fileExists(atPath: p)\n    }\n}\n", None),
+        (UI, "func f() {\n    let work = DispatchWorkItem {\n        semaphore.blockingWait()\n    }\n    queue.async(execute: work)\n}\n",
+         None),
+        (UI, "func f() {\n    let t = Thread {\n        semaphore.blockingWait()\n    }\n    t.name = \"cmux-next known thread\"\n}\n",
+         None),
+        # A header over several lines is a function or a condition, not a closure.
+        (UI, "func load(\n    url: URL,\n    options: Int\n) async throws {\n    _ = FileManager.checked.fileExists(atPath: p)\n}\n",
+         "main-blocking"),
+        (UI, "func load<T>(_ t: T)\n    where T: Sendable {\n    semaphore.blockingWait()\n}\n", "main-blocking"),
+        (UI, "func f() {\n    if ready,\n       let path {\n        _ = FileManager.checked.fileExists(atPath: path)\n    }\n}\n",
+         "main-blocking"),
+        (UI, "func f() {\n    guard let path,\n          ready else {\n        semaphore.blockingWait()\n        return\n    }\n}\n",
+         "main-blocking"),
+        (UI, "func f() {\n    while running,\n          ready {\n        semaphore.blockingWait()\n    }\n}\n", "main-blocking"),
+        (UI, "var path: String {\n    _ = FileManager.checked.fileExists(atPath: p)\n    return p\n}\n", "main-blocking"),
     ],
     "raw-blocking": [
         (SERVICE, "func load() -> Data? {\n    try? Data(contentsOf: url)\n}\n",
@@ -109,6 +130,11 @@ CASES = {
         (SERVICE, "let q = DispatchQueue(label: label, qos: .utility)\n", None),
         (SERVICE, "extension Thread {\n    var isWorker: Bool { false }\n}\n", None),
         (SERVICE, "func f(_ thread: Thread) {}\n", None),
+        (SERVICE, "final class Worker: Thread {\n    override func main() {}\n}\n", None),
+        (SERVICE, "func make() -> Thread {\n    current\n}\n", None),
+        (SERVICE, "var worker: Thread {\n    current\n}\n", None),
+        (SERVICE, "func start() {\n    let t = Thread { work() }\n    t.start()\n}\n", "thread-doc"),
+        (SERVICE, "func start() {\n    run(Thread { work() })\n}\n", "thread-doc"),
     ],
     "thread-doc": [
         (SERVICE, 'let q = DispatchQueue(label: "com.cmuxterm.next.unknown")\n',
@@ -212,13 +238,11 @@ class BlockingRuleTests(unittest.TestCase):
         self.assertTrue(any(kind == "guardrails" and "thread-doc" in text for kind, text in warnings))
 
     def test_the_blocking_rules_stay_fast_on_a_large_keyword_heavy_push(self):
-        """60,000 added lines in main-actor code, a third of them blocking calls behind escapes (so every one
-        goes through the main-actor scope and the closure check): the three rules' CPU time stays under 1 s."""
-        body = "".join(f"func f{i}() {{\n    // blocking-allow: fixture\n    _ = FileManager.checked.fileExists(atPath: p{i})\n}}\n"
-                       for i in range(750))
-        for index in range(20):
-            self.write(f"{UI}/Big{index}.swift", body)
-        self.commit("a large push")
+        """60,000 added lines in main-actor code, a third of them blocking calls (no escape, so every one goes
+        through the main-actor scope and the closure walk, and is refused): the three rules' CPU time stays
+        under 1 s."""
+        body = "".join(f"func f{i}() {{\n    if ready {{\n        _ = FileManager.checked.fileExists(atPath: p{i})\n    }}\n}}\n"
+                       for i in range(600))
         changes = []
         for index in range(20):
             path = f"{UI}/Big{index}.swift"
@@ -227,9 +251,10 @@ class BlockingRuleTests(unittest.TestCase):
         guardrails.BLOCKING_CONTEXT.update(threading_doc=DOC, manifest=MANIFEST)
         guardrails.BLOCKING_CONTEXT.pop("ui_targets", None)
         started = time.process_time()
-        for rule in guardrails.BLOCKING_RULES:
-            rule.find(changes, collections.Counter())
-        self.assertLess(time.process_time() - started, 1.0)
+        hits = {rule.id: rule.find(changes, collections.Counter()) for rule in guardrails.BLOCKING_RULES}
+        elapsed = time.process_time() - started
+        self.assertEqual(len(hits["main-blocking"]), 20 * 600)  # the scope and closure checks really ran
+        self.assertLess(elapsed, 1.0)
 
 
 if __name__ == "__main__":

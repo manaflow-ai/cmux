@@ -140,7 +140,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 
 `allowBlocking(<reason>)` lets the main thread block for one of these reasons only (Chrome's
 `ScopedAllowBlocking` friend list). A new `BlockingAllowance` needs a row here in the same push. It is not for
-hot paths: in Debug, bench and Nightly builds each outermost scope adds and removes one `CFRunLoopObserver` (it
+hot paths: in Debug and bench builds (and Nightly, to come) each outermost scope adds and removes one `CFRunLoopObserver` (it
 holds the allowance back while a nested run of the main run loop runs other work).
 
 | Reason | Why the wait cannot move off the main thread |
