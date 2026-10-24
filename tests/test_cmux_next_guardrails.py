@@ -393,6 +393,24 @@ class RuleTests(Fixture):
             refusals, warnings = self.check()
         self.assertEqual([r.id for r, _ in refusals], ["main-async"])
         self.assertIn("perf-hot failed (RuntimeError: boom", " ".join(text for _, text in warnings))
+        # The installed hook copies scripts/cmux-next; a CI edit of the lexer next to guardrails.py that no
+        # longer loads turns off app-size only, never the whole module (and so every rule).
+        installed = self.root / "installed"
+        installed.mkdir()
+        shutil.copy(SOURCE / "scripts/cmux-next/guardrails.py", installed)
+        (installed / "count-swift-code-lines.py").write_text("raise ImportError('a lexer that does not load')\n")
+        spec = importlib.util.spec_from_file_location("cmux_next_guardrails_broken_lexer", installed / "guardrails.py")
+        copy = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = copy
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(copy)
+        self.write(f"{APP}/Grown.swift", "struct Grown {}\n")
+        self.commit("an App file, so app-size reads the lexer")
+        refusals, warnings = self.check(copy.check)
+        self.assertEqual([r.id for r, _ in refusals], ["singleton"])
+        failed = [text for kind, text in warnings if kind == "guardrails"]
+        self.assertEqual(len(failed), 1, warnings)
+        self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
 
     def test_a_rule_that_raises_only_on_the_pushed_range_of_a_merge_is_warned_once(self):
         # A branch that merged feat-cmux-next in: check_push checks the pushed range and the branch's own range.
