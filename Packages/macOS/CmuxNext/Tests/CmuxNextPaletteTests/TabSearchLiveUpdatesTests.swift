@@ -45,6 +45,12 @@ struct TabSearchLiveUpdatesTests {
         return updates
     }
 
+    /// Moves the reference out of `value`: the caller's capture then holds the only one.
+    private static func handOff<Value>(_ value: inout Value?) -> Value? {
+        defer { value = nil }
+        return value
+    }
+
     @Test func releasingTheUpdatesEndsTheFollow() async {
         let source = EndingSource()
         let model = PaletteModel()
@@ -64,14 +70,21 @@ struct TabSearchLiveUpdatesTests {
     @Test func releasingTheUpdatesOffTheMainThreadEndsTheFollowThere() async {
         let source = EndingSource()
         let model = PaletteModel()
-        // The capture list holds the only reference, so the detached task drops the last one when
-        // it completes. Its main-actor turn first lets the follow task (queued on the main actor
-        // before it) start and wait in the changes stream, so the cancel ends that wait at once,
-        // on the thread that cancels.
-        await Task.detached { [updates = Self.following(source, in: model)] in
-            await MainActor.run {}
+        var updates: TabSearchLiveUpdates? = Self.following(source, in: model)
+        // follow(_:in:) queued its follow task on the main actor; this main-actor task is queued
+        // after it, so once it ran the follow task waits in the changes stream, and a cancel ends
+        // that wait at once, on the thread that cancels.
+        await Task {}.value
+        // The capture holds the only reference, and the detached task never runs on the main
+        // actor: it completes on a cooperative-pool thread, and its completion drops the last
+        // reference there. (A main-actor turn inside it let a Release build complete it on the
+        // main thread, so that release did not test the off-main path.)
+        await Task.detached { [updates = Self.handOff(&updates)] in
             _ = updates
         }.value
+        #expect(updates == nil)
+        // The source reports the thread its stream ended on: false proves the cancel, so the
+        // release, ran off the main thread.
         var ended = source.ended.makeAsyncIterator()
         #expect(await ended.next() == false, "the follow ends on the releasing thread, not after a hop to the main actor")
         withExtendedLifetime(model) {}
