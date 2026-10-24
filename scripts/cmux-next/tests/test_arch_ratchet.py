@@ -429,6 +429,24 @@ class SingletonTests(Repo):
         self.assertIn("+2", dict(refusals)["stateful_singletons"])
         self.assertIn("Globals.swift:2: nonisolated(unsafe) var cache", dict(refusals)["global_mutable_statics"])
 
+    def test_a_top_level_global_of_a_main_swift_counts_and_its_condition_bindings_do_not(self):
+        # The review's case: a top-level `let`/`var` of main.swift is a module global every file of the target
+        # sees (main-actor isolated since SE-0343), so a stateful or a mutable one counts. The bindings of a
+        # top-level `guard`/`if` condition list continued over lines (`guard let a = x,\n      let b = y else`)
+        # are the entry point's locals, not globals: they counted as stateful singletons.
+        self.write(f"{SRC}/CmuxNextTool/main.swift",
+                   "guard let name = CommandLine.arguments.first,\n      let other = Store() as Store? else { exit(1) }\n"
+                   "if let a = Store() as Store?,\n   let b = Store() as Store? { print(a, b) }\n"
+                   "let service = Store()\nnonisolated(unsafe) var cache = [String: Int]()\nservice.run()\n")
+        self.commit("an executable's main")
+        refusals, _ = self.check()
+        self.assertEqual(self.rows(refusals), ["global_mutable_statics", "stateful_singletons"])
+        texts = dict(refusals)
+        self.assertIn("main.swift:5: let service = Store()", texts["stateful_singletons"])
+        self.assertIn(": +1", texts["stateful_singletons"])
+        self.assertIn("main.swift:6: nonisolated(unsafe) var cache", texts["global_mutable_statics"])
+        self.assert_matches_full(self.base, "HEAD")
+
     def test_moving_a_static_singleton_to_a_file_scope_global_is_not_a_drop(self):
         self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
         base = self.commit("a singleton")
