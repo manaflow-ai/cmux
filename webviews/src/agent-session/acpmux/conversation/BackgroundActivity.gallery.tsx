@@ -125,14 +125,27 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
       <div className="bg-gallery__tail-foot">
         <span className="bg-gallery__follow-dot" aria-hidden="true" />
         <span aria-live="polite">Auto-scroll on · {lines.length}-line tail</span>
-        <button type="button" className="bg-gallery__text-button" onClick={followTail}>
-          Follow tail
-        </button>
+        {item.state === "running" && (
+          <button type="button" className="bg-gallery__text-button" onClick={followTail} disabled={stopped}>
+            Follow tail
+          </button>
+        )}
+        {item.state === "running" && (
+          <button
+            type="button"
+            className="bg-gallery__text-button"
+            onClick={() => setStopped(true)}
+            disabled={stopped}
+            aria-label={`Stop ${item.command}`}
+          >
+            {stopped ? "Stopped" : "Stop"}
+          </button>
+        )}
         <button
           type="button"
           className="bg-gallery__terminal-button"
           onClick={() => setTerminalOpened(true)}
-          aria-label={`Open ${item.command} in terminal`}
+          aria-label={terminalOpened ? `${item.command} terminal opened` : `Open ${item.command} in terminal`}
         >
           <span aria-live="polite">{terminalOpened ? "Terminal opened" : "Open in terminal"}</span>
         </button>
