@@ -5574,6 +5574,7 @@ function AcpmuxPane() {
             onOpen={showSubagent}
             onOpenCommand={openTrayCommand}
             canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+            canReadTail={opensProcessTerminal(snapshot.summary) && clientEpoch > 0 && backgroundTaskOutput !== undefined}
             onOpenSession={openOfferChat}
             stop={stopSubagent}
             stopProcess={stopProcess}
