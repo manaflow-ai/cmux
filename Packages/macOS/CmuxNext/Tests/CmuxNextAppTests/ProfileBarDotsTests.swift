@@ -30,6 +30,8 @@ import Testing
         var pixelsOutsideDot = 0
         for x in 0..<rep.pixelsWide {
             for y in 0..<rep.pixelsHigh {
+                guard abs(CGFloat(x) + 0.5 - center.x) <= radius,
+                      abs(CGFloat(y) + 0.5 - center.y) <= radius else { continue }
                 guard (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.15 else { continue }
                 let distance = hypot(CGFloat(x) + 0.5 - center.x, CGFloat(y) + 0.5 - center.y)
                 if distance > radius { pixelsOutsideDot += 1 }
