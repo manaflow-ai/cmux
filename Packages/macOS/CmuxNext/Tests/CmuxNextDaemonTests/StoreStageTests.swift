@@ -144,6 +144,68 @@ struct StoreStageTests {
         #expect(store.tab(surface: 3)?.name == "batch")
     }
 
+    /// A read-your-writes wait (an action that awaits its own echo) never waits on a script batch:
+    /// a waiter for a sequence past a held event commits the stage at once (PL-main review, major 1).
+    @Test func aWaiterPastAHeldEventCommitsTheStage() async {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        _ = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 5, name: "batch"), transaction: .generate())
+        }
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: Self.renamed(5, "batch", workspace: 1, pane: 10, screen: 100)),
+                                DaemonEventEnvelope(sequence: 2, event: .titleChanged(surface: 21, title: "other"))])
+        await store.applied(through: 2)
+        #expect(store.stage == nil, "the waiter waited on the script's stage")
+        #expect(store.appliedSequence >= 2)
+        var ran = false
+        store.whenApplied(.generate(), reaching: 2) { ran = true }
+        #expect(ran)
+    }
+
+    /// Workspace list indexes do not commute: a held move of workspace 1 and a later move of
+    /// workspace 2 apply in the daemon's order (PL-main review, major 2).
+    @Test func heldAndLaterWorkspaceMovesKeepTheDaemonsOrder() {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
+        let move = ClientTransactionID.generate()
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.moveWorkspace(key: WorkspaceKey(rawValue: "w1"), index: 1), transaction: move)
+        }
+        let tree = Self.tree()
+        let first = tree.workspaces[0], second = tree.workspaces[1]
+        // The daemon: workspace 1 moves to index 1 (order 2, 1; the echo of the script's move), then
+        // workspace 2 moves to index 1 (order 1, 2).
+        _ = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 1, event: .workspaceMoved(WorkspaceDelta(workspace: 1, index: 1, entity: first, workspaceRevision: 2,
+                                                                                   clientTransactionID: move))),
+            DaemonEventEnvelope(sequence: 2, event: .workspaceMoved(WorkspaceDelta(workspace: 2, index: 1, entity: second, workspaceRevision: 3))),
+        ])
+        stage.commit()
+        #expect(store.workspaces.map(\.handle) == [1, 2], "the order is not the daemon's: \(store.workspaces.map(\.handle))")
+    }
+
+    /// A snapshot commits the whole stage, every joined batch's part (PL-main review, major 3).
+    @Test func aSnapshotClosesAStageOfTwoBatches() {
+        let store = Self.store()
+        _ = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600))
+        _ = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600))
+        store.apply(snapshot: Self.tree())
+        #expect(store.stage == nil)
+    }
+
+    /// The earliest deadline holds: a batch that joins with a later one never keeps the stage open
+    /// longer (PL-main review, major 4).
+    @Test func aLaterJoinDoesNotPushTheDeadlineBack() async {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        _ = store.openStage(for: scope, until: .now, clock: ElapsedClock())
+        _ = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600), clock: ElapsedClock())
+        for _ in 0..<100 where store.stage != nil { await Task.yield() }
+        #expect(store.stage == nil, "the second batch's later deadline kept the stage open")
+    }
+
     /// A batch whose commit never comes does not hold the store: the stage commits at its deadline.
     @Test func aStageCommitsByItselfAtItsDeadline() async {
         let store = Self.store()

@@ -271,8 +271,9 @@ public final class DaemonStore: StateResourceQueries {
     /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
     /// (``incrementalDiff(_:diff:)``) applies in full.
     func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
-        // A snapshot holds everything the daemon did: a staged batch shows first, then the snapshot.
-        stage?.commit()
+        // A snapshot holds everything the daemon did: a staged batch shows first (every joined batch's
+        // part), then the snapshot.
+        stage?.commit(all: true)
         withOverlayLifted(snapshot: true) {
             if let diff = incrementalDiff(tree, diff: diff) {
                 applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
