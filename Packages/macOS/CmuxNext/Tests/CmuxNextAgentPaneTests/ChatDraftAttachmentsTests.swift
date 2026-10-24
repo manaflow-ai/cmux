@@ -154,7 +154,7 @@ struct ChatDraftAttachmentsTests {
                            data: Data([4, 5, 6]).base64EncodedString())
         let last = Chip(id: "last", kind: "image", name: "last.png", mimeType: "image/png", size: 3,
                         data: Data([7, 8, 9]).base64EncodedString())
-        let draft = AgentPaneDraft(text: "one\u{FFFC}caption\u{FFFC}tail", attachments: [first, missing, last])
+        let draft = AgentPaneDraft(text: "one\u{FFFC}caption\u{FFFC}\u{FFFC}tail", attachments: [first, missing, last])
         #expect(try await Self.keep(draft, for: "repair") == ["first", "last", "missing"])
         let folder = try #require(store.folder(for: "repair"))
         let list = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: AgentPaneDraftAttachments.listName))) as? [String: Any]
