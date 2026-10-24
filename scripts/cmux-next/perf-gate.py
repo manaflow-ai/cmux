@@ -1053,7 +1053,8 @@ class Gate:
         app.action("goToWorkspace", {"workspace": ids[0]})
         app.action("openSettings")
         # The page reads its host lists (with the wallpapers) once it loads.
-        first = wait(lambda: (builds() or 0) >= 1 or None, 30)
+        # The page itself has read its host lists (a build alone also comes from the page's thumbnails).
+        first = wait(lambda: ((builds() or 0) >= 1 and runs() >= 1) or None, 30)
         if builds() is None:
             check(False, "debug.layout_counters reports backdrop_catalog_builds", "idle")
             return
