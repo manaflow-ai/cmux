@@ -75,7 +75,7 @@ export type AgentSessionTheme = {
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
-  /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
+  /// `data-working-look` on the root. Absent means the shared spinner fallback.
   workingLook?: "breathe" | "shimmer" | "spinner";
   /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
   /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;

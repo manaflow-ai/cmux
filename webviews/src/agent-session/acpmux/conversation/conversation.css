@@ -1694,7 +1694,8 @@ pre.cv-math-source {
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
    WORKING-LOOK (Leo 2026-10-20: a spinner per row "reads as noise"): agent work draws the look the
    app picks, `data-working-look` on the root (Debug Settings `status.working`):
-   - breathe (the default, also with no attribute): a dot in the theme accent that breathes once per
+   - spinner (the fallback, also with no attribute): a turning ring;
+   - breathe (the explicit debug look): a dot in the theme accent that breathes once per
      `--cmux-breath-period`;
    - shimmer: the same dot held still, and a light band crosses the row's words;
    - spinner: the turning ring.
@@ -1705,21 +1706,22 @@ pre.cv-math-source {
   display: none;
   fill: var(--cmux-accent, currentColor);
 }
-:root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__arc {
+:root[data-working-look="breathe"] .cv-spinner[data-working] .cv-spinner__arc {
   display: none;
 }
-:root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__dot {
+:root[data-working-look="breathe"] .cv-spinner[data-working] .cv-spinner__dot {
   display: inline;
 }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
+  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
+    .cv-spinner[data-working],
   :root:not([data-status-indicators="static"])[data-working-look="spinner"] .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
   /* The dot breathes as its whole svg (the arc is hidden in this look): an svg box gets a compositor
      layer, a shape inside it does not, so the dot's own opacity would repaint the svg every frame. */
-  :root:not([data-status-indicators="static"]):not([data-working-look="spinner"]):not([data-working-look="shimmer"])
-    .cv-spinner[data-working] {
+  :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
@@ -3403,7 +3405,7 @@ a.cv-sha:focus-visible {
    (.ui-glass, ui/glass/glass.css): the lens bends the wallpaper across the whole disc, under the
    glass's rim in its own ring tone and a soft shadow; Plain glass keeps the look from before the
    lens (the page at 72% through the shared blur), and Reduce Transparency makes it opaque. Its
-   accent dots say a reply is streaming below. It fades in and out with the pane's motion tokens. */
+   arrow stays static while a reply streams below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
@@ -3452,35 +3454,13 @@ a.cv-sha:focus-visible {
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }
-/* The arrow and the dots share one cell: while the agent works, the arrow shrinks and fades out as
-   the accent dots grow in (Claude desktop's Code tab), and back when the turn ends. */
-.acpmux-jump-latest__arrow,
-.acpmux-jump-latest__dots {
+/* Keep the control's arrow static while the agent works. The transcript's shared spinner communicates
+   work in the rows; the Jump to latest affordance only communicates that unread content is below. */
+.acpmux-jump-latest__arrow {
   grid-area: 1 / 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-.acpmux-jump-latest__dots {
-  gap: 3px;
-  color: var(--agent-accent);
-  opacity: 0;
-  transform: scale(0.4);
-}
-.acpmux-jump-latest[data-working] .acpmux-jump-latest__arrow {
-  opacity: 0;
-  transform: translateY(3px) scale(0.4);
-}
-.acpmux-jump-latest[data-working] .acpmux-jump-latest__dots {
-  opacity: 1;
-  transform: none;
-}
-.acpmux-jump-latest__dots i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
@@ -3490,40 +3470,6 @@ a.cv-sha:focus-visible {
   }
   .acpmux-jump-latest[data-shown] {
     transition-duration: var(--agent-motion-in);
-  }
-  .acpmux-jump-latest__arrow,
-  .acpmux-jump-latest__dots {
-    transition:
-      opacity var(--agent-motion-in) var(--agent-ease-out),
-      transform var(--agent-motion-in) var(--agent-ease-out);
-  }
-  /* Only while shown and working: hidden dots keep no compositor animation running. */
-  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
-    animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
-  }
-  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(2) {
-    animation-delay: calc(var(--agent-motion-in) * 1.5);
-  }
-  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(3) {
-    animation-delay: calc(var(--agent-motion-in) * 3);
-  }
-}
-/* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
-   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
-   repeats the loop's [data-shown][data-working] so it outranks it. */
-:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
-  animation: none;
-}
-@keyframes acpmux-jump-latest-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.8);
-  }
-  30% {
-    opacity: 1;
-    transform: scale(1.15);
   }
 }
 /* A chat reopening where the reader left it stays unseen while older pages bring that row back

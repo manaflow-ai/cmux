@@ -26,12 +26,6 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     goneWith: "#23870, which deletes the look and guards it in static-status-loops.test.ts",
   },
   {
-    file: "agent-session/acpmux/conversation/conversation.css",
-    keyframes: "acpmux-jump-latest-dot",
-    selector: ".acpmux-jump-latest",
-    why: "Jump to latest's three working dots (#21800); Static and Reduce Motion still them",
-  },
-  {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",
     selector: ".acpmux-mic",
@@ -266,6 +260,22 @@ describe("no breathing or blinking dots", () => {
       ".h-dot throb scale",
       ".i-dot[data-on] flash visibility",
     ]);
+  });
+
+  test("agent chat uses the shared spinner fallback and keeps Jump to latest static", () => {
+    const conversation = shipped.find(
+      (sheet) => sheet.file === "agent-session/acpmux/conversation/conversation.css",
+    )?.css;
+    expect(conversation).toBeDefined();
+    expect(conversation).toContain('[data-working-look="breathe"] .cv-spinner[data-working]');
+    expect(conversation).not.toContain("acpmux-jump-latest-dot");
+    expect(
+      loops.filter(
+        (loop) =>
+          loop.file === "agent-session/acpmux/conversation/conversation.css" &&
+          loop.selector.includes(".acpmux-jump-latest"),
+      ),
+    ).toEqual([]);
   });
 
   test("no stylesheet fades, blinks or pulses a dot forever", () => {

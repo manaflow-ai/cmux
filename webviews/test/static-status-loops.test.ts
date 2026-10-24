@@ -52,7 +52,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
-    `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
+    `<button class="acpmux-jump-latest" data-shown><span class="acpmux-jump-latest__arrow">↓</span></button>` +
     `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
     working +
@@ -120,9 +120,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
-    // Agent work breathes by default (WORKING-LOOK), as its whole mark (SPINNERS-OFF-MAIN: the svg box
-    // gets a compositor layer, the dot inside it does not).
-    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(true);
+    // Agent work uses the shared spinner by default; breathing remains an explicit debug look.
+    expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(2);
+    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(false);
   });
 
   test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {

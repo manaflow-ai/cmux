@@ -1709,9 +1709,9 @@ function restingAnchor(
 }
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
-/// from the latest message (ChatGPT and Codex style). While the agent works its arrow morphs into
-/// three accent dots that pulse (Claude desktop's Code tab), saying a reply is streaming below. It stays
-/// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
+/// from the latest message (ChatGPT and Codex style). While the agent works it stays a static arrow;
+/// the working state is already represented by the shared transcript spinner. It stays mounted while
+/// hidden (inert) so it fades out as it fades in (conversation.css).
 function JumpToLatest({
   shown,
   working,
@@ -1736,24 +1736,17 @@ function JumpToLatest({
       type="button"
       className="ui-glass ui-glass-floats acpmux-jump-latest"
       data-shown={shown ? "" : undefined}
-      data-working={working ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
       aria-label={label}
-      // The arrow (or, while the agent works, the dots) says nothing by itself.
+      // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
       title={label}
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
-      {/* Both stay mounted so the arrow morphs into the dots and back (conversation.css). */}
       <span className="acpmux-jump-latest__arrow" aria-hidden="true">
         <ArrowDown size={14} />
-      </span>
-      <span className="acpmux-jump-latest__dots" aria-hidden="true">
-        <i />
-        <i />
-        <i />
       </span>
     </button>
   );
@@ -1815,7 +1808,8 @@ export function VirtualTranscript({
   /// Filled with where it last rested in view (null at the latest message, undefined when it was
   /// never in view), for a page about to let go.
   anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
-  /// A reply is streaming: Jump to latest shows its dots while the reader is scrolled up.
+  /// A reply is streaming: Jump to latest remains a static control while the shared transcript
+  /// spinner carries the working state.
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
   jumpButton?: boolean;

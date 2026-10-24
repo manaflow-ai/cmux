@@ -83,7 +83,7 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 ]).flat();
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
-test("scrolled up, a button above the composer jumps to the latest message, with dots while a reply streams", async () => {
+test("scrolled up, a static button above the composer jumps to the latest message while a reply streams", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const rows = turnView(turns, new Set());
   const render = (working: boolean) =>
@@ -113,9 +113,9 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     expect(button()?.title).toBe("Jump to latest");
     expect(button()?.dataset.working).toBeUndefined();
 
-    // A reply streams below the viewport: the button says so with its dots.
+    // A reply streams below the viewport: the control stays static and only its accessible label changes.
     await act(async () => render(true));
-    expect(button()?.dataset.working).toBe("");
+    expect(button()?.dataset.working).toBeUndefined();
     expect(button()?.getAttribute("aria-label")).toBe("Jump to latest, still replying");
     expect(button()?.title).toBe("Jump to latest, still replying");
 
