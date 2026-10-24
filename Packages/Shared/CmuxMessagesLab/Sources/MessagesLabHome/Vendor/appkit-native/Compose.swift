@@ -264,6 +264,14 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
+    func setSpellCheckingEnabled(_ enabled: Bool) {
+        if DeferredSpellChecker.useAppKit {
+            isContinuousSpellCheckingEnabled = enabled
+        } else {
+            spell.enabled = enabled
+        }
+    }
     override func toggleContinuousSpellChecking(_ sender: Any?) {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }

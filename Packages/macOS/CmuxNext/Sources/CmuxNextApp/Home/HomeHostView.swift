@@ -35,6 +35,7 @@ final class HomeHostView: NSView {
     private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
+    private var spellCheckingWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
     /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
     /// else 🫡 if its picture is missing from the bundle.
@@ -57,6 +58,7 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
                                               diagrams: service.diagrams, openPanel: services.openPanel)
+        transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
@@ -219,6 +221,11 @@ final class HomeHostView: NSView {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+        spellCheckingWatch = Task { [weak self, weak services] in
+            for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
+                self?.transcript.composerSpellCheckingEnabled = enabled
+            }
+        }
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
         transcript.onFirstRunAction = { action in
@@ -316,7 +323,7 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, headerPanelsWatch, firstPage] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript

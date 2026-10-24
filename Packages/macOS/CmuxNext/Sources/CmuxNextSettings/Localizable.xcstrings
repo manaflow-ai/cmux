@@ -80258,6 +80258,28 @@
         }
       }
     },
+    "settings.agentPane.spellChecking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Spelling While Typing"
+          }
+        }
+      }
+    },
+    "settings.agentPane.spellChecking.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underlines misspellings and offers system suggestions in the composer."
+          }
+        }
+      }
+    },
     "settings.agentPane.showContextUsage": {
       "extractionState": "manual",
       "localizations": {
