@@ -1061,7 +1061,7 @@ reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the l
 [[test]]
 path = "tests/test_cmux_next_compile_trailer.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. The compile trailer rule runs only in the local pre-push hook; run python3 -I tests/test_cmux_next_compile_trailer.py yourself (about 6 s, git only, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests. The compile trailer rule runs only in the local pre-push hook; run python3 -I tests/test_cmux_next_compile_trailer.py yourself (about 25 s, git and loopback HTTP only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_codebase_health.py"

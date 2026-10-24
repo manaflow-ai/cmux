@@ -813,7 +813,8 @@ def compile_ranges(repo: Path, pushed_lines: list[str], push_range=None,
 def compile_trailer(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
     """The compile trailer rule (compile_trailer.py, lead 2026-10-24): a push that changes Swift names a passing compile
     job (`Compiled: <cmux-ci job id>`) of its Swift. Local only (like the guardrails), from the installed copy for the
-    hook; any error or a controller that does not answer in 2 s lets the push through with a warning. True: refused."""
+    hook; any error or a controller that does not answer in 5 s lets the push through with a loud
+    `!!! COMPILE TRAILER NOT CHECKED` line naming the reason. True: refused."""
     script = (trusted_scripts / "compile_trailer.py") if trusted_scripts else (repo / SCRIPTS / "compile_trailer.py")
     if not ranges or not script.is_file():
         return False
@@ -823,7 +824,8 @@ def compile_trailer(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: 
         spec.loader.exec_module(module)
         refused, lines = module.check(repo, ranges)
     except Exception as error:  # noqa: BLE001 - fail open: a bug here must not block every push
-        log(f"prepush-gate: WARNING: compile_trailer.py failed ({type(error).__name__}: {error}); not applied.")
+        log(f"!!! COMPILE TRAILER NOT CHECKED: compile_trailer.py failed ({type(error).__name__}: {error}). The push "
+            "goes through UNCHECKED; the tip may not build. Say so in your report. !!!")
         return False
     for line in lines:
         log(line)
