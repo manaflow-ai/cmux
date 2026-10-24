@@ -3579,13 +3579,12 @@ jobs:
 
   # The fleet compile check is the first Release gate. It checks the exact
   # source without occupying a Mac runner.
-  # The job deliberately has the same gate name as the Mac fallback: only one
-  # runs for a push, so promotion and merge admission can keep one stable gate
-  # name while the route changes underneath it.
+  # Keep the fast-check wrapper's name distinct from the admission gate below:
+  # an unavailable wrapper is a successful job but is not a Release compile.
   release-compile-fast:
     needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    name: cmux-next Release compile (Xcode 26)
+    name: cmux-next Release compile (fleet fast check)
     concurrency:
       group: ${{ format('cmux-next-release-compile-fast-{0}', github.run_id) }}
       cancel-in-progress: false
@@ -3609,8 +3608,17 @@ jobs:
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Release admission must type-check Release-only conditionals. The
+          # private fleet client rolls this profile out independently; until a
+          # runner has it, use the Mac Release fallback instead of silently
+          # admitting on a Debug compile under the Release gate name.
+          if ! "$client" compile-check --help 2>/dev/null | grep -q -- '--release'; then
+            echo "::warning title=Fast fleet compile check::the fleet client has no Release profile; the Mac fallback will run."
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           status=0
-          "$client" compile-check --ref "$REF" --app \
+          "$client" compile-check --ref "$REF" --app --release \
             --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass ;;
@@ -3619,12 +3627,51 @@ jobs:
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           [[ "$verdict" != fail ]]
+      # request-nightly-next.sh refuses unless HEAD is the pushed commit, and
+      # reads nightly.yml and history from it. The compile check above needs no
+      # checkout, so without this step the request ran in whatever commit this
+      # reused gateway workspace last held and failed the gate after a pass.
+      - name: Checkout the pushed commit for the promotion request
+        id: checkout
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.verdict == 'pass' }}
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.verdict == 'pass' }}
+        run: scripts/ci/reset-stale-submodules.sh
       - name: Request nightly-next promotion after the fast gate
         if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.verdict == 'pass' }}
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY" --release-compile-green
+
+  # Promotion admission keys off this exact job name. Keep it separate from
+  # the fast-check wrapper so unavailable fast checks cannot satisfy the gate.
+  release-compile-fast-admission:
+    needs: release-compile-fast
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result == 'success' && needs.release-compile-fast.outputs.verdict == 'pass' }}
+    name: cmux-next Release compile (Xcode 26)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Record the Release compile admission
+        run: echo "The fleet fast check compiled this commit in Release mode."
 
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}

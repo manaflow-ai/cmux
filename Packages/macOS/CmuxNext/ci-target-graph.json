@@ -479,6 +479,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
@@ -505,6 +506,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextBrowserCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextBrowserHistory": {
       "kind": "regular",
@@ -1384,6 +1394,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPopupsTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextDesign",
         "CmuxNextPopups"
       ],
       "packages": [],
@@ -1738,7 +1749,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups",
       "targets": [
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextSignposts"
       ],
       "packages": []
     },

@@ -176,15 +176,19 @@ public struct ChiefSettingsView: View {
     }
 
     /// Messages' call / video / mail circles, with Chief's own real actions:
-    /// Message (back to the conversation, keyboard up) and Stop (Chief's
-    /// running turn; dimmed while there is none, as Messages dims an action
-    /// a contact cannot take).
+    /// Message (back to the conversation, keyboard up), Call (a live voice
+    /// call) and Stop (Chief's running turn; dimmed while there is none, as
+    /// Messages dims an action a contact cannot take).
     private var quickActions: some View {
         HStack(spacing: ChiefInfoGeometry.quickActionSpacing) {
             if let onMessage {
                 ChiefQuickAction(symbol: "message.fill", title: String(localized: "Message"), enabled: true) { onMessage() }
                     .accessibilityIdentifier("chief.settings.message")
             }
+            ChiefQuickAction(symbol: "phone.fill", title: String(localized: "Call"), enabled: true) {
+                ChiefCallLauncher.shared.call()
+            }
+            .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
                 ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
                                  enabled: hasControl && session.isTyping && !stopping,

@@ -54,6 +54,10 @@ if "--suite=pane-bench" not in sys.argv:
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=command-pan`: Command + scroll pans the columns strip, light and STRESS (scripts/cmux-next/bench-command-pan.py).
+if "--suite=command-pan" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-command-pan.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=command-pan"])
 # `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
@@ -64,6 +68,28 @@ if "--suite=open-panel" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=config-parity`: is the bench build (split-spring.sh --config=bench builds --app) as fast as Release?
+# Builds a Release app of this checkout (tag cfgparity-rel), then scripts/cmux-next/bench-config-parity.py
+# runs the same actions on both, interleaved (--runs, --rounds, --idle pass through).
+if "--suite=config-parity" in sys.argv:
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(here))
+    rest = [a for a in sys.argv[1:] if a != "--suite=config-parity"]
+    bench_app = rest[rest.index("--app") + 1]
+    out = rest[rest.index("--out") + 1] if "--out" in rest else "/tmp/config-parity"
+    passthrough = [a for a in rest if a.startswith(("--runs=", "--rounds=", "--idle=", "--settle="))]
+    log = os.path.join(out, "reload-release.log")
+    os.makedirs(out, exist_ok=True)
+    with open(log, "w") as handle:
+        built = subprocess.run(["./scripts/reload.sh", "--tag", "cfgparity-rel", "--config", "release"], cwd=root,
+                               env={**os.environ, "CMUX_DEV_BACKEND_MODE": "local"}, stdout=handle, stderr=subprocess.STDOUT)
+    lines = open(log).read().splitlines()
+    paths = [lines[i + 1].strip() for i, line in enumerate(lines[:-1]) if line.startswith("App path:")]
+    if built.returncode != 0 or not paths:
+        print("\n".join(lines[-60:]))
+        raise SystemExit("config-parity: the Release build failed")
+    suite = os.path.join(here, "bench-config-parity.py")
+    os.execv(sys.executable, [sys.executable, suite, "--release", paths[-1], "--bench", bench_app, "--out", out] + passthrough)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
@@ -74,10 +100,25 @@ if "--suite=app-perf" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=app-perf"])
 # `--suite=anim-perf`: every other app animation (tabs, workspace switch, sidebars, groups, Home, palette),
 # scripts/cmux-next/anim-perf-terminal.py, budgets in scripts/perf-bench/budgets.json (animations).
+# `--suite=chromium-tab-count`: 150 Chromium tabs under launchd's 256 open files, the app still answering
+# (scripts/cmux-next/chromium-tab-count-live.py; release blocker 2026-10-23, OpenFileLimit).
+if "--suite=chromium-tab-count" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromium-tab-count-live.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chromium-tab-count"])
 # `--suite=sidebar-churn`: terminal typing idle and while the sidebar rearranges, scripts/cmux-next/sidebar-churn-typing.py.
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
+# `--suite=automation-typing`: terminal typing idle and while agents automate the app (terminal writes, a Chromium page
+# driven through the control socket, optional AX walks), scripts/cmux-next/automation-typing-bench.py.
+if "--suite=automation-typing" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation-typing-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=automation-typing"])
+# `--suite=script-storm`: terminal typing and Cmd-D / Cmd-W while a script storms background workspaces (sidebar
+# reorders, tab moves, New Column/Row, renames, app-side renameTab), light and STRESS, scripts/cmux-next/script-storm-bench.py.
+if "--suite=script-storm" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script-storm-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=script-storm"])
 # `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
 # split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
 # yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
@@ -122,6 +163,32 @@ if "--suite=perf-gate" in sys.argv:
     print(f"split-spring --suite=perf-gate: perf-gate.py exited {code}; report {report_path}"
           f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
+# `--suite=cef-resize-sync`: Chromium layer hosting and its resize wait (plans/cmux-next/cef-layer-hosting-DESIGN.md) on
+# the step's app: cef-layer-verify.py --mode on and --mode off (debug input; hosted.fork, show.again, pixels, input),
+# then cef-resize-sync-bench.py (off, on, on0; light and STRESS). `--label=NAME` names the bench run (api26, api27),
+# `--no-bench` runs only the verify. Every part runs; <out>/cef-resize-sync.json records each part's exit, and the
+# step fails when a part failed.
+if "--suite=cef-resize-sync" in sys.argv:
+    here = os.path.dirname(os.path.abspath(__file__))
+    argv = sys.argv[1:]
+    value = lambda name: next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == name), None)
+    app, tag, out = value("--app"), value("--tag"), value("--out") or "/tmp/cmux-next-cef-resize-sync"
+    label = next((a.split("=", 1)[1] for a in argv if a.startswith("--label=")), "")
+    parts = [("verify-on", ["cef-layer-verify.py", "--mode", "on"]), ("verify-off", ["cef-layer-verify.py", "--mode", "off"])]
+    if "--no-bench" not in argv:
+        parts.append(("bench", ["cef-resize-sync-bench.py", "--label", label]))
+    results = {}
+    for name, (script, *extra) in parts:
+        part_out = os.path.join(out, name)
+        os.makedirs(part_out, exist_ok=True)
+        verify_input = ["--input", "debug"] if script == "cef-layer-verify.py" else []
+        print(f"== cef-resize-sync {name}", flush=True)
+        results[name] = subprocess.call([sys.executable, os.path.join(here, script), "--app", app, "--tag", tag,
+                                         "--out", part_out] + verify_input + extra)
+        print(f"== cef-resize-sync {name} exit {results[name]}", flush=True)
+    with open(os.path.join(out, "cef-resize-sync.json"), "w") as f:
+        json.dump(results, f, indent=1)
+    sys.exit(0 if all(code == 0 for code in results.values()) else 1)
 # `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
 # CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
 # The step passes whenever the JSON was written (an over-budget launch is in it).

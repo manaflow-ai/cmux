@@ -14,9 +14,13 @@ cat >"$TMP_DIR/fake-xcodebuild.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'fake xcodebuild args: %s\n' "$*"
 if [[ -n "${FAKE_XCODEBUILD_ERRORS:-}" ]]; then
-  echo "/src/App/Thing.swift:21:42: error: generic parameter 'T' could not be inferred"
-  echo "   |   \`- error: generic parameter 'T' could not be inferred"
-  echo "<unknown>:0: error: deinit is marked isolated, but containing class 'TerminalSession' is not isolated to an actor"
+  if [[ -n "${FAKE_XCODEBUILD_MANY_ERRORS:-}" ]]; then
+    for i in {1..60}; do echo "/src/App/Thing$i.swift:21:42: error: synthetic failure $i"; done
+  else
+    echo "/src/App/Thing.swift:21:42: error: generic parameter 'T' could not be inferred"
+    echo "   |   \`- error: generic parameter 'T' could not be inferred"
+    echo "<unknown>:0: error: deinit is marked isolated, but containing class 'TerminalSession' is not isolated to an actor"
+  fi
   for _ in {1..200}; do echo "noise line"; done
   echo "/src/App/Thing.swift:21:42: error: generic parameter 'T' could not be inferred"
   echo "** BUILD FAILED **"
@@ -67,6 +71,26 @@ if [[ "$(grep -c '^::error file=/src/App/Thing.swift,line=21,col=42::generic par
   exit 1
 fi
 grep -Fq "::error::<unknown>:0: error: deinit is marked isolated" "$TMP_DIR/errors.log"
+set +e
+FAKE_XCODEBUILD_ERRORS=1 FAKE_XCODEBUILD_MANY_ERRORS=1 FAKE_XCODEBUILD_STATUS=65 \
+  "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/many-errors.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 65 ]]; then
+  echo "FAIL: many-error fixture must preserve xcodebuild's exit 65, got $status" >&2
+  exit 1
+fi
+grep -Fq -- '--- first 50 xcodebuild error lines' "$TMP_DIR/many-errors.log"
+first_error_section_count="$(awk '
+  /--- first 50 xcodebuild error lines/ { section++; next }
+  section == 1 && /^--- / { exit }
+  section == 1 && /^\/src\/App\/Thing[0-9][0-9]*\.swift:21:42: error: synthetic failure/ { count++ }
+  END { print count + 0 }
+' "$TMP_DIR/many-errors.log")"
+if [[ "$first_error_section_count" -ne 50 ]]; then
+  echo "FAIL: the wrapper must print the first 50 distinct error lines" >&2
+  exit 1
+fi
 if grep -q '^::error.*`- error' "$TMP_DIR/errors.log"; then
   echo "FAIL: the pretty-printed diagnostic gutter must not become an annotation" >&2
   exit 1

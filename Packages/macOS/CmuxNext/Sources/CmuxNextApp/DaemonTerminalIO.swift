@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -47,6 +48,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
+    /// The PTY surface this view attaches to (``BurstSignposts``).
+    private let surface: UInt64
+    private let burst: BurstSignposts
+    /// A grid went to the PTY and its first output has not arrived yet (``BurstSignposts``).
+    // A lock, not an actor: set on the main actor per settled resize and claimed by the events
+    // stream on every output, a synchronous compare-and-set where an actor would add a hop per output.
+    private let awaitsFirstOutput: OSAllocatedUnfairLock<Bool>
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -92,9 +100,16 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         )
         self.driver = driver
         self.creatingInput = creatingInput
+        self.surface = surface
+        let burst = BurstSignposts(), awaitsFirstOutput = OSAllocatedUnfairLock(initialState: false)
+        self.burst = burst
+        self.awaitsFirstOutput = awaitsFirstOutput
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
+                if case .output = event, awaitsFirstOutput.withLock({ awaits in defer { awaits = false }; return awaits }) {
+                    burst.firstOutput(surface: surface)
+                }
                 switch event {
                 case .status(.disconnected), .status(.restoring):
                     guard policyBlocked() else { return event }
@@ -106,7 +121,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The view of a traced new terminal's tab: its session is matched by this IO.
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
         #endif
@@ -158,6 +173,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
+        burst.ptyGrid(surface: surface, cols: size.cols, rows: size.rows)
+        awaitsFirstOutput.withLock { $0 = true }
         driver.resize(size)
     }
 

@@ -7,14 +7,22 @@ and a host that runs many scripts runs out of them. `TagTeardown.end()`:
 1. `acpmux daemon shutdown --end-agents` with the tag daemon's own ACPMUX_HOME and ACPMUX_SOCKET;
 2. `cmux-tui --socket <its socket> session <its session> shutdown --force` for the tag's headless
    session;
-3. waits for every process whose executable is inside the app bundle to exit, then stops each
-   leftover by its exact PID (TERM, then KILL); never a pattern kill;
+3. waits for every process of the tag to exit, then stops each leftover by its exact PID (TERM, then
+   KILL); never a pattern kill. A process is the tag's by the tag itself, never by name or by
+   ancestry (the daemons detach through `cmux-tui server ensure`): its executable is inside the app
+   bundle; or it is a terminal host whose `--owner <bundle>:<tag>@<pid>` names the app's bundle id
+   (hosts run from a content-addressed copy outside the bundle, host_exe.rs); or its environment
+   holds the app's `CMUX_BUNDLE_ID` (the shells of its terminals); or it is the holder or host
+   process a shell of the tag runs under (the shell's direct parent, from a host-exe copy);
 4. prints the counts.
 
 Use: `teardown = TagTeardown(app_path)`, `teardown.install()` once (SIGTERM and SIGHUP raise
 SystemExit, so a `finally` runs), and `teardown.end()` in the script's `finally`.
 """
-import os, signal, subprocess, sys, time
+import os, plistlib, re, signal, subprocess, sys, time
+
+# Where cmux-tui runs terminal hosts and holders from on macOS (host_exe.rs): a copy, outside the bundle.
+HOST_EXE_ROOT = os.path.expanduser("~/Library/Application Support/cmux-tui/host-exe/")
 
 
 class TagTeardown:
@@ -32,20 +40,59 @@ class TagTeardown:
         for signum in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(signum, stop)
 
-    def processes(self):
-        """(pid, command) of every process whose executable is inside this app bundle."""
-        out = subprocess.run(["ps", "-A", "-o", "pid=,command="], capture_output=True, text=True).stdout
-        found = []
+    def bundle_id(self):
+        try:
+            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
+                return plistlib.load(f).get("CFBundleIdentifier")
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _owner_part(value):
+        """cmux-tui's `--owner` spelling of a bundle id (host_session.rs owner_part)."""
+        return re.sub(r"[^A-Za-z0-9._-]", "_", value) if value else "-"
+
+    @staticmethod
+    def _ps(*flags):
+        out = subprocess.run(["ps", "-A", *flags, "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+        rows = {}
         for line in out.splitlines():
-            parts = line.strip().split(None, 1)
-            if len(parts) != 2:
-                continue
+            parts = line.strip().split(None, 2)
+            if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+                rows[int(parts[0])] = (int(parts[1]), parts[2])
+        return rows
+
+    @classmethod
+    def _table(cls):
+        """[(pid, ppid, command, command and environment words)] of every process. The environment (`ps eww`, this
+        user's processes only) is read only to match; it is never logged (it can hold tokens)."""
+        plain, with_env = cls._ps(), cls._ps("eww")
+        return [(pid, ppid, command, with_env.get(pid, (ppid, command))[1]) for pid, (ppid, command) in plain.items()]
+
+    def matches(self, rows, bundle):
+        """The rows that are this tag's processes (see the module doc), as (pid, command)."""
+        owner = f"--owner {self._owner_part(bundle)}:" if bundle else None
+        env_mark = f"CMUX_BUNDLE_ID={bundle}" if bundle else None
+        by_pid = {pid: (ppid, command) for pid, ppid, command, _ in rows}
+        found = {}
+        for pid, ppid, command, environment in rows:
             # The app names some helpers by /var/... or /tmp/... without the /private its realpath
             # carries (an app copy in $TMPDIR); match them by the resolved spelling.
-            command = "/private" + parts[1] if parts[1].startswith(("/var/", "/tmp/")) else parts[1]
-            if command.startswith(self.app + "/") or command.startswith(self.app + " "):
-                found.append((int(parts[0]), command))
-        return found
+            resolved = "/private" + command if command.startswith(("/var/", "/tmp/")) else command
+            mine = resolved.startswith(self.app + "/") or resolved.startswith(self.app + " ")
+            mine = mine or (owner is not None and owner in command)
+            if env_mark is not None and env_mark in environment.split():
+                mine = True
+                parent = by_pid.get(ppid)
+                if parent and parent[1].startswith(HOST_EXE_ROOT):
+                    found[ppid] = parent[1]
+            if mine:
+                found[pid] = command
+        return sorted(found.items())
+
+    def processes(self):
+        """(pid, command) of every process of this tag."""
+        return self.matches(self._table(), self.bundle_id())
 
     @staticmethod
     def _environment(pid):

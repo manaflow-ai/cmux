@@ -30,6 +30,10 @@
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
+# The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
+# commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
+# the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
+SPLIT_SPRING_MEASURE_VERSION=2
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=() reload_config=()
 for arg in "$@"; do
@@ -105,8 +109,11 @@ if [[ -n "$cache" && -d "$cache/$key" ]]; then
   done | tail -n +4 | while read -r old; do rm -rf "$old"; done
 fi
 build_seconds=$((SECONDS - build_start))
+# The host's macOS version: every report carries it (the perf cron shows each host's macOS; rows of one host only
+# are compared).
+macos="$(sw_vers -productVersion 2>/dev/null | tr -cd '0-9.' | head -c 16 || true)"
 if [[ "$build_only" == 1 ]]; then
-  printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}}\n' "$sha" "$build_seconds" "$cached" > "$out/report.json"
+  printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}, "macos": "%s"}\n' "$sha" "$build_seconds" "$cached" "$macos" > "$out/report.json"
   cat "$out/report.json"
   exit 0
 fi
@@ -206,16 +213,18 @@ python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --o
 bench_pid=$!
 wait "$bench_pid" || status=$?
 bench_pid=""
-# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`).
+# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`) and the
+# host's macOS version.
 for report in "$out/report.json" "$out/perf-gate.json"; do
   [[ -f "$report" ]] || continue
-  python3 - "$report" "$display_json" <<'PY' || echo "split-spring: could not add the display to $report" >&2
+  python3 - "$report" "$display_json" "$macos" <<'PY' || echo "split-spring: could not add the display to $report" >&2
 import json, sys
 path, display = sys.argv[1], json.loads(sys.argv[2])
 with open(path) as f:
     report = json.load(f)
 if isinstance(report, dict):
     report["display"] = display
+    report["macos"] = sys.argv[3] or None
     with open(path, "w") as f:
         json.dump(report, f, indent=1)
 PY
