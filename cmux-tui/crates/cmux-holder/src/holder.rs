@@ -99,9 +99,13 @@ struct Terminal {
     exit_sent: bool,
     /// Next offset to send the attached daemon; `None` while not attached.
     sent: Option<u64>,
-    /// An ADOPT's `resume` until its daemon ATTACHes (or the link ends):
-    /// reading stops [`UNSENT_HIGH_WATER`] past it, as it would attached,
-    /// so the ring never runs past the credit the ATTACH sets up.
+    /// A SPAWN's first offset or an ADOPT's `resume`, until its daemon
+    /// ATTACHes (or DETACHes, or the link ends): reading stops
+    /// [`UNSENT_HIGH_WATER`] past it, as it would attached, so the ring
+    /// never runs past the credit the ATTACH sets up and drops no byte the
+    /// daemon has not been sent. (The daemon sends SPAWN and its ATTACH
+    /// back to back, but as two writes: a holder that reads freely in
+    /// between can lose a new terminal's first output to the ring.)
     held: Option<u64>,
     /// Offset the attached daemon acknowledged it parsed up to.
     acked: u64,
@@ -1374,4 +1378,56 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
         )
     } == 0;
     ok.then_some(cred.uid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A terminal a SPAWN started reads no more than an attached stream
+    /// would until its ATTACH arrives: the daemon sends the two frames as
+    /// two writes, and a holder that read freely in between could pass the
+    /// ring's size and lose the terminal's first output (a GAP from 0).
+    #[test]
+    fn a_spawned_terminal_holds_its_output_until_its_attach() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-holder-spawn-hold-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let listener = UnixListener::bind(dir.join("h.sock")).unwrap();
+        let mut holder = Holder::new(listener, [7; 32]).unwrap();
+        let request = crate::SpawnRequest {
+            id: [1; 16],
+            cols: 80,
+            rows: 24,
+            px_w: 0,
+            px_h: 0,
+            cwd: b"/".to_vec(),
+            argv: vec![b"/bin/sh".to_vec(), b"-c".to_vec(), b"exec cat".to_vec()],
+            env: vec![b"PATH=/usr/bin:/bin".to_vec()],
+        };
+        holder.spawn(1, &request.encode()).unwrap();
+        let room = holder.terminals[&1].room();
+        assert!(room <= UNSENT_HIGH_WATER, "an unattached new terminal may read {room} bytes");
+        holder.attach(1, 0, &0u64.to_le_bytes()).unwrap();
+        assert_eq!(holder.terminals[&1].room(), UNSENT_HIGH_WATER, "attached from 0");
+        holder.handle(Frame {
+            kind: Kind::Detach as u16,
+            flags: 0,
+            chan: 1,
+            payload: Vec::new(),
+            fds: Vec::new(),
+        });
+        assert_eq!(holder.terminals[&1].room(), usize::MAX, "a detached terminal reads freely");
+        let pid = holder.terminals[&1].pid;
+        // SAFETY: the test's own child.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+            libc::waitpid(pid, std::ptr::null_mut(), 0);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
