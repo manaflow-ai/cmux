@@ -15,6 +15,18 @@ extension BrowserHostProvider {
     /// Observation tracking, then sends what changed. Each tracking pass
     /// fires once; a newer pass (or `refreshTabs`) makes older ones no-ops.
     func observeTabs() {
+        // No host linked: nothing reads the list or its access until the link connects, so no
+        // change (a title, a switch) walks every tab meanwhile; `run` reads it then (`trackTabs`).
+        guard connection != nil else {
+            observation += 1
+            return
+        }
+        trackTabs()
+        sendTabChanges()
+    }
+
+    /// Reads the list and the access under tracking (the next observed change calls ``observeTabs()``).
+    func trackTabs() {
         observation += 1
         let pass = observation
         let (tabs, access) = withObservationTracking {
@@ -26,8 +38,20 @@ extension BrowserHostProvider {
             }
         }
         latestTabs = tabs
+        reindexLatestTabs()
         latestAccess = access
-        sendTabChanges()
+    }
+
+    func reindexLatestTabs() {
+        latestTabIndex = Dictionary(latestTabs.enumerated().map { ($1.targetID, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// One known tab changed at the same URL (its visibility, a page made or released): announced again,
+    /// as ``sendTabChanges()`` does per tab.
+    func announceChange(_ tab: ProviderTab) {
+        guard let old = announced[tab.targetID], old != tab else { return }
+        send(.event(name: "tab.announced", payload: Self.announcePayload(tab)))
+        announced[tab.targetID] = tab
     }
 
     private func readTabs() -> ([ProviderTab], [String: ProviderTabAccess]) {
