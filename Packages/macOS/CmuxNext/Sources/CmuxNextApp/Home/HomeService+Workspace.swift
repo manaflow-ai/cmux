@@ -210,6 +210,8 @@ extension HomeService {
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
         if let view = tabViews[tab.id] { return view }
         let view = HomeHostView(services: services, conversation: conversation)
+        // Made before its pane presents it (followTabPresence answers the present).
+        view.transcript.isPresented = services.cache.isRendering(tab.id)
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
         if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
@@ -217,6 +219,20 @@ extension HomeService {
     }
 
     func existingTabView(_ key: String) -> HomeHostView? { tabViews[key] }
+
+    /// A conversation tab's transcript is presented (and so reports reads) exactly while the
+    /// content cache renders the tab: a pane the layout reports on screen shows it (not scrolled out
+    /// of the strip, not under a docked column, not in a parked workspace, its pane's selected tab).
+    /// The layout's own presence decides, not the view's geometry. O(changed tabs) per change.
+    func followTabPresence() {
+        let cache = services.cache
+        cache.presentationChanges.subscribe("home-tab-presence") { [weak self, weak cache] in
+            guard let self, let cache else { return }
+            for key in cache.presentationChanges.changedKeys ?? Set(tabViews.keys) {
+                tabViews[key]?.transcript.isPresented = cache.isRendering(key)
+            }
+        }
+    }
 
     /// The strip title of conversation tab `tab`: its conversation's title.
     func tabTitle(for tab: TabModel) -> String {
