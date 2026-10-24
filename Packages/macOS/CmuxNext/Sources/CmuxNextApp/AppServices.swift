@@ -30,6 +30,7 @@ import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
+import CmuxNextWakeups
 import os
 import CmuxNextFocusUI
 import CmuxNextTabs
@@ -56,7 +57,9 @@ final class AppServices {
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
-    let daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked)
+    /// Its event batches run on the app's ``MainWorkScheduler`` (`daemon.mainWork`), which every
+    /// remote machine's service shares.
+    let daemon: DaemonService
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -382,8 +385,12 @@ final class AppServices {
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
+    /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
+    ///   socket uses); tests get one of their own, with no pending-input check.
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
+         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
+        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

@@ -5,6 +5,7 @@ import CmuxNextRemote
 import Foundation
 import Observation
 import os
+import CmuxNextWakeups
 
 /// SSH machines: "Connect to Machine…", their sessions in `MachineRegistry`,
 /// the saved-hosts list, disconnect and forget, and installing the pinned
@@ -277,7 +278,8 @@ final class SSHService {
 
     private func makeSession(_ host: SSHHost) -> SSHMachineSession? {
         guard let binary else { return nil }
-        let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment)
+        let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment,
+                                        mainWork: machines.local.mainWork)
         session.daemon.workTracker = machines.local.workTracker
         session.onStatusChange = { [weak self] session, status in self?.statusChanged(session, status) }
         machines.add(session)
