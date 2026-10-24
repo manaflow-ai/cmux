@@ -554,7 +554,7 @@ final class AppServices {
         cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
             guard let self else { return }
             let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
-            if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs() }
+            if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs(changed: self.cache.presentationChanges.changedKeys) }
         }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
