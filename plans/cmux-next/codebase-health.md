@@ -441,8 +441,9 @@ for added ones and code moved into the App from a package is growth. It refuses 
 (`ROOT_BUDGET` in guardrails.py, `--list` prints it; lines moved into the root count) and a new App file that is
 neither a move nor the push's one `AppServices+<Domain>Host.swift` of one-line forwards; growth of the App total
 and of the App outside the composition root warns (bytes added, the package the code goes to) until the large
-domains are out of CmuxNextApp. It is the only App-size limit in force on a
-push. Skip one rule for one push with
+domains are out of CmuxNextApp. `app-type`, a second net rule, refuses a new type in an existing App file
+that is not a move (any depth: top-level, in an `extension`, or a nested type over `PRIVATE_TYPE_MAX` source
+lines). They are the only App-size limits in force on a push. Skip one rule for one push with
 `CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>"` (the other rules still refuse) and say so in your report.
 `guardrails.py --list` prints every rule.
 If the script itself fails, the hook prints a warning and lets the push through.
