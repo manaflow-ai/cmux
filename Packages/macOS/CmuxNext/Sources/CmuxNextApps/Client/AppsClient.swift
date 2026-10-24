@@ -52,6 +52,9 @@ public final class AppsClient {
     /// Apps whose log is followed (followed again after a reconnect).
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
+    /// The bundle images every mount's views decode, kept for the client's life: one client per
+    /// app supervisor connection, so an app's icon and scene images decode once for every window.
+    @ObservationIgnored let bundleImages = AppBundleImageCache()
     static let logLimit = 500
 
     public init(transport: any AppsTransport) {

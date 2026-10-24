@@ -8,6 +8,8 @@ import SwiftUI
 struct AppIconView: View {
     let icon: AppIcon?
     let bundleDirectory: URL?
+    /// The mount's client's decoded bundle images (``AppMount/bundleImages``).
+    let images: AppBundleImageCache
     var size: CGFloat = 40
     @Environment(\.appSceneColors) private var colors
 
@@ -17,7 +19,7 @@ struct AppIconView: View {
             shape.fill(colors.hover)
             switch icon {
             case .file(let path)?:
-                if let image = AppBundleImageCache.shared.image(path: path, in: bundleDirectory) {
+                if let image = images.image(path: path, in: bundleDirectory) {
                     Image(nsImage: image).resizable().scaledToFit().padding(size * 0.14)
                 } else {
                     symbol("app")

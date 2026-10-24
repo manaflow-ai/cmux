@@ -14,6 +14,8 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     public let model = AppSceneModel()
     /// Bundle files the scene's images come from, when this Mac has them.
     public let bundleDirectory: URL?
+    /// The client's decoded bundle images (``AppsClient/bundleImages``), shared by every mount of it.
+    let bundleImages: AppBundleImageCache
     weak var client: AppsClient?
     /// Extra members of the mount's context (a hover card's `target`), passed to the export.
     let extraContext: [String: AppJSON]
@@ -21,6 +23,7 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     init(id: String, appID: String, implementation: AppImplementation, isPreview: Bool, surface: String, bundleDirectory: URL?,
          client: AppsClient, extraContext: [String: AppJSON] = [:]) {
         self.extraContext = extraContext
+        bundleImages = client.bundleImages
         self.id = id
         self.appID = appID
         self.implementation = implementation
@@ -36,7 +39,7 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     }
 
     /// A fresh `AppSceneHostingView` for AppKit hosts (the sidebar).
-    public func makeView() -> AppSceneHostingView { AppSceneHostingView(model: model, bundleDirectory: bundleDirectory) }
+    public func makeView() -> AppSceneHostingView { AppSceneHostingView(mount: self) }
 
     var context: AppJSON {
         var context = extraContext

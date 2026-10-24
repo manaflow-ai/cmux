@@ -15,17 +15,20 @@ public struct AppSectionFrame<Content: View>: View {
     let symbol: String?
     let icon: AppIcon?
     let bundleDirectory: URL?
+    /// The mount's client's decoded bundle images (``AppMount/bundleImages``), for the card's icon.
+    let bundleImages: AppBundleImageCache
     let showsHeader: Bool
     let content: Content
     @Environment(\.appSceneColors) private var colors
 
-    public init(look: AppSectionLook, title: String, symbol: String?, icon: AppIcon?, bundleDirectory: URL?,
-                showsHeader: Bool = true, @ViewBuilder content: () -> Content) {
+    init(look: AppSectionLook, title: String, symbol: String?, icon: AppIcon?, bundleDirectory: URL?,
+         bundleImages: AppBundleImageCache, showsHeader: Bool = true, @ViewBuilder content: () -> Content) {
         self.look = look
         self.title = title
         self.symbol = symbol
         self.icon = icon
         self.bundleDirectory = bundleDirectory
+        self.bundleImages = bundleImages
         self.showsHeader = showsHeader
         self.content = content()
     }
@@ -44,7 +47,7 @@ public struct AppSectionFrame<Content: View>: View {
             }
         case .card:
             VStack(alignment: .leading, spacing: Metrics.space1) {
-                header { AppIconView(icon: icon, bundleDirectory: bundleDirectory, size: Metrics.smallIconSize + Metrics.space1) }
+                header { AppIconView(icon: icon, bundleDirectory: bundleDirectory, images: bundleImages, size: Metrics.smallIconSize + Metrics.space1) }
                 content
             }
             .padding(.vertical, Metrics.space2)

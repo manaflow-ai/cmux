@@ -9,9 +9,12 @@ public final class AppSceneHostingView: NSHostingView<AnyView> {
     /// Measures heights for a width without laying out this view.
     private let measurer: NSHostingController<AnyView>
 
-    public init(model: AppSceneModel, bundleDirectory: URL?) {
-        self.model = model
-        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) { AppSceneView(model: model, bundleDirectory: bundleDirectory) })
+    /// The scene of `mount` (``AppMount/makeView()``).
+    public init(mount: AppMount) {
+        model = mount.model
+        // The scene's values, not the mount: the view keeps no reference to the mount (as before).
+        let scene = AppSceneView(mount: mount)
+        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) { scene })
         measurer = NSHostingController(rootView: root)
         super.init(rootView: root)
         sizingOptions = [.intrinsicContentSize]
