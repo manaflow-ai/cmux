@@ -91,17 +91,17 @@ _spec.loader.exec_module(swift_scope)
 sources = os.path.join(root, "Sources")
 
 # Targets built with `.defaultIsolation(MainActor.self)`: every target whose
-# swiftSettings are `uiSwiftSettings` in Package.swift. Read from the manifest,
+# swiftSettings are `uiSwiftSettings` in Package.swift. Read from the manifest
+# (swift_scope.package_targets, each target call alone, its `path:` honored),
 # so a new UI target is scanned without an edit here (a hand list missed 21).
-def main_actor_modules(package_root):
+def package_targets(package_root):
     with open(os.path.join(package_root, "Package.swift"), encoding="utf-8") as handle:
-        manifest = handle.read()
-    modules = {name for name, main in swift_scope.target_isolation(manifest).items() if main}
-    if not modules:
+        targets = swift_scope.package_targets(handle.read())
+    if not any(target.main for target in targets):
         sys.exit("check-concurrency: no uiSwiftSettings targets found in Package.swift")
-    return modules
+    return targets
 
-MAIN_ACTOR_MODULES = main_actor_modules(root)
+TARGETS = package_targets(root)
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
@@ -192,16 +192,16 @@ WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 
-def crash_class_hits(code, lines, index, module, main_lines, relative, is_generic):
+def crash_class_hits(code, lines, index, default_main, main_lines, relative, is_generic):
     """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
     hits = []
     if ISOLATED_DEINIT.match(code):
         hits.append("isolated deinit (its hop traps inside an action's task-local scope, cx-t7hu; "
                     "write nonisolated deinit with MainActor.assumeIsolated on the main thread)")
-    if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
+    if PLAIN_DEINIT.match(code) and default_main and main_lines[index]:
         hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
                     "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
-    if ("class" in code and swift_scope.judge(lines, index, is_generic, main_lines, module in MAIN_ACTOR_MODULES)
+    if ("class" in code and swift_scope.judge(lines, index, is_generic, main_lines, default_main)
             and not swift_scope.escaped(lines, index, swift_scope.GENERIC_CLASS_ALLOW)):
         hits.append("generic main-actor class with no `nonisolated deinit` (generic by itself or by context; its "
                     "isolated deinit crashes the Release compile's optimizer, #23050 / #23233); declare "
@@ -253,7 +253,9 @@ for dirpath, _, files in os.walk(sources):
         # Main-actor rules apply to main-actor code: the target default for a
         # uiSwiftSettings target, `@MainActor` scopes anywhere, minus
         # nonisolated / @concurrent / actor / detached scopes.
-        main_lines = main_actor_scope.main_actor_lines(lines, module in MAIN_ACTOR_MODULES)
+        default_main = swift_scope.default_isolation(
+            os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
+        main_lines = main_actor_scope.main_actor_lines(lines, default_main)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -266,7 +268,8 @@ for dirpath, _, files in os.walk(sources):
                 failures += 1
             if ONLY == "synchronization":
                 continue
-            hits = crash_class_hits(code, lines, index, module, main_lines, relative.replace(os.sep, "/"), is_generic)
+            hits = crash_class_hits(code, lines, index, default_main, main_lines, relative.replace(os.sep, "/"),
+                                    is_generic)
             if ONLY == "crash-class":
                 for name in hits:
                     print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
