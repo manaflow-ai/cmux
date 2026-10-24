@@ -43,6 +43,8 @@ final class ScriptedVoiceCallLink: VoiceCallLink {
         switch type {
         case "conversation.item.create" where item?["type"] as? String == "function_call_output":
             lastToolOutput = item?["output"] as? String
+        case "conversation.item.create" where item?["role"] as? String == "user":
+            lastTyped = ((item?["content"] as? [[String: Any]])?.first?["text"] as? String)
         case "conversation.item.create" where item?["role"] as? String == "system":
             lastNote = ((item?["content"] as? [[String: Any]])?.first?["text"] as? String)
         case "response.create":
@@ -62,6 +64,7 @@ final class ScriptedVoiceCallLink: VoiceCallLink {
 
     private var lastToolOutput: String?
     private var lastNote: String?
+    private var lastTyped: String?
 
     private let userLines = [
         "Hey Chief, what's going on across my workspaces right now?",
@@ -98,7 +101,10 @@ final class ScriptedVoiceCallLink: VoiceCallLink {
         step += 1
         let text: String
         var then: (() async -> Void)?
-        if let note = lastNote {
+        if let typed = lastTyped {
+            lastTyped = nil
+            text = "Got it. You wrote: \(typed). Want me to send that to Chief?"
+        } else if let note = lastNote {
             lastNote = nil
             let reply = note.replacingOccurrences(of: "Chief replied: ", with: "")
             text = "Chief just replied. It says: \(reply.prefix(160))"

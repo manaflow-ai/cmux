@@ -76,7 +76,8 @@ func liveCall(_ link: FakeLink = FakeLink(), toolbox: FakeToolbox = FakeToolbox(
         let link = FakeLink()
         let session = await liveCall(link)
         #expect(session.phase == .live)
-        let config = try #require(try JSONSerialization.jsonObject(with: #require(link.opened.first)) as? [String: Any])
+        let opened = try #require(link.opened.first)
+        let config = try #require(try JSONSerialization.jsonObject(with: opened) as? [String: Any])
         #expect(config["model"] as? String == "gpt-realtime-2.1")
         #expect(config["type"] as? String == "realtime")
         let audio = try #require(config["audio"] as? [String: Any])
@@ -128,7 +129,7 @@ func liveCall(_ link: FakeLink = FakeLink(), toolbox: FakeToolbox = FakeToolbox(
         await settle()
         #expect(session.lines.map(\.text) == ["What's running?", "Two agents are working."])
         #expect(session.lines.map(\.role) == [.you, .chief])
-        #expect(session.lines.allSatisfy(\.isFinal))
+        #expect(session.lines.allSatisfy { $0.isFinal })
         #expect(!session.chiefSpeaking)
     }
 

@@ -52,9 +52,15 @@ public final class ChiefLiveCall {
             if let session, !session.hasEnded { session.hangUp() }
             session = nil
             #if DEBUG
-            // The scripted demo call (simulator recordings) needs a key to pass the gate; never a real one.
-            if ScriptedVoiceCallLink.requested() != nil, accountID != nil, !keys.hasKey {
-                keys.storeForDemo("sk-demo-scripted-call-0000")
+            // Simulator verification: CMUX_MOBILE_CALL_SEED_KEY stores that key unchecked (the real
+            // WebRTC path against OpenAI); the scripted demo call stores a placeholder that only
+            // passes the key gate. Neither exists outside DEBUG builds.
+            if accountID != nil, !keys.hasKey {
+                if let seed = ProcessInfo.processInfo.environment["CMUX_MOBILE_CALL_SEED_KEY"], !seed.isEmpty {
+                    keys.storeForDemo(seed)
+                } else if ScriptedVoiceCallLink.requested() != nil {
+                    keys.storeForDemo("sk-demo-scripted-call-0000")
+                }
             }
             #endif
         }
