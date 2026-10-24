@@ -79,8 +79,13 @@ import Testing
         let checksAtStart = watch.checks.load(ordering: .relaxed)
         let restoresAtStart = restores.value.load(ordering: .relaxed)
 
-        // Someone else's file at the path: the directory event moves the watch onto it.
-        FileManager.default.createFile(atPath: path, contents: Data("x".utf8))
+        // Someone else's file at the path: the directory event moves the watch onto it. Made with
+        // one open(O_CREAT), one directory change: FileManager.createFile writes atomically (a
+        // temporary file, then a rename), two events whose second could reach `queue` after
+        // `settled` is read below.
+        let file = open(path, O_CREAT | O_WRONLY | O_EXCL, 0o600)
+        try #require(file >= 0)
+        close(file)
         #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checksAtStart })
         queue.sync {}
         let settled = watch.checks.load(ordering: .relaxed)
