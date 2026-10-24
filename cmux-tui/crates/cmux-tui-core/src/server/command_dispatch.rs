@@ -923,6 +923,7 @@ pub(super) fn handle_command_with_cancellation(
                 expected_terminal_id,
                 snapshot,
                 stream,
+                acceptance,
             );
             if attached.is_err()
                 && let Some(stream) = stream
