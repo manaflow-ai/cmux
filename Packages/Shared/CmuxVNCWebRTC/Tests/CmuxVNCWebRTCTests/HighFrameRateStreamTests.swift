@@ -68,10 +68,14 @@ struct HighFrameRateStreamTests {
         for line in lines.matching("video:").suffix(2) { print("MAC-SCREEN-120FPS encoder \(line)") }
 
         #expect(agreed.value == 120, "the host agreed on 120 fps with a 120 Hz viewer")
-        // The size the hardware encoder sustains at 120 fps (ScreenQuality.maximumEncodedPixelRate), never smaller.
+        // Never more than the hardware encoder sustains at 120 fps (ScreenQuality.maximumEncodedPixelRate).
+        // Auto keeps that size; Smooth Motion lets WebRTC lower it further to hold the frame rate, as at 60.
         let pixelRate = size.width * size.height * 120
-        #expect(pixelRate <= Double(ScreenQuality.maximumEncodedPixelRate) * 1.01 && pixelRate >= Double(ScreenQuality.maximumEncodedPixelRate) * 0.97,
+        #expect(pixelRate <= Double(ScreenQuality.maximumEncodedPixelRate) * 1.01,
                 "streamed at \(Int(size.width))x\(Int(size.height)), \(Int(pixelRate / 1e6)) Mpixel/s")
+        if quality == .auto {
+            #expect(pixelRate >= Double(ScreenQuality.maximumEncodedPixelRate) * 0.97, "Auto scales no more than the encoder needs")
+        }
         #expect(source.deliveredFps >= 115, "the synthetic source itself kept 120 fps (the Mac was too busy to measure)")
         #expect(decodedFps >= 110, "a 120 fps stream decodes at \(Int(decodedFps)) fps")
     }
