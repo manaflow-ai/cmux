@@ -8,7 +8,7 @@ internal import Foundation
 internal import os
 #endif
 
-/// The main-thread blocking detector's state (Debug, bench and Nightly builds; Release compiles it out).
+/// The main-thread blocking detector's state (Debug and bench builds, Nightly to come; Release compiles it out).
 ///
 /// One table per process (``shared``; arch-ratchet exception approved by the Performance Lead with PL-arch,
 /// 2026-10-24): a violation can happen in any module, inside any lock, before the composition root exists,
@@ -84,7 +84,7 @@ final class BlockingViolationTable: Sendable {
         #if DEBUG
         self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
         #else
-        self.mode = .record  // bench and Nightly never stop the app, whatever they were asked
+        self.mode = .record  // a bench (and, to come, a Nightly) never stops the app, whatever it was asked
         #endif
         self.lockWaitLimitNanos = lockWaitLimitNanos
         self.uptimeNanos = uptimeNanos
