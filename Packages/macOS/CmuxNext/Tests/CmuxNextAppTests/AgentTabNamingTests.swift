@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -98,7 +99,7 @@ struct AgentTabNamingTests {
                                      route: .overlay(linkSocket: "/tmp/cmux-tab-naming-link.sock"))
         for reach in [chief, paired] {
             registry.add(ServerMachineSession(reach: reach, binary: nil, paths: .init(root: URL(fileURLWithPath: "/tmp/cmux-tab-naming-unused")),
-                                              environment: { [:] }, localIdentity: { nil }, mainWork: registry.local.mainWork))
+                                              environment: { [:] }, localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         }
         #expect(registry.tabBadge(chief.machineID) == nil, "the Chief's subagents run on this Mac")
         #expect(registry.tabBadge(paired.machineID) == "Mac mini")

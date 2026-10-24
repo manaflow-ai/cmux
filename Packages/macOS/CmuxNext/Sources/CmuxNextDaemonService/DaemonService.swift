@@ -62,9 +62,6 @@ public final class DaemonService {
     /// The daemon's event batches: visible updates no action of the person caused (the person's own
     /// change shows in the key's turn through an intent), so they run under the visible budget.
     @ObservationIgnored private let scheduler: FrameBatcher
-    /// The app's one main-thread scheduler (``MainWorkScheduler``) this service's event batches run
-    /// on. A remote machine's service is built with the local one's: one main thread, one budget.
-    @ObservationIgnored public let mainWork: MainWorkScheduler
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
@@ -79,9 +76,10 @@ public final class DaemonService {
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
     ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
-    ///   - mainWork: The app's main-thread scheduler, built at its composition root.
+    ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
+    ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
+    ///     budget). The service keeps only the batcher it builds on it.
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
         scheduler = FrameBatcher(owner: "DaemonStore.drain", budgeted: .visible, on: mainWork)
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
