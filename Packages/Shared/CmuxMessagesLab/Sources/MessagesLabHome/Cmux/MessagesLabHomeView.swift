@@ -486,6 +486,12 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// Makes a prepared attachment's bubble picture without putting it in the field, so a paste of
+    /// several pictures makes theirs at once (``addDraftAttachment(_:)`` then finds it made).
+    public func prepareDraftPicture(_ attachment: LocalAttachment) async {
+        await projection.media.prepare(attachment)
+    }
+
     /// Puts a prepared attachment in the field as a chip (MessagesLab's
     /// draft); its bubble picture is made first.
     public func addDraftAttachment(_ attachment: LocalAttachment) async {

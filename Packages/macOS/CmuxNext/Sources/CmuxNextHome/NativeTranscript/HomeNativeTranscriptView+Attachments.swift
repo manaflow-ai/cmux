@@ -132,25 +132,47 @@ extension HomeNativeTranscriptView {
     /// The notice while a drop's files are on their way; nil when none is.
     var pendingNotice: String? { drop.pending > 0 ? HomeStrings.attachPending : nil }
 
-    /// Checks `inputs` off the main actor, admits what fits, and prepares it into the draft in order.
+    /// How many of one intake's inputs prepare at once (copy and hash into the blob cache, then the
+    /// bubble picture), off the main actor. One at a time, the last of 10 pasted screenshots showed
+    /// after about 340 ms (fleet, 2026-10-24: about 20 ms + 11 ms each, Lawrence msg 11952).
+    static let preparesAtOnce = 4
+
+    /// Checks `inputs` off the main actor, admits what fits, prepares up to ``preparesAtOnce`` at
+    /// once, and puts each in the draft in the inputs' order as soon as it and those before it are ready.
     private func checkAndPrepare(_ inputs: [HomeDraftInput], with preparer: any HomeAttachmentPreparing, keepLocation: Bool) async {
         guard !inputs.isEmpty else { return }
         // task-owner: awaited here; the stats end with it
         let problems = await Task.detached(priority: .userInitiated) { inputs.map(HomeComposerCheck.problem(for:)) }.value
         guard !Task.isCancelled else { return }
-        for input in admit(inputs, problems) {
-            let prepared: LocalAttachment
-            do {
-                prepared = try await Self.prepare(input, with: preparer, keepLocation: keepLocation)
-            } catch let refusal as HomeAttachmentError {
-                showNotice(HomeStrings.attachmentRefusal(refusal))
-                continue
-            } catch {
-                showNotice(HomeStrings.attachFailed)
-                continue
-            }
+        let admitted = admit(inputs, problems)
+        let transcript = self.transcript
+        // task-owner: each one is awaited below in the inputs' order; the rest are cancelled when the intake is
+        var running: [Task<Result<LocalAttachment, any Error>, Never>] = []
+        defer { running.forEach { $0.cancel() } }
+        func start(_ input: HomeDraftInput) {
+            running.append(Task {
+                do {
+                    let prepared = try await Self.prepare(input, with: preparer, keepLocation: keepLocation)
+                    await transcript.prepareDraftPicture(prepared)
+                    return .success(prepared)
+                } catch {
+                    return .failure(error)
+                }
+            })
+        }
+        for input in admitted.prefix(Self.preparesAtOnce) { start(input) }
+        var next = min(Self.preparesAtOnce, admitted.count)
+        var index = 0
+        while index < running.count {
+            let result = await running[index].value
+            index += 1
+            if next < admitted.count { start(admitted[next]); next += 1 }
             guard !Task.isCancelled else { return }
-            await transcript.addDraftAttachment(prepared)
+            switch result {
+            case .success(let prepared): await transcript.addDraftAttachment(prepared)
+            case .failure(let refusal as HomeAttachmentError): showNotice(HomeStrings.attachmentRefusal(refusal))
+            case .failure: showNotice(HomeStrings.attachFailed)
+            }
         }
     }
 
