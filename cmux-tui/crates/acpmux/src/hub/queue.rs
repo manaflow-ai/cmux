@@ -887,6 +887,8 @@ impl Hub {
                         prompt_id: Some(q.prompt_id.clone()),
                         control: q.run.control,
                         trust_gate: q.run.trust_gate,
+                        // Who sent it: a queued agent message stays that agent's after a restart.
+                        provenance: q.run.provenance.clone(),
                         agent: q.run.agent.clone(),
                         display_parts: q.run.display_parts.clone(),
                         ..PromptOptions::default()

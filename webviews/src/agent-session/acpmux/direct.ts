@@ -55,7 +55,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -841,6 +841,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// long chat whose rows only changed in place copies this instead of sorting every row again.
   private ordered: AcpmuxRow[] | undefined;
   private orderedIndex = new Map<string, number>();
+  /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
+  /// reuse this reference so the pane's derived rows stay memoized.
+  private snapshot: AcpmuxRow[] | undefined;
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -852,17 +855,22 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       for (const key of keys) if (typeof a[key] !== "object" && a[key] !== b[key]) return false;
       return true;
     };
+    let changed = false;
     for (const [id, row] of this) {
       const old = previous.get(id);
       if (!old || old === row || old.kind !== row.kind || old.version !== row.version || !plainSame(old, row)) continue;
       super.set(id, old);
       const at = this.orderedIndex.get(id);
       if (this.ordered && at !== undefined) this.ordered[at] = old;
+      changed = true;
     }
+    if (changed) this.snapshot = undefined;
   }
 
   override set(id: string, row: AcpmuxRow): this {
     const known = this.order.has(id);
+    const unchanged = known && this.get(id) === row;
+    if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
@@ -872,7 +880,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
-    if (this.ordered) this.keepOrdered(id, row, known);
+    if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     return super.set(id, row);
   }
 
@@ -920,6 +928,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // Every text delta drops the typing row, which is usually gone already.
     if (!this.has(id)) return false;
     this.ordered = undefined;
+    this.snapshot = undefined;
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
@@ -927,6 +936,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   override clear(): void {
     this.ordered = undefined;
+    this.snapshot = undefined;
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -945,6 +955,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
     this.ordered = undefined;
+    this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
@@ -957,7 +968,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
-    return this.ordered.slice();
+    return (this.snapshot ??= this.ordered.slice());
   }
 }
 
@@ -3159,6 +3170,7 @@ export class AcpmuxDirectClient {
           ...shown,
           ...(untyped ? { untyped } : {}),
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
+          ...(!untyped && cliHost(msg.client) ? { viaCli: cliHost(msg.client) } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
           ...(continues ? { continues } : {}),

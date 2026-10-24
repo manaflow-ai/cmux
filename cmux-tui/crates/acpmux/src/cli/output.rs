@@ -36,17 +36,23 @@ pub(crate) struct PromptId {
     /// `--supersede`: the same sender's prompt still queued under this key is replaced
     /// (`_meta.acpmux.supersede`, `hub/supersede.rs`).
     pub supersede: Option<String>,
+    /// The person's own send from a terminal: the machine it ran on (`_meta.acpmux.cliHost`,
+    /// `cli/sender.rs`), which the transcript names under their prompt.
+    pub cli_host: Option<String>,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self { id, resend: true, from_agent: None, supersede: None },
+            Some(id) => {
+                Self { id, resend: true, from_agent: None, supersede: None, cli_host: None }
+            }
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
                 resend: false,
                 from_agent: None,
                 supersede: None,
+                cli_host: None,
             },
         }
     }
@@ -69,6 +75,9 @@ impl PromptId {
         }
         if let Some(key) = &self.supersede {
             mux["supersede"] = json!(key);
+        }
+        if let Some(host) = &self.cli_host {
+            mux["cliHost"] = json!(host);
         }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }

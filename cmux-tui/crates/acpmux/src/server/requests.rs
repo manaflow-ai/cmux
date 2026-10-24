@@ -1028,10 +1028,21 @@ async fn dispatch_request(
                 }
                 (provenance, _) => provenance,
             };
+            let declared = crate::hub::declared_sender(&params)?;
+            // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
+            // forwarding its own session's prompt): that agent's message,
+            // so the transcript never shows it as the person's. Not a note a session here sends
+            // itself; names are each daemon's own, so a peer's `coordinator` is another session.
+            let provenance = provenance.or_else(|| {
+                let own = s.meta().name;
+                let name = declared
+                    .as_deref()
+                    .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
+                Some(crate::prompt_provenance::named_sender(name, &s.id))
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
-            let agent = crate::hub::declared_sender(&params)?
-                .or_else(|| conn.caller().map(|id| hub.session_name(id)));
+            let agent = declared.or_else(|| conn.caller().map(|id| hub.session_name(id)));
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
@@ -1074,7 +1085,16 @@ async fn dispatch_request(
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
-            hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
+            // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
+            // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
+            // big-red" under their prompt. An agent's message names its sender instead.
+            let host = crate::prompt_provenance::cli_host(&params)
+                .filter(|_| !agent_message && opts.agent.is_none());
+            let client = match host {
+                Some(host) => format!("{}@{host}", conn.label()),
+                None => conn.label(),
+            };
+            hub.prompt_with(&s, blocks, &client, steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
