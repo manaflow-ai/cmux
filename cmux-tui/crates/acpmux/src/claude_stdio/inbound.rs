@@ -542,6 +542,23 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
+                } else if let Some(acp) = rid.strip_prefix("side-") {
+                    // Claude Code's native `/btw` callback answers once with
+                    // its result payload (`{response, synthetic}` today).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
+                    out.push(if ok {
+                        Message::ok(id, inner)
+                    } else {
+                        Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Claude Code side question failed"),
+                            ),
+                        )
+                    });
                 } else if let Some(acp) = rid.strip_prefix("now-") {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
