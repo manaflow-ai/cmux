@@ -201,7 +201,9 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 mod cmd_sizing;
+mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
+pub use size_lease::SIZE_LEASE_CAPABILITY;
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -352,6 +354,13 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
+/// A phone or tablet view that lists this in `set-client-info` shows a
+/// terminal grid larger than its own correctly (letterbox or pan). Without it
+/// the daemon never applies a PTY grid larger than that view's reported size
+/// while the view is attached with one (`mux/terminal_sizing/handheld_ceiling.rs`):
+/// such a phone renders the PTY's output into its own grid, so a wider PTY
+/// overprints and cuts its rows. The daemon advertises it in `identify`.
+pub const HOST_GRID_VIEW_CAPABILITY: &str = "host-grid-view-v1";
 /// A client that lists this in `set-client-info` decodes every
 /// `device_kind` of a size state and reads a kind it does not know as
 /// `unknown`. It receives `linux` and `windows` (and later kinds) as they

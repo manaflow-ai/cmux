@@ -55,12 +55,13 @@ import AppKit
     static func content(_ list: SidebarListView, _ rows: [SidebarRow], in block: NSRect) -> NSView? {
         guard rows.count > 1 else { return rows.first.map { rowView(list, $0) } }
         let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: block.size))
-        // The group's members' line rides under the rows on the card, as in the list (cx-qno.17).
+        // The group's members' line rides under the rows on the card, as in the list (cx-qno.17): the list's own
+        // line view, the same shape and color, painted in the scope the card lands in.
         for line in lines(list, rows) {
-            let view = NSView(frame: line.frame.offsetBy(dx: -block.minX, dy: -block.minY))
-            view.wantsLayer = true
-            view.layer?.cornerRadius = line.frame.width / 2
-            container.performWithTheme { view.layer?.backgroundColor = line.color.lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor }
+            let view = GroupLineView()
+            view.logicalFrame = line.frame.offsetBy(dx: -block.minX, dy: -block.minY)
+            view.color = line.color
+            view.strength = SidebarGroupLine.opacity(level: line.level)
             container.addSubview(view)
         }
         for row in rows {

@@ -36,6 +36,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
     public var attachmentPreparer: (any HomeAttachmentPreparing)?
+    /// The "+" file picker over the app's made-ahead panel; nil when the app passed none (tests).
+    let attachmentPanel: HomeAttachmentPanel?
     /// Whether photos and videos keep their location (Settings > Home,
     /// `home.attachments.keepLocation`; false strips it, the default).
     public var keepLocation: () -> Bool = { false }
@@ -124,7 +126,10 @@ public final class HomeNativeTranscriptView: NSView {
     private let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
+    /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
+                openPanel: MadeAheadOpenPanel? = nil) {
+        attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
@@ -442,7 +447,7 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
-        if attachmentPreparer != nil { HomeAttachmentPanel.warmWhenIdle() }  // the "+" opens without making a panel
+        if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {

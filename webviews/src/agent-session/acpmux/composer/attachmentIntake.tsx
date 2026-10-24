@@ -6,7 +6,6 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
-  MAX_ATTACHMENTS,
   filesFrom,
   isImageFile,
   pastedImageFiles,
@@ -37,7 +36,6 @@ const ATTACHMENT_LABELS = {
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
-  tooMany: "composer.tooMany",
   pastedText: "composer.pastedText",
   pastedLines: "transcript.pastedLines",
   editPasted: "composer.pastedText.edit",
@@ -127,11 +125,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     dropRef.current = next;
     setDropState(next);
   });
-  const live = useRef({ options, t, held: attachments.length });
-  live.current = { options, t, held: attachments.length };
-  /// The files of every batch still being read, counted as soon as it comes in (before a render),
-  /// so a second paste meanwhile leaves room for the first one's chips.
-  const reading = useRef(0);
+  const live = useRef({ options, t });
+  live.current = { options, t };
   /// Each batch still being read, with the chat it belongs to (`scope`).
   const batches = useRef(new Set<{ scope?: string }>());
   const scope = options.scope;
@@ -150,28 +145,27 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
   const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
     if (files.length === 0) return;
-    const { options: current, t: translate, held } = live.current;
-    const ahead = reading.current;
+    const { options: current, t: translate } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files
-      .slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead))
-      .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file), scope: batch.scope }));
+    const shown: PendingAttachment[] = files.map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      image: isImageFile(file),
+      scope: batch.scope,
+    }));
     const ids = new Set(shown.map((chip) => chip.id));
-    reading.current += files.length;
     batches.current.add(batch);
     if (shown.length) setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
     // Their placeholders go in the same render as what they became (or when the read fails).
     const read = () => {
-      reading.current -= files.length;
       batches.current.delete(batch);
       if (shown.length) setPending((chips) => chips.filter((chip) => !ids.has(chip.id)));
     };
     let taken: Awaited<ReturnType<typeof intakeFiles>>;
     try {
       taken = await intakeFiles(files, {
-        held: held + ahead,
         allowImages: current.allowImages,
         ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
         ...(uploads && current.upload ? { upload: current.upload } : {}),

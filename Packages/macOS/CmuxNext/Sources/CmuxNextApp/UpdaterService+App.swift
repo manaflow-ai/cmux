@@ -21,7 +21,7 @@ extension UpdaterService {
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
-        let handoff = UpdateWindowHandoff()
+        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
         willInstallStaged = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }

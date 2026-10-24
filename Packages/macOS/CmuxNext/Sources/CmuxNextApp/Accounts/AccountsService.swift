@@ -5,6 +5,7 @@ import CmuxNextCodeRouter
 import CmuxNextDaemon
 import Foundation
 import os
+import CmuxNextCompat
 
 /// Owns the Accounts screen's model and its `AccountsServices`: detection
 /// over the login-shell environment, the cmux Keychain item for pasted
@@ -28,7 +29,7 @@ final class AccountsService: AccountsServices {
     /// False once the Keychain salt failed: `acct_…` handles then last for
     /// this launch only (`accounts.list` says `handles_stable: false`).
     private(set) var handlesStable = true
-    private var activation: (any NSObjectProtocol)?
+    private var activation: MainActorObservation?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.accounts")
 
     static let fixtureHomeKey = "CMUX_NEXT_ACCOUNTS_HOME"
@@ -46,9 +47,8 @@ final class AccountsService: AccountsServices {
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
         keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
         labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
-        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                                            queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.appDidBecomeActive() } // main-proof: observer on queue: .main
+        activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
+            self?.model.appDidBecomeActive()
         }
     }
 
@@ -100,6 +100,8 @@ final class AccountsService: AccountsServices {
         if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }
         services.cloud.auth.run(action, signOut: { [services] in await services.cloud.signOut() }, refresh: { [weak self] in self?.model.refresh() })
     }
+
+    var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }

@@ -22,7 +22,7 @@ final class SidebarGroupLineViews {
 
     /// Each shown line (not one fading out) by group: its frame and opacity.
     var shown: [GroupID: (frame: CGRect, alpha: CGFloat)] {
-        views.compactMapValues { $0.superview == nil ? nil : ($0.frame, $0.alphaValue) }
+        views.compactMapValues { $0.superview == nil ? nil : ($0.logicalFrame, $0.alphaValue) }
     }
 
     /// The changes that move the lines to `new`, to run inside the rows'
@@ -46,7 +46,7 @@ final class SidebarGroupLineViews {
                 list.addSubview(view, positioned: .above, relativeTo: decorations)
                 views[line.group] = view
                 Motion.withoutAnimation {
-                    view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame
+                    view.logicalFrame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame
                     // Fades in with its header, so it never shows over the
                     // members' fills before they indent.
                     view.alphaValue = animated ? 0 : 1
@@ -55,12 +55,12 @@ final class SidebarGroupLineViews {
             }()
             view.color = line.color
             view.strength = SidebarGroupLine.opacity(level: line.level)
-            moves.append((view, line.frame))
+            moves.append((view, GroupLineView.expandedFrame(for: line.frame)))
         }
         var leaving: [(GroupLineView, CGRect)] = []
         for (group, view) in gone {
             views[group] = nil
-            leaving.append((view, Self.top(of: view.frame)))
+            leaving.append((view, GroupLineView.expandedFrame(for: Self.top(of: view.logicalFrame))))
         }
         leavingViews.removeAll { $0.superview == nil }
         leavingViews += leaving.map(\.0)
@@ -100,7 +100,7 @@ final class SidebarGroupLineViews {
             list.addSubview(view, positioned: .above, relativeTo: decorations)
             views[line.group] = view
             Motion.withoutAnimation {
-                view.frame = line.frame
+                view.logicalFrame = line.frame
                 view.alphaValue = 1
             }
             view.color = line.color
@@ -124,7 +124,7 @@ final class SidebarGroupLineViews {
 
     /// Puts each shown line exactly on its frame (`RowMotion.land`: the spring stops near it, not on it).
     func land() {
-        for line in lines { views[line.group]?.frame = line.frame }
+        for line in lines { views[line.group]?.logicalFrame = line.frame }
     }
 
     /// A line's zero-height start: its top edge, under the header bar.
@@ -133,8 +133,15 @@ final class SidebarGroupLineViews {
     }
 }
 
-/// One members' line: a rounded bar in its group's header color.
+/// One members' line: Chrome's (Leo 2026-10-19), a flat-ended 2 pt bar in its header bar's exact color.
+/// Square ends need no mask or drawn image, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
+    /// The view's bounds spring can keep presenting the old rail height after its model height reaches zero.
+    /// Keep the shape taller than any sidebar line so the view, not the shape, clips the shrinking rail.
+    private static let shapeCoverageHeight: CGFloat = 4096
+    /// Leo's 441 crop measures a visible six-point cut at 2x; it is intentionally independent of the 2 pt rail.
+    private static let topTaperExtent: CGFloat = 6
+    let railShape = CAShapeLayer()
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
@@ -146,7 +153,10 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
+        layer?.masksToBounds = true
+        railShape.fillColor = NSColor.black.cgColor
+        layer?.addSublayer(railShape)
     }
 
     @available(*, unavailable)
@@ -163,20 +173,48 @@ final class GroupLineView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        updateShape()
     }
 
     override func updateLayer() {
-        let themed = observedThemed()
+        let look = observedLook()
         performWithTheme {
-            let line = color.lineColor(themed: themed)
-            layer?.backgroundColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
+            // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
+            // the quieter looks keep the dot's color.
+            let line = look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)
+            layer?.backgroundColor = NSColor.clear.cgColor
+            railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
+        updateShape()
     }
 
-    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
-    private func observedThemed() -> Bool {
-        let read = { SidebarGroupPalette.tunable.value == .theme }
+    private func updateShape() {
+        let taper = Self.topTaperExtent
+        let oldBodyHeight = max(0, railShape.frame.height - taper)
+        let height = max(0, bounds.height - taper, oldBodyHeight, Self.shapeCoverageHeight)
+        railShape.frame = CGRect(x: 0, y: 0, width: Self.topTaperExtent, height: height + taper)
+        railShape.path = SidebarGroupLineShape.topTaper(railWidth: SidebarStyle.groupBarWidth,
+                                                        flareWidth: Self.topTaperExtent,
+                                                        flareHeight: taper,
+                                                        height: height)
+    }
+
+    /// The layout frame stays 2 pt wide; the view frame includes the six-point top cut.
+    var logicalFrame: CGRect {
+        get { CGRect(x: frame.minX, y: frame.minY + Self.topTaperExtent, width: SidebarStyle.groupBarWidth,
+                     height: max(0, frame.height - Self.topTaperExtent)) }
+        set { frame = Self.expandedFrame(for: newValue) }
+    }
+
+    static func expandedFrame(for logical: CGRect) -> CGRect {
+        CGRect(x: logical.minX, y: logical.minY - topTaperExtent, width: topTaperExtent,
+               height: max(0, logical.height) + topTaperExtent)
+    }
+
+    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
+    /// observation at a time.
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in

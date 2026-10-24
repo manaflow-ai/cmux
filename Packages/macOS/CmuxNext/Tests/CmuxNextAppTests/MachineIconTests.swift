@@ -83,8 +83,8 @@ struct MachineIconTests {
         #expect(try sent(nil)["icon"] is NSNull, "a clear sends null, never leaves the key out")
         #expect(SetSessionIconRequest.command == "set-session-icon")
         #expect(SetSessionIconRequest.requiredCapability == "session-icon-v1")
-        #expect(DaemonCapabilities.shared.optional.contains("session-icon-v1"))
-        #expect(DaemonCapabilities.shared.homeOnly.contains("session-icon-v1"))
+        #expect(DaemonCapabilities.optional.contains("session-icon-v1"))
+        #expect(DaemonCapabilities.homeOnly.contains("session-icon-v1"))
     }
 
     // MARK: The sidebar header

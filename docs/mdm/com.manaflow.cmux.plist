@@ -2039,6 +2039,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.</string>
+			<key>pfm_name</key>
+			<string>ui.reducedBackgrounds</string>
+			<key>pfm_title</key>
+			<string>Plain Backgrounds</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Applies Hue and Saturation to the window's tint. Off, they have no effect.</string>
 			<key>pfm_name</key>
 			<string>appearance.experimentalControls</string>
@@ -4595,6 +4607,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>workspaces</string>
+			<key>pfm_description</key>
+			<string>Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces.</string>
+			<key>pfm_name</key>
+			<string>tabs.commandDigits</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>workspaces</string>
+				<string>tabs</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Command-1 to 9 Select</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>allItems</string>
 			<key>pfm_description</key>
 			<string>Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.</string>
@@ -4954,11 +4983,23 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A short greeting over the composer.</string>
+			<string>Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.</string>
+			<key>pfm_name</key>
+			<string>media.pictureInPicture.enabled</string>
+			<key>pfm_title</key>
+			<string>Picture in Picture</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A headline over the composer that asks what to work on, with the project as a picker.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabWidgets.greeting</string>
 			<key>pfm_title</key>
-			<string>Show Greeting on New Tab</string>
+			<string>Ask What to Work On on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -5007,6 +5048,42 @@
 			<string>tabs.newTabWidgets.styleDots</string>
 			<key>pfm_title</key>
 			<string>Show Template Dots on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The current weather and today's high and low, for the city below or your time zone's city.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.weather</string>
+			<key>pfm_title</key>
+			<string>Show Weather on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>A city for the weather widget. Empty uses your time zone's city.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.weatherCity</string>
+			<key>pfm_title</key>
+			<string>Weather City</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Your machines and whether each is online.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.machines</string>
+			<key>pfm_title</key>
+			<string>Show Machines on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -7448,6 +7525,18 @@
 			<string>Permission Mode for New Chats</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.</string>
+			<key>pfm_name</key>
+			<string>diagnostics.hangReports</string>
+			<key>pfm_title</key>
+			<string>Send Hang Reports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>

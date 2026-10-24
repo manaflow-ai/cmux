@@ -6,13 +6,24 @@ scripts/cmux-next checks and a small CmuxNext package, then pushes to a bare
 `origin` through the real `git push`, so the installed trusted hook copy is what
 runs. The base already carries a `try!` (base debt): only what a push adds counts.
 """
+import importlib.util
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # disables git auto maintenance
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -262,6 +273,24 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn("sidebar: move the title", output)
 
+    def test_a_sidebar_change_the_owner_logged_passes_in_the_ci_sweep(self):
+        # dcd4316ef5c (2026-10-23) reached the branch from an old hook copy; the owner logs it once.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let flash = true\n}\n")
+        self.commit("scrollers: flash on enter")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        base = self.git("rev-parse", "HEAD^").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda: subprocess.run(["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{base}..HEAD"],
+                                       cwd=self.repo, env=self.env, text=True, capture_output=True)
+        unlogged = sweep()
+        self.assertNotEqual(unlogged.returncode, 0, unlogged.stdout + unlogged.stderr)
+        self.write("plans/cmux-next/sidebar-owner.md", f"# owner\n- {first[:11]} scrollers (a595), no look change\n")
+        self.commit("plans: log the scroller commit")
+
+        logged = sweep()
+
+        self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
+
     def test_a_fixture_that_mentions_one_marker_passes(self):
         self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
         self.commit("docs mention a marker")
@@ -292,6 +321,21 @@ class PrePushGateTests(unittest.TestCase):
         self.push()
 
         self.assertFalse(marker.exists(), "the installed trusted hook executed the branch-controlled checker")
+
+    def test_an_installed_lexer_older_than_origin_s_is_named_as_stale(self):
+        # guardrails.py loads count-swift-code-lines.py from the installed copy; an old one counts unlike CI.
+        lexer = "scripts/cmux-next/count-swift-code-lines.py"
+        self.write(lexer, (self.repo / lexer).read_text() + "# changed upstream\n")
+        self.commit("the lexer changes on feat-cmux-next")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("clean")
+
+        pushed = self.push()
+
+        self.assertIn("count-swift-code-lines.py", pushed.stdout + pushed.stderr)
+        self.assertIn("installed hook copy", pushed.stdout + pushed.stderr)
 
     def test_push_from_a_linked_worktree_leaves_the_repository_alone(self):
         # git runs the hook with GIT_DIR=<repo>/.git/worktrees/<name>: the gate's own temp-tree

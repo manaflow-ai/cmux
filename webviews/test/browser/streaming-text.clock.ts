@@ -2,8 +2,8 @@
 // this first, so it wraps these callbacks before React's scheduler takes its MessageChannel: the
 // scheduler's tasks (React's renders, commits, layout and passive effects, and the layout an effect
 // forces), animation frame callbacks (the reveal's, direct.ts `nextFrame`), resize observer
-// callbacks (the rows' heights, with their `flushSync` commits), event listeners (the transcript's
-// scroll handler and the layout its reads force), timers and queued microtasks. Each outermost
+// callbacks (the rows' heights, with their normal batched React commits), event listeners (the
+// transcript's scroll handler and the layout its reads force), timers and queued microtasks. Each outermost
 // callback adds one [start, end] span to `spans`. Promise continuations, other observers and
 // `setInterval` stay untimed.
 export const spans: [number, number][] = [];

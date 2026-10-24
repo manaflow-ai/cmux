@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import CmuxNextCodeRouter
 public import Foundation
 
@@ -19,6 +20,10 @@ public protocol AccountsServices: AnyObject {
     /// Runs one gesture of cmux's row (sign in, cancel, open in the browser,
     /// switch account, sign out).
     func runCmuxAccount(_ action: CmuxAccountAction)
+
+    /// The team cmux works in while signed in (nil when signed out): the
+    /// screen lists its teams and switches through it.
+    var activeTeam: ActiveTeam? { get }
 
     /// The team's CodeRouter accounts this user may see.
     func linkedAccounts() async throws -> [LinkedAccount]

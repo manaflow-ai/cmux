@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence 2026-10-20 (screen recording of Home's "Chief" pill popover: "animation needs to be
 /// better"). At 120 fps the card appeared at full size in one frame and, on close, held for about

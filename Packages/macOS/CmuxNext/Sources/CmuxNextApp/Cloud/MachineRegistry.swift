@@ -116,9 +116,9 @@ final class MachineRegistry {
     /// from the app's own tree still read as limited).
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
-        var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
-        notNeeded.insert(DaemonCapabilities.shared.terminalReaperActive)
-        if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
+        var notNeeded = Set(DaemonCapabilities.homeOnly)
+        notNeeded.insert(DaemonCapabilities.terminalReaperActive)
+        if local.supports(DaemonCapabilities.profiles) { notNeeded.formUnion(DaemonCapabilities.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
 

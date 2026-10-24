@@ -5,6 +5,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cmux-mobile-api-local",
+  // Local only: a deploy of this top-level config never gets a public URL (its store is memory).
+  "workers_dev": false,
   "main": "src/index.ts",
   "account_id": "0c1675e0def6de1ab3a50a4e17dc5656",
   "compatibility_date": "2026-08-20",
@@ -12,7 +14,7 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.12.0",
+    "API_VERSION": "0.14.0",
     "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.prod",
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
     "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
@@ -28,7 +30,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.12.0",
+        "API_VERSION": "0.14.0",
         // Bundle ids phones may register push tokens for: Debug/Demo, Production and the TestFlight app.
         "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.demo,dev.cmux.mobile.prod,dev.cmux.app.internal",
         // Dev (primary) and production Stack users: production mobile builds use this dev Worker too.
@@ -48,7 +50,8 @@
         { "name": "ICE_LIMIT", "namespace_id": "4102", "simple": { "limit": 30, "period": 60 } },
         { "name": "INVITE_LIMIT", "namespace_id": "4103", "simple": { "limit": 10, "period": 60 } },
         { "name": "NOTIFY_LIMIT", "namespace_id": "4104", "simple": { "limit": 60, "period": 60 } },
-        { "name": "TEAM_LIMIT", "namespace_id": "4105", "simple": { "limit": 3, "period": 60 } }
+        { "name": "TEAM_LIMIT", "namespace_id": "4105", "simple": { "limit": 3, "period": 60 } },
+        { "name": "MAILBOX_LIMIT", "namespace_id": "4106", "simple": { "limit": 60, "period": 60 } }
       ],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "e4fd2e88cfcd4f00841ddc5b49c3ee06" }]
     },
@@ -61,7 +64,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.12.0",
+        "API_VERSION": "0.14.0",
         "APNS_TOPICS": "dev.cmux.mobile.prod,dev.cmux.app.internal",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
@@ -74,7 +77,8 @@
         { "name": "ICE_LIMIT", "namespace_id": "4202", "simple": { "limit": 30, "period": 60 } },
         { "name": "INVITE_LIMIT", "namespace_id": "4203", "simple": { "limit": 10, "period": 60 } },
         { "name": "NOTIFY_LIMIT", "namespace_id": "4204", "simple": { "limit": 60, "period": 60 } },
-        { "name": "TEAM_LIMIT", "namespace_id": "4205", "simple": { "limit": 3, "period": 60 } }
+        { "name": "TEAM_LIMIT", "namespace_id": "4205", "simple": { "limit": 3, "period": 60 } },
+        { "name": "MAILBOX_LIMIT", "namespace_id": "4206", "simple": { "limit": 60, "period": 60 } }
       ],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "11158756425f41469964743aab2f6319" }]
     }

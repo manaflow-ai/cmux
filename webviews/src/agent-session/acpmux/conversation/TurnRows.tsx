@@ -6,6 +6,7 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
@@ -20,6 +21,7 @@ import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
+  forkWithFeedback,
   MessageCopy,
   MessageMore,
   MessageTime,
@@ -32,6 +34,8 @@ import { useT } from "../i18n";
 import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
+import { codeRouterOffer } from "./codeRouterOffer.experiment";
+import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
@@ -100,6 +104,8 @@ function groupNode(
       );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+    case "dispatch":
+      return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
     case "item":
@@ -184,7 +190,7 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "subsession") return true;
+  if (group.type === "message" || group.type === "subsession" || group.type === "dispatch") return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
   // stays in sight all the same.
   return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
@@ -316,7 +322,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
             />
           )}
-          {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
+          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+            <ForkButton onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+          )}
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
           {text && row.answerId && <MessageMore rowId={row.answerId} />}
@@ -366,10 +374,18 @@ function TurnFailure({
   const offersRetry = recovery !== undefined && retry !== undefined;
   // The way out goes first and reads as the card's one filled button.
   const switchFirst = offersSwitch && (recovery === "switch-model" || !offersRetry);
+  // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
+  // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
+  // only way out; the card keeps exactly one.
+  const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
+  const offerArm = experimentArm(codeRouterOffer);
+  const offerLeads = codeRouter !== undefined && offerArm === "primary";
+  const offerFilled =
+    offerLeads || (codeRouter !== undefined && offerArm === "button" && !offersSwitch && !offersRetry);
   const switchButton = offersSwitch && (
     <button
       type="button"
-      className={`cv-turn-auth-action${switchFirst ? " cv-turn-error__primary" : ""}`}
+      className={`cv-turn-auth-action${switchFirst && !offerLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {t("turn.failure.switchModel")}
@@ -382,20 +398,38 @@ function TurnFailure({
     >
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={14} className="cv-turn-error__icon" />}
-        <span className="text-fg">{sentence}</span>
+        <span className="text-fg">
+          {sentence}
+          {codeRouter && offerArm === "link" && (
+            <>
+              {" "}
+              <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
+            </>
+          )}
+        </span>
       </span>
       <span className="cv-turn-error__actions">
+        {offerLeads && (
+          <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
+        )}
         {switchFirst && switchButton}
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads ? "" : " cv-turn-error__primary"}`}
             onClick={retry}
           >
             {t("turn.retry")}
           </button>
         )}
         {!switchFirst && switchButton}
+        {codeRouter && offerArm === "button" && (
+          <CodeRouterAction
+            choice={codeRouter}
+            retry={retry}
+            className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
+          />
+        )}
         {message && (
           <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
             {/* The chat's chevron, as on Worked for, not the browser's triangle. */}

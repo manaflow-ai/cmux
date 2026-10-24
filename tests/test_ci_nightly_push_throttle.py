@@ -505,7 +505,7 @@ def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> Non
     assert not should_build(held)
     held_summary = summary_values(held)
     assert "69be4c7e0c5" in held_summary["publication hold"]
-    assert "15 seconds" in held_summary["required hold smoke"]
+    assert "deterministic checks" in held_summary["required hold verification"]
     assert "SIGTRAP" in held["warnings"][0]
 
     compiled_out = run_decide(

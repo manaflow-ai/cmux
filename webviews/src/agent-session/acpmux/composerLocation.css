@@ -652,6 +652,7 @@
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
 .nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
 .acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
+.acpmux-composer-bar[data-fit-harness="icon"] [data-fit-part="harness"]:not([data-fit-forms~="icon"]),
 .acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
 .acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
 .acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
@@ -668,6 +669,17 @@
     pointer-events: auto;
   }
   :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+/* The harness's name goes after effort's short name and before the model's family: its mark alone
+   still says which harness runs (ComposerHarness.tsx), its name then in its tooltip. */
+@container composer (max-width: 460px) {
+  .acpmux-composer-bar [data-fit-part="harness"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -1081,17 +1093,21 @@
    fills. It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
 .acpmux-fast {
   flex: none;
-  display: grid;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   place-items: center;
-  width: 28px;
+  width: auto;
   height: 28px;
-  padding: 0;
+  padding: 0 6px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: none;
   color: var(--agent-muted);
   cursor: default;
 }
+.acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); }
+.acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
@@ -1149,6 +1165,42 @@
   margin-inline-end: auto;
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
+/* The harness starts the quiet row (ComposerHarness.tsx; Leo 2026-10-21: "why is there no harness
+   at the left"), as Claude Code's footer starts with its project: its mark and name in the row's
+   secondary ink, no capsule. A chat that can still switch harness gets the soft pill on hover (a
+   click opens the model button's menu, whose rail switches); a started chat's harness is fixed, so
+   its item is text alone (no button) and answers no pointer. Only the quiet row draws it
+   (ComposerFoot's InQuietRow): the box's own row and the New Tab card's pickers already lead with
+   the model's mark. */
+.acpmux-composer-foot .acpmux-foot-harness {
+  display: inline-flex;
+  align-items: center;
+  order: -2;
+  margin-inline-end: auto;
+}
+/* With a mode beside it, the mode holds the row's free space after the left pair. */
+.acpmux-composer-foot .acpmux-foot-harness:has(~ .acpmux-access) { margin-inline-end: 0; }
+/* The row's control text: its size and the composer's family, as the mode's and the model's (a
+   button here would otherwise draw in the engine's control font). The fixed harness's face is a
+   span, so it takes the chip's box here itself: the same height and insets as the button. */
+.acpmux-composer-foot .acpmux-foot-harness .acpmux-foot-harness-face {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--acpmux-row-icon-gap);
+  min-width: 0;
+  height: 28px;
+  padding-inline: var(--acpmux-row-inset);
+  overflow: clip;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-family: inherit;
+  font-size: var(--text-control);
+  font-weight: var(--weight-regular);
+  cursor: default;
+}
+.acpmux-composer-foot .acpmux-foot-harness-face > * { flex: none; }
+.acpmux-composer-foot .acpmux-foot-harness-face [data-fit-part] { display: block; white-space: nowrap; }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
    look already drops the shield and the chevrons). The mode in the soft tone; the model and the
    effort one muted label, as every composer's model chip is. */
@@ -1268,7 +1320,7 @@
 }
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
    shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
+.acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

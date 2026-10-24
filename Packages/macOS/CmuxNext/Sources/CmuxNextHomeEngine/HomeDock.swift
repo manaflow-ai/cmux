@@ -92,7 +92,7 @@ public final class HomeDock {
     /// (logged), so the Chief conversation's own setup still runs. Reads the home from the live
     /// tree each time (it changes while this waits).
     public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async -> String {
-        let needs = [DaemonCapabilities.shared.pageTabs, DaemonCapabilities.shared.dockColumnRole, DaemonCapabilities.shared.tabColumnRespawn]
+        let needs = [DaemonCapabilities.pageTabs, DaemonCapabilities.dockColumnRole, DaemonCapabilities.tabColumnRespawn]
         guard needs.allSatisfy({ store.supports($0) }) else { return "no home dock: the daemon lacks page tabs, dock roles or column respawn" }
         guard !moveInFlight else { return "home dock move in flight" }
         do {
@@ -125,7 +125,7 @@ public final class HomeDock {
         let docked = Self.isDocked(placed.pane, on: placed.screen)
         // A daemon that keeps a lone pinned dock: the dock is pinned in the move, and nothing is
         // left on its right (`pinned-dock-alone-v1`).
-        let alone = store.supports(DaemonCapabilities.shared.pinnedDock) && store.supports(DaemonCapabilities.shared.pinnedDockAlone)
+        let alone = store.supports(DaemonCapabilities.pinnedDock) && store.supports(DaemonCapabilities.pinnedDockAlone)
         // What stays on the dock's screen once the page and the Chief tabs leave it: an older
         // daemon undocks a screen without a scrolling column, so there the move leaves a terminal.
         let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }
@@ -158,7 +158,7 @@ public final class HomeDock {
     /// to do (pinned already, an older daemon, the dock not shown).
     private func pin(_ connection: DaemonConnection, store: DaemonStore,
                      workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
-        guard store.supports(DaemonCapabilities.shared.pinnedDock),
+        guard store.supports(DaemonCapabilities.pinnedDock),
               let placed = workspace().flatMap(Self.pageTab(in:)),
               let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock, !dock.isPinned else { return nil }
         if placed.pane.tabs.first?.surface != placed.tab.surface {
@@ -190,7 +190,7 @@ public final class HomeDock {
 
     private func allowTabs(_ connection: DaemonConnection, store: DaemonStore,
                            workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async throws -> String? {
-        guard store.supports(DaemonCapabilities.shared.pinnedDock), fresh || !defaults.bool(forKey: Self.dockTakesTabsKey),
+        guard store.supports(DaemonCapabilities.pinnedDock), fresh || !defaults.bool(forKey: Self.dockTakesTabsKey),
               let placed = workspace().flatMap(Self.pageTab(in:)),
               let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock else { return nil }
         // A dock just pinned may not show its pin in the tree yet; the daemon has it (the pin replied).

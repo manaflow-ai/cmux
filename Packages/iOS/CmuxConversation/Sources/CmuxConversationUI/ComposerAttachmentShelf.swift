@@ -16,6 +16,8 @@ final class ComposerAttachmentShelf: UIView {
 
     /// A preview's remove button was tapped.
     var onRemove: ((UUID) -> Void)?
+    /// A preview was tapped (outside its remove button): open it, from its view.
+    var onOpen: ((UUID, UIView) -> Void)?
 
     let strip = UIScrollView()
     let divider = UIView()
@@ -294,7 +296,21 @@ final class ComposerAttachmentShelf: UIView {
         item.removeButton.accessibilityLabel = String(localized: "conversation.composer.removeAttachment", defaultValue: "Remove attachment", bundle: .module)
         item.removeButton.addAction(UIAction { [weak self] _ in self?.onRemove?(id) }, for: .touchUpInside)
         item.view.addSubview(item.removeButton)
+        // A tap on the preview opens it in Quick Look before it is sent.
+        let open = UITapGestureRecognizer(target: self, action: #selector(previewTapped(_:)))
+        item.view.addGestureRecognizer(open)
+        item.view.isUserInteractionEnabled = true
+        item.imageView.isAccessibilityElement = true
+        item.imageView.accessibilityTraits = .button
+        item.imageView.accessibilityLabel = String(localized: "conversation.composer.openAttachment", defaultValue: "Attachment", bundle: .module)
+        item.imageView.accessibilityHint = String(localized: "conversation.composer.openAttachmentHint", defaultValue: "Opens a preview", bundle: .module)
+        item.imageView.accessibilityIdentifier = "conversation.composer.attachment"
         return item
+    }
+
+    @objc private func previewTapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let view = tap.view, let item = items.first(where: { $0.view === view }) else { return }
+        onOpen?(item.id, item.imageView)
     }
 
     private func styleCorners(_ item: Item) {

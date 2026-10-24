@@ -9,7 +9,7 @@ import Testing
 
 /// cg-design-judge's fixes to the shipped Chrome-style group look (2026-10-14, the sidebar
 /// groups Thunderdome): a collapsed header says how many workspaces it holds, the members' line
-/// starts under the header bar instead of cutting its rounded corner, the header's ink is white
+/// starts under the header bar instead of cutting its rounded corner (flat-ended since Leo's Chrome reference), the header's ink is white
 /// or near-black on the group's color, and the header's name starts on the ungrouped rows' column.
 @MainActor @Suite(.serialized) struct SidebarGroupChromeLookTests {
     static let open = GroupID("grp-open")
@@ -39,21 +39,25 @@ import Testing
         #expect(laidOut >= roomy * 0.999, "the count draws \(laidOut) of its \(roomy) ink in a \(count.frame.width) pt frame")
     }
 
-    @Test func theMembersLineStartsUnderTheHeaderBarRounded() throws {
+    @Test func theMembersLineStartsUnderTheHeaderBarFlat() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
         let head = sidebar.convert(header.bounds, from: header)
-        let drawn = sidebar.convert(line.bounds, from: line)
+        let logical = sidebar.convert(line.logicalFrame, from: line.superview)
         let bar = head.height // the bar fills the header's row (SidebarGroupHeaderHeightTests)
         // The sidebar is flipped or not; the bar's edge nearest the members is the one the line meets.
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2
-        let lineStart = flipped ? drawn.minY : drawn.maxY
+        let lineStart = flipped ? logical.minY : logical.maxY
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
-        #expect(abs((line.layer?.cornerRadius ?? 0) - drawn.width / 2) < 0.01, "the line's ends are not round")
+        // Chrome's square left edge and body keep their flat geometry; the top-right edge is the cut/taper.
+        #expect(line.layer?.cornerRadius == 0 && line.layer?.masksToBounds == true && line.railShape.path != nil,
+                "the line has the clipped Chrome corner cut")
+        #expect(line.railShape.frame.width == 6 && line.railShape.frame.height >= 4096,
+                "the cut shape preserves coverage while the parent rail shrinks")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {

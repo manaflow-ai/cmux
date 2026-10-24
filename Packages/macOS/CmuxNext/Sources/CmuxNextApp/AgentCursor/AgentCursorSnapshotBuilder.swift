@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextAgentCursor
 
 /// Reads the live models into the agent cursor's visibility snapshot for
 /// one target tab (`AgentCursorVisibilityResolver` decides). Only the facts

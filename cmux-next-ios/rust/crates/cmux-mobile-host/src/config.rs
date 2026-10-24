@@ -54,6 +54,15 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
 }
 
+impl ServiceConfig {
+    /// The app's own daemon socket: `default_socket`, else `<tui_socket_dir>/<default_session>.sock`.
+    pub fn daemon_socket(&self) -> PathBuf {
+        self.default_socket
+            .clone()
+            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
+    }
+}
+
 /// The default `upload` size cap: 100 MiB.
 pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
@@ -328,6 +337,12 @@ impl HostConfig {
                 std::sync::Arc::new(|event| crate::control::emit(&event)),
             )
             .with_identity(supplied.identity.clone())
+            .with_push_keys(std::sync::Arc::new(crate::push_keys::PushKeys::load(
+                default_state_dir().join("push-keys.json"),
+            )))
+            .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
+                default_state_dir().join("mailbox-spent.json"),
+            )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {

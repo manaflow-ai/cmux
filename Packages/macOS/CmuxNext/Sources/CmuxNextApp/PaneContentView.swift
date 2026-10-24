@@ -171,7 +171,20 @@ final class PaneContentView: NSView, PaneContentChrome {
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
-        if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
+        if let content {
+            let resized = content.frame != contentHost.bounds
+            if resized { content.frame = contentHost.bounds }
+            // Content shown before the pane had its size (a restored selected
+            // tab) was laid out at that size. A browser chrome lays out its
+            // toolbar and page area by constraints from its own bounds: left
+            // to AppKit's follow-up pass it can keep the stale frames (page
+            // area 0 high at the bottom, toolbar under it) until a tab switch.
+            // Lay it out at its new size now, in this pass (a descendant).
+            if hostChanged || resized {
+                content.needsLayout = true
+                content.layoutSubtreeIfNeeded()
+            }
+        }
         // A chat shown at the frame it was parked at (`install`) follows the host again.
         if hostsContent, let content, content.autoresizingMask.isEmpty, content is PaneParkableContent {
             content.autoresizingMask = [.width, .height]

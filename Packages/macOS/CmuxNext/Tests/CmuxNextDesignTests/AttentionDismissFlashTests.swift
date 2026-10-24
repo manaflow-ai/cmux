@@ -1,6 +1,7 @@
 import QuartzCore
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// cmux classic flashes a pane's ring when its notification is dismissed by going into the
 /// pane; the ring itself appears steady (Austin, 2026-10-20: "the blinking should happen when we

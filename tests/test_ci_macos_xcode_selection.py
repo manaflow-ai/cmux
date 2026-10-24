@@ -56,8 +56,6 @@ EXEMPT = {
     ("cmux-tui.yml", "macos"):
         "Rust and Zig only (cargo clippy/test with libghostty-vt from Zig); no "
         "Swift or xcodebuild, like the lint and test jobs it combines (#17051)",
-    ("cmux-tui.yml", "macos-relay"):
-        "Rust only (cargo test -p chatmux-relay); no Swift, Zig or xcodebuild",
     ("cmux-next-source-archive.yml", "archive"):
         "Zig and Python only: Zig fetch lists and the source archive, and link "
         "sets read from the pinned xcframework; the CLI helper fetch list must "
@@ -67,9 +65,6 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("nightly.yml", "nightly-next-macos15-launch"):
-        "launches the published, signed app on a macOS 15 runner; builds "
-        "nothing, so no Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",

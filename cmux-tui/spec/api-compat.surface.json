@@ -10043,6 +10043,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10053,6 +10057,10 @@
       },
       "/shell_args/*": {
         "ty": "string"
+      },
+      "/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/terminal_id": {
         "ty": "string",
@@ -10856,11 +10864,22 @@
         "ty": "string",
         "nullable": true
       },
+      "/expect_agent": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/expect_agent/session": {
+        "ty": "string",
+        "nullable": true
+      },
       "/expect_foreground": {
         "ty": "string",
         "nullable": true
       },
       "/paste": {
+        "ty": "boolean"
+      },
+      "/submit": {
         "ty": "boolean"
       },
       "/surface": {
@@ -11776,6 +11795,10 @@
       },
       "/name": {
         "ty": "string",
+        "nullable": true
+      },
+      "/proxy": {
+        "ty": "json",
         "nullable": true
       }
     },
@@ -17945,9 +17968,15 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
