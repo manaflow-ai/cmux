@@ -7,14 +7,14 @@
 /// - A frame queue (``init(owner:scheduler:)``) runs all its work every frame, unbudgeted: work a
 ///   person's action caused (the content a tab switch shows, the page a new tab replaces) is never
 ///   held or moved to a later frame. Its work runs as plain calls, with no per-item bookkeeping.
-/// - A budgeted queue (``init(owner:budgeted:on:)``: daemon churn, agent and CLI requests) ticks on
+/// - A budgeted queue (``init(owner:budgeted:on:)``: agent and CLI requests) ticks on
 ///   the app's one ``MainWorkScheduler`` after the higher classes: its work one task at a time, in
 ///   order, while ``MainFrameBudget`` lets the class run (never while a person's input is pending),
 ///   and keeps the rest for the next frame. The first task of a frame always runs.
 ///
 /// ```swift
-/// let drain = FrameBatchQueue(owner: "DaemonStore.drain", budgeted: .visible, on: mainWork)
-/// drain.enqueue { store.drain() }
+/// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
+/// requests.enqueue { handle(request) }
 /// ```
 @MainActor
 public final class FrameBatchQueue {
@@ -63,7 +63,7 @@ public final class FrameBatchQueue {
     /// - Parameters:
     ///   - owner: The queue's name in the ledger and the watchdog's records (interned on the
     ///     budget's board here, once, so each task starts without a lock).
-    ///   - budgeted: `visible` for screen updates no action of the person caused (daemon churn),
+    ///   - budgeted: `visible` for screen updates no action of the person caused,
     ///     `automation` for work an agent, the CLI or another process asked for, `background` for
     ///     work nobody sees this frame.
     ///   - work: The app's one main-thread scheduler.
