@@ -14,6 +14,12 @@ extension TerminalNotificationStore {
         subtitle: String = "",
         origin: TerminalNotificationOrigin = .local
     ) async {
+        if GhosttyDesktopNotificationRequest.isMachinePayload(title: title, body: body) {
+#if DEBUG
+            cmuxDebugLog("notification.desktop.drop reason=machine-payload origin=\(origin.kind) titleLen=\(title.count) bodyLen=\(body.count)")
+#endif
+            return
+        }
         guard let appDelegate = AppDelegate.shared,
               let initialTarget = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
