@@ -143,9 +143,11 @@ extension ControlSocketServer {
     }
 
     /// Removes a leftover socket from a crashed run. Unlinks only when a
-    /// connect is refused (nothing listens). Refuses when a process accepts
-    /// on it or the probe is inconclusive (a busy listener, a permission
-    /// error), when it is not a socket, or when another user owns it.
+    /// connect is refused. Refuses when a process accepts on it or the probe
+    /// is inconclusive (a permission error), when it is not a socket, or when
+    /// another user owns it. Known limit: on macOS a live listener whose
+    /// accept queue is full also refuses (``ProbeResult/refused``), and is
+    /// unlinked here as if stale.
     static func reclaimStalePath(_ path: String) throws {
         var info = stat()
         guard lstat(path, &info) == 0 else { return }
@@ -157,7 +159,9 @@ extension ControlSocketServer {
     enum ProbeResult: Equatable {
         /// A process listens; `listener` is its pid (`LOCAL_PEERPID`), nil when the socket does not say.
         case accepted(listener: pid_t?)
-        /// `ECONNREFUSED`: no process listens; the file is stale.
+        /// `ECONNREFUSED`: no process accepts a connection now. Mostly a stale file, but on macOS
+        /// also a socket bound and not listening yet, or a live listener whose accept queue is
+        /// full (XNU refuses that connect; Linux says `EAGAIN`).
         case refused
         case inconclusive(Int32)
     }
@@ -167,7 +171,7 @@ extension ControlSocketServer {
         guard descriptor >= 0 else { return .inconclusive(errno) }
         defer { close(descriptor) }
         // Never block the caller (the App starts the server on the main
-        // actor): a listener with a full backlog answers EAGAIN, not a wait.
+        // actor): with O_NONBLOCK the connect never waits.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         var noSigPipe: Int32 = 1  // the probe never writes; set anyway so no path can raise SIGPIPE
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
@@ -191,7 +195,6 @@ extension ControlSocketServer {
             return .accepted(listener: known ? pid : nil)
         }
         let code = errno
-        // EAGAIN (full backlog) is inconclusive: a live listener is busy.
         return code == ECONNREFUSED ? .refused : .inconclusive(code)
     }
 }

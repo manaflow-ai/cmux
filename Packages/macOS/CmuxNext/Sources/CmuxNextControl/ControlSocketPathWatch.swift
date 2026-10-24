@@ -41,25 +41,40 @@ import os
 /// loop.
 ///
 /// A held path with no listener to follow keeps the directory watch, logged
-/// once: a socket that names no pid, or a pid that is not a live process or whose
-/// exit was handled, a socket the probe cannot reach (inconclusive), a stale
-/// socket of another user (which nothing here may remove). With that watch the
-/// yielding watch records the held file's device and inode, read after the watch
-/// is armed, so a file that replaces the probed one is always an event; while the
-/// same file is there a directory event is two `lstat`s and nothing more (no
-/// probe of the other app's socket, no new watch). A refused probe of a socket of
-/// this user is the case the link's restore replaces (a classic cmux of this user
-/// that crashed): the restore runs once for that file and the watch follows what
-/// is there then. Refused is the staleness rule the restore itself applies (the
-/// same as ``ControlSocketServer/reclaimStalePath(_:)``), so this watch never
-/// replaces a file the restore would not.
+/// once, and records the held file's device and inode, read after the watch is
+/// armed, so a file that replaces the probed one is always an event. What a
+/// directory event that finds the same file does depends on the probe:
+/// - An outcome that is a fact about the file while it is there is not probed
+///   again (two `lstat`s per event, no connect to the other app's socket, no new
+///   watch): a socket that accepts but names no pid to follow (none, not a live
+///   process, or a pid whose exit was handled), and a connect the file itself
+///   refuses (`EACCES`, `EPERM`, `ENAMETOOLONG`, `EPROTOTYPE`, `ENOTSOCK`).
+/// - Any other outcome can change with no event in the directory, so the next
+///   event probes the same file again (one non-blocking connect that fails at
+///   once and takes no backlog slot): a refused connect (on macOS: no listener,
+///   a socket bound but not listening yet, or a live listener whose accept queue
+///   is full) and a connect that fails for the moment (`EAGAIN`, `EINTR`,
+///   `ENOBUFS`, `EMFILE`, ...).
 ///
-/// Known limit: nothing reports the end of a held socket's listener that the
-/// watch cannot follow (the process that inherited the descriptor is not known;
-/// an inconclusive probe names no one). When it ends and leaves its file behind,
-/// the file is the same one, so the directory watch stays for the rest of the
-/// run, waking on every /tmp write (two `lstat`s each), and the link is not made
-/// until relaunch (plans/cmux-next/idle-wakeups.md).
+/// The link's restore replaces a stale socket of this user (refused), so a
+/// refused socket of this user is given to it only when the watch did not see
+/// the file appear: the file at the path when the watch starts, and the file a
+/// followed listener left at its exit. A socket that appears while the watch
+/// runs is often a live app between bind() and listen() (a classic cmux binds,
+/// chmods, then listens; this app's server renames its socket into place, then
+/// listens), and the restore would unlink it. Refused is the staleness rule the
+/// restore itself applies (the same as
+/// ``ControlSocketServer/reclaimStalePath(_:)``), so this watch never replaces a
+/// file the restore would not.
+///
+/// Known limits: nothing reports the end of a held socket's listener that the
+/// watch cannot follow (the process that inherited the descriptor is not known).
+/// When it ends and leaves its file behind, the file is the same one, so the
+/// directory watch stays for the rest of the run, waking on every /tmp write (two
+/// `lstat`s each, plus one refused connect from then on), and the link is not
+/// made until relaunch. The same holds for a socket that appeared while the
+/// watch ran and was left stale before it ever listened
+/// (plans/cmux-next/idle-wakeups.md).
 ///
 /// Every watch is made and swapped on `queue`, the queue its events run on, so
 /// an event never sees a half-installed watch and no older watch replaces a
@@ -76,6 +91,8 @@ final class ControlSocketPathWatch: Sendable {
     static let maxFailedRestores = 3
 
     let path: String
+    /// The path's directory.
+    private let directory: String
     private let queue: DispatchQueue
     private let onMissing: @Sendable () -> Bool
     /// Follow the listener of a foreign live socket that holds the path in a shared directory,
@@ -110,7 +127,16 @@ final class ControlSocketPathWatch: Sendable {
     /// value: installing any other watch forgets the file.
     private struct InstalledWatch {
         var source: InstalledSource?
-        var heldEntry: FileIdentity?
+        var held: HeldFile?
+    }
+
+    /// The file a yielding watch's directory watch found at the path and cannot follow.
+    private struct HeldFile: Equatable {
+        /// Read after the directory watch was armed: a file that replaces it is an event.
+        var identity: FileIdentity
+        /// Its last probe's outcome can change while the same file is there, with no event in
+        /// the directory: each directory event probes it again (``isSettled(_:)`` is false).
+        var reprobe: Bool
     }
 
     /// The installed watch's source, as the kind it was made: a file system source (the entry or
@@ -146,6 +172,8 @@ final class ControlSocketPathWatch: Sendable {
         self.yieldsToHeldPath = yieldsToHeldPath
         self.probe = probe
         self.onMissing = onMissing
+        let parent = (path as NSString).deletingLastPathComponent
+        directory = parent.isEmpty ? "." : parent
     }
 
     deinit {
@@ -156,7 +184,8 @@ final class ControlSocketPathWatch: Sendable {
         stopped.store(false, ordering: .sequentiallyConsistent)
         queue.async { [weak self] in
             guard let self else { return }
-            self.watch()
+            // The file there now was not seen appearing: a stale socket of this user may be replaced.
+            self.watch(mayRestoreStale: true)
             // Gone before the watch existed: no event will say so.
             var info = stat()
             if lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
@@ -186,9 +215,10 @@ final class ControlSocketPathWatch: Sendable {
     /// On `queue`: watches the entry at the path, or its directory when the entry cannot be
     /// opened (a socket file, nothing there), or for a yielding watch the listener of a live
     /// socket that holds the path; replaces the watch in place. `entryOnly`: keep the current
-    /// watch unless the entry can be followed now. `restoredStale`: a file the restore already
-    /// had its turn at, not given to it again.
-    private func watch(entryOnly: Bool = false, restoredStale: FileIdentity? = nil) {
+    /// watch unless the entry can be followed now. `mayRestoreStale`: the watch did not see the
+    /// file at the path appear (``start()``), so a refused socket of this user there may be
+    /// given to the restore.
+    private func watch(entryOnly: Bool = false, mayRestoreStale: Bool = false) {
         dispatchPrecondition(condition: .onQueue(queue))
         let entry = open(path, O_EVTONLY | O_SYMLINK)
         if entry >= 0 {
@@ -196,13 +226,11 @@ final class ControlSocketPathWatch: Sendable {
             return
         }
         if entryOnly { return }
-        let parent = (path as NSString).deletingLastPathComponent
-        let directory = parent.isEmpty ? "." : parent
         let descriptor = open(directory, O_EVTONLY)
         guard descriptor >= 0 else {
             // Without the watch a deleted socket stays gone until relaunch; say so once.
             let error = String(cString: strerror(errno))
-            pathWatchLog.error("socket path watch off: cannot open \(directory, privacy: .public): \(error, privacy: .public)")
+            pathWatchLog.error("socket path watch off: cannot open \(self.directory, privacy: .public): \(error, privacy: .public)")
             return
         }
         let shared = Self.isShared(directory)
@@ -216,29 +244,51 @@ final class ControlSocketPathWatch: Sendable {
             return
         }
         // A file this watch cannot open holds the path (a socket file, mostly).
-        let held = FileIdentity(info)
         if shared {
-            let probed = probe(path)
-            switch probed {
-            case .accepted(let listener?) where canFollow(listener):
-                // Another app's live socket: nothing can be made there until its listener ends,
-                // and watching /tmp would wake on every write by any process.
-                followHolder(listener, parent: directory)
-                return
-            case .refused where Self.isOwnSocket(info) && held != restoredStale && !stopped.load(ordering: .sequentiallyConsistent):
-                // A stale socket of this user: exactly what the restore replaces. Once per file:
-                // the watch() after it never gives the same file to the restore again.
-                _ = onMissing()
-                watch(restoredStale: held)
-                return
-            default:
-                guard holdEntry(held) else { return }
-                noteOnce("socket path watch for \(path) keeps the shared directory \(directory): a socket it cannot follow holds the path (\(String(describing: probed))); wakes on every write there")
-                return
-            }
+            yieldInSharedDirectory(to: info, mayRestoreStale: mayRestoreStale)
+        } else {
+            holdEntry(HeldFile(identity: FileIdentity(info), reprobe: false))
         }
-        holdEntry(held)
     }
+
+    /// On `queue`, with the directory watch on the shared directory installed: what a yielding
+    /// watch does about `info`, the file at the path it cannot open, from one probe. Follows a
+    /// live listener; gives a refused socket of this user to the restore when
+    /// `mayRestoreStale`; else records the file on the directory watch (``HeldFile``).
+    private func yieldInSharedDirectory(to info: stat, mayRestoreStale: Bool) {
+        let probed = probe(path)
+        switch probed {
+        case .accepted(let listener?) where canFollow(listener):
+            // Another app's live socket: nothing can be made there until its listener ends,
+            // and watching /tmp would wake on every write by any process.
+            followHolder(listener)
+        case .refused where mayRestoreStale && Self.isOwnSocket(info) && !stopped.load(ordering: .sequentiallyConsistent):
+            // A stale socket of this user the watch did not see appear: exactly what the
+            // restore replaces. The watch() after it never gives a file to the restore.
+            _ = onMissing()
+            watch()
+        default:
+            let held = HeldFile(identity: FileIdentity(info), reprobe: !Self.isSettled(probed))
+            guard holdEntry(held) else { return }
+            noteOnce("socket path watch for \(path) keeps the shared directory \(directory): a socket it cannot follow holds the path (\(String(describing: probed))); wakes on every write there")
+        }
+    }
+
+    /// `probed` is a fact about the held file that stays true while the same file is at the
+    /// path, so a directory event that finds that file need not probe it again: a socket that
+    /// accepts (here: naming no pid to follow), or a connect the file itself refuses. A refused
+    /// connect is not (on macOS: no listener yet, or a live one whose accept queue is full), nor
+    /// is any other error (one that lasts a moment, or one this list does not know).
+    private static func isSettled(_ probed: ControlSocketServer.ProbeResult) -> Bool {
+        switch probed {
+        case .accepted: true
+        case .refused: false
+        case .inconclusive(let code): fileErrors.contains(code)
+        }
+    }
+
+    /// Connect errors that come from the socket file itself (its mode, its type, its path).
+    private static let fileErrors: Set<Int32> = [EACCES, EPERM, ENAMETOOLONG, EPROTOTYPE, ENOTSOCK]
 
     /// `listener`, the pid a live socket at the path names, is a holder to follow: a live process
     /// whose exit was not already handled (a socket that still names a handled pid is held by a
@@ -248,11 +298,11 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     /// On `queue`: follows the process `listener`, whose live socket holds the path; its exit
-    /// is the one event that can free the path. Never calls ``watch(entryOnly:restoredStale:)``
+    /// is the one event that can free the path. Never calls ``watch(entryOnly:mayRestoreStale:)``
     /// itself except through ``holderEnded(_:)`` when the process ended before the arming.
-    private func followHolder(_ listener: pid_t, parent: String) {
+    private func followHolder(_ listener: pid_t) {
         guard install(.holder(listener)) else { return }  // stopped: watches nothing, by design
-        noteOnce("socket path watch for \(path) follows pid \(listener), whose live socket holds the path in \(parent); the link is made when it ends")
+        noteOnce("socket path watch for \(path) follows pid \(listener), whose live socket holds the path in \(directory); the link is made when it ends")
         // Ended between canFollow and the arming: no event may say so. holderEnded's watch()
         // never follows this pid again, so this runs at most once per pid.
         if !Self.isLive(listener) { holderEnded(listener) }
@@ -312,7 +362,7 @@ final class ControlSocketPathWatch: Sendable {
         let done = installed.withLock { current -> Bool in
             guard !stopped.load(ordering: .sequentiallyConsistent) else { return false }
             current.source?.cancel()
-            current = InstalledWatch(source: watch, heldEntry: nil)
+            current = InstalledWatch(source: watch, held: nil)
             return true
         }
         if !done { watch.cancel() }
@@ -322,14 +372,14 @@ final class ControlSocketPathWatch: Sendable {
         return done
     }
 
-    /// On `queue`, right after a yielding watch installed its directory watch: records `held`,
-    /// the file at the path it cannot follow, on that watch; false once stopped. Events run on
+    /// On `queue`, while a yielding watch's directory watch is installed: records `held`, the
+    /// file at the path it cannot follow, on that watch; false once stopped. Events run on
     /// `queue` too, so none sees the directory watch without it.
     @discardableResult
-    private func holdEntry(_ held: FileIdentity) -> Bool {
+    private func holdEntry(_ held: HeldFile) -> Bool {
         installed.withLock { current -> Bool in
             guard !stopped.load(ordering: .sequentiallyConsistent) else { return false }
-            current.heldEntry = held
+            current.held = held
             return true
         }
     }
@@ -338,8 +388,8 @@ final class ControlSocketPathWatch: Sendable {
     /// gone, or left behind stale: either way the restore takes the path now (the link's
     /// replaces a stale socket of this user and leaves anything else), then the watch follows
     /// whatever is at the path. A socket there that still names `listener` is not followed
-    /// again (``canFollow(_:)``), and the file left behind is not given to the restore twice, so
-    /// this never re-enters itself.
+    /// again (``canFollow(_:)``), and the watch() after the restore never gives a file to the
+    /// restore, so this never re-enters itself.
     private func holderEnded(_ listener: pid_t) {
         guard !stopped.load(ordering: .sequentiallyConsistent) else { return }
         endedListener.store(listener, ordering: .relaxed)
@@ -351,22 +401,29 @@ final class ControlSocketPathWatch: Sendable {
         } else {
             checkPath()
         }
-        watch(restoredStale: left)
+        watch()
     }
 
     /// An event on `queue`. The entry a watch follows was deleted, renamed or revoked: whatever
     /// is at the path now (put back, or someone else's) is a new file, watched again. A
-    /// directory watch moves to the entry whenever one it can follow is there.
+    /// directory watch moves to the entry whenever one it can follow is there. A file that
+    /// appears here is never given to the restore (it may be a live app's socket before its
+    /// listen()).
     private func changed(followingEntry: Bool) {
         let restored = checkPath()
         if followingEntry || restored {
             watch()
-        } else if !stopped.load(ordering: .sequentiallyConsistent), let entry = FileIdentity.at(path) {
-            // The held file a yielding watch recorded is still there: nothing new to probe or watch.
-            if installed.withLock({ $0.heldEntry }) == entry { return }
-            // An entry it cannot follow is there now: a yielding watch moves to its listener.
-            watch(entryOnly: !yieldsToHeldPath)
+            return
         }
+        guard !stopped.load(ordering: .sequentiallyConsistent), let info = Self.lstatInfo(path) else { return }
+        if let held = installed.withLock({ $0.held }), held.identity == FileIdentity(info) {
+            // The held file a yielding watch recorded is still there: nothing new to watch. It is
+            // probed again only when its last outcome can change with no event here.
+            if held.reprobe { yieldInSharedDirectory(to: info, mayRestoreStale: false) }
+            return
+        }
+        // An entry it cannot follow is there now: a yielding watch moves to its listener.
+        watch(entryOnly: !yieldsToHeldPath)
     }
 
     /// What is at `path` (not following a link), nil for nothing.
