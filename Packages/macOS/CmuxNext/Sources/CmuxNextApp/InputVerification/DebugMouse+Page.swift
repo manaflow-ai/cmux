@@ -37,11 +37,18 @@ extension DebugMouse {
     /// (top-left points in the main window, as a plain scroll takes them) or the center of `pane`'s page
     /// (default: the focused pane). The event goes to the page window under that point, as the window server
     /// picks it (``WindowOverlayHost/frontPageWindow(at:in:)``), so a fixed pointer stays fixed while a pan
-    /// slides other pages under it. It takes a real scroll's path over a page: the layout's monitor sees it
-    /// first as an event of that page window (``LayoutRootView/handleMonitoredScroll(_:from:at:)``), and an
-    /// event the layout does not take goes to the page view under the point. Both run inside the app's input
-    /// dispatch context, so the scroll is timed to its frame (`key.scroll_frame`). `delivered_to` names who took
-    /// it, as for a plain scroll; an error when no page is under the point.
+    /// slides other pages under it. It takes the layout's part of a real scroll's path over a page: the
+    /// layout's routing sees it first as an event of that page window
+    /// (``LayoutRootView/handleMonitoredScroll(_:from:at:)``), and an event the layout does not take goes to
+    /// the page view under the point. Both run inside the app's input dispatch context, so the scroll is timed
+    /// to its frame (`key.scroll_frame`). `delivered_to` names who took it, as for a plain scroll; an error
+    /// when no page is under the point.
+    ///
+    /// Not on the path: `NSApp.sendEvent`, `NSWindow.sendEvent` and every other local event monitor (the
+    /// Chromium swipe's `CEFSwipeNavigation`, `HoverCardCoordinator`, `NewTabSparePool`'s input note). A
+    /// synthesized scroll has no window AppKit can route it to, and a queued event would answer after the
+    /// reply, so this calls the layout and the view directly, as the plain `scroll` action does. A bench that
+    /// uses it measures the layout's routing and pan, not those monitors' per-event work.
     static func scrollPage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first { windowID == nil || $0.state.id == windowID }
