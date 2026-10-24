@@ -243,10 +243,21 @@ fn report(
         };
         json!({
             "kind": "oauth",
-            "text": format!(
-                "Sign in to {name}: run `{command}` in a terminal and finish the sign-in it opens"
-            ),
+            "text": format!("Sign in to {name}; finish the sign-in it opens"),
             "command": command,
+            // `command` remains the human-readable compatibility field.  A
+            // setup surface can execute this argv directly, so signing in
+            // does not require a person to open a terminal or copy a command
+            // from Chief.  `--json` keeps the result machine-readable while
+            // the harness owns the browser or ACP auth UI.
+            "exec": {
+                "argv": ["cmux", "harness", "login", row.id, "--json"],
+                "wait": true,
+            },
+            "check": {
+                "argv": ["cmux", "setup", "harness", row.id, "--dry-run"],
+                "wait": true,
+            },
             "url": Value::Null,
         })
     } else {

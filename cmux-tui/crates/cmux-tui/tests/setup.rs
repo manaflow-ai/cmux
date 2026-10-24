@@ -956,6 +956,18 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
     let action = &signed_out["user_action"];
     assert_eq!(action["kind"], "oauth", "{action}");
     assert_eq!(action["command"], "cmux harness login gemini");
+    assert_eq!(
+        action["exec"]["argv"],
+        json!(["cmux", "harness", "login", "gemini", "--json"]),
+        "{action}"
+    );
+    assert_eq!(action["exec"]["wait"], true, "{action}");
+    assert_eq!(
+        action["check"]["argv"],
+        json!(["cmux", "setup", "harness", "gemini", "--dry-run"]),
+        "{action}"
+    );
+    assert_eq!(action["check"]["wait"], true, "{action}");
     assert!(action["text"].as_str().is_some_and(|text| !text.is_empty()), "{action}");
     assert_eq!(all["user_action"], *action, "the task names the first thing to do");
     let current = &all["harnesses"][1];
@@ -999,6 +1011,28 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
         let error: Value = serde_json::from_slice(&output.stderr).unwrap();
         assert_eq!(error["code"], "usage.invalid", "{args:?}");
     }
+}
+
+#[test]
+fn cmux_setup_harness_exposes_a_shell_free_sign_in_action() {
+    let world = World::new("harness-action");
+    let gemini = world.bin.join("gemini");
+    world.harness(&gemini, "0.1.0");
+
+    let report = world.json(&["setup", "harness", "gemini"]);
+    let action = &report["harnesses"][0]["user_action"];
+    assert_eq!(action["kind"], "oauth", "{report}");
+    assert_eq!(
+        action["exec"]["argv"],
+        json!(["cmux", "harness", "login", "gemini", "--json"]),
+        "{report}"
+    );
+    assert_eq!(action["exec"]["wait"], true, "{report}");
+    assert_eq!(
+        action["check"]["argv"],
+        json!(["cmux", "setup", "harness", "gemini", "--dry-run"]),
+        "{report}"
+    );
 }
 
 #[test]
