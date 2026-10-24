@@ -28,7 +28,7 @@ struct DebugClosedIDsTests {
 
             // The close's reply returns before the store applies its event: the read's barrier is the only wait.
             try await connection.closePane(other.handle)
-            let reply = try await HistoryControl.closedIDs(services.daemon, connection)
+            let reply = try await HistoryControl.closedIDs(services.daemon)
 
             let listed = reply["closed_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
             let fresh = store.closedItems.filter { !seen.contains($0.id) }.map { DaemonClosedHistory.historyID($0.id) }
