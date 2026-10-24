@@ -41,6 +41,30 @@ const RELEASE_OMNIBAR = {
   ],
 };
 
+/// The suggestions-* variants' omnibar (Leo 2026-10-24): "ff" once listed toolbar-diffviewer and
+/// app-efficiency above Ask, and the web search first. A review tab, three workspaces in the home
+/// folder and the repo's page open in a browser tab.
+const FF_OMNIBAR = {
+  tabs: [
+    { id: "tab-review", kind: "terminal", title: "All sessions", detail: "/tmp/review/review.diff" },
+    {
+      id: "tab-repo",
+      kind: "browser",
+      title: "manaflow-ai/cmux",
+      detail: "github.com/manaflow-ai/cmux",
+      icon: SITE_ICON,
+    },
+  ],
+  workspaces: [
+    { id: "workspace-chief", name: "chief-pet-default-off", detail: "~" },
+    { id: "workspace-toolbar", name: "toolbar-diffviewer", detail: "~" },
+    { id: "workspace-efficiency", name: "app-efficiency", detail: "~" },
+  ],
+  folders: [CWD],
+  commands: [],
+  history: [],
+};
+
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
 const nowPlayingTrack = (playing: boolean) => ({
   title: "Weightless",
@@ -184,6 +208,64 @@ async function waitForTabJump(
       (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
     ),
   );
+}
+
+/// A suggestion row as the popover draws it: its kind (`data-type`) and its title.
+type SuggestionRow = { type: string; title: string };
+
+/// Types `text` into the field and waits until the popover's rows pass `problem` (undefined when
+/// they do); at the wait's cap it fails with what `problem` last said about the rows.
+async function typedSuggestions(
+  ctx: PlayContext,
+  text: string,
+  problem: (rows: SuggestionRow[]) => string | undefined,
+): Promise<void> {
+  const rows = (): SuggestionRow[] =>
+    [...ctx.document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")].map((row) => ({
+      type: row.dataset.type ?? "",
+      title: row.querySelector(".nt-row-title")?.textContent ?? "",
+    }));
+  await ctx.type(text, { selector: ".nt-field" });
+  try {
+    await ctx.waitFor(
+      () =>
+        ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === text &&
+        rows().length > 0 &&
+        problem(rows()) === undefined,
+    );
+  } catch {
+    const seen = rows();
+    throw new Error(
+      `"${text}": ${problem(seen) ?? "no rows"} (rows: ${seen.map((row) => `${row.type}:${row.title}`).join(", ")})`,
+    );
+  }
+}
+
+/// The rows' kinds, first to last, without the create rows at the end.
+const navigationTypes = (rows: SuggestionRow[]) => rows.filter((row) => row.type !== "create").map((row) => row.type);
+
+/// "ff": Ask first, no workspace that only holds "ff" inside a word, the web search last, no create row.
+function ffProblem(rows: SuggestionRow[]): string | undefined {
+  const types = navigationTypes(rows);
+  if (types[0] !== "ask") return "the first row is not Ask";
+  if (rows.some((row) => row.type === "workspace" && /toolbar-diffviewer|app-efficiency/.test(row.title)))
+    return "a workspace that only has ff inside a word shows";
+  if (types.at(-1) !== "search") return "the web search is not the last row";
+  if (rows.some((row) => row.type === "create")) return "a create row shows for text that names none";
+  return undefined;
+}
+
+/// The first two rows' kinds are `first` and `second` (one of them Ask); the other one is `title`.
+function leadProblem(first: string, second: string, title: string) {
+  return (rows: SuggestionRow[]): string | undefined => {
+    const [one, two] = rows;
+    if (one?.type !== first) return `the first row is not ${first}`;
+    if (two?.type !== second) return `the second row is not ${second}`;
+    const named = one?.type === "ask" ? two : one;
+    if (named?.title !== title) return `the ${first === "ask" ? "second" : "first"} row is not ${title}`;
+    if (navigationTypes(rows).at(-1) !== "search") return "the web search is not the last row";
+    return undefined;
+  };
 }
 
 /// Types a prompt, pastes an image and starts Now Playing, then checks that the composer's card
@@ -1095,6 +1177,89 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("localhost:3000", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+      },
+    },
+    "suggestions-ff": {
+      note: 'Leo 2026-10-24 ("Search the web. Do you really want that first?"): "ff" asks the agent first, offers no workspace that only holds ff inside a word, and keeps the web search last; nothing in the text names a create row.',
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "ff", ffProblem);
+        // The create actions stay one click away, as the strip under the rows.
+        const strip = ctx.document.querySelectorAll(".nt-popover .nt-create-strip-item").length;
+        if (strip !== 3) throw new Error(`the create strip shows ${strip} actions, not 3`);
+      },
+    },
+    "suggestions-url": {
+      note: "An address an open tab already shows: Switch to tab first, Ask right under it, the web search last.",
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", leadProblem("tab", "ask", "manaflow-ai/cmux"));
+      },
+    },
+    "suggestions-session": {
+      note: "A workspace's exact name: that workspace first, Ask right under it, the web search last.",
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "app-efficiency", leadProblem("workspace", "ask", "app-efficiency"));
+      },
+    },
+    "suggestions-create": {
+      note: 'Text that names a create action ("new t"): the New terminal row shows at the end of the list.',
+      ready: newTab({ omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "new t", (rows) =>
+          rows.some((row) => row.type === "create" && /terminal/i.test(row.title))
+            ? undefined
+            : "no New terminal row",
+        );
+      },
+    },
+    "suggestions-chat-ff": {
+      note: 'The chat order (newTab.suggestionOrder "chat"): Ask always first; "ff" lists Ask, the web search, then the three create rows (no strip).',
+      ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "ff", (rows) => {
+          const types = navigationTypes(rows);
+          if (types[0] !== "ask") return "the first row is not Ask";
+          if (types.at(-1) !== "search") return "the web search is not the last row";
+          if (rows.filter((row) => row.type === "create").length !== 3) return "the three create rows do not end the list";
+          return undefined;
+        });
+        if (ctx.document.querySelector(".nt-create-strip")) throw new Error("the chat order draws the create strip");
+      },
+    },
+    "suggestions-chat-url": {
+      note: "The chat order: Ask first even for an address an open tab shows; Switch to tab right under it.",
+      ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", leadProblem("ask", "tab", "manaflow-ai/cmux"));
+      },
+    },
+    "suggestions-minimal-ff": {
+      note: 'The minimal order (newTab.suggestionOrder "minimal"): as the default, at most three matches and no create rows while typing; "ff" lists Ask, then the web search.',
+      ready: newTab({ suggestionOrder: "minimal", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "ff", ffProblem);
+      },
+    },
+    "suggestions-minimal-url": {
+      note: "The minimal order with an address an open tab shows: Switch to tab first, Ask under it, the web search last, no create rows.",
+      ready: newTab({ suggestionOrder: "minimal", omnibar: FF_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", (rows) => {
+          if (rows.some((row) => row.type === "create")) return "a create row shows in the minimal order";
+          if (rows.filter((row) => ["tab", "workspace", "history", "open"].includes(row.type)).length > 4)
+            return "more than the address and three matches show";
+          return leadProblem("tab", "ask", "manaflow-ai/cmux")(rows);
+        });
       },
     },
     "omnibar-row-kinds": {

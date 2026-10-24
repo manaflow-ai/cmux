@@ -41,6 +41,7 @@ import {
   needsYouCards,
   recentChatCards,
   screenRows,
+  createStrip,
   shellEntry,
   shortHost,
   stepSelection,
@@ -85,6 +86,7 @@ import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
 import { useHarnessesListed } from "../catalog";
 import { NewTabExtras } from "./NewTabExtras";
+import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -196,6 +198,8 @@ type Props = NewTabScreenActions & {
   /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
   /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
   headlineOff?: boolean;
+  /// How the rows under the field rank (screenModel.ts SuggestionOrder); unset is the default.
+  suggestionOrder?: SuggestionOrder;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
@@ -461,11 +465,19 @@ export function NewTabScreen(props: Props) {
   const suggested = useMemo(
     () =>
       touched && !shell && commandQuery === undefined
-        ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) })
+        ? screenRows(text, {
+            omnibar,
+            home,
+            create: creates,
+            ...(ask ? { ask } : {}),
+            ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+          })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery],
+    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder],
   );
   const rows = text !== dismissed ? suggested : [];
+  // The create actions the rows don't list, as one quiet strip under them (screenModel.ts).
+  const strip = createStrip(rows, creates, props.suggestionOrder);
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : rows.findIndex((row) => rowKey(row) === selected);
   const pick = (index: number) => {
@@ -1478,6 +1490,27 @@ export function NewTabScreen(props: Props) {
                 </div>
               ))}
             </div>
+            {strip.length > 0 && (
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
+                {strip.map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    tabIndex={-1}
+                    className="nt-create-strip-item"
+                    data-kind={kind}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      activate({ type: "create", kind });
+                    }}
+                  >
+                    <RowGlyph kind={kind === "chat" ? "agent" : kind} />
+                    <span>{rowTitle(nt, { type: "create", kind })}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </Popover>
         )}
       </div>
