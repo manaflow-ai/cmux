@@ -8,13 +8,17 @@ import Testing
 private final class IndexRecordingExecutor: ControlActionExecutor {
     let ran = Mutex<[Int]>([])
     let refusing: Int?
+    /// How long each run holds the main actor (a slow handler).
+    let holding: Duration
 
-    init(refusing: Int? = nil) {
+    init(refusing: Int? = nil, holding: Duration = .zero) {
         self.refusing = refusing
+        self.holding = holding
     }
 
     @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
         guard case .int(let index)? = request.arguments["index"] else { return .disabled }
+        spin(for: holding)
         ran.withLock { $0.append(index) }
         return index == refusing ? .refused("no room") : .ran
     }
@@ -26,9 +30,11 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
 /// request apply as one transaction: validated before any runs, run in order in one main-actor
 /// work item, bounded, and keyed like `action.run`.
 @Suite(.timeLimit(.minutes(1))) struct ActionBatchTests {
-    private func router(_ executor: IndexRecordingExecutor, batchOpLimit: Int = ControlRouter.batchOpLimit) -> ControlRouter {
+    private func router(_ executor: IndexRecordingExecutor, batchOpLimit: Int = ControlRouter.batchOpLimit,
+                        deadline: Duration? = nil) -> ControlRouter {
         var configuration = ControlRouter.Configuration.loadTolerant
         configuration.batchOpLimit = batchOpLimit
+        if let deadline { configuration.requestDeadline = deadline }
         let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: configuration)
         router.snapshots.publish { snapshot in
             snapshot.catalog = sampleCatalog()
@@ -98,6 +104,33 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(error.data?["applied"] == 1)
         #expect(error.data?["not_run"] == nil, "the op before it ran")
         #expect(executor.indices == [1, 2])
+    }
+
+    /// A batch split into transactions (`atomic: false`) whose later transaction never runs (its
+    /// deadline passed while the earlier one held the main actor) still records its outcome under
+    /// its key: a retry with the key gets that answer at once (how many ops applied), never waits
+    /// for a run that will not come.
+    @Test func aKeyedBatchCutShortByItsDeadlineAnswersARetry() async throws {
+        let executor = IndexRecordingExecutor(holding: .milliseconds(400))
+        let router = router(executor, batchOpLimit: 1, deadline: .milliseconds(200))
+        let params: [String: JSONValue] = ["ops": ops([1, 2]), "atomic": false, "idempotency_key": "b-cut"]
+        guard case .failure = await batch(router, params) else {
+            Issue.record("expected the deadline to cut the batch short")
+            return
+        }
+        // The request answered at its deadline while the batch still ran; the batch ends (its second
+        // transaction expires in the queue) and records its outcome under the key.
+        let end = ContinuousClock.now + .seconds(10)
+        while !router.idempotency.hasOutcome("b-cut"), ContinuousClock.now < end { await Task.yield() }
+        try #require(router.idempotency.hasOutcome("b-cut"), "the cut-short batch left its key without an outcome")
+        let started = ContinuousClock.now
+        guard case .failure(let retried) = await batch(router, params) else {
+            Issue.record("a retry of a cut-short batch ran it again")
+            return
+        }
+        #expect(ContinuousClock.now - started < .seconds(5), "the retry waited for the cut-short run")
+        #expect(retried.data?["applied"] == 1, "\(retried)")
+        #expect(executor.indices == [1])
     }
 
     @Test func aBatchLevelMemberOnOneOpIsRefused() async {
