@@ -141,7 +141,8 @@ pub(super) const GUIDES: &[Guide] = &[
         it writes nothing and names that switch. `cmux setup computer-use` turns Computer Use \
         on once the person allows it on the sheet cmux shows, and names each missing macOS \
         grant with the command that opens its System Settings pane. `cmux setup \
-        cloud-machine` is ok when cmux shows a Cloud machine; otherwise, once the person is \
+        cloud-machine` is ok when cmux shows a Cloud machine; `--open` also attaches and reveals \
+        the machine after creation or on a rerun; otherwise, once the person is \
         signed in, it creates one after the person allows it on the card cmux shows (it costs \
         money every hour it runs). It keeps the request and reads cmux's list before anything \
         else, so a rerun adopts the machine that appeared, waits for one on its way, and never \
