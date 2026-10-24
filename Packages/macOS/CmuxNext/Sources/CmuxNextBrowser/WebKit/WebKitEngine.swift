@@ -123,7 +123,7 @@ public final class WebKitEngine: BrowserEngine {
         // process); the near-60 preference on top of that held a tab made in
         // Low Power Mode at 30 fps on 120 Hz, and writing it live (then
         // hiding and re-showing the tab) did not reach a shown page's
-        // cadence (perf-lead row 23).
+        // cadence (perf-lead row 28).
         WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).

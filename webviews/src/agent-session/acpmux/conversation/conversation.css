@@ -1732,7 +1732,7 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
-  /* SPINNERS-OFF-MAIN (perf-lead row 23): the words rest in the dim color while a band masked to a
+  /* SPINNERS-OFF-MAIN (perf-lead row 28): the words rest in the dim color while a band masked to a
      soft stripe slides across them and its lit copy of the words slides back by as much, so the lit
      words hold still under the moving stripe. Transform only: the compositor runs both loops and
      the page paints nothing per frame (a text-clipped gradient's background-position repainted the

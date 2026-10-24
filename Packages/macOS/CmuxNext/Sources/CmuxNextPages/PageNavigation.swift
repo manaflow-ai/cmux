@@ -45,7 +45,7 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// page. False keeps WebKit's own default, the display-rate divisor nearest 60 fps: only the
     /// agent pane's debug `capped` rate asks for it. Set once, when the page is made: in Low Power
     /// Mode WebKit halves every page's rate by itself (its LowPowerMode throttling, live, in both
-    /// directions), so no page follows Low Power Mode here (perf-lead row 23).
+    /// directions), so no page follows Low Power Mode here (perf-lead row 28).
     public var fullFrameRate: Bool
     /// Keeps this page on WebKit whatever `browser.defaultEngine` says, for this reason (the update
     /// island floats over the window: ``PageWebKitReason/transparentOverlay``). Nil lets

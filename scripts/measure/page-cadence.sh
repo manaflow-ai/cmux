@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fleet entry for the WebKit page and tab cadence bench (perf-lead row 23: scrolling at the display's
+# Fleet entry for the WebKit page and tab cadence bench (perf-lead row 28: scrolling at the display's
 # full refresh, and macOS Low Power Mode halving it through WebKit's own path). Builds a tagged
 # cmux-next DEV app at this checkout, then runs scripts/cmux-next/bench-page-cadence.py: a cmux page
 # and a WebKit browser tab at full rate, in Low Power Mode, and back. The Low Power Mode legs switch

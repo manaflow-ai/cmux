@@ -5,7 +5,7 @@ public import CmuxNextSettings
 ///
 /// Built from the page's own `requestAnimationFrame` intervals, so it reads the cadence of the
 /// page's main-thread rendering (scroll handlers, rAF, JS-driven fades), the work WebKit's
-/// near-60 fps preference halves on a 120 Hz display (perf-lead row 23). A long frame is one
+/// near-60 fps preference halves on a 120 Hz display (perf-lead row 28). A long frame is one
 /// interval longer than 1.5 display refreshes: one or more refreshes the page did not render.
 ///
 /// ```swift

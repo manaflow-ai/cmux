@@ -5,7 +5,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// Every cmux WebKit page is made at the display's full rate (perf-lead row 23, #16424). WebKit's
+/// Every cmux WebKit page is made at the display's full rate (perf-lead row 28, #16424). WebKit's
 /// own default renders a page at the display-rate divisor nearest 60 fps (60 on a 120 Hz display),
 /// so a page that did not opt in (Settings, History, Cloud, Keybindings, the channels Home,
 /// Passwords, and the pool's spare, which every pooled page is claimed from) ran its main-thread

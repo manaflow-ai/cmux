@@ -298,7 +298,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     });
   }
 
-  // perf-lead row 23 (scrolling at full refresh): a loop that animates a painted property (the
+  // perf-lead row 28 (scrolling at full refresh): a loop that animates a painted property (the
   // shimmer's `background-position` once) repaints its element on the page's main thread every
   // frame, for as long as the row runs, under every scroll. Each look agent work can take, and the
   // other pane, Home and diff loops, move on the compositor only.

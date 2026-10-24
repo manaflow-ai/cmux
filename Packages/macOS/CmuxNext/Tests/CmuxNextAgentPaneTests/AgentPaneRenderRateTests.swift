@@ -6,7 +6,7 @@ import WebKit
 @testable import CmuxNextAgentPane
 
 /// The agent chat's render rate is fixed when its page is made, as every other cmux page's and
-/// browser tab's is (perf-lead row 23).
+/// browser tab's is (perf-lead row 28).
 ///
 /// The chat used to change its rate live: after a settled scroll the page's adaptive policy sent
 /// `pane.renderRate {full}` and the pane wrote WebKit's near-60 preference, then hid the web view
