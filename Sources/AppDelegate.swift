@@ -1779,12 +1779,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         rawValue: rawValue
                     )
                 },
-                titleProvider: Self.feedWorkstreamTitle(for:)
+                titleProvider: Self.feedWorkstreamTitle(for:),
+                // Keep startup fail-closed even when a large or damaged
+                // append-only history is slow to decode. The diagnostic
+                // budget remains shorter and reports pressure without
+                // discarding otherwise recoverable rows.
+                startupHardBudgetNanoseconds: 5_000_000_000
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
+            FeedCoordinator.shared.reconcileRestoredPendingItems()
 #if DEBUG
             feedSidebarUITestCoordinator.startIfNeeded()
 #endif
@@ -2241,7 +2247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
-            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
+            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites
+            || FeedCoordinator.shared.store?.hasPendingPersistenceWrites == true else { return false }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2316,6 +2323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
+                await FeedCoordinator.shared.flushPersistenceForTermination()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }

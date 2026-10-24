@@ -12,17 +12,40 @@ import CMUXAgentLaunch
 struct FeedCoordinatorTests {
     @Test("Mobile Feed keeps its legacy revision namespace during migration")
     func mobileFeedRevisionPreservesLegacyNamespace() {
-        let cachedRevision = FeedCoordinator.combinedMobileFeedRevision(
-            workstream: 12,
-            notifications: 7
-        )
-        let upgradedRevision = FeedCoordinator.combinedMobileFeedRevision(
-            workstream: 13,
-            notifications: 7
-        )
+        let cachedRevision = FeedCoordinator.combinedMobileFeedRevision(workstream: 12)
+        let upgradedRevision = FeedCoordinator.combinedMobileFeedRevision(workstream: 13)
 
-        #expect(cachedRevision == ((12 << 32) | 7))
+        #expect(cachedRevision == ((12 << 32) | 0xFFFF_FFFF))
         #expect(upgradedRevision > cachedRevision)
+    }
+
+    @Test("Mobile Feed revision stays signed when the persisted log exceeds 2 GiB")
+    func mobileFeedRevisionContinuesPastSignedBoundary() {
+        let beforeBoundary = FeedCoordinator.combinedMobileFeedRevision(workstream: 2_147_483_647)
+        let atBoundary = FeedCoordinator.combinedMobileFeedRevision(workstream: 2_147_483_648)
+
+        #expect(beforeBoundary >= 0)
+        #expect(atBoundary == beforeBoundary + 1)
+
+        let later = FeedCoordinator.combinedMobileFeedRevision(workstream: 2_147_483_649)
+        #expect(later > atBoundary)
+    }
+
+    @Test("Mobile Feed revision crosses the compatibility cutover monotonically")
+    func mobileFeedRevisionCutoverIsMonotonic() {
+        let before = FeedCoordinator.combinedMobileFeedRevision(workstream: 1_073_741_823)
+        let after = FeedCoordinator.combinedMobileFeedRevision(workstream: 1_073_741_824)
+        #expect(after > before)
+    }
+
+    @Test("Mobile Feed revision never drops below a revision an older Mac sent")
+    func mobileFeedRevisionCoversLegacyPackedValues() {
+        // An older Mac sent (workstream << 32) | notifications, or the bare
+        // workstream revision before notification history loaded.
+        for notifications in [0, 1, 7, 0xFFFF_FFFF] {
+            let legacy = notifications > 0 ? (12 << 32) | notifications : 12
+            #expect(FeedCoordinator.combinedMobileFeedRevision(workstream: 12) >= legacy)
+        }
     }
 
     @Test("Mobile Feed excludes sparse records before they become rows")

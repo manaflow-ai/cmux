@@ -98,10 +98,10 @@ struct PiFeedDockOwnershipTests {
             let dock = appDelegate.windowDock(forWindowId: windowID)
             _ = try dock.seedPiFeedPanel(id: panel.id)
             var insertedEvent: WorkstreamEvent?
-            let store = WorkstreamStore(ringCapacity: 10) {
-                insertedEvent = $0
+            let store = WorkstreamStore(ringCapacity: 10, titleProvider: { event in
+                insertedEvent = event
                 return nil
-            }
+            })
             FeedCoordinator.shared.install(store: store)
             let event = WorkstreamEvent(
                 sessionId: "pi-live-workspace-feed",
@@ -489,10 +489,10 @@ struct PiFeedDockOwnershipTests {
             let dock = appDelegate.windowDock(forWindowId: windowID)
             let panel = try dock.seedPiFeedPanel()
             var insertedEvent: WorkstreamEvent?
-            let store = WorkstreamStore(ringCapacity: 10) {
-                insertedEvent = $0
+            let store = WorkstreamStore(ringCapacity: 10, titleProvider: { event in
+                insertedEvent = event
                 return nil
-            }
+            })
             FeedCoordinator.shared.install(store: store)
             let event = WorkstreamEvent(
                 sessionId: "pi-window-dock-feed",
@@ -855,10 +855,10 @@ struct PiFeedDockOwnershipTests {
             let staleWorkspace = manager.addWorkspace(select: false)
             let panel = try workspace.requiredDockSplitForTesting.seedPiFeedPanel()
             var insertedEvent: WorkstreamEvent?
-            let store = WorkstreamStore(ringCapacity: 10) {
-                insertedEvent = $0
+            let store = WorkstreamStore(ringCapacity: 10, titleProvider: { event in
+                insertedEvent = event
                 return nil
-            }
+            })
             FeedCoordinator.shared.install(store: store)
             let event = WorkstreamEvent(
                 sessionId: "pi-workspace-dock-feed",
@@ -935,10 +935,10 @@ struct PiFeedDockOwnershipTests {
         try await withAppContext { appDelegate, _, _, windowID in
             _ = appDelegate.windowDock(forWindowId: windowID)
             var insertedEvent: WorkstreamEvent?
-            let store = WorkstreamStore(ringCapacity: 10) {
-                insertedEvent = $0
+            let store = WorkstreamStore(ringCapacity: 10, titleProvider: { event in
+                insertedEvent = event
                 return nil
-            }
+            })
             FeedCoordinator.shared.install(store: store)
             let event = WorkstreamEvent(
                 sessionId: "pi-window-dock-owner-feed",
