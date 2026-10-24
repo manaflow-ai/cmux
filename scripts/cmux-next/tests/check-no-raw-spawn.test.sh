@@ -71,7 +71,9 @@ fail "one more site than the baseline" "$ROW" "$CORE=    std::process::Command::
     std::process::Command::new(\"gh\");"
 fail "a site moved to a file with no row" "$ROW" \
   "$CORE=fn f() {}" "$TUI=    std::process::Command::new(\"git\");"
-fail "fewer sites than the baseline (lower the row)" "$ROW" "$CORE=fn f() {}"
+# Fewer sites than the row: a note to lower it, not a refusal (the hook reads
+# the installed baseline, so a refusal would refuse every push that moves a site).
+pass "fewer sites than the baseline (a note to lower the row)" "$ROW" "$CORE=fn f() {}"
 grep -q "Lower its row" "$tmp/err" || { echo "FAIL: the ratchet must say to lower the row" >&2; exit 1; }
 check "x\tnot-a-number\towner\n" "$CORE=fn f() {}" && { echo "FAIL: a bad baseline row must be refused" >&2; exit 1; }
 
