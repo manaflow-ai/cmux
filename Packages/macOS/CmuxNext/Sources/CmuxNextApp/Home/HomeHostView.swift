@@ -310,17 +310,25 @@ final class HomeHostView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181): the observation
-    // Tasks are Sendable and end here. Two stops are main-actor work with no Sendable handle, so they run on the
-    // main actor: the settings popover's window, and the transcript's stop, which releases its dictation claim in
-    // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
-    // returned off main skipped all of it.
+    // The observation Tasks are Sendable and end here. Two stops are main-actor work with no Sendable handle: the
+    // settings popover's window, and the transcript's stop, which releases its dictation claim in the app's claim
+    // registry and cancels its wake on the app's timer (both outlive this view). AppKit releases these views on the
+    // main thread, so they run there and then, synchronously: a Home view made right after this one finds the
+    // dictation claim free. Only a release off main (OffMainReleaseCleanupTests' shape, 39256ad7181) hops to the
+    // main actor.
     nonisolated deinit {
         for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, headerPanelsWatch, firstPage] {
             task?.cancel()
         }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
+                settings.close()
+                transcript.stop()
+            }
+            return
+        }
         let settings = settings, transcript = transcript
-        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        // task-owner: the main-actor half of an off-main release; one call each, then it ends
         Task { @MainActor in
             settings.close()
             transcript.stop()
