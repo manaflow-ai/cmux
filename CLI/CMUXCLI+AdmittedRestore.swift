@@ -58,7 +58,8 @@ extension CMUXCLI {
                     legacyCommand: command,
                     sessionID: session,
                     workingDirectory: workingDirectory,
-                    capturedLaunch: record.launchCommand
+                    capturedLaunch: record.launchCommand,
+                    savedEnvironment: record.environment
                 )
                 switch decision {
                 case .fallThrough:
@@ -73,8 +74,9 @@ extension CMUXCLI {
                         )
                     )
                 case .route(let launch):
-                var environment = launch.environment ?? [:]
-                environment.merge(record.environment) { _, saved in saved }
+                // The decision already layered the saved environment under the
+                // command's inline account; don't let the saved value win again.
+                let environment = launch.environment ?? [:]
                 let request = AgentRestoreRequest(
                     mode: .resumeAgent, kind: record.kind, checkpointID: session, source: record.source,
                     workingDirectory: workingDirectory, environment: environment,

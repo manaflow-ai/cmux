@@ -270,8 +270,9 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// provider assignment; other unreadable commands fall through.
     ///
     /// A routed capture is `codex -c model_provider=subrouter`, carrying the
-    /// captured launch environment and verification home, with an inline
-    /// `CODEX_HOME`/`HOME` from the legacy command taking precedence. The
+    /// captured launch environment, then `savedEnvironment` (the record's
+    /// saved environment), then any inline `CODEX_HOME`/`HOME` from the legacy
+    /// command, which wins, plus the captured verification home. The
     /// legacy command's own words, including any captured per-process
     /// `model_providers.subrouter.*` endpoint and other options, are never
     /// carried into the resume.
@@ -279,7 +280,8 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         legacyCommand: String,
         sessionID: String,
         workingDirectory: String?,
-        capturedLaunch: AgentLaunchCommand? = nil
+        capturedLaunch: AgentLaunchCommand? = nil,
+        savedEnvironment: [String: String] = [:]
     ) -> LegacyRestoreDecision {
         let evidence: SubrouterCodexProviderEvidence
         var inlineEnvironment: [String: String] = [:]
@@ -291,7 +293,10 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         }
         switch evidence {
         case .provider("subrouter"):
+            // Captured launch, then the record's saved environment, then the
+            // command's own inline assignments, which name the account it ran.
             var environment = capturedLaunch?.environment ?? [:]
+            environment.merge(savedEnvironment) { _, saved in saved }
             environment.merge(inlineEnvironment) { _, inline in inline }
             return .route(AgentLaunchCommand(
                 launcher: "codex",
