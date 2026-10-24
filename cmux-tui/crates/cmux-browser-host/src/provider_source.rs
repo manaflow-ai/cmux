@@ -331,9 +331,13 @@ impl TabSource for ProviderSource {
             self.0.drive_tab(call.session, call.target_id);
             self.0.call_cef(call.method, call.target_id, call.params, call.agent_source)
         } else if let Some(evaluate) = call.observe {
+            self.0.content_rules.drive(&self.0, call.session, call.target_id)?;
             // The app's WebKit driver runs it as its agent-world evaluate.
             Driver::call(&*self.0, "frame.evaluate", evaluate)
         } else {
+            if !matches!(call.method, "tabs.close" | "tabs.activate" | "tab.bringToFront") {
+                self.0.content_rules.drive(&self.0, call.session, call.target_id)?;
+            }
             Driver::call(&*self.0, call.method, call.params)
         }
         .map(Reply::Value)
@@ -367,7 +371,20 @@ impl TabSource for ProviderSource {
         true
     }
 
+    /// WebKit tabs take the session's policy as content rules
+    /// (crate::provider_rules); CEF tabs take the request filter.
+    fn set_content_rules(
+        &self,
+        session: u64,
+        engine: &str,
+        label: &str,
+        lists: Option<Value>,
+    ) -> bool {
+        engine == "webkit" && self.0.content_rules.set(&self.0, session, label, lists)
+    }
+
     fn session_ended(&self, session: u64) {
+        self.0.content_rules.ended(&self.0, session);
         let removed = self
             .0
             .request_filters

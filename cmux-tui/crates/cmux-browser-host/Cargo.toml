@@ -33,3 +33,7 @@ rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+# The content-rule tests evaluate url-filters (src/policy/webkit_rules.rs).
+regex.workspace = true

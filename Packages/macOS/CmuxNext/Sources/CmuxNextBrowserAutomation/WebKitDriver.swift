@@ -79,6 +79,7 @@ public final class WebKitDriver: DriverCallHandler {
         case "cookies.set": return try await cookiesSet(params)
         case "cookies.clear": return try await cookiesClear(params)
         case "cookies.restore": return try await cookiesRestore(params)
+        case "tab.setContentRules": return try await WebKitContentRules(driver: self).set(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
         }
     }
@@ -179,6 +180,8 @@ final class TabSession {
     var watcher: TabWatcher?
     /// The tab's virtual clipboard: `{type, base64}` items (WebKitClipboard).
     var clipboard: [DriverJSON] = []
+    /// Host sessions' domain-policy rule lists on this tab, by session (WebKitContentRules).
+    var contentRules: [String: [WKContentRuleList]] = [:]
     let messages: LoadStateMessages
 
     init(tabID: BrowserTabID, driver: WebKitDriver) {

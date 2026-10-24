@@ -177,6 +177,17 @@ pub trait TabSource: Send + Sync {
     fn outside_connection_policy(&self, _session: u64, _target_id: &str) -> bool {
         false
     }
+    /// [`crate::driver::Driver::set_content_rules`] for a session named
+    /// `label`; false when the source cannot.
+    fn set_content_rules(
+        &self,
+        _session: u64,
+        _engine: &str,
+        _label: &str,
+        _lists: Option<Value>,
+    ) -> bool {
+        false
+    }
     /// The session ended: its filter goes.
     fn session_ended(&self, session: u64);
     fn capabilities(&self, engine: &str) -> Vec<&'static str>;

@@ -54,6 +54,7 @@ pub mod provider_downloads;
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;
+pub(crate) mod provider_rules;
 #[cfg(unix)]
 pub mod provider_source;
 pub mod secrets;
