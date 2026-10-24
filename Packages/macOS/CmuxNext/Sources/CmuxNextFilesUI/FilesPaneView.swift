@@ -278,23 +278,37 @@ public final class FilesPaneView: NSView {
 
     override nonisolated public func acceptsPreviewPanelControl(_ panel: QLPreviewPanel?) -> Bool { true }
 
-    // QLPreviewPanel calls these on the main thread (it is an AppKit panel); off main (never
-    // seen) the change hops there instead of trapping.
+    // `QLPreviewPanelController` is an informal protocol on NSObject, so these overrides are
+    // nonisolated; ``QuickLookControlCall`` runs the change on the main actor.
     override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
         guard let panel else { return }
-        guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, true) }; return }
-        MainActor.assumeIsolated { attachQuickLook(panel, true) } // main-proof: checked Thread.isMainThread above
+        QuickLookControlCall().run { self.attachQuickLook(panel, true) }
     }
 
     override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
         guard let panel else { return }
-        guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, false) }; return }
-        MainActor.assumeIsolated { attachQuickLook(panel, false) } // main-proof: checked Thread.isMainThread above
+        QuickLookControlCall().run { self.attachQuickLook(panel, false) }
     }
 
     private func attachQuickLook(_ panel: QLPreviewPanel, _ on: Bool) {
         panel.dataSource = on ? quickLook : nil
         panel.delegate = on ? quickLook : nil
         if on { quickLook.onKey = { [weak self] event in self?.handleQuickLookKey(event) ?? false } }
+    }
+}
+
+/// The main-thread proof of Quick Look's panel-control callbacks (``FilesPaneView``'s
+/// `beginPreviewPanelControl` and `endPreviewPanelControl`). QLPreviewPanel is an AppKit panel and
+/// calls them on the main thread, so the work runs inline, before the call returns; a call off main
+/// (never seen) hops to the main actor instead of trapping.
+nonisolated struct QuickLookControlCall: Sendable {
+    /// Runs `body` on the main actor: at once on the main thread, else in a main-actor task.
+    func run(_ body: @escaping @MainActor @Sendable () -> Void) {
+        guard Thread.isMainThread else {
+            Task { @MainActor in body() }
+            return
+        }
+        // main-proof: checked Thread.isMainThread just above.
+        MainActor.assumeIsolated { body() }
     }
 }
