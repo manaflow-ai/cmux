@@ -81,8 +81,10 @@ rewrites the json without comparing totals: reviewers compare the definitions):
 codebase-health.py imports these patterns, analyze(), count_texts() and layers(), so its report and the ratchet share
 one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts).
 
-Site identity (Delta.unpartnered, the ratchet's swap rule): a counted global keeps its identity by name or
-by primary type, a broadcast by its literal (or its message type), a layer edge by its two targets.
+Site identity (Delta.unpartnered, the ratchet's swap rule): a counted global keeps its identity by its owner
+and name (`Store.shared`; the file and name for a file-scope global) or by its primary type, a broadcast by
+its literal (or its message type), an assumeIsolated outside an adapter by the type and function around it,
+a layer edge by its two targets.
 
 Delta mode (the pre-push hook) reads only the files a range changes, at both ends, and gives the same
 numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics the range leaves
@@ -485,14 +487,17 @@ class Static:
     types: tuple[str, ...]
     container: bool
     name: str = ""
+    # The type it is declared in (the extended type for an `extension Store`); "" for a file-scope global.
+    owner: str = ""
 
 
 @dataclasses.dataclass
 class Site:
     """A counted finding: the row, file, 1-based line and the source line's text.
 
-    KEYS: what identifies the debt across a move or an edit (Delta.unpartnered): a global's `name:` and its
-    primary `type:`, a broadcast's name literal, a layer edge. Empty: the site is identified by its text.
+    KEYS: what identifies the debt across a move or an edit (Delta.unpartnered): a global's owner-qualified
+    `name:` and its primary `type:`, an assumeIsolated's `scope:` (the type and function around it), a
+    broadcast's name literal, a layer edge. Empty: the site is identified by its text.
     """
 
     row: str
@@ -746,6 +751,29 @@ def _in_adapter_type(code: str, braces: Braces, owners: dict[int, tuple[str, str
     return False
 
 
+# The declaration a body brace opens, at the end of its head: a func, an init/deinit/subscript, or a computed
+# or observed property (`var x: T {`; a `let`/`var` with `=` is a stored value whose `{` is a closure).
+BODY_DECL = re.compile(
+    r"(?:\bfunc\s+([^\s(<]+)[^{}]*|(?<![.\w])(init|deinit|subscript)\b[^{}]*"
+    r"|(?:^|\n)[ \t]*(?:(?!(?:for|if|guard|while|case|catch)\b)[\w@]+(?:\([^()\n]*\))?[ \t]+)*var\s+`?(\w+)`?[^{}=]*)$")
+
+
+def _scope_key(path: str, braces: Braces, owners: dict[int, tuple[str, str]], scopes: list[int]) -> str:
+    """`scope:<Type>.<function>` of a site (SCOPES, innermost first): the innermost function, init, deinit,
+    subscript or computed property around it, and the innermost type (or extended type) around that; the
+    file stands in for the type at file scope. An edit of the line or a move of the file keeps it; the
+    same call in another type or function is another site."""
+    func = "-"
+    for p in scopes:
+        if p in owners:
+            return f"scope:{owners[p][1]}.{func}"
+        if func == "-":
+            m = BODY_DECL.search(braces.head(p))
+            if m:
+                func = next(g for g in m.groups() if g)
+    return f"scope:{path}:{func}"
+
+
 def _funcs(code: str, braces: Braces, owners: dict[int, tuple[str, str]]) -> dict[str, list[str]]:
     """{name: return types} of the file-scope and static/class funcs (the ones a static can call bare).
 
@@ -944,7 +972,7 @@ def analyze(path: str, raw: str) -> FileFacts:
         if bare in assoc_names and _key_shaped(code, m, ann, types):
             continue  # an association key of this file: only its address is used
         container = annotated in CONTAINERS or bool(built and built[0] in CONTAINERS)
-        statics.append(Static(line, raw_line.strip(), keyword, types, container, bare))
+        statics.append(Static(line, raw_line.strip(), keyword, types, container, bare, owner or ""))
 
     for m in ASSUME.finditer(code):
         site("assume_isolated_total", m.start())
@@ -956,7 +984,7 @@ def analyze(path: str, raw: str) -> FileFacts:
         adapter = (not in_deinit and not in_nc_main and _in_adapter_type(code, braces, owners, scopes)
                    and _is_proved(raw_lines, line - 1))
         if not adapter:
-            site("assume_isolated_outside_adapters", m.start())
+            site("assume_isolated_outside_adapters", m.start(), (_scope_key(path, braces, owners, scopes),))
 
     for m in observer_calls(code):
         site("observer_sites", m.start())
@@ -1075,8 +1103,15 @@ def lookup_name(name: str | None) -> bool:
 
 def static_site(row: str, path: str, static: Static) -> Site:
     """The site of a counted static: it keeps its identity through a rename (by its type) or a retype (by
-    its name)."""
-    keys = (f"name:{static.name}",) + ((f"type:{static.types[0]}",) if static.types else ())
+    its owner and name).
+
+    The name key is owner-qualified: `name:Store.shared` for a static of `Store` (or of an `extension
+    Store`), `name:<path>:cache` for a file-scope global. A bare name would make every `shared` the partner
+    of every other `shared`, so removing `Store.shared = Store()` and adding `Hub.shared = Cache()` would
+    read as a retype instead of a swap.
+    """
+    ident = f"{static.owner}.{static.name}" if static.owner else f"{path}:{static.name}"
+    keys = (f"name:{ident}",) + ((f"type:{static.types[0]}",) if static.types else ())
     return Site(row, path, static.line, static.text, keys)
 
 
@@ -1612,7 +1647,7 @@ CACHE_KEEP_DAYS = 7  # another worktree may run an older copy of this file; its 
 
 def _facts_json(f: FileFacts) -> str:
     return json.dumps([f.lines, [[d.name, d.kind, d.own_state, d.superclass, list(d.held)] for d in f.decls],
-                       [[s.line, s.text, s.keyword, list(s.types), s.container, s.name] for s in f.statics],
+                       [[s.line, s.text, s.keyword, list(s.types), s.container, s.name, s.owner] for s in f.statics],
                        [[s.row, s.line, s.text, list(s.keys)] for s in f.sites]], separators=(",", ":"))
 
 
@@ -1621,7 +1656,8 @@ def _facts_from_json(path: str, text: str) -> FileFacts:
     package = package_of(path)
     return FileFacts(path, package,
                      [Decl(n, k, own, sup, tuple(held), path, package) for n, k, own, sup, held in decls],
-                     [Static(line, txt, kw, tuple(types), cont, name) for line, txt, kw, types, cont, name in statics],
+                     [Static(line, txt, kw, tuple(types), cont, name, owner)
+                      for line, txt, kw, types, cont, name, owner in statics],
                      [Site(row, path, line, txt, tuple(keys)) for row, line, txt, keys in sites], lines)
 
 

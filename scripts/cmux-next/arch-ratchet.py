@@ -10,23 +10,30 @@ escape, the dated json exception below.
 Two rules refuse a push:
 1. Code: counting just the files the push changes, at its base and its head, the TOTAL of a ratcheted row
    rises. A rise in one package that an equal fall elsewhere in the same push cancels is a move, and
-   passes. In the rows whose sites have an identity (globals by name or type, broadcasts by literal), a
-   new site that no removed site accounts for is refused even when the total holds: a swap (remove one
-   singleton, add another) adds debt. A new layer edge or unplaced target is the layer gate's refusal
-   (arch_rules/layer_gate.py), so the layer rows hold the total only. Rows: layer_hard, layer_soft,
+   passes. In the rows whose sites have an identity (globals by owner and name or by type, broadcasts by
+   literal, an assumeIsolated outside an adapter by the type and function around it), a new site that no
+   removed site accounts for is refused even when the total holds: a swap (remove one singleton or unproved
+   call, add another) adds debt. A new layer edge or unplaced target is the layer gate's refusal
+   (arch_rules/layer_gate.py): the layer rows hold the total only, and the unit of a layer row's rise that
+   a gate refusal answers is not refused again (one refusal, one dated entry per edge). Rows: layer_hard, layer_soft,
    layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
    assume_isolated_outside_adapters, app_broadcast_names, observer_sites. Report only:
    assume_isolated_total and app_lines (the app-size rule owns that refusal).
 2. Record: the push raises a ratcheted total in plans/cmux-next/arch-ratchet.json (or deletes the file)
-   beyond what the exceptions it newly applies cover, or changes or drops an applied exception. `--update`
-   is the only writer, and it refuses such a
-   rise itself, so a rise that landed past the hook (a GitHub merge, --no-verify, a clone with an old hook)
-   stays visible: --update names the commits that raised it and asks for a dated exception.
+   beyond what the exceptions it newly applies cover, changes or drops an applied exception, or changes
+   method_version without changing arch_counts.py to that METHOD_VERSION. `--update` is the only writer,
+   and it refuses a rise no pending exception covers, unless commits already on origin/feat-cmux-next made
+   it (a GitHub merge, --no-verify, a clone with an old hook): that debt is not the runner's, so --update
+   warns, names the commits and records the rise with a generated applied entry (`raised_by`: the commits),
+   which this rule re-checks (each commit on origin/feat-cmux-next, their rises at least its allow) and
+   which allows no rise in any push's code.
 
 The one escape: a dated entry the push adds to the json's `exceptions`
 ({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n
-(counted as sums per row against the base's pending entries: editing a pending entry gives nothing). The
-next --update folds every pending entry into the totals and marks it `applied_sha`. An entry for a rule
+(counted as sums per row against the base's pending entries: editing a pending entry gives nothing; in a
+push that merges origin/feat-cmux-next in, an entry is counted only when it is new over both ranges, so an
+exception upstream landed allows the push nothing). The next --update folds every pending entry into the
+totals and marks it `applied_sha`. An entry for a rule
 module's id (`"row": "layer-gate"`) lets that push carry n of the module's refusals. There is no
 environment-variable skip.
 
@@ -68,6 +75,7 @@ import datetime
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -270,15 +278,22 @@ def exception_form(row: str, n: int) -> str:
     return f'{{"date": "{today}", "row": "{row}", "allow": {n}, "why": "<the reviewed reason>"}}'
 
 
+def generated(entry) -> bool:
+    """Whether ENTRY is --update's record of a rise already on origin/feat-cmux-next (it names the commits in
+    `raised_by`): it lets the record's totals take that rise (once the record rule re-checks it) and allows no
+    rise in a push's code."""
+    return isinstance(entry, dict) and "raised_by" in entry
+
+
 def added_exceptions(old: dict | None, new: dict | None, known) -> tuple[dict[str, int], list[str]]:
     """{row: allowance} the push adds, and notes.
 
     Per row: the allowance of NEW's open entries (pending, or applied by this push) minus that of OLD's
     pending entries, never below 0. Counted as sums, not by identity: an edit of an entry's `why` or `date`
-    gives nothing, and a second identical entry gives its allowance again.
+    gives nothing, and a second identical entry gives its allowance again. A generated entry gives nothing.
     """
-    old_pending = [e for e in exceptions_of(old) if isinstance(e, dict) and not e.get("applied_sha")]
-    opened = open_entries(old, new)
+    old_pending = [e for e in exceptions_of(old) if isinstance(e, dict) and not e.get("applied_sha") and not generated(e)]
+    opened = [e for e in open_entries(old, new) if not generated(e)]
     before, after = allowance(old_pending, known), allowance(opened, known)
     allow = {row: after[row] - before.get(row, 0) for row in after if after[row] > before.get(row, 0)}
     notes = []
@@ -298,10 +313,12 @@ def added_exceptions(old: dict | None, new: dict | None, known) -> tuple[dict[st
     return allow, notes
 
 
-def applied_exceptions(old: dict | None, new: dict | None, known) -> dict[str, int]:
+def applied_exceptions(old: dict | None, new: dict | None, known, verify=None) -> dict[str, int]:
     """{row: allowance} of the valid entries NEW has applied that are not OLD's applied entries (multiset):
-    what an --update in the range folded into the totals."""
-    return allowance([e for e in open_entries(old, new) if isinstance(e, dict) and e.get("applied_sha")], known)
+    what an --update in the range folded into the totals. A generated entry counts only when VERIFY(entry)
+    holds (none: it does not)."""
+    return allowance([e for e in open_entries(old, new) if isinstance(e, dict) and e.get("applied_sha")
+                      and (not generated(e) or (verify is not None and verify(e)))], known)
 
 
 def changed_applied(old: dict | None, new: dict | None) -> list[str]:
@@ -315,18 +332,25 @@ def fmt_packages(by_package: dict[str, int]) -> str:
 
 
 # Rows whose sites have an identity (Delta.unpartnered): a new one with no removed partner is refused even
-# when the total does not rise (a swap). The assumeIsolated and observer rows have no stable identity per
-# site (an edit of the line would read as a new site), so they hold the total only. The layer rows hold the
-# total only too: a new edge or unplaced target is arch_rules/layer_gate.py's refusal (one answer per edge).
-SWAP_ROWS = frozenset({"stateful_singletons", "global_mutable_statics", "app_broadcast_names"})
+# when the total does not rise (a swap). A global is identified by its owner and name or its type, a broadcast
+# by its literal, an assumeIsolated outside an adapter by the type and function around it (so an unproved
+# call removed in one type and added in another is refused). The observer row has no stable identity per site
+# (an edit of the line would read as a new site), so it holds the total only. The layer rows hold the total
+# only too: a new edge or unplaced target is arch_rules/layer_gate.py's refusal (one answer per edge).
+SWAP_ROWS = frozenset({"stateful_singletons", "global_mutable_statics", "app_broadcast_names",
+                       "assume_isolated_outside_adapters"})
 
 
-def count_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[str]]:
+def count_rule(per_range: list[Changes], answered: dict[str, int] | None = None) -> tuple[list[tuple[str, str]], list[str]]:
     """Rule 1: a ratcheted row's total may not rise in the code the push changes (moves pass), and a row with
     site identity may not gain a site no removed one accounts for (a swap adds debt too).
 
-    PER_RANGE holds one Changes per range of ranges_to_count; the first is the pushed range.
+    PER_RANGE holds one Changes per range of ranges_to_count; the first is the pushed range. ANSWERED is
+    {row: n}: n rule-module refusals of this push (refused or let through by the module's own exception)
+    that each answer one unit of ROW's rise (a new hard edge is the layer gate's refusal; one escape for it,
+    not a second one for layer_hard).
     """
+    answered = answered or {}
     changes = per_range[0]
     counts = changes.counts
     refusals: list[tuple[str, str]] = []
@@ -350,10 +374,13 @@ def count_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[st
             dropped.setdefault(chosen, {})[row.id] = total
             notes.append(f"arch-ratchet: {row.id} {total:+d} ({where})")
         rise = max(total, len(new))
+        by_module = min(answered.get(row.id, 0), max(rise, 0))
         allowed = changes.allow.get(row.id, 0)
-        if rise <= allowed:
+        if rise - by_module <= allowed:
             continue
         head = f"arch-ratchet: [{row.id}] {row.title}: {total:+d}" + (f" ({where})" if where else "")
+        if by_module:
+            head += f", {by_module} answered by a rule module's refusal"
         if len(new) > max(total, 0):
             head += (f", {len(new)} new site(s) that replace none the push removes (a swap adds debt even when the "
                      "total holds)")
@@ -363,7 +390,7 @@ def count_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[st
             lines.append(f"  {place}: {site.text}")
         lines.append(f"  Right pattern: {FIX.get(row.id, 'see arch_counts.py')}.")
         lines.append(f"  The only escape (a reviewed reason, never to pass the hook): add "
-                     f"{exception_form(row.id, rise - allowed)} to the exceptions of {counts.RATCHET_JSON} "
+                     f"{exception_form(row.id, rise - by_module - allowed)} to the exceptions of {counts.RATCHET_JSON} "
                      "in this push.")
         refusals.append((row.id, "\n".join(lines)))
     # Each drop is compared with the json over the range the drop came from.
@@ -429,22 +456,44 @@ def measured_in_range(changes: Changes, record: dict) -> bool:
     return not any(counts.is_counted(p) for p in later.split("\0") if p)
 
 
-def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple]:
-    """(row, text, key) of a rule module's refusal: `(row, text, key)`, `(row, text)` or a bare text.
+def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple, str | None]:
+    """(row, text, key, counted) of a rule module's refusal: `(row, text, key, counted)`, `(row, text, key)`,
+    `(row, text)` or a bare text.
 
-    KEY identifies the refusal across the ranges of a merge push; without one the row and text do.
+    KEY identifies the refusal across the ranges of a merge push; without one the row and text do. COUNTED
+    names the arch_counts row whose rise this refusal answers (count_rule does not refuse that unit again).
     """
     if not isinstance(item, tuple):
-        return rule_id, str(item), (rule_id, str(item))
+        return rule_id, str(item), (rule_id, str(item)), None
     row, text = str(item[0]), str(item[1])
     key = item[2] if len(item) > 2 else text
-    return row, text, (row, key if isinstance(key, (str, tuple)) else repr(key))
+    counted = str(item[3]) if len(item) > 3 and item[3] else None
+    return row, text, (row, key if isinstance(key, (str, tuple)) else repr(key)), counted
 
 
-def record_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[str]]:
+def upstream_entry_holds(repo: Path, entry: dict, upstream_ref: str) -> bool:
+    """Whether a generated entry is what --update writes: every `raised_by` commit is on UPSTREAM_REF, and
+    their per-commit rises of the entry's row add up to at least its `allow`."""
+    counts = load_counts()
+    shas, row = entry.get("raised_by"), entry.get("row")
+    if (row not in counts.ROW_IDS or not isinstance(shas, list) or not shas
+            or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in shas)):
+        return False
+    if not all(on_upstream(repo, x, upstream_ref) for x in shas):
+        return False
+    try:
+        rise = sum(max(0, counts.delta_count(repo, f"{x}^1", x, use_worktree=False).total(row)) for x in set(shas))
+    except RuntimeError:
+        return False
+    return isinstance(entry.get("allow"), int) and rise >= entry["allow"]
+
+
+def record_rule(per_range: list[Changes], upstream_ref: str = UPSTREAM) -> tuple[list[tuple[str, str]], list[str]]:
     """Rule 2: the push may not raise a ratcheted total of arch-ratchet.json beyond the exceptions it newly
-    applies, delete the file, or change or drop an applied exception. A merge counts a rise only when every
-    range shows it (PER_RANGE as count_rule's)."""
+    applies, delete the file, change or drop an applied exception, or change method_version without the
+    arch_counts.py change that makes it. A merge counts a rise only when every range shows it (PER_RANGE as
+    count_rule's). A generated entry (--update's record of a rise already on UPSTREAM_REF) covers a rise only
+    when upstream_entry_holds."""
     counts = per_range[0].counts
     rel = counts.RATCHET_JSON
     if not all(any(path == rel for _, path in c.files) for c in per_range):
@@ -463,12 +512,29 @@ def record_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[s
         return [(RECORD_ROW, f"arch-ratchet: [{RECORD_ROW}] this push changes or removes an applied exception of {rel}: "
                              + "; ".join(changed) + ". An applied entry is the record of a reviewed rise: keep it "
                              "verbatim and add a new dated entry instead.")], []
-    if any(old.get("method_version") != new.get("method_version") for old in olds):
+    moved = [old.get("method_version") != new.get("method_version") for old in olds]
+    if any(moved):
+        made = [m and method_change_made(c, new) for c, m in zip(per_range, moved)]
+        if all(m and not ok for m, ok in zip(moved, made)):
+            return [(RECORD_ROW, f"arch-ratchet: [{RECORD_ROW}] {rel} changes method_version "
+                                 f"{olds[0].get('method_version')!r} -> {new.get('method_version')!r}, but this push "
+                                 f"does not change {counts.METHOD_FILE} to that METHOD_VERSION. Only a change of the "
+                                 "row definitions changes the method (it bumps METHOD_VERSION there), and only "
+                                 "scripts/cmux-next/arch-ratchet.py --update writes the json.")], []
         return [], [f"arch-ratchet: {rel} changes method v{olds[0].get('method_version')} -> "
-                    f"v{new.get('method_version')}: its totals are not compared (review the row definitions)"]
+                    f"v{new.get('method_version')} with {counts.METHOD_FILE}: its totals are not compared (review "
+                    "the row definitions)"]
+    checked: dict[str, bool] = {}
+
+    def verify(entry: dict) -> bool:
+        key = exception_key(entry)
+        if key not in checked:
+            checked[key] = upstream_entry_holds(per_range[0].repo, entry, upstream_ref)
+        return checked[key]
+
     rises: list[dict[str, tuple[int, int, int]]] = []
     for old in olds:
-        allow = applied_exceptions(old, new, known)
+        allow = applied_exceptions(old, new, known, verify)
         found = {}
         for row in counts.ROWS:
             was, now = (old.get("totals") or {}).get(row.id), (new.get("totals") or {}).get(row.id)
@@ -486,10 +552,49 @@ def record_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[s
     return refusals, []
 
 
+def method_change_made(changes: Changes, record: dict) -> bool:
+    """Whether CHANGES' range makes RECORD's method_version: it changes arch_counts.py, and the head's
+    arch_counts.py declares METHOD_VERSION = RECORD's method_version (the head's file, not the installed copy
+    the hook runs). A json-only edit of method_version is not a method change."""
+    counts = changes.counts
+    if not any(path == counts.METHOD_FILE for _, path in changes.files):
+        return False
+    text = changes.read([(changes.head, counts.METHOD_FILE)])[(changes.head, counts.METHOD_FILE)] or ""
+    found = re.search(r"^METHOD_VERSION\s*=\s*(\d+)\s*$", text, re.M)
+    version = record.get("method_version")
+    return bool(found) and isinstance(version, int) and not isinstance(version, bool) and int(found.group(1)) == version
+
+
 def module_ids(loaded) -> dict[str, str]:
     """{refusal id: rule id} of the loaded rule modules: a module's `ID` (layer_gate.py's "layer-gate"), else
     its file stem. A dated exception for that id lets a push carry that many of the module's refusals."""
     return {str(getattr(module, "ID", rule_id)): rule_id for rule_id, module in loaded}
+
+
+def push_allowance(per_range: list[Changes], known, notes: list[str]) -> dict[str, int]:
+    """{row or rule id: n} the exceptions the push adds allow, for every rule (count, module).
+
+    Computed per range (the json at that range's base and at head) and the minimum taken per row, as
+    count_rule takes the minimum rise: in a merge push an exception upstream landed is new over the pushed
+    ref's base but not over upstream, so it gives the push nothing. A range that leaves the json alone
+    adds none. The notes describe the pushed range's entries.
+    """
+    rel = per_range[0].counts.RATCHET_JSON
+    allows = []
+    for i, changes in enumerate(per_range):
+        if not any(path == rel for _, path in changes.files):
+            allows.append({})
+            continue
+        allow, extra = added_exceptions(*changes.records(), known)
+        if i == 0:
+            notes += extra
+        allows.append(allow)
+    out = {row: min(a.get(row, 0) for a in allows) for row in allows[0]}
+    for row, n in sorted(allows[0].items()):
+        if out[row] < n:
+            notes.append(f"arch-ratchet: {row}: {n - out[row]} of the allowance is from exceptions this push only "
+                         f"merges in from {UPSTREAM}; this push may raise {row} by {out[row]}")
+    return {row: n for row, n in out.items() if n > 0}
 
 
 def check_range(repo: Path, base: str, head: str, rules=None,
@@ -509,16 +614,13 @@ def check_range(repo: Path, base: str, head: str, rules=None,
     records: dict = {}
     per_range = [Changes(repo, d.base, d.head, d.files, d, counts, cache=records) for d in deltas]
     first = per_range[0]
-    if any(path == counts.RATCHET_JSON for _, path in first.files):
-        first.allow, extra = added_exceptions(*first.records(), known)
-        notes += extra
-    for changes in per_range[1:]:
-        changes.allow = first.allow  # the exceptions are the pushed head's: one allowance for the push
-    refusals, extra = count_rule(per_range)
-    notes += extra
-    got, extra = record_rule(per_range)
-    refusals += got
-    notes += extra
+    allow = push_allowance(per_range, known, notes)
+    for changes in per_range:
+        changes.allow = allow
+    # The rule modules run first: a module refusal that answers a count row's rise (the layer gate's new edge)
+    # is the one answer for it, so count_rule does not refuse the same unit again.
+    module_refusals: list[tuple[str, str]] = []
+    answered: collections.Counter = collections.Counter()
     for rule_id, module in loaded:
         try:
             found = []
@@ -530,13 +632,20 @@ def check_range(repo: Path, base: str, head: str, rules=None,
             # minimum (see ranges_to_count): a change that came in through the merge is not the push's own.
             # Ranges are matched by key: the text can name a layer or a note that differs between the two
             # bases (an upstream relabel), and the first range's (the pushed range's) text is kept.
-            keys = [{key for _, _, key in other} for other in found[1:]]
-            kept = [(row, text) for row, text, key in found[0] if all(key in other for other in keys)]
+            keys = [{key for _, _, key, _ in other} for other in found[1:]]
+            kept = [(row, text, counted) for row, text, key, counted in found[0] if all(key in other for other in keys)]
         except Exception as error:  # fail open per rule
             notes.append(f"arch-ratchet: WARNING: arch rule {rule_id} failed ({type(error).__name__}: {error}); "
                          "not applied to this push")
             continue
-        refusals += allow_module_refusals(kept, first.allow, ids, notes)
+        answered.update(counted for _, _, counted in kept if counted)
+        module_refusals += allow_module_refusals([(row, text) for row, text, _ in kept], first.allow, ids, notes)
+    refusals, extra = count_rule(per_range, dict(answered))
+    notes += extra
+    got, extra = record_rule(per_range, upstream_ref)
+    refusals += got
+    notes += extra
+    refusals += module_refusals
     return refusals, notes
 
 
@@ -600,7 +709,7 @@ def run_push(repo: Path, ranges: list[tuple[str, str]], upstream_ref: str = UPST
 
 
 def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, list[tuple[str, int, str]]]:
-    """{row: [(short sha, rise, "author: subject")]} of the non-merge commits in SINCE..UNTIL that raised a row.
+    """{row: [(sha, rise, "author: subject")]} of the non-merge commits in SINCE..UNTIL that raised a row.
 
     Each commit is counted against its first parent from git objects only (no worktree), so the answer
     is the same in any checkout.
@@ -619,7 +728,7 @@ def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, l
             continue  # a root commit: nothing to count against
         for row in rows:
             if delta.total(row) > 0:
-                found[row].append((sha[:11], delta.total(row), f"{author}: {subject}"))
+                found[row].append((sha, delta.total(row), f"{author}: {subject}"))
     return found
 
 
@@ -645,7 +754,7 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
     culprits = raised_by(repo, since, sha, set(over)) if over and since else {}
     for row_id, (was, n) in over.items():
         result["over"][row_id] = {"recorded": was, "now": n,
-                                  "raised_by": [{"sha": c, "rise": r, "commit": t} for c, r, t in culprits.get(row_id, [])]}
+                                  "raised_by": [{"sha": c[:11], "rise": r, "commit": t} for c, r, t in culprits.get(row_id, [])]}
     return result
 
 
@@ -664,14 +773,49 @@ def audit_lines(result: dict) -> list[str]:
     return lines
 
 
-def update(repo: Path, rev: str = "HEAD") -> int:
+def on_upstream(repo: Path, sha: str, upstream_ref: str) -> bool:
+    """Whether commit SHA is already on UPSTREAM_REF (origin/feat-cmux-next)."""
+    return git(repo, "merge-base", "--is-ancestor", sha, upstream_ref)[0] == 0
+
+
+def upstream_rises(repo: Path, since: str | None, sha: str, rows: set[str], before: dict,
+                   upstream_ref: str) -> tuple[dict[str, int], dict[str, list[tuple[str, int, str]]]]:
+    """({row: rise}, {row: [(sha, rise, commit)]}): how far each of ROWS rose over BEFORE (the record) in
+    commits already on UPSTREAM_REF, and those commits.
+
+    The rise is the smaller of two measures, so a local commit's debt is never attributed to upstream: a full
+    count where SHA meets UPSTREAM_REF over the record (net, so an upstream rise a later upstream commit undid
+    is none), and the sum of the per-commit rises of the upstream commits since the record (what the
+    generated entry names and the record rule re-checks). No upstream ref, no record sha: nothing.
+    """
+    if not since or not rows:
+        return {}, {}
+    code, meet = git(repo, "merge-base", sha, upstream_ref)
+    if code != 0 or not meet:
+        return {}, {}
+    _, at_meet, _ = load_counts().full_count(repo, meet)
+    met = at_meet.totals()
+    culprits = raised_by(repo, since, meet, rows)
+    rise, named = {}, {}
+    for row in rows:
+        mine = [c for c in culprits.get(row, []) if on_upstream(repo, c[0], upstream_ref)]
+        n = min(met[row] - before[row], sum(r for _, r, _ in mine))
+        if n > 0:
+            rise[row], named[row] = n, mine
+    return rise, named
+
+
+def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
     """Rewrite plans/cmux-next/arch-ratchet.json from a full count at REV, the one writer of its totals.
 
     REV defaults to HEAD; a branch that changes no Swift may record its base on origin/feat-cmux-next
     (`--rev origin/feat-cmux-next`), so measured_sha survives the rebase that lands it.
 
-    A ratcheted total may only go up by what the pending (not yet applied) dated exceptions allow; a larger
-    rise is refused with the commits that raised it. Every pending exception is folded in (applied_sha).
+    A ratcheted total may only go up by what the pending (not yet applied) dated exceptions allow. A larger
+    rise that commits already on UPSTREAM_REF made (a GitHub merge, --no-verify: debt the person running this
+    did not add) is a warning: it is recorded with a generated, applied entry that names those commits
+    (`raised_by`; the record rule re-checks it, and it allows no rise in any push's code). Any other rise is
+    refused with the commits that raised it. Every pending exception is folded in (applied_sha).
     """
     counts = load_counts()
     path = repo / counts.RATCHET_JSON
@@ -683,7 +827,7 @@ def update(repo: Path, rev: str = "HEAD") -> int:
     # A rule module's entry is folded in too: it allowed the refusals of the push that added it.
     known = set(counts.ROW_IDS) | set(module_ids(load_rules()[0]))
     exceptions = [dict(e) if isinstance(e, dict) else e for e in old.get("exceptions", [])]
-    pending = [e for e in exceptions if valid_exception(e, known) and not e.get("applied_sha")]
+    pending = [e for e in exceptions if valid_exception(e, known) and not e.get("applied_sha") and not generated(e)]
     allow: dict[str, int] = {}
     for e in pending:
         allow[e["row"]] = allow.get(e["row"], 0) + e["allow"]
@@ -695,21 +839,35 @@ def update(repo: Path, rev: str = "HEAD") -> int:
     uncovered = {row.id: (before[row.id], totals[row.id]) for row in counts.ROWS
                  if row.ratchet and isinstance(before.get(row.id), int)
                  and totals[row.id] - before[row.id] > allow.get(row.id, 0)}
-    if uncovered:
-        since = old.get("measured_sha")
-        culprits = raised_by(repo, since, sha, set(uncovered)) if since else {}
+    since = old.get("measured_sha")
+    landed, named = upstream_rises(repo, since, sha, set(uncovered), before, upstream_ref) if uncovered else ({}, {})
+    excess = {row_id: n - was - allow.get(row_id, 0) for row_id, (was, n) in uncovered.items()}
+    local = {row_id: e - landed.get(row_id, 0) for row_id, e in excess.items() if e > landed.get(row_id, 0)}
+    if local:
+        culprits = raised_by(repo, since, sha, set(local)) if since else {}
         print(f"arch-ratchet: --update refused: {path.name} not written. These ratcheted totals rose past "
-              "the pending exceptions:")
-        for row_id, (was, n) in sorted(uncovered.items()):
-            print(f"  {row_id}: recorded {was} at {str(since)[:11]}, now {n} (+{n - was}; pending exceptions "
-                  f"allow {allow.get(row_id, 0)})")
+              f"the pending exceptions in commits that are not on {upstream_ref}:")
+        for row_id, n in sorted(local.items()):
+            was, total = uncovered[row_id]
+            print(f"  {row_id}: recorded {was} at {str(since)[:11]}, now {total} (+{total - was}; pending exceptions "
+                  f"allow {allow.get(row_id, 0)}" + (f", {landed[row_id]} already on {upstream_ref}" if landed.get(row_id) else "")
+                  + ")")
             for c, r, t in culprits.get(row_id, []):
-                print(f"    raised by {c} +{r} {t}")
-            print(f"    fix the code, or (a reviewed reason only) add "
-                  f"{exception_form(row_id, n - was - allow.get(row_id, 0))} to exceptions and rerun --update")
+                print(f"    raised by {c[:11]} +{r} {t}")
+            print(f"    fix the code, or (a reviewed reason only) add {exception_form(row_id, n)} to exceptions and "
+                  "rerun --update")
         return 1
     for e in pending:
         e["applied_sha"] = sha
+    today = datetime.date.today().isoformat()
+    for row_id, n in sorted(excess.items()):
+        shas = [c for c, _, _ in named[row_id]]
+        print(f"arch-ratchet: WARNING: {row_id} rose {n} past the record in commits already on {upstream_ref} "
+              f"(not this push's debt; recorded with a generated entry): "
+              + "; ".join(f"{c[:11]} +{r} {t[:60]}" for c, r, t in named[row_id]))
+        exceptions.append({"date": today, "row": row_id, "allow": n,
+                           "why": f"generated by --update: the rise landed on {upstream_ref} past the hook",
+                           "raised_by": shas, "applied_sha": sha})
     data = counts.record(sha, now, lay, exceptions)
     counts.write_record(repo, data)
     for row in counts.ROWS:
@@ -746,7 +904,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"WARNING: {w}")
         return 0
     if args.update:
-        return update(repo, args.rev)
+        return update(repo, args.rev, args.upstream)
     if args.audit:
         result = audit(repo, args.rev)
         print(json.dumps(result, sort_keys=True) if args.json else "\n".join(audit_lines(result)))

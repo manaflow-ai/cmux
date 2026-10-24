@@ -21,17 +21,20 @@ is printed. `changes` carries:
     changes.delta        arch_counts.Delta of the range: .total(row), .by_package(row), .new_sites(row)
     changes.counts       the arch_counts module (ROWS, ROW_IDS, strip(), analyze(), ...)
     changes.allow        {row or rule id: n} from the valid dated exceptions this push adds to
-                         plans/cmux-next/arch-ratchet.json (a module's own id is accepted there)
+                         plans/cmux-next/arch-ratchet.json (a module's own id is accepted there); in a
+                         merge push, the smallest allowance over the ranges
     changes.read(items)  {(rev, path): text or None} for [(rev, path)] in one `git cat-file --batch`
     changes.record(rev)  plans/cmux-next/arch-ratchet.json at REV as a dict, or None (read once per push)
     changes.records()    (record(base), record(head)) through one `git cat-file --batch`
 
-A refusal is `(id, text)` or `(id, text, key)`. ID is the module's `ID` (layer_gate.py's "layer-gate"),
-else its file stem. TEXT is printed as is and names the rule, the file:line, the right pattern and the
+A refusal is `(id, text)`, `(id, text, key)` or `(id, text, key, row)`. ID is the module's `ID`
+(layer_gate.py's "layer-gate"), else its file stem. TEXT is printed as is and names the rule, the file:line, the right pattern and the
 escape. KEY (a string or a tuple of strings) identifies what is refused independent of the range, for
 example ("edge", source, dependency): give one whenever TEXT names something that depends on the base (a
 layer, a moved note), so a merge push matches the same refusal over both ranges. Without a key the text is
-the key. The one escape is the same as the built-in rows': a dated exception for ID in
+the key. ROW, when given, is the arch_counts row whose rise the refused change makes (the layer gate's new
+edge: its class's row): the count rule then does not refuse that unit of the row again, so one change has
+one refusal and one escape. The one escape is the same as the built-in rows': a dated exception for ID in
 arch-ratchet.json's `exceptions` ({"date": "YYYY-MM-DD", "row": "<id>", "allow": <n>, "why": "..."}) that
 the push adds lets it carry up to n of the module's refusals (the loader applies it; `changes.allow` shows
 it to the module). There is no environment-variable skip. A note is a string, printed, never refusing.

@@ -131,12 +131,13 @@ class LayerGateTests(unittest.TestCase):
         head = self.repo.commit(files)
         refusals, notes = gate.check(self.base, head, Changes(self.repo, self.base, head))
         self.assertEqual(notes, [])
-        for rule, text, key in refusals:
+        for rule, text, key, row in refusals:
             self.assertEqual(rule, "layer-gate")
             self.assertIn('"row": "layer-gate", "allow": 1', text)
             self.assertNotIn("ARCH_RATCHET_SKIP_REASON", text)
             self.assertTrue(key, text)
-        return [text for _, text, _ in refusals]
+            self.assertIn(row, (None, "layer_hard", "layer_soft", "layer_upward", "layer_unplaced"), text)
+        return [text for _, text, _, _ in refusals]
 
     def with_deps(self, **changes: list[str]) -> dict[str, list[str]]:
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
@@ -530,10 +531,15 @@ class ThroughTheRatchetTests(unittest.TestCase):
         rows, refused = self.run_push(deps, count_only)
         self.assertEqual(rows, ["layer-gate"])
         self.assertTrue(refused)
-        both = count_only + [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
-        rows, refused = self.run_push(deps, both)
+        # One new edge, one escape: the gate's entry alone passes it (the count rule does not refuse the
+        # layer_hard rise the gate's refusal answers), and its text asks for no second entry.
+        gate_only = [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        rows, refused = self.run_push(deps, gate_only)
         self.assertEqual(rows, [])
         self.assertFalse(refused)
+        head = self.repo.commit({gate.PACKAGE_SWIFT: manifest(deps)})
+        texts, _ = gate.check(self.base, head, Changes(self.repo, self.base, head))
+        self.assertNotIn("layer_hard", texts[0][1])
 
     def test_an_exception_covers_only_as_many_refusals_as_it_allows(self):
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}

@@ -40,8 +40,10 @@ The manifest reader, the map reader and the edge classes are arch_counts.py's (`
 disagree about which edges exist.
 
 Loader contract (scripts/cmux-next/arch_rules/__init__.py): `check(base, head, changes)` returns
-(refusals, notes); a refusal is ("layer-gate", text, key), KEY naming what is refused (("edge", A, B),
-("relabel", T), ...) so a merge push matches it over both ranges. It reads only `changes.files` and two files
+(refusals, notes); a refusal is ("layer-gate", text, key, row), KEY naming what is refused (("edge", A, B),
+("relabel", T), ...) so a merge push matches it over both ranges, ROW the arch_counts row the refused change
+raises (a new edge's class row, layer_unplaced for a new unplaced target; else None) so the count rule does
+not refuse it a second time: one new edge, one refusal, one dated entry. It reads only `changes.files` and two files
 at both ends through `changes.read` (one `git cat-file --batch`).
 
   scripts/cmux-next/arch_rules/layer_gate.py                  # HEAD over its merge base with origin/feat-cmux-next
@@ -117,8 +119,10 @@ class Refusal:
     number: int
     text: str
     rule: str = ID
-    # The arch_counts row that counts the same debt (the count rule may refuse the push under it too).
-    row: str = "layer_hard"
+    # The arch_counts row whose rise this refusal answers (a new edge: its class's row; a new unplaced target:
+    # layer_unplaced), or None. The ratchet's count rule does not refuse that unit again, so one new edge has
+    # one refusal and one escape.
+    row: str | None = None
     # What is refused, independent of the base: matches the same refusal over the ranges of a merge push.
     key: tuple = ()
 
@@ -169,7 +173,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         return [Refusal(LAYERS_JSON, 1, f"{LAYERS_JSON} does not parse: {head_map.error}; the gate cannot place any "
                                         f"target, so fix the file (an object with `order`, a list of layer names, "
                                         f"and `targets`, {{name: {{\"layer\": ...}}}})",
-                        row="layer_unplaced", key=("map",))]
+                        key=("map",))]
     head, base = counts.parse_manifest(head_manifest), counts.parse_manifest(base_manifest)
     # A base map that does not parse places nothing: then only the head's layers judge the push.
     base_map = counts.LayerMap.parse(base_layers)
@@ -177,7 +181,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
     justified, invalid = relabels(base_map, head_map, base, head, changed)
     out = []
 
-    def refuse(name: str, text: str, row: str, key: tuple) -> None:
+    def refuse(name: str, text: str, row: str | None, key: tuple) -> None:
         out.append(Refusal(PACKAGE_SWIFT, head.targets[name].line, text, row=row, key=key))
 
     def span(name: str) -> tuple[str, str] | None:
@@ -211,7 +215,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         if now == "app" and name != COMPOSITION_ROOT and was != "app":
             refuse(name, f"target {name} is placed as app in {LAYERS_JSON}: only {COMPOSITION_ROOT}, the "
                          f"composition root, is app (DESIGN section 4); give {name} the layer its code holds "
-                         f"(core, service, domain or ui)", "layer_hard", ("app", name))
+                         f"(core, service, domain or ui)", None, ("app", name))
         if was is None or now is None or was == now or name in justified:
             continue
         changed_edges = []
@@ -226,7 +230,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                      f"same push) and a dated reason the push adds under `relayered`: {{\"target\": \"{name}\", "
                      f"\"from\": \"{was}\", \"to\": \"{now}\", \"date\": \"YYYY-MM-DD\", \"reason\": what changed "
                      f"in its code}}; a relabel that only clears an edge is the debt renamed: {FIX}",
-               "layer_hard", ("relabel", name))
+               None, ("relabel", name))
     for source, dep in sorted(head.edges() - base.edges()):
         ends, deps = span(source), span(dep)
         if ends is None or deps is None:
@@ -255,7 +259,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         for expr in sorted(target.unresolved - (before.unresolved if before else set())):
             refuse(name, f"{name}'s dependencies hold `{shown(expr)}`, which the gate cannot read without swift: use "
                          f"string literals, `.target(name:)`/`.product(...)` entries or a top-level "
-                         f"`let` `[Target.Dependency]` variable", "layer_hard", ("unresolved", name, expr))
+                         f"`let` `[Target.Dependency]` variable", None, ("unresolved", name, expr))
     for expr, (line, why) in sorted(head.unreadable.items(), key=lambda item: item[1][0]):
         if expr in base.unreadable:
             continue
@@ -263,7 +267,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                                                 f"declare each target as a `.target(name: \"...\", dependencies: "
                                                 f"[...])` call in `Package(targets:)` or a top-level `let X: Target`, "
                                                 f"with string-literal names and dependencies, and never change "
-                                                f"`package` after it is built", row="layer_hard",
+                                                f"`package` after it is built",
                            key=("unreadable", expr)))
     return out
 
@@ -311,8 +315,9 @@ def check_repo(repo: Path | str, base: str, head: str, changed: Iterable[str], r
 def check(base: str, head: str, changes: Any = None, repo: Path | str | None = None) -> tuple[list, list]:
     """arch-ratchet entry point: (refusals, notes) for the pushed range BASE..HEAD.
 
-    A refusal is `(ID, text, key)`, so a dated arch-ratchet.json exception for ID covers it and a merge push
-    matches it over both ranges by KEY. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
+    A refusal is `(ID, text, key, row)`, so a dated arch-ratchet.json exception for ID covers it, a merge push
+    matches it over both ranges by KEY, and the count rule does not refuse the unit of ROW (the arch_counts
+    row the refused change raises, or None) that it answers. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
     `read`); None reads the changed paths from git in REPO (default: the repository that holds this file).
     """
     root = Path(getattr(changes, "repo", None) or repo or ROOT)
@@ -321,18 +326,16 @@ def check(base: str, head: str, changes: Any = None, repo: Path | str | None = N
     else:
         changed = changed_paths(getattr(changes, "files", changes))
     found = check_repo(root, base, head, changed, getattr(changes, "read", None))
-    return [(ID, f"{refusal}\n  {escape(refusal.row)}", refusal.key) for refusal in found], []
+    return [(ID, f"{refusal}\n  {escape()}", refusal.key, refusal.row) for refusal in found], []
 
 
-def escape(row: str | None = None) -> str:
-    """The one escape, printed with each refusal: a dated exception for ID that the push adds."""
+def escape() -> str:
+    """The one escape, printed with each refusal: a dated exception for ID that the push adds. It is the only
+    entry a refused edge needs: the count rule does not refuse the layer row rise that the refusal answers."""
     today = datetime.date.today().isoformat()
-    text = (f"The only escape (a reviewed reason, never to pass the hook): add {{\"date\": \"{today}\", \"row\": "
+    return (f"The only escape (a reviewed reason, never to pass the hook): add {{\"date\": \"{today}\", \"row\": "
             f"\"{ID}\", \"allow\": 1, \"why\": \"<the reviewed reason>\"}} per refusal to the exceptions of "
-            f"{counts.RATCHET_JSON} in this push")
-    if row:
-        text += f"; when the count rule refuses the same change under [{row}], add an entry for {row} too"
-    return text + "."
+            f"{counts.RATCHET_JSON} in this push.")
 
 
 def git(repo: Path | str, *args: str) -> str:

@@ -281,6 +281,26 @@ class SingletonTests(Repo):
         self.assertEqual(counts.delta_count(self.repo, renamed, swapped).total("stateful_singletons"), 0)
         self.assert_matches_full(renamed, swapped)
 
+    def test_a_swap_of_two_shared_singletons_of_different_owners_is_refused(self):
+        # Both globals are called `shared`: a bare-name key made them partners and the swap passed.
+        self.write(f"{SRC}/CmuxNextDomain/Cache.swift", "final class Cache {\n    var hits = 0\n}\n")
+        self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
+        base = self.commit("Store.shared")
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.write(f"{SRC}/CmuxNextOther/Hub.swift", "enum Hub {\n    static let shared = Cache()\n}\n")
+        swapped = self.commit("swap: Store.shared goes, Hub.shared comes")
+        self.assertEqual(counts.delta_count(self.repo, base, swapped).total("stateful_singletons"), 0)
+        refusals, _ = self.check(base=base, head=swapped)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"])
+        self.assertIn("Hub.swift:2", refusals[0][1])
+        # The same owner and name, retyped and moved to another package, keeps its partner.
+        self.git("reset", "--quiet", "--hard", base)
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.write(f"{SRC}/CmuxNextOther/Store+Shared.swift", "extension Store {\n    static let shared = Cache()\n}\n")
+        retyped = self.commit("Store.shared moves and is retyped")
+        self.assertEqual(self.check(base=base, head=retyped)[0], [])
+        self.assert_matches_full(base, swapped)
+
     def test_a_singleton_moved_to_another_package_passes(self):
         self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
         base = self.commit("existing debt")
@@ -464,6 +484,30 @@ class SignalTests(Repo):
         self.assertIn("assume_isolated_outside_adapters", self.rows(refusals))
         self.assertIn("+2", dict(refusals)["assume_isolated_outside_adapters"])
 
+    def test_an_unproved_call_removed_in_one_type_and_added_in_another_is_refused(self):
+        self.write(f"{SRC}/CmuxNextDomain/A.swift",
+                   "final class A {\n    func fire() {\n        MainActor.assumeIsolated { print(1) }\n    }\n}\n")
+        base = self.commit("an unproved call in A")
+        self.write(f"{SRC}/CmuxNextDomain/A.swift",
+                   "final class A {\n    func fire() {\n        // a comment line above\n"
+                   "        MainActor.assumeIsolated { print(10) }\n    }\n}\n")
+        edited = self.commit("the same call edited")
+        self.assertEqual(self.check(base=base, head=edited)[0], [], "an edit of the call keeps its identity")
+        self.remove(f"{SRC}/CmuxNextDomain/A.swift")
+        self.write(f"{SRC}/CmuxNextOther/A.swift",
+                   "final class A {\n    func fire() {\n        MainActor.assumeIsolated { print(1) }\n    }\n}\n")
+        moved = self.commit("A moves to another package")
+        self.assertEqual(self.check(base=edited, head=moved)[0], [], "a move keeps its identity")
+        self.git("reset", "--quiet", "--hard", base)
+        self.remove(f"{SRC}/CmuxNextDomain/A.swift")
+        self.write(f"{SRC}/CmuxNextDomain/B.swift",
+                   "final class B {\n    func fire() {\n        MainActor.assumeIsolated { print(2) }\n    }\n}\n")
+        swapped = self.commit("remove one in A, add one in B")
+        self.assertEqual(counts.delta_count(self.repo, base, swapped).total("assume_isolated_outside_adapters"), 0)
+        refusals, _ = self.check(base=base, head=swapped)
+        self.assertEqual(self.rows(refusals), ["assume_isolated_outside_adapters"])
+        self.assertIn("B.swift:3", refusals[0][1])
+
     def test_one_proof_covers_one_call(self):
         self.write(f"{SRC}/CmuxNextDomain/TwoCalls.swift",
                    "final class TwoCalls {\n    func fire() {\n"
@@ -631,6 +675,53 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertTrue(any("exception 2026-10-23" in n for n in notes), notes)
 
+    def test_a_hand_edit_of_method_version_is_refused_and_a_method_change_passes(self):
+        self.assertEqual(self.update()[0], 0)
+        base = self.commit("record")
+        data = self.recorded()
+        data["method_version"] = counts.METHOD_VERSION + 1
+        data["totals"]["stateful_singletons"] += 5
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.commit("bumps method_version by hand to raise a total")
+        refusals, _ = self.check(base=base)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+        self.assertIn("method_version", refusals[0][1])
+        self.write(counts.METHOD_FILE, f"METHOD_VERSION = {counts.METHOD_VERSION + 1}\n")
+        self.commit("the row definitions change to that version")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+        self.assertTrue(any("not compared" in n for n in notes), notes)
+        self.write(counts.METHOD_FILE, f"METHOD_VERSION = {counts.METHOD_VERSION + 2}\n")
+        self.commit("arch_counts.py names another version than the json")
+        refusals, _ = self.check(base=base)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
+    def test_a_merge_push_gets_no_allowance_from_an_exception_upstream_landed(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        self.commit("record")
+        self.git("checkout", "--quiet", "-b", "upstream")
+        self.write(f"{SRC}/CmuxNextDomain/S.swift", "extension Store {\n    static let s = Store()\n}\n")
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
+            {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "upstream's reviewed S"}]}))
+        self.commit("upstream: singleton S and its exception")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("README", "pushed once\n")
+        base = self.commit("already pushed")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "upstream")
+        self.write(f"{SRC}/CmuxNextDomain/T.swift", "extension Store {\n    static let t = Store()\n}\n")
+        head = self.commit("the branch's own singleton T")
+        self.assertNotEqual(self.git("merge-base", base, "upstream"), base)
+        refusals, notes = ratchet.check_range(self.repo, base, head, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"], notes)
+        self.assertIn("T.swift:2", refusals[0][1])
+        # An exception of the push's own (new over both ranges) still lets it through.
+        data = json.loads((self.repo / counts.RATCHET_JSON).read_text())
+        data["exceptions"].append({"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "own T"})
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        own = self.commit("the push's own exception")
+        refusals, notes = ratchet.check_range(self.repo, base, own, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+
     def test_a_push_that_raises_or_deletes_the_recorded_totals_is_refused(self):
         code, out = self.update()
         self.assertEqual(code, 0, out)
@@ -667,6 +758,52 @@ class RatchetTests(Repo):
         self.assertEqual(data["totals"]["stateful_singletons"], recorded + 1)
         self.assertEqual(data["exceptions"][0]["applied_sha"], self.git("rev-parse", "HEAD"))
         self.assertEqual(self.update()[0], 0, "an applied exception is folded in, not spent twice")
+
+    def test_update_records_a_rise_already_on_upstream_with_a_generated_entry(self):
+        self.assertEqual(self.update()[0], 0)
+        self.commit("record")
+        recorded = self.recorded()["totals"]["stateful_singletons"]
+        landed = self.add_singleton()  # landed on origin/feat-cmux-next past the hook
+        self.git("branch", "upstream", landed)
+        self.write(f"{SRC}/CmuxNextDomain/Store+Mine.swift", "final class Mine {\n    var n = 0\n}\n")
+        mine = self.commit("the runner's own commit lowers nothing")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ratchet.update(self.repo, upstream_ref="upstream")
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("WARNING", out.getvalue())
+        self.assertIn(landed[:11], out.getvalue())
+        data = self.recorded()
+        self.assertEqual(data["totals"]["stateful_singletons"], recorded + 1)
+        entry = data["exceptions"][-1]
+        self.assertEqual((entry["row"], entry["allow"], entry["raised_by"], entry["applied_sha"]),
+                         ("stateful_singletons", 1, [landed], mine))
+        update = self.commit("--update")
+        # The record rule takes the generated entry; it allows no rise in a push's code.
+        refusals, notes = ratchet.check_range(self.repo, landed, update, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+        self.write(f"{SRC}/CmuxNextDomain/Store+More.swift", "extension Store {\n    static let more = Store()\n}\n")
+        more = self.commit("a new singleton")
+        refusals, _ = ratchet.check_range(self.repo, update, more, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"])
+        # A generated entry that names a commit not on upstream does not cover the rise.
+        self.git("reset", "--quiet", "--hard", mine)
+        data["exceptions"][-1] = dict(entry, raised_by=[mine])
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        forged = self.commit("names a local commit")
+        refusals, _ = ratchet.check_range(self.repo, landed, forged, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
+    def test_update_still_refuses_a_rise_in_commits_not_on_upstream(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        self.git("branch", "upstream", record)
+        self.add_singleton()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ratchet.update(self.repo, upstream_ref="upstream")
+        self.assertEqual(code, 1, out.getvalue())
+        self.assertIn("not on upstream", out.getvalue())
 
     def test_an_exception_added_and_applied_in_one_push_passes_both_rules(self):
         self.assertEqual(self.update()[0], 0)
