@@ -353,7 +353,7 @@ fn a_spawn_the_holder_refuses_at_once_never_reaches_its_sink() {
 
     let refused = Arc::new(Collect::default());
     let empty = SpawnRequest { argv: Vec::new(), ..request(5, "") };
-    let failed = link.spawn(5, &empty, refused.clone()).err().expect("an empty argv spawned");
+    let failed = link.spawn(5, &empty, refused.clone()).expect_err("an empty argv spawned");
     assert!(failed.to_string().contains("empty argv"), "failed elsewhere: {failed}");
     let next = Arc::new(Collect::default());
     link.spawn(6, &request(6, "exec cat"), next).unwrap();
