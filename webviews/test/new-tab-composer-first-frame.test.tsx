@@ -190,13 +190,15 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   // in that chat's mode; a folder it has not answered for yet names that answer until its own
   // replaces it (Lucas 2026-10-24: never a bare "Mode" on this Mac).
   const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
-  rememberStartMode("claude", "/home/dev/other", { modeId: "default", name: "Ask before edits" });
+  // Bypass permissions: named the same in every menu, so a harness profile another test file left
+  // in the shared HarnessProfiles (which names `default` "Manual") cannot rename it.
+  rememberStartMode("claude", "/home/dev/other", { modeId: "bypassPermissions", name: "Bypass permissions" });
 
   // A new chat, before its session reports: no grey bars, the same chips in the same order.
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
   const first = chips();
-  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Ask before edits" }]);
+  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Bypass permissions" }]);
 
   // Its session reports the same choices: the chips settle where they were.
   await render(reported("new"));
