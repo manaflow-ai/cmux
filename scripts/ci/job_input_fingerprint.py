@@ -123,8 +123,9 @@ PRODUCT_EXCLUDES = (
     ".github", ".claude", ".codex", ".agents", ".greptile", ".coderabbit.yaml",
     # Benchmarks and developer tooling no build phase or compile step runs.
     "scripts/fuzz", "scripts/measure", "scripts/perf-bench", "scripts/git-hooks", "scripts/install-git-hooks.sh",
-    # Other products: the iOS apps, the marketing site, the backend and the standalone chat server.
-    "cmux-next-ios", "ios", "web", "backend", "agent-chat",
+    # The classic iOS app. Not cmux-next-ios, web or backend: the app bundles files from each
+    # (build-mobile-host.sh, the model catalog, bundle-cli-resources.sh's cloud catalogs).
+    "ios",
 )
 
 

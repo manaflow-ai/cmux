@@ -41,6 +41,7 @@ FILES = {
     "cmux-tui/src/main.rs": "fn main() {}\n",
     "backend/catalog/ops.json": "{}\n",
     "backend/server.ts": "server\n",
+    "ios/App.swift": "classic ios\n",
     "webviews/src/app.ts": "app\n",
     "web/data/model-catalog/models.json": "{}\n",
     "web/pages/index.tsx": "page\n",
@@ -49,8 +50,7 @@ FILES = {
     "plans/cmux-next/shell.md": "plan\n",
     "plans/cmux-next/daemon-capabilities.json": "{}\n",
     "tests/test_something.py": "test\n",
-    "tests/fixtures/classic-to-next/state.json": "{}\n",
-    "cmux-next-ios/App.swift": "ios\n",
+        "cmux-next-ios/App.swift": "ios\n",
 }
 
 
@@ -105,9 +105,10 @@ class ProductKey(unittest.TestCase):
                      ".github/workflows/cmux-next.yml", ".github/actions/setup/action.yml", "README.md",
                      "THIRD_PARTY_LICENSES.md", "plans/cmux-next/daemon-capabilities.json",
                      # Kept inside excluded directories: named by another input list.
-                     "docs/mdm/profile.mobileconfig", "tests/fixtures/classic-to-next/state.json",
+                     "docs/mdm/profile.mobileconfig",
                      "web/data/model-catalog/models.json", "backend/catalog/ops.json",
                      # A path no rule names is an input.
+                     "backend/server.ts", "web/pages/index.tsx", "cmux-next-ios/App.swift",
                      "NewProduct/Thing.swift"):
             with self.subTest(name=name):
                 self.assertTrue(self.changes(name), f"{name} must change the key")
@@ -116,7 +117,7 @@ class ProductKey(unittest.TestCase):
         for name in ("Packages/macOS/CmuxNext/Tests/AppTests/AppTests.swift",
                      "Packages/Shared/Core/Tests/CoreTests/CoreTests.swift", "scripts/cmux-next/tests/compile.test.sh",
                      "docs/guide.md", "plans/cmux-next/shell.md", "tests/test_something.py",
-                     ".github/workflows/other.yml", "backend/server.ts", "web/pages/index.tsx", "cmux-next-ios/App.swift"):
+                     ".github/workflows/other.yml", "ios/App.swift"):
             with self.subTest(name=name):
                 self.assertFalse(self.changes(name), f"{name} must not change the key")
 
@@ -145,7 +146,9 @@ class RealTree(unittest.TestCase):
         inputs = self.inputs()
         for path in ("cmux.xcodeproj/project.pbxproj", "THIRD_PARTY_LICENSES.md", "LICENSE", "Resources",
                      "Packages/macOS/CmuxNext/Sources", "Packages/macOS/CmuxNext/Package.swift",
-                     "Packages/macOS/CmuxNext/Package.resolved", "cmux-tui", "webviews", "scripts/cmux-next",
+                     "Packages/macOS/CmuxNext/Package.resolved", "cmux-tui", "webviews",
+                     "scripts/cmux-next/bundle-cli-resources.sh", "scripts/cmux-next/check-cmux-scheme-compile.sh",
+                     "backend/catalog/cloud-relay-operations.json", "cmux-next-ios/rust", "tests/fixtures/classic-to-next",
                      "scripts/build-diff-sidecar.sh", "Native", "vendor", "ghostty", ".github/workflows/cmux-next.yml",
                      "skills"):
             with self.subTest(path=path):
@@ -170,6 +173,24 @@ class RealTree(unittest.TestCase):
                 if re.search(r'path:\s*"Tests[/"]', match.group(3)):
                     found.add(match.group(2))
         self.assertLessEqual(found, test_support, f"package targets under Tests/: {sorted(found - test_support)}")
+
+    def test_every_tracked_path_a_build_script_names_is_an_input(self):
+        # The Xcode build phases and the compile step's scripts copy files into the app
+        # (bundle-cli-resources.sh's backend catalogs). Any tracked path one of them names outside a
+        # comment must be keyed, or a change to it would reuse a stale app.
+        scripts = [ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh", ROOT / "scripts/build-diff-sidecar.sh"]
+        scripts += sorted(ROOT.glob("scripts/cmux-next/bundle-*.sh")) + sorted(ROOT.glob("scripts/cmux-next/embed-*.sh"))
+        scripts += sorted(ROOT.glob("scripts/cmux-next/build-*.sh"))
+        tracked = set(subprocess.run(["git", "-C", str(ROOT), "ls-files"], check=True, capture_output=True,
+                                     text=True).stdout.splitlines())
+        inputs = self.inputs()
+        for script in scripts:
+            for line in script.read_text().splitlines():
+                code = line.split("#", 1)[0] if not line.lstrip().startswith("#") else ""
+                for path in re.findall(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+", code):
+                    if path in tracked:
+                        with self.subTest(script=script.name, path=path):
+                            self.assertTrue(self.covered(inputs, path), f"{script.name} names {path}, not keyed")
 
 
 
