@@ -219,7 +219,9 @@ if [[ "$status" -ne 65 ]]; then
 fi
 # One section per failed phase: header line through its annotation.
 phase_report() {
-  awk -v want="$1" '/^--- failed run script phase:/ { show = index($0, want) > 0 } show { print } /^::error::run script phase failed:/ { show = 0 }' "$TMP_DIR/phase.log"
+  # ENVIRON, not -v: awk -v reads escapes, so gawk and BSD awk turn the "\ " of
+  # an escaped phase name into a plain space.
+  WANT="$1" awk '/^--- failed run script phase:/ { show = index($0, ENVIRON["WANT"]) > 0 } show { print } /^::error::run script phase failed:/ { show = 0 }' "$TMP_DIR/phase.log"
 }
 cef_section="$(phase_report 'Embed\ CEF')"
 tui_section="$(phase_report 'Bundle\ cmux-tui')"
