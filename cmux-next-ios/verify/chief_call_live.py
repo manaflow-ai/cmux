@@ -259,7 +259,7 @@ def phase_real401(sim, app, run):
     sim.shot("14-remove-confirm")
     # Two buttons read Remove Key: the row, and the dialog's (a popover above the row on iOS 26).
     row = sim.find(ident="settings.chiefCalls.remove")
-    buttons = [e for e in sim.find(label="Remove Key") if not row or abs(e.frame[1] - row[0].frame[1]) > 4]
+    buttons = [e for e in sim.find(label="Remove Key", kind="Button") if not row or abs(e.frame[1] - row[0].frame[1]) > 4]
     if buttons:
         sim.tap_el(buttons[0])
     field = sim.wait(timeout=8, ident="settings.chiefCalls.keyField")
@@ -362,7 +362,8 @@ def phase_hold(sim, app, run):
     if draft:
         sim.tap_el(draft)
         time.sleep(1)
-        sim.softtype("Also open a PR when they pass")
+        # AXe's text input (a hardware keyboard to iOS): the soft keyboard may open on its number layout.
+        sh("axe", "type", "Also open a PR when they pass", "--udid", sim.udid, check=False)
         sim.shot("33-typing")
         tap_any(sim, idents=("chief.call.sendDraft",), labels=("Send",))
     got = None
