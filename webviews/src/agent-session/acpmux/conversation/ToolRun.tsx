@@ -1,7 +1,6 @@
 // A settled run of tool calls: one summary line ("Read 6 files, ran 4 commands", and "1 failed"
-// when a call failed) that opens to the calls themselves, in a list that scrolls past nine rows.
-// Scrolled, the list's top fades out under the summary line (useScrollEdges, conversation.css
-// .cv-tool-run).
+// when a call failed) that opens to the calls themselves. The rows grow with the transcript's one
+// vertical scroll surface; opened command/output bodies keep their own horizontal overflow.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
