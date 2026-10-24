@@ -318,7 +318,10 @@ function PendingQuestion({
       if (step.state.activeItem === next.activeItem) break;
       next = step.state;
     }
-    setStored(next);
+    flushSync(() => setStored(next));
+    // The keyboard goes to that question's rows, so its arrows and Return answer it (the card
+    // leaves both keys to a focused tab button).
+    group.current?.querySelector<HTMLElement>(`[data-row="${highlightedRow(next)}"]`)?.focus();
   };
 
   if (!item) return null;
