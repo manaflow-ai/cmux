@@ -37,9 +37,12 @@ Create-on-the-key guard (red before the fix, green after), light and STRESS:
 `--commands` picks the commands (default all but new_column, which PL-motion-core owns); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
-Each phase records the host's 1-minute load before it starts (`load_avg`): an `idle` phase on a
-loaded host is not idle. A phase whose bench terminal is lost ends there and is listed in `aborts`
-(a budget run fails, the other phases still run), and the JSON is written after every phase. The
+Each phase records the host's 1-minute load before it starts (`load_avg`). A phase that adds no
+load of its own (`idle`) is not idle when that load is at or above the host's core count (every core
+already has a runnable process): it is listed in `invalid` and its summary says so, and a budget run
+reports BUDGET INVALID for it (exit 1) instead of judging its numbers. A phase whose bench terminal
+is lost ends there and is listed in `aborts` (a budget run fails, the other phases still run), and
+the JSON is written after every phase. The
 tag's daemon session is stopped before the launch, so a reused tag starts from a fresh session.
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
@@ -81,6 +84,8 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
 LAUNCHED, LOAD = [], []
 # Phases a lost bench terminal ended early (the rest of the run goes on; a budget run fails).
 ABORTS = []
+# Phases that add no load but started with the host's 1-minute load at or above its core count.
+INVALID = []
 COMMANDS = [c for c in opts.commands.split(",") if c]
 
 
@@ -262,7 +267,7 @@ def summary(rows):
             sel = [r for r in rows if r["phase"] == phase and r.get("command") == command]
             vis = [r.get("visible_ms") for r in sel]
             out[f"{phase}/{command}"] = {
-                "n": len(sel), "missed": sum(v is None for v in vis),
+                "n": len(sel), "missed": sum(v is None for v in vis), "invalid": phase in INVALID,
                 "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_p95": pct([r.get("key_ms") for r in sel], .95),
                 "key_max": pct([r.get("key_ms") for r in sel], 1),
                 "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
@@ -401,7 +406,7 @@ def main():
         """The JSON so far: after each phase (`partial`), so a run that dies keeps every phase it ran."""
         result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "partial": not final,
                   "workspaces_at_launch": start_workspaces,
-                  "aborts": ABORTS, "load_avg": loads, "stress_session": stress, "summary": summary(rows), "runs": rows}
+                  "aborts": ABORTS, "invalid": INVALID, "load_avg": loads, "stress_session": stress, "summary": summary(rows), "runs": rows}
         if opts.json:
             open(opts.json, "w").write(json.dumps(result, indent=1))
         return result
@@ -416,10 +421,15 @@ def main():
                 suffix += f"@{grow_workspaces(count)}ws"
             for phase in opts.phases.split(","):
                 # Measurement validity: the host's 1-minute load before the phase (and before its
-                # own load starts). An `idle` phase on a host whose load is near its core count is
-                # not idle; the number says so next to the rows.
+                # own load starts). A phase that adds no load, started with a runnable process on
+                # every core already, measures that host's other work, not an idle create.
+                cores = os.cpu_count() or 1
                 loads[phase + suffix] = round(os.getloadavg()[0], 1)
-                print(f"phase {phase + suffix}: host load {loads[phase + suffix]} on {os.cpu_count()} cores", flush=True)
+                print(f"phase {phase + suffix}: host load {loads[phase + suffix]} on {cores} cores", flush=True)
+                if phase != "load" and loads[phase + suffix] >= cores:
+                    INVALID.append(phase + suffix)
+                    print(f"INVALID {phase + suffix}: host load {loads[phase + suffix]} >= {cores} cores before a phase "
+                          "that adds no load", flush=True)
                 if phase == "load":
                     start_load()
                 try:
@@ -431,19 +441,27 @@ def main():
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     if ABORTS:
         print("ABORTS", ", ".join(ABORTS), flush=True)
+    if INVALID:
+        print("INVALID", ", ".join(f"{p} (load {loads[p]})" for p in INVALID), flush=True)
     if server:
         server.shutdown()
     if opts.budget_frames or opts.budget_key_p95_ms:
-        bad = [k for k, v in result["summary"].items()
-               if v["missed"] or (opts.budget_frames and (v["frames_p95"] or 99) > opts.budget_frames)
+        # An invalid phase's numbers are neither a pass nor a fail: it is reported INVALID below.
+        bad = [k for k, v in result["summary"].items() if not v["invalid"] and (
+               v["missed"] or (opts.budget_frames and (v["frames_p95"] or 99) > opts.budget_frames)
                or (opts.budget_frames and (v["key_max"] or 0) > opts.budget_key_ms)
-               or (opts.budget_key_p95_ms and (v["key_p95"] or 99) > opts.budget_key_p95_ms)]
+               or (opts.budget_key_p95_ms and (v["key_p95"] or 99) > opts.budget_key_p95_ms))]
         bad += [f"aborted {where}" for where in ABORTS]
         for k, v in result["summary"].items():
-            print(f"BUDGET {k}: key p50/p95/max {v['key_p50']}/{v['key_p95']}/{v['key_max']} ms, "
+            print(f"BUDGET {k}{' INVALID' if v['invalid'] else ''}: key p50/p95/max {v['key_p50']}/{v['key_p95']}/{v['key_max']} ms, "
                   f"frame p95 {v['frames_p95']}, missed {v['missed']}", flush=True)
-        print("BUDGET", "FAIL " + ", ".join(bad) if bad else "PASS", flush=True)
-        return not bad
+        if bad:
+            print("BUDGET FAIL " + ", ".join(bad), flush=True)
+        if INVALID:
+            print("BUDGET INVALID " + ", ".join(f"{p} (host load {loads[p]} on {os.cpu_count()} cores)" for p in INVALID), flush=True)
+        if not bad and not INVALID:
+            print("BUDGET PASS", flush=True)
+        return not bad and not INVALID
     return not ABORTS
 
 
