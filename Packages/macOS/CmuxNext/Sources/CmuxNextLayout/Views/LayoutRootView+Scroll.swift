@@ -93,7 +93,10 @@ extension LayoutRootView: ScrollGestureOwning {
     /// at `location` (that window's coordinates). Apart from ``handleMonitored(_:)`` so tests can
     /// send an event from a page or catcher window, which a synthesized event cannot carry.
     /// Returns the event when it goes on, nil when the layout consumed it.
-    func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
+    ///
+    /// The entry point for synthetic scrolls (`debug.mouse`, benches): it must stay behavior-equal to the
+    /// monitor path, which calls it for every real scroll.
+    public func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
         guard let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window) else { return event }
         return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
     }
