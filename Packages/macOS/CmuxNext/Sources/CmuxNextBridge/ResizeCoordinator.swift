@@ -57,11 +57,40 @@ public final class ResizeCoordinator {
         frames.activate()
     }
 
+    /// Sends the grid a terminal will have when its pane's layout spring lands, now, in the caller's
+    /// turn (Lawrence 2026-10-23: Cmd-D and Cmd-W resize the program in the terminal at the start of
+    /// the spring, not after it). A split's or close's hold (``setHeld(_:by:)``) does not delay it. The
+    /// one-in-flight rule still applies: while the terminal's last grid has not echoed, this grid waits
+    /// as the newest one and goes the frame the echo comes, as does a grid submitted during a full
+    /// screen transition, at its end.
+    ///
+    /// - Parameters:
+    ///   - io: The terminal's PTY owner.
+    ///   - size: The final grid.
+    public func submitFinal(_ io: any ResizeTarget, size: CellSize) {
+        let key = ObjectIdentifier(io)
+        guard holds() || io.awaitsEcho else {
+            settle.cancel(key)
+            targets[key] = nil
+            waited[key] = nil
+            finals.remove(key)
+            Self.sent &+= 1
+            io.applySettled(size)
+            return
+        }
+        finals.insert(key)
+        submit(io, size: size)
+    }
+
+    /// Terminals whose pending size is a final grid (``submitFinal(_:size:)``): a hold does not keep it.
+    private var finals: Set<ObjectIdentifier> = []
+
     public func cancel(_ io: any ResizeTarget) {
         let key = ObjectIdentifier(io)
         settle.cancel(key)
         targets[key] = nil
         waited[key] = nil
+        finals.remove(key)
     }
 
     /// Holds (or lets go of) every terminal's grid for `holder`: while any holder holds, sizes
@@ -89,19 +118,23 @@ public final class ResizeCoordinator {
     public func tick() -> Bool {
         // Held sizes keep waiting; the frames keep running until it ends.
         if holds() { return !settle.isIdle }
-        guard !isHeld else { return false }
-        for (key, size) in settle.tick() {
+        let held = isHeld
+        guard !held || !finals.isEmpty else { return false }
+        let waiting = held ? Set(targets.keys).subtracting(finals) : []
+        for (key, size) in settle.tick(held: waiting) {
             if targets[key]?.awaitsEcho == true, waited[key, default: 0] < Self.echoWaitFrames {
                 waited[key, default: 0] += 1
                 settle.submit(key, size: size)
                 continue
             }
             waited[key] = nil
+            finals.remove(key)
             guard let target = targets.removeValue(forKey: key) else { continue }
             Self.sent &+= 1
             target.applySettled(size)
         }
-        return !settle.isIdle
+        // Held, the frames run only while a final grid waits for its echo.
+        return held ? !finals.isEmpty : !settle.isIdle
     }
 }
 

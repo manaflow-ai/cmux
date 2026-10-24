@@ -39,6 +39,25 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
+    /// Reports the grid the pane's layout spring will land at, now (``TerminalGridPolicy/finalSized(_:)``),
+    /// unless the owner already has it.
+    func reportFinalGrid(_ grid: TerminalGridSize) {
+        defer { updateReflowPreview() }
+        guard let surface, let report = geometry.finalSized(grid) else { return }
+        Self.gridReports &+= 1
+        let size = ghostty_surface_size(surface)
+        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
+                                          paddingWidth: 0, paddingHeight: 0)
+        let cells = metrics.cellPixels(of: report)
+        session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height, final: true)
+    }
+
+    /// The pane's layout spring landed: the final grid no longer stands in for the view's.
+    func endPaneMotion() {
+        geometry.motionLanded()
+        if isHeldGridPending { updateSurfaceSize() } else { updateReflowPreview() }
+    }
+
     /// Whether this view reports its grid to the PTY owner. Followers only
     /// render the announced grid (shell.md 2.3).
     var ownsGeometry: Bool {
@@ -312,7 +331,8 @@ public final class TerminalSurfaceView: NSView {
     /// `reporting`: this call reports a new grid to the owner.
     func updateReflowPreview(reporting: Bool = false) {
         guard let surface else { return }
-        let enabled = geometry.ownsGeometry && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
+        let enabled = geometry.ownsGeometry && geometry.previewsViewGrid
+            && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
         guard enabled != reflowPreview else { return }
         reflowPreview = enabled
         ghostty_surface_set_reflow_preview(surface, enabled)

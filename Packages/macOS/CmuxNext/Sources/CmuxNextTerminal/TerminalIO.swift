@@ -26,6 +26,13 @@ public nonisolated protocol TerminalIO: Sendable {
     /// fitting the view).
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async
 
+    /// Requests this view's grid on the main actor, in the caller's turn, instead of through the
+    /// ordered ``resize(cols:rows:pixelWidth:pixelHeight:)``. `final`: the grid the view will have
+    /// when its pane's layout spring lands, sent at the spring's start (a split or a close resizes
+    /// the program in the terminal before the motion ends). Returns false when the IO has no
+    /// main-actor path; the session then sends `resize` in order.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool) -> Bool
+
     /// True when the owner keeps its own VT state and answers terminal
     /// queries (DA, DSR, OSC color queries). The cmux-tui daemon does, so the
     /// surface runs in `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` and Ghostty's parser
@@ -65,6 +72,7 @@ public nonisolated protocol TerminalIO: Sendable {
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
