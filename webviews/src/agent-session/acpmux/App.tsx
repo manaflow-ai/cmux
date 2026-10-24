@@ -65,6 +65,7 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { configurationSessionMatches, resolveEffortOption } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -479,7 +480,7 @@ declare global {
         layout?: Record<string, unknown>;
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
-      command?(name: string): void;
+      command?(name: string, sessionId?: string): void;
       /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
       /// since a script it runs here is no gesture the page's clipboard accepts.
       lastCodeBlock?(): string | null;
@@ -6123,7 +6124,7 @@ function AcpmuxPane() {
           return null;
         }
       },
-      command(name) {
+      command(name, sessionId) {
         // Native palette rows carry the session id that was focused when the action was queued.
         // Handle them after the current render has installed its row callbacks; the listener below
         // drops a command whose page has since switched to another session.
@@ -6132,6 +6133,14 @@ function AcpmuxPane() {
           return;
         }
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Stop Agent Turn (the native command palette): the composer owns the guarded cancel
+        // callback, so a palette invocation cannot race a session switch with a stale client.
+        if (name === "stopTurn") {
+          // The page may hold chat A's last snapshot while the live client has already selected B.
+          // Recheck the live selection before dispatching so A's command cannot cancel B.
+          if (directClient.current?.selectedSession !== sessionId) return;
+          window.dispatchEvent(new CustomEvent("cmux-acpmux-stopTurn", { detail: { sessionId } }));
+        }
         // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
         if (name === "sideQuestion" && opensSideSessionsRef.current) composerHandle.current?.prefill("/btw ");
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
@@ -6683,23 +6692,36 @@ function AcpmuxPane() {
           "chat.permission_groups.refresh": () => client.permissions.refresh(),
           // A model, mode or effort picked while a harness starts waits for its session; a model
           // picked in a live session draws at once (harnessSwitch.ts).
-          "chat.model": ({ modelId }) => {
+          "chat.model": ({ modelId, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
+            if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              throw new Error("the agent chat session changed");
             return harnessSwitch.pickModel(
               String(modelId),
               summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined,
             );
           },
-          "chat.mode": async ({ modeId }) => {
+          "chat.mode": async ({ modeId, expectedSessionId }) => {
+            const sessionId = snapshotRef.current?.summary?.sessionId;
+            if (!configurationSessionMatches(expectedSessionId, sessionId))
+              throw new Error("the agent chat session changed");
             if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
           },
-          "chat.effort": async ({ configId, value }) => {
+          "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
-            const current = summary?.configOptions?.find((option) => option.id === String(configId))?.currentValue;
+            if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              throw new Error("the agent chat session changed");
+            const requested = typeof value === "string" && value ? value : String(effort ?? "");
+            const resolved = resolveEffortOption(
+              summary?.configOptions,
+              typeof configId === "string" ? configId : undefined,
+            );
+            if (!resolved || !requested) throw new Error("the session offers no effort option");
+            const current = resolved.currentValue;
             if (
               !harnessSwitch.pickConfig(
-                String(configId),
-                String(value),
+                resolved.id,
+                requested,
                 summary?.sessionId
                   ? {
                       sessionId: summary.sessionId,
@@ -6708,7 +6730,7 @@ function AcpmuxPane() {
                   : undefined,
               )
             )
-              await client.setConfig(String(configId), String(value));
+              await client.setConfig(resolved.id, requested);
           },
           // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
           // page is read now, so the switch draws it from memory (direct.ts `prefetch`).

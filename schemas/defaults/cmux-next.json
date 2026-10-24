@@ -472,7 +472,7 @@
     "setting.focus.inactiveTabStyle": "fade",
     "setting.focusRing.color": null,
     "setting.focusRing.contrast": "subtle",
-    "setting.focusRing.enabled": true,
+    "setting.focusRing.enabled": false,
     "setting.focusRing.showWhenSinglePane": false,
     "setting.focusRing.style": "ring",
     "setting.focusRing.width": 1,

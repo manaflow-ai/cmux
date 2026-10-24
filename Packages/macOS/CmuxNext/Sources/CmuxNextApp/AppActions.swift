@@ -104,6 +104,7 @@ enum AppActions {
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         AccountsHandlers.bind(into: registry, context: context)
