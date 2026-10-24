@@ -258,6 +258,12 @@ impl HolderClient {
         self.send(Kind::Close, chan, &Out::default().u32(grace_ms).0, None)
     }
 
+    /// Ask for an [`Event::Pong`] with `nonce`. The holder handles frames in
+    /// order, so the PONG shows it finished every request sent before.
+    pub fn ping(&mut self, nonce: u64) -> io::Result<()> {
+        self.send(Kind::Ping, 0, &Out::default().u64(nonce).0, None)
+    }
+
     /// The next event, waiting at most until `deadline`.
     pub fn next_event(&mut self, deadline: Instant) -> io::Result<Event> {
         if let Some(event) = self.pending.pop_front() {
