@@ -19,16 +19,23 @@ import os
 /// entry as soon as an event finds one it can open (someone else's link or file
 /// put at the path, a link restored by another path). On each event it runs
 /// one `lstat` on `queue` and calls `onMissing` only when nothing is at the
-/// path; a path that exists is left alone, whoever owns it.
+/// path (or, for a yielding watch, when the listener that held it ended; see
+/// below); a path that exists is otherwise left alone, whoever owns it.
 ///
 /// A directory watch on a shared directory (/tmp) wakes on every write there by
 /// any process. It is kept only where it is the point: this app's own socket at
 /// a socket-path override in /tmp (the hq#1870 cleaner case), logged once so
 /// idle measurements can see it. A watch made with `yieldsToHeldPath` (the /tmp
-/// compatibility link) watches nothing while an entry it cannot follow holds
-/// the path in a shared directory (another app's live socket, such as a classic
-/// cmux build of the same channel or tag): the link cannot be made while that
-/// entry is there, so the link is dropped for this run and logged once.
+/// compatibility link) does not watch the shared directory while another app's
+/// live socket holds the path (a classic cmux build of the same channel or tag):
+/// the link cannot be made while that socket is there, and it goes when its
+/// listener ends. So the watch follows the listener's process (its pid from the
+/// socket, `LOCAL_PEERPID`; one kevent at its exit, nothing before): at the exit
+/// `onMissing` runs whether the socket file went or was left behind stale (the
+/// link's restore replaces a stale socket of this user), and the watch follows
+/// whatever is at the path then. A held path with no listener to follow (a
+/// stale socket of another user, which nothing here may remove) keeps the
+/// directory watch, logged once.
 ///
 /// Every watch is made and swapped on `queue`, the queue its events run on, so
 /// an event never sees a half-installed watch and no older watch replaces a
@@ -47,11 +54,13 @@ final class ControlSocketPathWatch: Sendable {
     let path: String
     private let queue: DispatchQueue
     private let onMissing: @Sendable () -> Bool
-    /// Watch nothing while a foreign entry holds the path in a shared directory.
+    /// Follow the listener of a foreign live socket that holds the path in a shared directory,
+    /// not the directory.
     private let yieldsToHeldPath: Bool
     // Lock carve-out: stop() runs off `queue` and must cancel the installed watch synchronously
-    // (deinit); held only to swap one reference.
-    private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    // (deinit); held only to swap one reference. A file system source, or the process source of a
+    // holder's listener.
+    private let source = Mutex<(any DispatchSourceProtocol)?>(nil)
     // Lock carve-out: read and written synchronously by checkPath on `queue` and by the retry
     // timer's handler; a tiny struct, never held across a call out.
     private let failures = Mutex(Failures())
@@ -107,8 +116,9 @@ final class ControlSocketPathWatch: Sendable {
     private let loggedSharedDirectory = Atomic<Bool>(false)
 
     /// On `queue`: watches the entry at the path, or its directory when the entry cannot be
-    /// opened (a socket file, nothing there); replaces the watch in place. `entryOnly`: keep
-    /// the current watch unless the entry can be followed now.
+    /// opened (a socket file, nothing there), or for a yielding watch the listener of a live
+    /// socket that holds the path; replaces the watch in place. `entryOnly`: keep the current
+    /// watch unless the entry can be followed now.
     private func watch(entryOnly: Bool = false) {
         dispatchPrecondition(condition: .onQueue(queue))
         let entry = open(path, O_EVTONLY | O_SYMLINK)
@@ -120,11 +130,11 @@ final class ControlSocketPathWatch: Sendable {
         } else {
             let parent = (path as NSString).deletingLastPathComponent
             let shared = Self.isShared(parent.isEmpty ? "." : parent)
-            if shared, yieldsToHeldPath, Self.exists(path) {
-                // Another entry (a live socket) holds the path: nothing can be made there while it
-                // does, and watching /tmp would wake on every write by any process.
-                dropWatch()
-                noteOnce("socket path watch off for \(self.path): another entry holds the path in \(parent); the link is not made this run")
+            if shared, yieldsToHeldPath, Self.exists(path),
+               case .accepted(let listener?) = ControlSocketServer.probe(path) {
+                // Another app's live socket holds the path: nothing can be made there until its
+                // listener ends, and watching /tmp would wake on every write by any process.
+                watchHolder(listener, parent: parent)
                 return
             }
             descriptor = open(parent.isEmpty ? "." : parent, O_EVTONLY)
@@ -141,6 +151,25 @@ final class ControlSocketPathWatch: Sendable {
         // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
         watch.setEventHandler { [weak self] in self?.changed(followingEntry: followsEntry) }
         watch.setCancelHandler { close(descriptor) }
+        install(watch)
+    }
+
+    /// On `queue`: follows the process `listener`, whose live socket holds the path; its exit
+    /// is the one event that can free the path.
+    private func watchHolder(_ listener: pid_t, parent: String) {
+        let watch = DispatchSource.makeProcessSource(identifier: listener, eventMask: .exit, queue: queue)
+        // wakeup-allow: one kevent when the holder's listener exits, no timer
+        watch.setEventHandler { [weak self] in self?.holderEnded() }
+        guard install(watch) else { return }
+        noteOnce("socket path watch for \(path) follows pid \(listener), whose live socket holds the path in \(parent); the link is made when it ends")
+        // Ended before the source was armed: no event will say so.
+        if kill(listener, 0) != 0, errno == ESRCH { holderEnded() }
+    }
+
+    /// On `queue`: resumes `watch` and makes it the installed one, cancelling the one before;
+    /// false (and `watch` cancelled) once stopped.
+    @discardableResult
+    private func install(_ watch: any DispatchSourceProtocol) -> Bool {
         // Resumed before it is published (an inactive source must never be cancelled or
         // released); its events run on `queue`, after this install.
         watch.resume()
@@ -151,14 +180,23 @@ final class ControlSocketPathWatch: Sendable {
             return true
         }
         if !installed { watch.cancel() }
+        return installed
     }
 
-    /// On `queue`: cancels the current watch and watches nothing.
-    private func dropWatch() {
-        source.withLock { current in
-            current?.cancel()
-            current = nil
+    /// On `queue`: the listener whose socket held the path ended. Its socket file is gone, or
+    /// left behind stale: either way the restore takes the path now (the link's replaces a
+    /// stale socket of this user and leaves anything else), then the watch follows whatever is
+    /// at the path.
+    private func holderEnded() {
+        guard !stopped.load(ordering: .sequentiallyConsistent) else { return }
+        if Self.exists(path) {
+            // Whether it took the path needs no handling here: the watch() below follows what
+            // the path holds now.
+            _ = onMissing()
+        } else {
+            checkPath()
         }
+        watch()
     }
 
     /// An event on `queue`. The entry a watch follows was deleted, renamed or revoked: whatever
@@ -169,7 +207,7 @@ final class ControlSocketPathWatch: Sendable {
         if followingEntry || restored {
             watch()
         } else if !stopped.load(ordering: .sequentiallyConsistent), Self.exists(path) {
-            // An entry it cannot follow is there now: a yielding watch lets go of the directory.
+            // An entry it cannot follow is there now: a yielding watch moves to its listener.
             watch(entryOnly: !yieldsToHeldPath)
         }
     }

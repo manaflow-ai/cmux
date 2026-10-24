@@ -123,7 +123,8 @@ import Testing
     /// A classic cmux of the same channel or tag holds the /tmp compatibility link's path with its
     /// live socket: the link cannot be made, a socket cannot be opened, and the watch fell back to
     /// /tmp, waking (one lstat, one failed open) on every write there by any process while both
-    /// apps ran. The link's watch now yields: it watches nothing while that socket is there.
+    /// apps ran. The link's watch now yields: while that socket is there it follows only the
+    /// socket's listener (here this test process), never /tmp.
     @Test func aLinkPathHeldByAnotherLiveSocketWatchesNothingInTmp() async throws {
         let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
         let descriptor = try liveSocket(at: path)

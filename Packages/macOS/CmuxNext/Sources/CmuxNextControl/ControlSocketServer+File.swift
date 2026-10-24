@@ -156,7 +156,8 @@ extension ControlSocketServer {
     }
 
     enum ProbeResult: Equatable {
-        case accepted
+        /// A process listens; `listener` is its pid (`LOCAL_PEERPID`), nil when the socket does not say.
+        case accepted(listener: pid_t?)
         /// `ECONNREFUSED`: no process listens; the file is stale.
         case refused
         case inconclusive(Int32)
@@ -184,7 +185,12 @@ extension ControlSocketServer {
                 connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        if result == 0 { return .accepted }
+        if result == 0 {
+            var pid: pid_t = 0
+            var size = socklen_t(MemoryLayout<pid_t>.size)
+            let known = getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 0
+            return .accepted(listener: known ? pid : nil)
+        }
         let code = errno
         // EAGAIN (full backlog) is inconclusive: a live listener is busy.
         return code == ECONNREFUSED ? .refused : .inconclusive(code)
