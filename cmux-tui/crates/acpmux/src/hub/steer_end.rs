@@ -127,6 +127,10 @@ impl Hub {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
             .remove(&prompt_id);
+        // In the turn now: a turn on lane reports does more than take them in (`lane_reports.rs`).
+        if answer.is_ok() {
+            self.lane_turn_steered(session, opts.provenance.as_ref());
+        }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
