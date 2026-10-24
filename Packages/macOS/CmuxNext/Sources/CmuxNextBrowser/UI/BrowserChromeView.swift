@@ -91,6 +91,9 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
+    /// bar, and a new prompt does not re-run the rest of the chrome.
+    private var promptObservation: ObservationLoop?
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
     var wakingAddress: BrowserTabState?
@@ -353,6 +356,7 @@ public final class BrowserChromeView: NSView {
 
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
+        promptObservation?.cancel()
         // Another page in this toolbar: the held address was the old page's.
         if let old, old !== tab { wakingAddress = nil }
         siteZoom.follow(tab)
@@ -379,6 +383,10 @@ public final class BrowserChromeView: NSView {
             findBar.isHidden = true
         }
         observation = ObservationLoop { [weak self] in self?.render() }
+        promptObservation = ObservationLoop { [weak self] in
+            self?.renderPrompt()
+            self?.updateOcclusion()
+        }
     }
 
     /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
@@ -405,8 +413,6 @@ public final class BrowserChromeView: NSView {
         progressLine.set(progress: state.progress, visible: loading)
 
         pageStatus.render(state)
-
-        renderPrompt()
 
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
