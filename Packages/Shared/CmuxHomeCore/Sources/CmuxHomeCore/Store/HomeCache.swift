@@ -170,7 +170,10 @@ public actor HomeCache {
         return snapshot
     }
 
-    /// Sorted keys, so equal files hold equal bytes on disk (the change test itself compares values).
+    /// Sorted keys order struct fields and String-keyed dictionaries only. ConversationID is not
+    /// `CodingKeyRepresentable`, so the ConversationID-keyed dictionaries (drafts, scroll,
+    /// draftAttachments) encode as unkeyed `[key, value, ...]` arrays in hash order:
+    /// equal values can give different bytes, and the change test must stay a value compare.
     private static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
