@@ -10,6 +10,11 @@ public final class TabSearchLiveUpdates {
 
     public init() {}
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The follow task
+    // (an OwnedTask) is cancelled on the releasing thread.
+    nonisolated deinit {}
+
     /// Follows `source` for the Search Tabs page of `model`, replacing any
     /// earlier follow.
     public func follow(_ source: any TabSearchSource, in model: PaletteModel) {

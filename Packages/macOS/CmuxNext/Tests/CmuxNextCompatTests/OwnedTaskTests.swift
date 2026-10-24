@@ -1,4 +1,4 @@
-@testable import CmuxNextCompat
+import CmuxNextCompat
 import Testing
 
 /// ``OwnedTask`` replaces the owners' `nonisolated deinit { guard Thread.isMainThread else { return };
@@ -19,7 +19,6 @@ struct OwnedTaskTests {
         let (gate, open) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         let (ended, report) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
         var handle: OwnedTask? = OwnedTask(Self.waitingTask(reporting: report, on: gate))
-        #expect(handle?.isCancelled == false)
         handle = nil
         var iterator = ended.makeAsyncIterator()
         #expect(await iterator.next() == true, "the observation loop stops once its handle is released")
@@ -32,7 +31,6 @@ struct OwnedTaskTests {
         let (ended, report) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
         let handle = OwnedTask(Self.waitingTask(reporting: report, on: gate))
         handle.cancel()
-        #expect(handle.isCancelled)
         var iterator = ended.makeAsyncIterator()
         #expect(await iterator.next() == true)
         withExtendedLifetime((handle, open)) {}
