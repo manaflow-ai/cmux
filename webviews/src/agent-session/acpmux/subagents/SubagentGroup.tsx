@@ -12,6 +12,7 @@ import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
 import { AgentTonesContext } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
+import { waveProps } from "../../../ui/wave";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
@@ -58,25 +59,47 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
 export const SubagentClockContext = createContext(0);
 
 /// The current time on the session's clock (SubagentClockContext), ticking each second only
-/// while `live`, so it counts against the subagents' own start and end times.
+/// while `live`, so it counts against the subagents' own start and end times. A hidden pane's
+/// clock rests (the tray above the composer, a group card and the summary rows tick with it) and
+/// catches up the moment the pane shows again.
 export function useNow(live: boolean): number {
   const offset = useContext(SubagentClockContext);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const tick = () => setNow(Date.now());
+    const sync = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      tick();
+      timer = setInterval(tick, 1000);
+    };
+    sync();
+    if (typeof document === "undefined") return () => clearInterval(timer);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, [live]);
   return now - offset;
 }
 
-function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
+/// A subagent's avatar: the harness's mark in the agent's tone, and its place in the running wave
+/// (ui/wave.ts) when `wave` is set. No status dot on its corner: the row says the state in words
+/// (Leo 2026-10-22: "the bottom right dots in most situations is kinda weird and unnecsesary").
+export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
   const harness = useContext(SubagentHarnessContext);
+  const { className, style } = waveProps(wave);
   return (
-    <span className="cv-subagent-avatar" data-state={agent.state}>
+    <span
+      className={className ? `cv-subagent-avatar ${className}` : "cv-subagent-avatar"}
+      style={style}
+      data-state={agent.state}
+    >
       {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
-      {dot && <span className="cv-subagent-avatar__dot" aria-hidden="true" />}
     </span>
   );
 }
@@ -137,7 +160,7 @@ export function SubagentGroupHeader({
   );
 }
 
-/// One subagent in an open group: its avatar with a status dot, name (in the agent's color,
+/// One subagent in an open group: its avatar, name (in the agent's color,
 /// agentTones.ts), state or current action with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
 /// rows. A click opens its own view; a running one has a stop button beside it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
@@ -157,7 +180,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   );
   const content = (
     <>
-      <Avatar agent={agent} dot />
+      <Avatar agent={agent} />
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">
           {agent.name}
@@ -198,7 +221,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude
 /// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
 /// again.
-function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
   const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
@@ -220,8 +243,9 @@ function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Pr
   );
 }
 
-/// The child view's first line: a "Subagent of" pill naming the agent that spawned it (`text`);
-/// a click goes back to that agent's view, or to the session's own.
+/// The child view's first line: a "Subagent of" pill naming the agent that spawned it (`text`) and
+/// what the subagent was asked to do (its task, Claude's Agent call description), "Subagent of
+/// <chat> · <task>"; a click goes back to that agent's view, or to the session's own.
 export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const open = useContext(SubagentNavContext);
@@ -233,6 +257,14 @@ export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
         <Icon name="agent.session" size={12} />
         <span className="cv-subagent-of__label">{t("subagents.of")}</span>
         <span className="cv-subagent-of__parent">{row.text}</span>
+        {agent.task ? (
+          <>
+            <span className="cv-subagent-of__dot" aria-hidden="true">
+              ·
+            </span>
+            <span className="cv-subagent-of__task">{agent.task}</span>
+          </>
+        ) : null}
       </button>
     </div>
   );

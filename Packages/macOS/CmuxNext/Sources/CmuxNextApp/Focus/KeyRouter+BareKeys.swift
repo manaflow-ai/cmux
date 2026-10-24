@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextTerminal
 
 // Bare keys (no Command, Control or Option: j, k, G, /, g g) in pages that
 // own them (R59 with hq-48, K1): the diff viewer's vim keys and a user's
@@ -19,8 +20,13 @@ extension KeyRouter {
     /// the page unchanged. Returns whether the key was consumed.
     func routesBareKey(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard Self.isBareKey(event.modifierFlags) else { return false }
+        // Typing into a terminal, a text view or an omnibar is never a bare-key binding: it pays no
+        // window lookup and no facts (every key-down runs this; typing-frame-bench.py).
+        guard let window, !(window.firstResponder is TerminalSurfaceView) else { return false }
         let (controller, kind) = focus(for: window)
-        guard let controller, let window, kind == .content else { return false }
+        guard let controller, kind == .content else { return false }
+        // Only a page whose context bits include ``ActionContext/bareKeyOwners`` owns bare keys.
+        guard let page = focusedPage(in: controller)?.descriptor.id, Self.pageMayOwnBareKeys(page) else { return false }
         let facts = facts(in: window, controller: controller)
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         let context = keyContext(for: controller.focus.state, facts: facts)

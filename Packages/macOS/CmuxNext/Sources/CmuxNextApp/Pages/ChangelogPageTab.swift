@@ -90,13 +90,23 @@ extension PageFactory {
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
         native.anchor = { [weak page] in page }
+        provider.anchor = { [weak page] in page }
         return page
     }
 
-    /// The verified notes (`cmux.changelog.list`, `get`) for the page and the Updated card. A DEV
-    /// build reading the cmux-next nightly notes is not in their list: no current build, so the
-    /// page selects the newest listed one.
+    /// The verified notes (`cmux.changelog.list`, `get`) for the page and the Updated card, and
+    /// their PR chips' card (`pr.inspect`, `browser.list`, `browser.openIn`). A DEV build reading
+    /// the cmux-next nightly notes is not in their list: no current build, so the page selects the
+    /// newest listed one.
     func changelogNotes(media: ReleaseMediaStore? = nil) -> ChangelogPageProvider {
-        ChangelogPageProvider(source: services.updater.changelogNotes, currentBuild: services.updater.changelogReadsDevelopmentNotes ? "" : services.updater.identity.build, media: media)
+        ChangelogPageProvider(
+            source: services.updater.changelogNotes, currentBuild: services.updater.changelogReadsDevelopmentNotes ? "" : services.updater.identity.build,
+            media: media,
+            // `browser.openIn` with cmux's id, as the agent page's card opens a link: LinkOpener.openWeb,
+            // from the pane that shows the page.
+            openLink: { [weak services] url, view in
+                guard let opener = services?.linkOpener else { return false }
+                return opener.openWeb(url, from: view.flatMap(opener.source(containing:)), background: false)
+            })
     }
 }

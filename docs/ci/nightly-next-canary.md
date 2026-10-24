@@ -1,10 +1,10 @@
-# cmux NEXT nightly: canary and rollback
+# cmux NEXT nightly: artifact verification and rollback
 
 cmux NEXT installs update themselves from one Sparkle feed,
 `https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml`. A bad
 nightly reaches every install within one update check. This page covers the
-canary that keeps a bad build off that feed and the command that takes one
-off it.
+advisory static verifier and the manual command that takes a bad build off
+that feed.
 
 ## Pull a bad build
 
@@ -63,82 +63,55 @@ The next nightly's delta lane may list the pulled build as the newest item
 below it, with a delta from it. That's harmless: every Mac on or below the
 pulled build updates to the newer build.
 
-## Canary
+## Artifact verification
 
-The canary launches the signed app and checks:
+The scheduled verifier is static and post-publication. It downloads the exact
+DMG named by the feed, records its SHA-256 receipt, and checks the feed length, stapler tickets,
+Gatekeeper policy, and build number. It does not launch the app, invoke the
+bundled CLI, or mutate the feed. Runtime behavior belongs to the path-routed
+daemon/app integration tests.
 
-1. The app opens a visible window.
-2. `cmux tab new-page` adds a tab to the app's `snapshot.get`.
-3. The app's own acpmux starts a session of acpmux's test agent
-   (`cmux-tui/crates/acpmux/tests/fake_agent.py`), and the agent answers a
-   prompt. No account or network is needed.
-4. The app is still running 60 s after launch, and no `cmux*` or `acpmux*`
-   crash report was written.
-
-It is `scripts/smoke-signed-app-cli.sh <app> --canary`, an extension of the
-signed-app CLI smoke. The checks
-(`scripts/cmux-next/signed-app-canary-checks.py`) use only what a Release
-control socket serves, plus the readiness soak's control and acpmux clients.
-Release builds have no `debug.*` methods, so the canary can't take a pixel
-capture. "Renders" here means the app's own model has the New Tab.
-
-### Before publication (Mac writer)
-
-`nightly.yml`'s `verify-signed-nightly` job runs the canary on the exact signed
-app it then publishes, on a Blacksmith macOS runner. It never runs on a
-person's Mac.
-
-### After publication (either writer)
-
-`nightly-next-canary.yml` runs from main every 15 minutes. For each feed build
-it has not checked yet, it downloads the exact DMG the feed names and checks
-the length the feed gives, the notary tickets, Gatekeeper, and that the app's
-build number matches. Then it runs the canary on the app inside, using the
-harness from the build's own commit (`CMUXCommit`). That covers builds from the
-Linux writer and recovered builds too. A build fails only when it fails two
-attempts in a row. Each build gets one verdict (an Actions cache key per
-build). `workflow_dispatch -f build=N` checks a build again.
-
-On a failure it opens or comments on one `nightly-next canary failed` issue.
-With `enforce` it also dispatches `nightly-next-rollback.yml` with
-`bad_build` set to that build. A pull request that changes the canary runs it
-on the newest feed build with the pull request's harness, and it never pulls
-anything.
+`nightly-next-canary.yml` runs from `main` every 15 minutes. Each feed build is
+checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
+specific build. A scheduled pass is written through
+`nightly-next-verdict.yml` for the existing train and release-ring machinery.
+A failed static check remains a visible failed workflow; rollback remains a
+manual operator action through `nightly-next-rollback.yml`.
 
 ### Switches
 
-Both canaries take their mode from one resolver,
-`scripts/ci/nightly_next_canary_mode.py`, so they always agree. Each run's log
-prints the mode and why.
+`NIGHTLY_NEXT_CANARY=off` disables the advisory artifact monitor. Any other
+accepted value (`report`, `enforce`, `auto`, or unset) keeps the static monitor
+enabled; the former report-week/enforce resolver is retained for compatibility
+and no longer launches code or pulls a build from the feed.
 
-| `NIGHTLY_NEXT_CANARY` | Effect |
+### Release rings: Dev before Nightly
+
+The app's Update Channel setting picks a ring, and each ring accepts its own
+`sparkle:channel` tag and every slower ring's (`UpdateRing.swift`): Dev
+accepts `cmux-next-dev` and `cmux-next`, Nightly and every build from before
+rings accept only `cmux-next`. Sparkle never offers an item whose tag the
+updater does not allow.
+
+Repository variable `NIGHTLY_NEXT_DEV_RING` (`scripts/ci/nightly_next_ring.py`):
+
+| `NIGHTLY_NEXT_DEV_RING` | Effect |
 | --- | --- |
-| `report` | Both canaries run. A failure is an annotation and an issue; the build publishes and stays on the feed. |
-| `enforce` | A pre-publication failure (two attempts) fails `verify-signed-nightly`, so `publish-nightly` publishes nothing. A post-publication failure pulls the build, which starts the fix-forward. |
-| `off` | Skips both. |
-| unset or `auto` (the default) | `report` until `NIGHTLY_NEXT_CANARY_ENFORCE_AFTER`, then `enforce`, if the report week was clean (below). |
-| anything else | Fails the run: a typo never skips or enforces silently. |
+| `on` | A new build is published as `cmux-next-dev`, so only Dev gets it. It moves to `cmux-next` once its durable verdict (`verdicts/<build>.json`, the one the train uses) is `pass`: `nightly-next-verdict.yml` retags the live feed after each verdict, and `republish-nightly-deltas` tags the earlier builds it lists from the same verdicts. A build the artifact verifier failed, skipped or never checked stays on Dev. The old cmux NIGHTLY-identity feed copies only builds already on `cmux-next`. |
+| unset, `off` or anything else | Every item is `cmux-next`, as before rings. The next verdict or publication puts any Dev item back on Nightly. |
 
-The auto flip: `NIGHTLY_NEXT_CANARY_ENFORCE_AFTER` is an ISO date or time in
-UTC, or `never`. Unset, it is the script's `DEFAULT_ENFORCE_AFTER`
-(2026-10-27 16:00 UTC, one week of report mode). From that time on, auto
-enforces only when the post-publication canary failed no build in the 7 days
-before it, read from the `nightly-next canary failed` issue. A failure in
-that week keeps auto in report until someone triages it and sets
-`enforce`, or moves the date. The week is fixed, so the decision never flaps.
-If the issue can't be read, the run stays in report and says so.
+With `on`, Nightly gets nothing new while the artifact verifier passes no build, so turn
+it on only while the verifier passes.
 
 ```bash
-gh variable set NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux --body enforce   # enforce now
-gh variable set NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux --body report    # never flip
-gh variable set NIGHTLY_NEXT_CANARY_ENFORCE_AFTER -R manaflow-ai/cmux --body 2026-11-03   # move the flip
-gh variable delete NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux               # back to auto
+gh variable set NIGHTLY_NEXT_DEV_RING -R manaflow-ai/cmux --body on
+gh variable delete NIGHTLY_NEXT_DEV_RING -R manaflow-ai/cmux   # back to one ring
 ```
 
 ### Fix-forward
 
 A pull stops a bad build spreading but can't move a Mac that already has it.
-So every real pull (not a dry run), from the canary or by hand, runs
+So every real pull (not a dry run), made by an operator, runs
 `nightly-next-rollback.yml`'s `fix-forward` job
 (`scripts/ci/nightly_next_fix_forward.py`). It:
 
@@ -158,8 +131,8 @@ The train (train design, PRs 1 and 2) builds the tip without the suspect;
 the higher build it publishes is what moves every Mac forward.
 
 Before publication, a recovered build (one whose notarization finished in a
-later run) gets only `verify-recovered-nightly-next`'s DMG launch smoke. The
-post-publication canary checks it.
+later run) gets `verify-recovered-nightly-next`'s static DMG check. The
+post-publication artifact verifier checks it.
 
 ## How a cmux NEXT nightly is built and published
 
@@ -168,14 +141,14 @@ post-publication canary checks it.
 | Promote | main's `nightly.yml` `promote-nightly-next` | Moves branch `nightly-next` to a green `feat-cmux-next` head. `cmux-next.yml` requests it after a green push run. |
 | Decide | `nightly.yml` `decide`, on the `nightly-next` push | Reads the holds below and picks the track (`nightly-next`), the `release-next` environment, and the feed. |
 | Build, sign, notarize | `build-nightly-app`, `build-sign-notarize-nightly` | Release build, Developer ID signing, Apple notary. A submission still in Apple's queue leaves a recovery artifact, which a later run (`recover-nightly-next-notarization`) continues. |
-| Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts, the 15 s launch smoke with a crash-report check, the bundled-CLI smoke and the canary; the other job runs the final DMG smoke and the size budget. The tested DMG digests go to publication. |
+| Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts; the other job statically verifies the final DMG bytes and size budget. The verified DMG digests go to publication. |
 | Publish | `publish-nightly` (`release-next`) | Uploads only the tested DMG bytes to the `nightly-next` GitHub release, reads `NIGHTLY_NEXT_WRITER` and `NIGHTLY_NEXT_HOLD` live, runs `nightly-next-guard.py` on every appcast and R2 key, then writes `appcast-arm64.xml` to R2 bucket `cmux-nightly-next` and moves the `nightly-next` tag. |
 | Deltas | `generate-nightly-deltas` | Adds a delta from the previous build and rewrites the feed, unless the live feed already serves a different build. |
 | Old identity | `publish-nightly-identity-legacy` | Re-signs the build as cmux NIGHTLY for installs from before cmux NEXT (`NIGHTLY_NEXT_LEGACY_FEED_BASE`). |
 
 `NIGHTLY_NEXT_WRITER=linux` moves building and publishing to cmuxterm-hq's
 `nightly-next-linux.yml`, which uses the same bucket and guard. A pull works
-the same way for either writer. The pre-publication canary runs only in the
+the same way for either writer. Static artifact verification runs in the
 Mac pipeline.
 
 ## Holds

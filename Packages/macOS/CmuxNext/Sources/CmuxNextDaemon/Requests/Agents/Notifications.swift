@@ -53,7 +53,7 @@ public struct AckTabNotificationsRequest: DaemonRequest {
         }
     }
     public static let command = "ack-tab-notifications"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.notificationAck
+    public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var surface: SurfaceID
     public init(surface: SurfaceID) { self.surface = surface }
 }
@@ -80,7 +80,7 @@ public struct ListNotificationsRequest: DaemonRequest {
         public var notifications: [Entry]
     }
     public static let command = "list-notifications"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.notificationAck
+    public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
     public var limit: Int?
     public init(limit: Int? = nil) { self.limit = limit }
 }

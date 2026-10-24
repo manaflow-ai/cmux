@@ -8,7 +8,7 @@ public struct FeedLocalHandoffBeginRequest: DaemonRequest {
         public var item: FeedLocalItem
     }
     public static let command = "feed-local-handoff-begin"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.feedLocalOwner
+    public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
     public var item: String
     public init(item: String) { self.item = item }
 }
@@ -18,7 +18,7 @@ public struct FeedLocalHandoffBeginRequest: DaemonRequest {
 public struct FeedLocalHandoffDoneRequest: DaemonRequest {
     public typealias Response = FeedLocalHandoffBeginRequest.Response
     public static let command = "feed-local-handoff-done"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.feedLocalOwner
+    public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
     public var item: String
     public var home: String
     public init(item: String, home: String) {

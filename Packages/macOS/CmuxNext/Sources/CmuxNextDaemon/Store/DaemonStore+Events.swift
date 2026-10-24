@@ -32,6 +32,8 @@ extension DaemonStore {
     /// exactly holds the intent's result even when another event of the
     /// batch needs a resync.
     private func applyEvent(_ event: DaemonEvent, sequence: UInt64?, envelope: DaemonEventEnvelope? = nil) -> Followup {
+        // Before it applies: the workspace it names is found while the records still hold it (a close).
+        noteSnapshotTouch(event)
         let followup = applyState(event, envelope: envelope)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
@@ -191,6 +193,8 @@ extension DaemonStore {
 
         case .paneAdded(let delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }
+            // A pending split's pane, seen once: if it closes before a layout places it, the split settles.
+            if !intentLog.isEmpty { intentLog.noteDaemonPane(PaneModel.identity(delta.entity)) }
             if let existing = screen.panes.first(where: { $0.id == PaneModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: screen)

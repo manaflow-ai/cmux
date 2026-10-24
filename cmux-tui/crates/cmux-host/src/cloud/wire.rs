@@ -2,6 +2,7 @@
 //! ones the interim Bun agent (`images/cmux-vm/guest/vm-agent.ts`) used, so
 //! the driver, the bake and the backend see no change.
 
+use crate::json::JsonField;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -182,7 +183,8 @@ impl DaemonInfo {
 /// first 12 characters of the build commit, the Cloud-gated capabilities the
 /// daemon advertises, then the agent's own.
 pub fn daemon_info_from_identify(identify: &Value, activity_sender: bool) -> DaemonInfo {
-    let advertised: Vec<&str> = identify["capabilities"]
+    let advertised: Vec<&str> = identify
+        .field("capabilities")
         .as_array()
         .map(|caps| caps.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
@@ -195,8 +197,9 @@ pub fn daemon_info_from_identify(identify: &Value, activity_sender: bool) -> Dae
     if activity_sender {
         capabilities.push(ACTIVITY_CAPABILITY.to_owned());
     }
-    let version = identify["version"].as_str().filter(|v| !v.is_empty()).unwrap_or("unknown");
-    let build = identify["build_commit"]
+    let version = identify.field("version").as_str().filter(|v| !v.is_empty()).unwrap_or("unknown");
+    let build = identify
+        .field("build_commit")
         .as_str()
         .filter(|b| !b.is_empty())
         .map(|b| format!("+{}", b.chars().take(12).collect::<String>()))
@@ -252,9 +255,9 @@ impl ActivityChange {
     /// agent socket; unknown keys are ignored.
     pub fn from_json(v: &Value) -> ActivityChange {
         ActivityChange {
-            active_sessions: v["active_sessions"].as_u64(),
-            last_user_input_at: v["last_user_input_at"].as_u64(),
-            last_agent_action_at: v["last_agent_action_at"].as_u64(),
+            active_sessions: v.field("active_sessions").as_u64(),
+            last_user_input_at: v.field("last_user_input_at").as_u64(),
+            last_agent_action_at: v.field("last_agent_action_at").as_u64(),
         }
     }
 }
@@ -293,5 +296,5 @@ pub fn check_event(kind: &str, data: &Value) -> Result<(), String> {
 
 /// `retry_after_ms` from an op answer's error details (0 when absent).
 pub fn retry_after_ms(body: &Value) -> u64 {
-    body["error"]["details"]["retry_after_ms"].as_u64().unwrap_or(0)
+    body.field("error").field("details").field("retry_after_ms").as_u64().unwrap_or(0)
 }

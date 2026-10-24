@@ -7,7 +7,7 @@ public import Foundation
 /// (``ChiefBackend/createsOnThisMac``: UniiChat, whose `unii login` lives here, and Codex):
 /// `chief.profile.create` with the name and the engine's `harness` (the record's engine is the
 /// brain's starting engine, cmux-tui chief_brains.rs `record_engine_env`), then the person's
-/// direct message with the new Chief (`conversation-create`), as the home-channels page does.
+/// direct message with the new Chief (`conversation-create`, ``HomeChiefDirectMessages/request(me:chief:name:)``), as the home-channels page does.
 /// Both go on the app's trusted connection to the owner, so the owner takes them as the person's.
 public nonisolated struct HomeLocalChiefCreator: Sendable {
     /// One owner operation (`operation`, `params`, idempotency key) and its raw result.
@@ -68,8 +68,9 @@ public nonisolated struct HomeLocalChiefCreator: Sendable {
         }
         var shown = name
         if case .string(let named)? = record["display_name"], !named.isEmpty { shown = named }
-        let participant = ConversationParticipant(id: chief, kind: .agent, displayName: shown, agentClass: "mux")
-        let request = CreateConversationRequest(idempotencyKey: key + "-dm", title: shown, participants: [me, participant])
+        // The one key of this Chief's direct message: Home opening it for a Chief with no
+        // conversation (a chief-changed event racing this create) replays it, never a second one.
+        let request = HomeChiefDirectMessages.request(me: me, chief: chief, name: shown)
         return Created(chief: chief, conversation: ConversationID(try await open(request)))
     }
 }

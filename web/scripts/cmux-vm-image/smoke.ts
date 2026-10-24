@@ -11,7 +11,8 @@
  * daemon is bound to this instance; daemon identity and SSH host key differ
  * between the clones (machine-id is reported); the idle-wakeup check
  * (devboxIdleWakeupCheckCommand) and idle CPU-s/min; every program in the
- * lock runs from /opt/cmux/current/bin; `cr capabilities --json`; Postgres
+ * lock runs from /opt/cmux/current/bin (`acpmux --version` too: cmux-tui's acpmux name);
+ * `acpmux ls --json` starts and lists the machine's acpmux; `cr capabilities --json`; Postgres
  * binaries present with no cluster; docker.socket active and docker.service
  * inactive; no secret patterns (paths and pattern kinds only); /tmp empty;
  * sshd trusts only the bound CA on loopback (empty CA refuses, throwaway CA
@@ -28,6 +29,7 @@ import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
+import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
@@ -58,13 +60,16 @@ export const SECRET_PATTERNS: ReadonlyArray<{ kind: string; regex: string }> = [
   { kind: "aws-access-key", regex: "AKIA[0-9A-Z]{16}" },
   { kind: "npm-auth", regex: "_authToken=" },
 ];
-const SCAN_ROOTS = "/etc /home /root /var/lib/cmux /usr/local/etc /opt/cmux/profiles";
+const SCAN_ROOTS = "/etc /root /var/lib/cmux /usr/local/etc /opt/cmux/profiles";
 /** Per-clone material the supervisor mints after resume; not image content. */
 const SCAN_EXCLUDES = ["/etc/ssh/ssh_host_", `${DEVBOX_WORK_HOME}/.local/state/`];
 
-export function secretScanCommand(): string {
+/** `skip`: directories under /home left out with their contents (the dev tree, which devTreeCredentialCheckCommand checks instead). */
+export function secretScanCommand(skip: readonly string[] = []): string {
+  const prune = skip.length > 0 ? `\\( ${skip.map((p) => `-path ${sq(p)}`).join(" -o ")} \\) -prune -o ` : "";
+  const homes = (regex: string) => `find /home -mindepth 1 ${prune}-type f -print0 2>/dev/null | xargs -0 -r grep -IlE -e ${sq(regex)} 2>/dev/null`;
   const lines = SECRET_PATTERNS.map(
-    ({ kind, regex }) => `grep -rIlE --exclude-dir=proc -e ${sq(regex)} ${SCAN_ROOTS} 2>/dev/null | sed 's#^#${kind} #'`,
+    ({ kind, regex }) => `{ grep -rIlE --exclude-dir=proc -e ${sq(regex)} ${SCAN_ROOTS} 2>/dev/null; ${homes(regex)}; } | sed 's#^#${kind} #'`,
   );
   const files = "for f in /root/.git-credentials /root/.netrc /root/.npmrc /home/*/.git-credentials /home/*/.netrc /home/*/.npmrc; do [ -s \"$f\" ] && echo \"credential-file $f\"; done";
   const keys = "for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do [ -s \"$f\" ] && echo \"authorized-keys $f\"; done";
@@ -83,6 +88,28 @@ export function programChecksCommand(lock: InputsLock): string {
     }
   }
   return rows.join("; ");
+}
+
+/**
+ * `acpmux ls --json` as the work user from a login shell. The image's `acpmux` is cmux-tui under
+ * another name (argv0 dispatch), so this proves the name reaches acpmux, which starts the
+ * machine's acpmux daemon (agent launches denied: no harness probe on a smoke clone) and lists
+ * its sessions; the daemon is stopped again. Automation agent steps run `acpmux run` this way.
+ */
+export function acpmuxListCommand(): string {
+  const script = "export ACPMUX_AGENT_LAUNCH=deny; acpmux ls --json; rc=$?; acpmux daemon shutdown >/dev/null 2>&1; exit $rc";
+  return `sudo -n -u ${DEVBOX_WORK_USER} -H bash -lc ${sq(script)} </dev/null`;
+}
+
+/** Problems with `acpmuxListCommand`'s answer: it must exit 0 with a JSON session list. */
+export function acpmuxListProblems(code: number, stdout: string, stderr: string): string[] {
+  if (code !== 0) return [`acpmux ls --json: exit ${code}: ${(stderr.trim() || stdout.trim()).slice(-200)}`];
+  try {
+    const listed = JSON.parse(stdout) as { sessions?: unknown };
+    return Array.isArray(listed?.sessions) ? [] : [`acpmux ls --json: no sessions list: ${stdout.trim().slice(0, 200)}`];
+  } catch {
+    return [`acpmux ls --json: not JSON: ${stdout.trim().slice(0, 200)}`];
+  }
 }
 
 export function programProblems(lock: InputsLock, stdout: string): string[] {
@@ -151,7 +178,7 @@ function check(report: Report, name: string, ok: boolean, detail: string): void 
   console.log(`${ok ? "PASS" : "FAIL"} ${name}: ${detail.split("\n").slice(0, 6).join(" | ")}`);
 }
 
-async function measureClone(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, name: string, snapshotId: string): Promise<{ clone: Clone; row: Record<string, number | string> }> {
+export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, name: string, snapshotId: string): Promise<{ clone: Clone; row: Record<string, number | string> }> {
   const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
   const clone = { vm, vmId, name };
   const firstExecMs = await firstExec(vm, t0);
@@ -185,8 +212,12 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   const tmp = await run(vm, `${TMP_LEFTOVERS} ! -newer /etc/cmux/daemon-instance-id | head -20; echo "runtime: $(${TMP_LEFTOVERS} -newer /etc/cmux/daemon-instance-id | tr '\\n' ' ')"`);
   const leftovers = tmp.stdout.trim().split("\n").filter((line) => line && !line.startsWith("runtime:"));
   check(report, "tmp-empty", leftovers.length === 0, tmp.stdout.trim());
-  const secrets = await run(vm, secretScanCommand(), 240_000);
+  // The scan skips the tree's directories only on an image that has the tree; its credential check runs instead.
+  const tree = lock.devTree && (await run(vm, `test -d ${sq(lock.devTree.dir)}`)).code === 0 ? lock.devTree : undefined;
+  const secrets = await run(vm, secretScanCommand(tree ? devTreeUserPaths(tree) : []), 240_000);
   check(report, "no-secrets", secrets.stdout.trim() === "", secrets.stdout.trim() || "no pattern matched");
+  const credentials = await run(vm, tree ? devTreeCredentialCheckCommand(tree) : `${CREDENTIAL_FILES_CHECK} && echo no-credential-files`);
+  check(report, tree ? "dev-tree-no-credentials" : "no-credential-files", credentials.code === 0, credentials.stdout.trim() || credentials.stderr.slice(-300));
   const programs = await run(vm, programChecksCommand(lock), 240_000);
   const problems = programProblems(lock, programs.stdout);
   const ran = programs.stdout.trim().split("\n");
@@ -204,6 +235,9 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   check(report, "postgres-binaries-no-cluster", pg.code === 0, pg.stdout.trim() || pg.stderr.slice(-300));
   const docker = await run(vm, DOCKER_CHECK);
   check(report, "docker-socket-only", docker.code === 0, docker.stdout.trim() || docker.stderr.slice(-300));
+  const acpmux = await run(vm, acpmuxListCommand(), 120_000);
+  const acpmuxProblems = acpmuxListProblems(acpmux.code, acpmux.stdout, acpmux.stderr);
+  check(report, "acpmux-ls", acpmuxProblems.length === 0, acpmuxProblems.join("\n") || `acpmux ls --json from ${CURRENT_BIN}: ${acpmux.stdout.trim().slice(0, 120)}`);
   const env = await run(vm, `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ | grep -E '^PATH=' && test "$(readlink -f ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui)" = "$(readlink -f ${CURRENT_BIN}/cmux-tui)" && echo daemon-from-store`);
   check(report, "daemon-from-store", env.code === 0 && env.stdout.includes(CURRENT_BIN), env.stdout.trim());
 }

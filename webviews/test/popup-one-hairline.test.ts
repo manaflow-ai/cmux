@@ -145,26 +145,63 @@ describe("web popups draw one hairline edge", () => {
   // The popups the coherence passes moved onto the shared elevation; each must still be covered.
   test("the pane's menus and popovers are all checked", () => {
     const selectors = uses.map((use) => use.selector).join("\n");
-    for (const popup of [
-      ".ui-popup.ui-context-menu",
-      ":where(.ui-positioner)>.ui-popup",
-      ".acpmux-context-pop",
-      ".acpmux-menu",
-      ".acpmux-slash-menu",
-      ".acpmux-omni",
-      ".acpmux-mp",
-      ".acpmux-access-menu",
-      ".acpmux-effort-menu",
-      ".acpmux-chat-menu-popover",
-      ".acpmux-pr-status",
-      ".acpmux-summary-card",
-      ".lg-palette",
-      ".acpmux-file-menu-list",
-      ".nt-popover",
-      ".find-pill",
-      ".ui-popup",
-    ]) {
+    for (const popup of [".acpmux-omni", ".acpmux-summary-card", ".lg-palette", ".find-pill"]) {
       expect(selectors).toContain(popup);
     }
+  });
+
+  // The menus and popovers that are liquid glass (.ui-popup.ui-glass): the glass draws their one
+  // edge (--glass-rim-shadow, ui/glass/glass.css: one hairline under plain glass and Reduce
+  // Transparency, the specular rim under the lens) over .ui-popup's --glass-elevation, which must be
+  // the drop alone. None of them may set a box-shadow of its own, which would replace that rim or
+  // draw a second edge.
+  const GLASS_POPUPS = [
+    ".ui-popup",
+    ".ui-context-menu",
+    ".acpmux-menu",
+    ".acpmux-slash-menu",
+    ".acpmux-mp",
+    ".acpmux-access-menu",
+    ".acpmux-effort-menu",
+    ".acpmux-chat-menu-popover",
+    ".acpmux-pr-status",
+    ".nt-popover",
+    ".acpmux-file-menu-list",
+    ".acpmux-needs-you",
+    ".acpmux-agents-list",
+    ".md-link-popover",
+  ];
+  test("a glass popup's elevation is the drop alone, under the glass's one rim", () => {
+    const elevations = css.flatMap(({ text }) =>
+      [...text.matchAll(/(?:^|[;{\s])--glass-elevation\s*:\s*([^;}]+)/g)]
+        .filter((match) => {
+          const open = text.lastIndexOf("{", match.index);
+          const start = Math.max(text.lastIndexOf("}", open), text.lastIndexOf(";", open)) + 1;
+          return text.slice(start, open).trim() === ".ui-popup";
+        })
+        .map((match) => match[1].trim()),
+    );
+    expect(elevations.length).toBeGreaterThan(0);
+    for (const value of elevations)
+      expect({ value, hairlines: hairlines(value).length }).toEqual({ value, hairlines: 0 });
+  });
+  test("no glass popup sets a box-shadow of its own", () => {
+    const own = css.flatMap(({ file, text }) =>
+      [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter((rule) => /(?:^|[;\s])box-shadow\s*:/.test(rule[2]))
+        .flatMap((rule) =>
+          // Top-level selectors (a comma inside :not(...) does not split).
+          layers(rule[1])
+            .map((selector) => selector.trim().replace(/\s+/g, " "))
+            // The popup itself, not a row or control inside it.
+            .filter((selector) =>
+              GLASS_POPUPS.some((popup) =>
+                new RegExp(`${popup.replace(/[.]/g, "\\.")}(?![\\w-])[^\\s>+~()]*$`).test(selector),
+              ),
+            )
+            .map((selector) => `${file}: ${selector}`),
+        ),
+    );
+    expect(own).toEqual([]);
   });
 });

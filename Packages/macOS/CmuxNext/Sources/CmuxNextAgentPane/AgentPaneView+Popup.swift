@@ -27,6 +27,17 @@ extension AgentPaneView {
         }
     }
 
+    /// The page's right-click menu (`ui/ContextMenu.tsx`) as a standard macOS menu at the pointer
+    /// (``WebContextMenu``): `reply` gets `{picked}` once it closes, null when dismissed.
+    static let contextMenuMethod = "contextMenu.show"
+
+    func contextMenu(params: [String: Any], reply: @escaping @MainActor ([String: Any]) -> Void) {
+        guard let menu = WebContextMenu(params) else { return reply(["ok": true, "value": ["picked": NSNull()]]) }
+        menu.present(in: webView, zoom: webView.pageZoom) { picked in
+            reply(["ok": true, "value": ["picked": picked.map { $0 as Any } ?? NSNull()]])
+        }
+    }
+
     private func sendPopupEvent(_ event: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(event),
               let data = try? JSONSerialization.data(withJSONObject: event) else { return }

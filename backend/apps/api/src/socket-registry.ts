@@ -32,7 +32,7 @@ export const registerSocketOwner = (sql: SqlStorage, install: string, agent: str
   )
 }
 
-/** Marks every live owner of a chief's sockets for closing (chief.archive). */
+/** Marks every live owner of a chief's sockets for closing (chief.archive, chief.delete). */
 export const markAgentClosing = (sql: SqlStorage, agent: string, now: number): number => {
   sql.exec(TABLE)
   sql.exec(`DELETE FROM socket_owners WHERE agent = ? AND expires_at <= ?`, agent, now)

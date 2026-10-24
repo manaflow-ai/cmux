@@ -4,7 +4,7 @@
 # Ardia scenarios: terminal only, 1 tab in view, hidden, 20 tabs, 20 tabs
 # hidden, switching tabs, scrolling, video, minimized.
 # Builds a tagged app at this checkout (Release by default, config=Debug for a
-# debug build) and runs scripts/cmux-next/bench_power.py. Run alone:
+# debug build, config=bench for Release optimization with the debug.* commands) and runs scripts/cmux-next/bench_power.py. Run alone:
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-idle-power.sh --ref SHA [--arg=measure=60] [--arg=config=Release]
 #     [--arg=scenarios=terminal,tab1] [--arg=settings={"browser":{...}}]
@@ -55,6 +55,7 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
 fi
 release=()
 [ "$config" = "Release" ] && release=(--release)
+[ "$config" = "bench" ] && release=(--config bench)
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfpower "${release[@]}" > "$work/reload.log" 2>&1 || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-idle-power: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }

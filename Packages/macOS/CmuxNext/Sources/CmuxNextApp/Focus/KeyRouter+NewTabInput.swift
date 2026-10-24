@@ -88,6 +88,21 @@ final class NewTabInputCoordinator {
 
     init(router: KeyRouter) { self.router = router }
 
+    /// Whether a hold's `window` may take the key window to give its field the keys: only from a
+    /// window it owns (its Chromium page window), or when no window is key.
+    static func mayTakeKey(_ window: NSWindow, keyWindow: NSWindow?) -> Bool {
+        guard let keyWindow else { return true }
+        var current: NSWindow? = keyWindow
+        while let candidate = current {
+            if candidate === window { return true }
+            current = candidate.sheetParent ?? candidate.parent
+        }
+        return false
+    }
+
+    /// A New Window hold is waiting: it takes every window's keys until its page shows.
+    var followsNewWindow: Bool { buffers.values.contains { $0.incoming?.followsNewWindow == true } }
+
     /// The last hold events (begin, capture, drain, release and why), for `debug.focus`.
     private(set) var log: [String] = []
     private func note(_ event: String, _ entry: Entry?) {
@@ -107,7 +122,11 @@ final class NewTabInputCoordinator {
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
-            if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
+            // Never from another cmux window the person moved to since Cmd-T: their keys go there.
+            if !window.isKeyWindow, NSApp.isActive {
+                guard Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) else { return false }
+                window.makeKey()
+            }
             // The window refuses a page's web view outside an input event and the focus model's own
             // moves while the model names another pane (AgentPaneView.refusesSelfFocus), and the
             // readiness is neither. A page opened cold in a pane focus had not reached (another
@@ -117,6 +136,11 @@ final class NewTabInputCoordinator {
             if let focus = pane.services.windowController(showing: pane)?.focus, let from = focusedAtOpening, from != pane.paneKey, focus.state.pane == from {
                 focusedAtOpening = nil
                 focus.send(.focusPane(pane.paneKey, source: .programmatic))
+            }
+            // A Chromium page takes the keys in its own window (a child of this one).
+            if view.chromiumPage != nil {
+                view.focusChat()
+                return true
             }
             return window.makeFirstResponder(view.webView)
         }, deliver: deliver(in: window))
@@ -145,6 +169,10 @@ final class NewTabInputCoordinator {
             // A Chromium page window or the old window may be key: the page's window takes it.
             if !shown.isKeyWindow, NSApp.isActive { shown.makeKey() }
             target.pageWindow = shown
+            if view.chromiumPage != nil {
+                view.focusChat()
+                return true
+            }
             return shown.makeFirstResponder(view.webView)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
@@ -218,11 +246,40 @@ final class NewTabInputCoordinator {
     static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter) {
         router.dispatchingSynthetic(event) {
             guard !router.interceptKeyDown(event, in: window) else { return }
+            // A page in Chromium has the keys in its own window, a child of this one: the key window,
+            // or (the app not active yet) the shown agent page's window.
+            if let page = Self.chromiumPageWindow(in: window) {
+                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                return page.sendEvent(event)
+            }
             var view = window.firstResponder as? NSView
             while let current = view, !(current is AgentPaneView) { view = current.superview }
             (view as? AgentPaneView)?.judge(held, eventWindow: window)
             window.sendEvent(event)
         }
+    }
+
+    /// The Chromium page window (a child of `window`) that takes `window`'s held keys: the key window
+    /// when it is one, else the window of a shown agent page in Chromium whose view has the
+    /// keyboard in its own window (it was focused while the app was not active).
+    private static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
+        if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
+        guard window.firstResponder === window || window.firstResponder == nil else { return nil }
+        return window.childWindows?.first { child in
+            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
+        }
+    }
+
+    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
+    private static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
+        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
+               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {

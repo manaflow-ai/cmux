@@ -57,6 +57,21 @@ conversation id, and `runs.onOpen`. The strip:
 completed projections and the answer-ID title case. The gallery lists
 `GoalStrip` as a source but has no goal-specific variants yet.
 
+## Codex thread goals
+
+The Codex chat pane also shows the thread goal Codex persists, independently of the Home run
+projection above. The in-process bridge restores it with `thread/goal/get` and forwards goal
+updates and clearing. acpmux keeps the latest projection in optional session metadata, and the
+pane reads that state on attach before applying later events. Older metadata and clients remain
+valid; there is no storage migration.
+
+`TaskGoalStrip` keeps the objective and state visible between turns and after reopening. Pause,
+Resume and Clear use `/goal` through the normal session send path. The slash menu is shared with
+New Tab; typing a slash lazily prepares a deferred chat to read the harness's actual commands.
+Codex remains the owner of goal continuation and token budgets. A normal message during a goal's
+autonomous turn steers that turn; an explicit busy refusal caused by a continuation winning the
+send race reads the current turn once and steers the original input.
+
 ## Open work (proposals)
 
 These are not built. Each should land as its own PR.

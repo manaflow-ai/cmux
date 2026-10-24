@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -102,10 +103,27 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
   };
   const open = async (): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText("Meanwhile the PR checks").waitFor();
     await page.mouse.move(0, 0);
-    await page.waitForTimeout(300);
+    // At rest: a frame has painted with no hover fade or other finite animation still running.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          window.cmuxAfterPaint(() => {
+            const moving = document
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
+              );
+            if (moving) return true;
+            resolve();
+            return false;
+          }),
+        ),
+    );
     return page;
   };
   beforeAll(async () => {
@@ -176,6 +194,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")];
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
+      const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
       return {
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
@@ -183,6 +202,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
         promptToWorked: worked ? Math.round(rect(worked).top - rect(lastActions).bottom) : -1,
         replyToFooterText: Math.round(rect(lastFooterTime).top - rect(lastReply).bottom),
         footerToNextPrompt: Math.round(rect(last).top - rect(footers[0]!).bottom),
+        lastFooterToComposer: Math.round(rect(dock).top - rect(footers.at(-1)!).bottom),
       };
     });
 
@@ -205,6 +225,10 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // Turns sit a fixed 24px apart: the footer's line to the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(20);
     expect(measured.footerToNextPrompt).toBeLessThanOrEqual(28);
+    // The last footer uses that same turn gap before the floating composer; there is no extra
+    // runway under every transcript.
+    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(20);
+    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(28);
     await page.close();
   });
 });

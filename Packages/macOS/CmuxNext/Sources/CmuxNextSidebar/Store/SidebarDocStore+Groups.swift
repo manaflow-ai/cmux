@@ -7,16 +7,16 @@ extension SidebarDocStore {
     /// The `sidebar.apply` ops of a group intent, or nil for another intent.
     func groupOps(_ intent: SidebarIntent, items: ([WorkspaceID]) -> [String]) -> (ops: [[String: Any]], undoable: Bool)? {
         func update(_ group: GroupID, _ patch: [String: Any]) -> [[String: Any]] {
-            [["op": "group.update", "id": group.rawValue, "patch": patch]]
+            [["op": "group.update", "id": item(group: group), "patch": patch]]
         }
         switch intent {
         case .renameGroup(let group, let name): return (update(group, ["name": name]), true)
         case .setGroupColor(let group, let tint): return (update(group, ["color": Self.wire(tint)]), true)
         case .setGroupIcon(let group, let icon): return (update(group, ["icon": icon.map { $0 as Any } ?? NSNull()]), true)
-        case .ungroup(let group): return ([["op": "group.ungroup", "id": group.rawValue]], true)
+        case .ungroup(let group): return ([["op": "group.ungroup", "id": item(group: group)]], true)
         case .toggleCollapse(.group(let group)):
             // Persisted in the document, so a rebuild keeps it (no undo step).
-            guard case .group(_, _, _, let collapsed)? = records.items[group.rawValue]?.body else { return nil }
+            guard case .group(_, _, _, let collapsed)? = records.items[item(group: group)]?.body else { return nil }
             return (update(group, ["collapsed": !collapsed]), false)
         case let .createGroup(group, name, color, workspaces, anchor, collapsed, _):
             var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.rawValue,
@@ -32,8 +32,18 @@ extension SidebarDocStore {
         }
     }
 
+    /// The document item of group `group` (`SidebarDocRecords.groupItem(personal:)`: `itm_g_<id>` for a personal
+    /// group, the id itself for a group the document made or an item id); the id as it is when the document holds
+    /// no such group (one just created, still in flight). An edit named by the personal id (`grp_…`) was refused
+    /// `unknown_item` (#22996).
+    func item(group: GroupID) -> String { Self.item(group: group, in: records) }
+
+    static func item(group: GroupID, in records: SidebarDocRecords) -> String {
+        records.groupItem(personal: group.rawValue) ?? group.rawValue
+    }
+
     static func wire(_ tint: GroupTint) -> String {
-        if case .custom = tint { tint.wire } else { tint.token.rawValue }
+        if case .palette = tint { tint.token.rawValue } else { tint.wire }
     }
 
     /// The item id the reducer gives a live workspace it adopts (`itm_w_<session>_<workspace>`).

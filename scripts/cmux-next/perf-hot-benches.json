@@ -1,0 +1,80 @@
+{
+  "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
+  "paths": {
+    "cef-host-input": {
+      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "owner": "PL-cef-helper"
+    },
+    "key-dispatch": {
+      "what": "every key-down: shortcut table, chord tracker, focus routing",
+      "bench": "scripts/cmux-next/bench-typing.py",
+      "owner": "PL-typing"
+    },
+    "terminal-key": {
+      "what": "terminal key to committed frame (input write, echo, parse, draw)",
+      "bench": "scripts/cmux-next/bench-typing.py",
+      "owner": "PL-typing"
+    },
+    "home-key": {
+      "what": "Home composer key to frame",
+      "bench": "scripts/cmux-next/home-perf.py (home.typing.* rows)",
+      "owner": "PL-typing"
+    },
+    "palette-key": {
+      "what": "Command Palette open and each query key to its first painted frame",
+      "bench": "scripts/cmux-next/palette-open-stages.py",
+      "owner": "Performance Lead"
+    },
+    "omnibar-key": {
+      "what": "omnibar suggestions per typed key",
+      "bench": "scripts/cmux-next/omnibar-click-bench.py (focus), then bench-typing.py with the omnibar focused",
+      "owner": "Performance Lead"
+    },
+    "motion-frame": {
+      "what": "one split/close/zoom/column motion frame",
+      "bench": "scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), then pane-perf-terminal.py and anim-perf-terminal.py (panes.* rows, with and without Chromium, light and --layouts stress)",
+      "owner": "PL-motion-core"
+    },
+    "frame-tick": {
+      "what": "the per-display-frame delivery to every active frame client",
+      "bench": "scripts/cmux-next/anim-perf-terminal.py, then bench_idle.py (wakes)",
+      "owner": "Performance Lead"
+    },
+    "drag-frame": {
+      "what": "one tab, pane or column drag frame (ghost, autoscroll, hit test)",
+      "bench": "scripts/cmux-next/drag-lag-live.py",
+      "owner": "Performance Lead"
+    },
+    "tab-switch": {
+      "what": "tab select to committed frame",
+      "bench": "scripts/cmux-next/tab-switch-matrix.py (debug.tab_switch)",
+      "owner": "PL-switch"
+    },
+    "workspace-switch": {
+      "what": "workspace next/prev/click to committed frame",
+      "bench": "scripts/cmux-next/activation-perf.py (workspace_switch.* rows)",
+      "owner": "PL-switch"
+    },
+    "cef-geometry": {
+      "what": "Chromium page geometry, clip and occlusion updates",
+      "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
+      "owner": "PL-motion-cef"
+    },
+    "cmd-tab": {
+      "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
+      "bench": "scripts/cmux-next/activation-perf.py (observers_ms per become)",
+      "owner": "PL-switch"
+    },
+    "new-tab": {
+      "what": "new terminal or Chromium tab to its first frame",
+      "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
+      "owner": "PL-cef-tab"
+    },
+    "action-budget": {
+      "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
+      "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
+      "owner": "Performance Lead (PL-instant)"
+    }
+  }
+}

@@ -26,6 +26,8 @@ mod participant_avatars;
 mod registry;
 #[path = "chief_registry_errors.rs"]
 mod registry_errors;
+#[path = "chief_script.rs"]
+mod script;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.

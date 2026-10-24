@@ -41,12 +41,8 @@ struct AgentPaneTranscriptStepTests {
     }
 
     @Test func eachStepSendsItsPageCommand() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "transcript-step-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true))
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
         let provider = try #require(view.pageEvents, "the shared page host has no event stream")
         let received = Received()
         let subscription = try await provider.subscribe(
@@ -61,6 +57,23 @@ struct AgentPaneTranscriptStepTests {
             AgentPageEvent.command("nextTurn").data,
             AgentPageEvent.command("previousBookmarkedPrompt").data,
             AgentPageEvent.command("nextBookmarkedPrompt").data,
+        ])
+    }
+
+    @Test func stopTurnSendsTheComposerStopCommand() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
+        let provider = try #require(view.pageEvents, "the shared page host has no event stream")
+        let received = Received()
+        let subscription = try await provider.subscribe(
+            AgentPageProvider.hostEvents, filter: .null, context: PageCallContext(page: PageDescriptor.agent.id)
+        ) { event in received.events.append(event) }
+        defer { subscription.cancel() }
+
+        view.stopTurn()
+
+        #expect(received.events.filter { $0["kind"] == .string("stopTurn") } == [
+            AgentPageEvent(kind: "stopTurn", value: .string("session-a")).data,
         ])
     }
 }

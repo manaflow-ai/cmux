@@ -106,7 +106,7 @@ extension PaletteModel {
     /// off the main actor. An empty query shows its last rank or its
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
-    func search(_ state: PageState) {
+    func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
@@ -131,6 +131,10 @@ extension PaletteModel {
             deliver([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
                     to: state, generation: generation)
         case .list(let page):
+            if let queryResults = page.queryResults {
+                searchQueryResults(state, results: queryResults, generation: generation)
+                return
+            }
             // A typed query searches every row: the open's deferred providers load first.
             if !state.query.allSatisfy(\.isWhitespace), deferredLoads.contains(where: { $0.state === state }) {
                 flushDeferredLoads()
@@ -169,6 +173,63 @@ extension PaletteModel {
                 }
             }
         }
+    }
+
+    /// A page that finds its own rows for the query (`queryResults`): the
+    /// newest query's task replaces the one before, and its rows land with
+    /// the typed words highlighted in their titles.
+    func searchQueryResults(_ state: PageState, results: @escaping @MainActor (String) async -> [PaletteItem], generation: Int) {
+        searchGeneration += 1
+        let searchID = searchGeneration
+        let query = state.query
+        searchTask?.cancel()
+        // The search field's spinner while the page looks (Search All Windows reads every terminal first).
+        if state === current { isLoading = true }
+        searchTask = Task { [weak self, weak state] in
+            let items = await results(query)
+            guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
+            self.searchTask = nil
+            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+            // One block per section, in the order the sections first appear (linear: a search
+            // can return thousands of terminal lines, and copying a section per row was quadratic).
+            var order: [PaletteSection] = []
+            var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
+            for item in items {
+                let row = PaletteRow(item: item, highlights: Self.wordHighlights(in: item.title, words: words), score: 0)
+                if rowsBySection[item.section] == nil { order.append(item.section) }
+                rowsBySection[item.section, default: []].append(row)
+            }
+            let sections = order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
+            if state === self.current { self.isLoading = false }
+            self.deliver(sections, to: state, generation: generation)
+            if self.pendingClose {
+                self.pendingClose = false
+                self.handle(.closeItem)
+            }
+        }
+    }
+
+    /// Scalar offsets of every case-insensitive occurrence of `words` in `title`.
+    static func wordHighlights(in title: String, words: [String]) -> [Int] {
+        guard !words.isEmpty else { return [] }
+        let scalars = Array(title.lowercased().unicodeScalars)
+        // Lowercasing can change the scalar count (rare); offsets would point past the title then.
+        guard scalars.count == title.unicodeScalars.count else { return [] }
+        var marked = Set<Int>()
+        for word in words {
+            let needle = Array(word.lowercased().unicodeScalars)
+            guard !needle.isEmpty, needle.count <= scalars.count else { continue }
+            var start = 0
+            while start + needle.count <= scalars.count {
+                if scalars[start..<start + needle.count].elementsEqual(needle) {
+                    marked.formUnion(start..<start + needle.count)
+                    start += needle.count
+                } else {
+                    start += 1
+                }
+            }
+        }
+        return marked.sorted()
     }
 
     /// `sections` after the page's rows made from the query, if any.

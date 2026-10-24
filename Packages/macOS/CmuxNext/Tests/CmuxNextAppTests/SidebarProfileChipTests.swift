@@ -3,9 +3,9 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// The sidebar's bottom-left profile control (Leo 2026-10-20): the avatar and
-/// the profile's name on one chip where the footer has room, the Search button
-/// and the spaces dots after it; the avatar alone in a narrow sidebar.
+/// The sidebar's bottom-left profile control (Leo and Lawrence 2026-10-20): the
+/// avatar alone at any width, with no name and no chevron; the name shows on
+/// hover and the full identity in its menu. Search and the spaces dots follow it.
 @MainActor @Suite(.serialized) struct SidebarProfileChipTests {
     struct Harness {
         let sidebar: SidebarView
@@ -39,32 +39,57 @@ import Testing
         return harness
     }
 
-    @Test func aRoomyFooterShowsTheAvatarAndTheName() async throws {
+    @Test func aRoomyFooterShowsTheAvatarAlone() async throws {
         let h = await make(width: 240)
         defer { h.window.close() }
         let control = try #require(h.sidebar.footerBand.profileControl?.view)
         control.layoutSubtreeIfNeeded()
         #expect(control.showsAvatar)
-        #expect(control.titleText == "Default")
-        #expect(control.titleFrame.width > 0, "the name draws beside the avatar")
+        #expect(control.titleFrame == .zero, "no name beside the avatar")
+        #expect(control.icon.isHidden, "no chevron")
         let frame = h.frame(of: control)
-        #expect(frame.width > frame.height, "a chip, not the avatar's square: \(frame)")
-        // The avatar leads, then the name.
-        let circle = control.convert(control.avatarView.circleFrame, from: control.avatarView)
-        #expect(circle.minX >= 0 && circle.maxX <= control.titleFrame.minX, "avatar \(circle) before name \(control.titleFrame)")
-        // One chevron at the trailing edge, after the name (#14893).
-        #expect(!control.icon.isHidden && control.icon.image != nil, "the chevron draws")
-        #expect(control.icon.frame.minX >= control.titleFrame.maxX && control.icon.frame.maxX <= control.bounds.width,
-                "chevron \(control.icon.frame) after name \(control.titleFrame)")
-
-        // The band's items end after the chip; Search and the dots sit after it.
-        let row = try #require(h.sidebar.footerBand.bandFirstRow)
-        #expect(row.itemsMaxX >= frame.maxX - 0.5, "itemsMaxX \(row.itemsMaxX) past the chip \(frame)")
+        #expect(abs(frame.width - frame.height) < 0.5, "the avatar's square: \(frame)")
+        #expect(control.themedToolTip?.hasPrefix("Default") == true, "the name shows on hover")
+        // Search and the dots sit after the avatar.
         let search = h.frame(of: h.sidebar.searchButton)
-        #expect(!h.sidebar.searchButton.isHidden && search.minX >= frame.maxX, "search \(search) after chip \(frame)")
-        #expect(search.maxX <= h.sidebar.bounds.maxX, "search \(search) inside the sidebar")
-        if !h.sidebar.profileBar.isHidden, h.sidebar.profileBar.superview === h.sidebar {
-            #expect(h.frame(of: h.sidebar.profileBar).minX >= search.maxX - 0.5, "dots after search")
+        #expect(!h.sidebar.searchButton.isHidden && search.minX >= frame.maxX, "search \(search) after the avatar \(frame)")
+    }
+
+    /// Signed in, the avatar alone shows at rest; hovering it says the email (Leo 2026-10-21).
+    @Test func theSignedInAvatarSaysTheEmailOnHover() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        h.sidebar.model.profileAvatar = .account(name: "Leo Li", email: "leo@cmux.com")
+        for _ in 0..<20 {
+            h.settle()
+            if h.sidebar.footerBand.profileControl?.view.themedToolTip == "leo@cmux.com" { break }
+            await Task.yield()
+        }
+        let control = try #require(h.sidebar.footerBand.profileControl?.view)
+        #expect(control.showsAvatar)
+        #expect(control.titleFrame == .zero, "no email or name beside the avatar")
+        #expect(control.themedToolTip == "leo@cmux.com")
+        #expect(control.accessibilityLabel() == "Leo Li", "VoiceOver still hears the name")
+    }
+
+    /// The monogram is drawn on the theme accent, glazed, at any scale: a 1x and a 3x render
+    /// both color the disc's center and leave its corners clear.
+    @Test func theMonogramFillsItsCircleAtEveryScale() throws {
+        let avatar = SidebarAvatar.account(name: "Leo Li", email: "leo@cmux.com")
+        for scale in [1, 2, 3] {
+            let side = 24 * scale
+            let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                    bytesPerRow: 0, bitsPerPixel: 0))
+            rep.size = NSSize(width: 24, height: 24)
+            let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            ThemeScope.app.perform { SidebarAvatarView.draw(avatar, in: NSRect(x: 0, y: 0, width: 24, height: 24), strong: false) }
+            NSGraphicsContext.restoreGraphicsState()
+            let edge = (rep.colorAt(x: side / 2, y: side / 10)?.alphaComponent ?? 0)
+            #expect(edge > 0.5, "@\(scale)x: the disc is filled near its top: \(edge)")
+            #expect((rep.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.05, "@\(scale)x: the corner stays clear")
         }
     }
 
@@ -79,15 +104,33 @@ import Testing
         #expect(abs(frame.width - frame.height) < 0.5, "the avatar's square: \(frame)")
     }
 
-    @Test func theChipHoldsAFillWhileItsMenuIsOpen() async throws {
+    @Test func theAvatarHoldsAFillWhileItsMenuIsOpen() async throws {
         let h = await make(width: 240)
         defer { h.window.close() }
         let control = try #require(h.sidebar.footerBand.profileControl?.view)
-        #expect(control.isProfileChip)
         #expect(control.fill == nil, "no fill at rest")
         control.showsMenu = true
         #expect(control.fill != nil, "the open menu's control shows a fill")
         control.showsMenu = false
         #expect(control.fill == nil, "the fill clears when the menu closes")
+    }
+
+    /// The initial's ink sits in the middle of the circle (Leo 2026-10-20: the "L" sat off
+    /// center), drawn flipped in the footer and unflipped in the menu's image.
+    @Test func theInitialIsCenteredInItsCircle() {
+        let circle = NSRect(x: 4, y: 6, width: 20, height: 20)
+        let font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        let ink = ("L" as NSString).boundingRect(with: .zero, options: [.usesLineFragmentOrigin, .usesDeviceMetrics],
+                                                 attributes: [.font: font])
+        for flipped in [true, false] {
+            let origin = SidebarAvatarView.initialOrigin("L", font: font, in: circle, flipped: flipped)
+            #expect(abs(origin.x + ink.midX - circle.midX) < 0.01)
+            let baseline = flipped ? origin.y + font.ascender : origin.y - font.descender
+            let capCenter = flipped ? baseline - font.capHeight / 2 : baseline + font.capHeight / 2
+            #expect(abs(capCenter - circle.midY) < 0.01, "flipped \(flipped): cap center \(capCenter)")
+        }
+        // The ink, not the advance: an "L" leans left inside its advance.
+        let advance = ("L" as NSString).size(withAttributes: [.font: font]).width
+        #expect(abs(SidebarAvatarView.initialOrigin("L", font: font, in: circle, flipped: true).x - (circle.midX - advance / 2)) > 0.1)
     }
 }

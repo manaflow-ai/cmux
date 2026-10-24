@@ -2,8 +2,10 @@ import { type RefObject, useLayoutEffect } from "react";
 
 // The composer's controls row never cuts a label (Leo 2026-10-14: "Claude Opus …", "Medi…"). A
 // narrower pane swaps whole units, never letters: the model, effort (its own chip, Leo 2026-10-15:
-// "move it back out"), the permission mode and the speed bolt each take a shorter form or leave,
-// and +, the access glyph, the mic, Send or Stop and every chevron always stay.
+// "move it back out"; since Leo 2026-10-20 the model button's detail) and the permission mode each
+// take a shorter form, and +, the access glyph, the mic, Send or Stop and every chevron always stay.
+// Claude Code's Fast mode is a row of the model button's menu; Codex's bolt beside the mic never
+// leaves (it is Codex's only speed control), as the mic never does.
 //
 // The steps are composer widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
 // container queries on the composer (`composer`, #20548), whose widths are literals that
@@ -24,54 +26,53 @@ import { type RefObject, useLayoutEffect } from "react";
 export const COMPOSER_FIT_STEPS = {
   /** The location strip tightens its gap and caps its controls' width. */
   locationTight: 480,
-  /** The effort chip shows the level's short name ("Med"). */
+  /** The model button's effort shows the level's short name ("Med"). */
   effortShort: 470,
   /** The location strip's machine shows its laptop icon alone. */
   machineIconOnly: 460,
+  /** The quiet row's harness shows its mark alone, its name in its tooltip (ComposerHarness.tsx). */
+  harnessMark: 460,
   /** The model shows its family ("Opus"). */
   modelFamily: 440,
   /** The permission mode's label goes; its glyph and chevron stay. */
   accessLabelHidden: 420,
   /** The model shows its harness mark alone, its name in its tooltip. */
   modelMark: 370,
-  /** The speed bolt leaves the row (#20964's narrow step); the reasoning menu's speed rows set it. */
-  speedHidden: 370,
   /** The location strip's folder name truncates in the middle. */
   folderMiddleTruncate: 340,
   /** The row's group gap narrows and the card reaches 10px from the pane's edges (#20548). */
   rowTight: 297,
   /** The New Tab card's model shows its harness mark alone, its name in its tooltip. Its row holds
-   *  the whole name down to about here (it has no +, Plan or speed bolt); narrower, the name only
+   *  the whole name down to about here (it has no + or Plan); narrower, the name only
    *  shrank to a sliver and pushed the permission mode into the mic. */
   newTabModelMark: 297,
   /** The row tightens its gap and padding and narrows +. */
   barTight: 260,
 } as const;
 
-export type FitUnit = "access" | "effort" | "mic" | "model" | "speed";
+export type FitUnit = "access" | "effort" | "harness" | "mic" | "model";
 export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
- *  early and whole, a little before the row runs out of room: effort's short name, the model's
- *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
- *  row can hold it, #20548), then the speed bolt leaves (the reasoning menu still sets it). The mic
- *  never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
+ *  early and whole, a little before the row runs out of room: effort's short name, the quiet row's
+ *  harness to its mark alone (the mark still names it, Leo 2026-10-21), the model's family, the permission label (its glyph stays), the model's mark alone (its name only while the
+ *  row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
  *  for its width's steps takes the next ones too, in this order.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
   { step: "effortShort", unit: "effort", to: "short" },
+  { step: "harnessMark", unit: "harness", to: "icon" },
   { step: "modelFamily", unit: "model", to: "family" },
   { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "modelMark", unit: "model", to: "icon" },
-  { step: "speedHidden", unit: "speed", to: "hidden" },
 ];
 
-const UNITS: readonly FitUnit[] = ["access", "effort", "mic", "model", "speed"];
+const UNITS: readonly FitUnit[] = ["access", "effort", "harness", "mic", "model"];
 type Forms = Record<FitUnit, FitForm>;
 
 /** Each unit's form in a pane `width` px wide that also took the first `extra` steps. */
 export function fitForms(width: number, extra = 0, steps = ROW_FIT_STEPS): Forms {
-  const forms: Forms = { access: "full", effort: "full", mic: "full", model: "full", speed: "full" };
+  const forms: Forms = { access: "full", effort: "full", harness: "full", mic: "full", model: "full" };
   steps.forEach(({ step, unit, to }, index) => {
     if (index < extra || width <= COMPOSER_FIT_STEPS[step]) forms[unit] = to;
   });
@@ -190,7 +191,8 @@ function show(bar: HTMLElement, step: number): void {
  *  while its unit (`data-fit-title-unit`) is in its icon form. */
 function nameIcons(bar: HTMLElement, forms: Forms): void {
   for (const wrapper of bar.querySelectorAll<HTMLElement>("[data-fit-title]")) {
-    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button");
+    // The footer's fixed harness is text, not a button (ComposerHarness.tsx): its face takes the tooltip.
+    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button, .acpmux-foot-harness-face");
     const name = wrapper.dataset.fitTitle ?? "";
     if (!button) continue;
     const iconOnly = forms[wrapper.dataset.fitTitleUnit as FitUnit] === "icon";

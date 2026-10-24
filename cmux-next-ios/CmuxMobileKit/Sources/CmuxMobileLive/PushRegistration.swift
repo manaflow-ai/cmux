@@ -11,23 +11,33 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "push")
 public final class PushRegistration {
     public static let shared = PushRegistration()
 
-    /// Event kinds the Mac reports: `question`, `permission`, `completed`, `failed`, `chief`.
-    public static let allKinds = ["question", "permission", "completed", "failed", "chief"]
+    /// Event kinds the Mac reports: `question`, `permission`, `completed`, `failed`, `chief`, `terminal`.
+    public static let allKinds = ["question", "permission", "completed", "failed", "chief", "terminal"]
+
+    /// What Settings → Notifications asks the service for.
+    public struct Preferences: Equatable, Sendable {
+        public var kinds: [String]
+        public var mutedMacs: [String]
+        public var previews: Bool
+
+        public init(kinds: [String], mutedMacs: [String] = [], previews: Bool = true) {
+            self.kinds = kinds
+            self.mutedMacs = mutedMacs
+            self.previews = previews
+        }
+
+        var key: String { [kinds.joined(separator: ","), mutedMacs.sorted().joined(separator: ","), previews ? "p" : "-"].joined(separator: "|") }
+    }
 
     private var token: String?
     private var api: LiveAPI?
     private var deviceID: String?
-    private var kinds = PushRegistration.allKinds
+    private var preferences = Preferences(kinds: ["question", "permission", "completed", "chief"])
     /// What the service last accepted, so a repeat sends nothing.
     private var sent: String?
     private var task: Task<Void, Never>?
 
     init() {}
-
-    /// The kinds for the three Settings switches.
-    public static func kinds(questions: Bool, finished: Bool, errors: Bool) -> [String] {
-        (questions ? ["question", "permission"] : []) + (finished ? ["completed", "chief"] : []) + (errors ? ["failed"] : [])
-    }
 
     /// The APNs device token (app delegate).
     public func didRegister(deviceToken: Data) {
@@ -42,8 +52,8 @@ public final class PushRegistration {
         sync()
     }
 
-    public func setKinds(_ kinds: [String]) {
-        self.kinds = kinds
+    public func setPreferences(_ preferences: Preferences) {
+        self.preferences = preferences
         sync()
     }
 
@@ -67,16 +77,17 @@ public final class PushRegistration {
     private func sync() {
         guard let api, let deviceID, let token, let topic = Bundle.main.bundleIdentifier else { return }
         let environment = Self.environment
-        let key = [deviceID, token, environment, kinds.joined(separator: ",")].joined(separator: "|")
+        let key = [deviceID, token, environment, preferences.key].joined(separator: "|")
         guard key != sent else { return }
-        let kinds = kinds
+        let preferences = preferences
         task?.cancel()
         task = Task { [weak self] in
             do {
-                try await api.putPush(deviceID: deviceID, token: token, environment: environment, topic: topic, kinds: kinds)
+                try await api.putPush(deviceID: deviceID, token: token, environment: environment, topic: topic, kinds: preferences.kinds,
+                                      mutedMacs: preferences.mutedMacs, previews: preferences.previews)
                 guard !Task.isCancelled else { return }
                 self?.sent = key
-                log.info("push registered (\(environment, privacy: .public), \(kinds.count, privacy: .public) kinds)")
+                log.info("push registered (\(environment, privacy: .public), \(preferences.kinds.count, privacy: .public) kinds)")
             } catch {
                 log.error("push register failed: \(String(describing: error), privacy: .public)")
             }

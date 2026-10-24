@@ -19,14 +19,18 @@ public nonisolated enum ProfileBarLogic {
     /// 2026-10-08: "center spaces in bottom; spaces should show better").
     /// The dots are centered on `center` (the sidebar's middle, in bar
     /// coordinates) and clamped into the bar, never starting before
-    /// `minLeading` and never reaching the trailing `plus` slot, so the "+"
-    /// (shown on hover at the bar's trailing edge) never moves them. When the
+    /// `minLeading` and always leaving one `plus` slot after them: the "+"
+    /// (shown on hover) sits right after the last dot, as far from it as the
+    /// dots are from each other, so it never moves them and never leaves the
+    /// bar (Lawrence 2026-10-21: "new space plus button needs to be right next
+    /// to the last space too"). When the
     /// spaces do not fit at `slot` each, every slot narrows to fit down to
     /// `fullMinimum`; below that the strip turns compact: the active space
     /// keeps a full slot and the others share the rest as small dots, at least
     /// `compactMinimum` each (a strip that still does not fit is clipped).
     public static func strip(count: Int, active: Int?, width: Double, center: Double, minLeading: Double = 0,
                              slot: Double, plus: Double, fullMinimum: Double, compactMinimum: Double) -> SpaceStrip {
+        // The furthest the "+" may start: the dots always end on or before it.
         let plusX = max(minLeading, width - plus)
         guard count > 0 else { return SpaceStrip(slots: [], plus: (plusX, plus), compact: false) }
         let room = max(0, plusX - minLeading)
@@ -52,7 +56,8 @@ public nonisolated enum ProfileBarLogic {
             defer { x += width }
             return (x, width)
         }
-        return SpaceStrip(slots: slots, plus: (plusX, plus), compact: compact)
+        // Right after the last dot; a strip clipped past the bar keeps the "+" on the bar's edge.
+        return SpaceStrip(slots: slots, plus: (min(x, plusX), plus), compact: compact)
     }
 
     /// The hover background of a space (F2): its slot inset by `inset` on
@@ -83,7 +88,7 @@ public nonisolated enum ProfileBarLogic {
 public nonisolated struct SpaceStrip: Sendable {
     /// One slot per space, in order: its leading x and width.
     public var slots: [(x: Double, width: Double)]
-    /// The "+" slot at the bar's trailing edge.
+    /// The "+" slot, right after the last space's (on the bar's trailing edge only for a clipped strip).
     public var plus: (x: Double, width: Double)
     /// The spaces are too many for full slots: the inactive ones draw as
     /// small dots and the active one keeps its full mark.

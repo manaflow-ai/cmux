@@ -1,0 +1,200 @@
+name: cmux-next tip test-compile
+
+# Compiles, without running, the Swift test targets each feat-cmux-next push can
+# break, on a fleet Mac, and says loudly when the tip stops compiling them.
+#
+# 2026-10-21: 134f90c0596 and c515787a8b4 went straight to feat-cmux-next;
+# together CmuxNextAgentPaneTests stopped compiling and every agent's fleet test
+# run was red. fleet-test-compile.yml (the pull-request check) never runs on a
+# direct push, and fleet/compile-check links no test target.
+#
+# Cost and fairness (scripts/ci/tip-test-compile.sh):
+#   - one run at a time: the concurrency group keeps at most one newer run
+#     pending, and GitHub cancels a pending run when a still newer push comes;
+#   - the fleet step runs in the controller's background class (cmux-ci run
+#     --background, priority -10000): after every urgent, manual and agent job;
+#   - while the step is still queued, a newer push's pending run cancels it, and
+#     it gives up (no verdict) after 45 minutes in the queue, so the one gateway
+#     runner it holds goes back to required compiles. A started step is never
+#     cancelled.
+# Each run compiles the change since the last run that passed (not the push's
+# own `before`), so a cancelled or superseded run leaves nothing unchecked.
+#
+# A red tip opens (or comments on) one issue, "feat-cmux-next: Swift test
+# targets do not compile", with the failing targets, the first errors, the sha
+# and the commits in the range; the first green run closes it.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "Packages/**"
+      - "vendor/**"
+      - "scripts/ci/compile_test_plan.py"
+      - "scripts/ci/package-test-lane.sh"
+      - "scripts/ci/tip-test-compile.sh"
+      - ".github/workflows/cmux-next-tip-test-compile.yml"
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Compile the change since this commit (full SHA) instead of the last verified one.
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-tip-test-compile
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: tip test-compile plan
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+      base: ${{ steps.plan.outputs.base }}
+    steps:
+      - name: Checkout the pushed commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Plan the test targets the change since the last verified commit reaches
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          FORCED_BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          # The base: a dispatch's `base`, else the newest commit this workflow verified
+          # (a run that passed), when it is an ancestor of this push; else the push's
+          # own before; else HEAD^.
+          base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-tip-test-compile.yml/runs?branch=feat-cmux-next&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""' || true)"
+          ancestor() {
+            [[ "$1" =~ ^[0-9a-f]{40}$ ]] || return 1
+            [ "$1" = "$GITHUB_SHA" ] && return 0
+            [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$1...$GITHUB_SHA" --jq .status 2>/dev/null || true)" = ahead ]
+          }
+          [ -z "${FORCED_BASE:-}" ] || base="$FORCED_BASE"
+          ancestor "$base" || base="${BEFORE:-}"
+          ancestor "$base" || base="$(git rev-parse HEAD^1)"
+          git fetch --no-tags --depth=1 origin "$base"
+          git diff --no-renames --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
+          python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/plan.txt"
+          {
+            echo "### tip test-compile plan"
+            echo
+            echo "Since \`$base\`: $(wc -l < "$RUNNER_TEMP/changed.txt" | tr -d ' ') files changed."
+            echo
+            if [ -s "$RUNNER_TEMP/plan.txt" ]; then
+              echo '```'
+              cat "$RUNNER_TEMP/plan.txt"
+              echo '```'
+            else
+              echo "The change reaches no test target: nothing to compile, no Mac queued."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ -s "$RUNNER_TEMP/plan.txt" ]; then echo "needed=true"; else echo "needed=false"; fi >> "$GITHUB_OUTPUT"
+
+  compile:
+    name: tip test-compile (fleet, background)
+    needs: plan
+    if: ${{ needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '') }}
+    # One gateway runner at most (the concurrency group); its own label when set.
+    runs-on: ${{ vars.CI_TIP_TEST_COMPILE_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    permissions:
+      contents: read
+      actions: read
+    # The queue limit (45 min) plus the step's run limit (40 min) and the report.
+    timeout-minutes: 95
+    outputs:
+      verdict: ${{ steps.compile.outputs.verdict }}
+      report: ${{ steps.compile.outputs.report }}
+    steps:
+      - name: Checkout the script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: scripts/ci/tip-test-compile.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Compile the planned test targets on a fleet Mac
+        id: compile
+        env:
+          REF: ${{ github.sha }}
+          BASE: ${{ needs.plan.outputs.base }}
+          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_FILE: cmux-next-tip-test-compile.yml
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          status=0
+          OUT_DIR="$RUNNER_TEMP/tip" bash scripts/ci/tip-test-compile.sh || status=$?
+          echo "verdict=$(cat "$RUNNER_TEMP/tip/verdict" 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+          echo "report=$(base64 < "$RUNNER_TEMP/tip/report.md" | tr -d '\n')" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/tip/report.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  report:
+    name: tip test-compile report
+    needs: [plan, compile]
+    if: ${{ always() && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    permissions:
+      issues: write
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - name: Open, update or close the tip's test-compile issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERDICT: ${{ needs.compile.outputs.verdict || 'none' }}
+          REPORT: ${{ needs.compile.outputs.report }}
+          BASE: ${{ needs.plan.outputs.base }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="feat-cmux-next: Swift test targets do not compile"
+          open="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // \"\"")"
+          sha="$GITHUB_SHA"
+          link="[\`${sha:0:11}\`]($GITHUB_SERVER_URL/$GH_REPO/commit/$sha)"
+          case "$VERDICT" in
+            pass)
+              if [ -n "$open" ]; then
+                gh issue close "$open" --comment "Fixed: every planned test target compiles at $link ([run]($RUN_URL))."
+              fi
+              ;;
+            fail)
+              # shellcheck disable=SC2016 # a jq filter, not shell
+              commits="$(gh api "repos/$GH_REPO/compare/$BASE...$sha" \
+                --jq '.commits | reverse | .[:20][] | "- [`\(.sha[0:11])`](\(.html_url)) \(if .author.login then "@" + .author.login else .commit.author.name end): \(.commit.message | split("\n")[0])"' || true)"
+              body="$(printf '%s\n\n%s\n\nCommits since the last verified commit (newest first, up to 20):\n\n%s\n\n[Run](%s). Every agent'"'"'s fleet test run is red until this compiles; fix it with a red/green pair on feat-cmux-next.\n' \
+                "**The tip $link does not compile its Swift tests.**" "$(echo "$REPORT" | base64 -d)" "$commits" "$RUN_URL")"
+              if [ -n "$open" ]; then
+                gh issue comment "$open" --body "$body"
+              else
+                gh issue create --title "$title" --body "$body"
+              fi
+              ;;
+            *)
+              # Superseded by a newer push, or no verdict (a busy fleet): this run
+              # verified nothing, so it must not count as the next run's base.
+              echo "No verdict ($VERDICT); cancelling this run so it is not a verified base."
+              gh run cancel "$GITHUB_RUN_ID"
+              ;;
+          esac

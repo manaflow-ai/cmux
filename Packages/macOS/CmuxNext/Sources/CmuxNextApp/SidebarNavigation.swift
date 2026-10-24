@@ -38,11 +38,12 @@ enum SidebarNavigation {
         activate(item, in: window, services)
     }
 
-    /// Cmd-Ctrl-] (+1) / Cmd-Ctrl-[ (-1) in the active window.
-    static func step(by offset: Int, _ services: AppServices) {
+    /// Cmd-Ctrl-] (+1) / Cmd-Ctrl-[ (-1) in the active window; `scope` is the binding's (`stepping(_:scope:)`).
+    static func step(by offset: Int, scope: String? = nil, _ services: AppServices) {
         guard let window = services.windows.active else { return }
         let model = window.sidebar.model
-        guard let item = model.itemOrder.step(from: current(in: window, services), by: offset, settings(services)) else { return }
+        let walk = stepping(settings(services), scope: scope)
+        guard let item = model.itemOrder.step(from: current(in: window, services), by: offset, walk) else { return }
         activate(item, in: window, services)
     }
 
@@ -71,10 +72,10 @@ enum SidebarNavigation {
             window.sidebar.activateLayoutItem(id)
         case .workspace(let id):
             if showCreation(row: id.rawValue, in: window.state, services) { return }
-            services.windows.show(workspaceID: id.rawValue, in: window.state)
+            services.windows.show(workspaceID: id.rawValue, in: window.state, from: .thisWindow)
         case .group(let id):
             guard let first = window.sidebar.model.group(id)?.workspaces.first else { return }
-            services.windows.show(workspaceID: first.id.rawValue, in: window.state)
+            services.windows.show(workspaceID: first.id.rawValue, in: window.state, from: .thisWindow)
         }
     }
 
@@ -85,6 +86,20 @@ enum SidebarNavigation {
         state.page = nil
         state.cloudCreation = creation.id
         return true
+    }
+
+    /// The `scope` argument of workspaces as tabs' Cmd-Shift-] / [ (`KeyBindingDefaults.workspacesAsTabs`).
+    static let workspacesScope = "workspaces"
+
+    /// The walk of a step whose binding names `scope`. Workspaces as tabs' keys visit only
+    /// workspaces and collapsed groups and always wrap (Leo: "wrapping, across groups"), whatever
+    /// `sidebar.stepping` says, so they never land on Home and lose their keys there; Ctrl-Cmd-] / [
+    /// (no scope) keep the settings.
+    static func stepping(_ settings: SidebarNavigationSettings, scope: String?) -> SidebarNavigationSettings {
+        guard scope == workspacesScope else { return settings }
+        var walk = settings
+        (walk.stepping, walk.steppingWraps) = (.workspacesOnly, true)
+        return walk
     }
 
     /// The four `sidebar.*` navigation settings from cmux.json.

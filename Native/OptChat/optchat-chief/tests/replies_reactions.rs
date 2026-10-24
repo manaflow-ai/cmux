@@ -391,3 +391,96 @@ fn react_takes_tapback_emoji_and_any_other_emoji() {
             .contains("no reaction")
     );
 }
+
+/// The user's own tapback on a Chief reply (Lawrence 2026-10-21, "chief
+/// needs to be able to send reactions"; a416): the update reaches the Chief,
+/// as a note that says who reacted, with what, to which reply, and the next
+/// turn reads it. A replayed update logs it once; the Chief's own reaction
+/// and a removed one log nothing.
+#[test]
+fn a_user_tapback_on_a_chief_reply_reaches_the_next_turn() {
+    use cmux_conversation::{Change, Reaction};
+    use optchat_chief::daemon::DaemonEvent;
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "hi");
+    h.settle_posts();
+    let mut reply = h
+        .owner
+        .lock()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.author == "agent_mux")
+        .cloned()
+        .expect("the Chief replied");
+    let reply_text = match &reply.parts[0] {
+        Part::Text { text, .. } => text.clone(),
+        _ => panic!("a text reply"),
+    };
+    let react = |reply: &mut cmux_conversation::Message, author: &str, kind: ReactionKind| {
+        reply.reactions.push(Reaction {
+            author: author.into(),
+            part_index: 0,
+            kind,
+            at: "2026-10-21T18:00:00Z".into(),
+        });
+    };
+    react(
+        &mut reply,
+        "user_local",
+        ReactionKind::Tapback(Tapback::Love),
+    );
+    react(
+        &mut reply,
+        "agent_mux",
+        ReactionKind::Tapback(Tapback::Like),
+    );
+    react(&mut reply, "user_local", ReactionKind::Emoji("🔥".into()));
+    for _ in 0..2 {
+        h.brain.step(Input::from(DaemonEvent::Changed {
+            conversation: CONV.into(),
+            change: Change::MessageUpdated {
+                message: reply.clone(),
+            },
+        }));
+    }
+    let notes: Vec<String> = h
+        .log()
+        .into_iter()
+        .filter(|(kind, text)| kind == "note" && text.starts_with("reaction "))
+        .map(|(_, text)| text)
+        .collect();
+    let quoted = reply_text.lines().next().unwrap_or_default().to_owned();
+    let who = h
+        .owner
+        .lock()
+        .unwrap()
+        .summary
+        .as_ref()
+        .and_then(|s| s.participants.iter().find(|p| p.id == "user_local"))
+        .map(|p| p.display_name.clone())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "user_local".into());
+    assert_eq!(
+        notes,
+        vec![
+            format!("reaction ❤️ love from {who} on your message: {quoted}"),
+            format!("reaction 🔥 from {who} on your message: {quoted}"),
+        ],
+        "one note per user reaction, none for the Chief's own"
+    );
+    h.say("user_local", "next");
+    h.settle_posts();
+    let prompts = h.agents.inner.lock().unwrap().prompts.clone();
+    let next: String = prompts
+        .last()
+        .expect("a second turn")
+        .iter()
+        .map(|b| b["text"].as_str().unwrap_or_default())
+        .collect();
+    assert!(
+        next.contains(&format!("reaction ❤️ love from {who} on your message")),
+        "the next turn reads the tapback: {next}"
+    );
+}

@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 // The pointer over the sidebar reveals its titlebar buttons, the spaces
-// strip (`sidebar.spacesVisibility` hover, cx-5k3r) and, in minimal mode
-// (`sidebar.minimalMode`, R54), the chosen pinned bands.
+// strip (`sidebar.spacesVisibility` hover, cx-5k3r), in minimal mode
+// (`sidebar.minimalMode`, R54) the chosen pinned bands and, with the thin
+// scrollers' opt-in auto-hide, the scrollers.
 extension SidebarViewComponents {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
@@ -16,6 +17,12 @@ extension SidebarViewComponents {
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
+        // With the auto-hide (the default), the pointer arriving shows the thin scrollers a moment.
+        if changed, revealed, SystemScrollers.thinScrollersAutoHide {
+            for scroll: NSScrollView in [scrollView, aboveScroll, belowScroll] {
+                (scroll.verticalScroller as? ThinScroller)?.flash()
+            }
+        }
         let alpha: CGFloat = revealed ? 1 : 0
         let mode = design.sidebarSections.minimalMode
         let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0

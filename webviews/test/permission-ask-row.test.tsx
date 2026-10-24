@@ -215,3 +215,55 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   );
   await act(async () => root.unmount());
 });
+
+test("a grouped ACP subject command keeps its command and scope visible", async () => {
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  const state = permissions("pending");
+  state.groups[0]!.items[0]!.request = {
+    title: "Run the check",
+    subject: { type: "command", command: "bun test", cwd: "/workspace/project" },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      <PermissionPanel
+        state={state}
+        working
+        onRespond={() => {}}
+        onRetry={() => {}}
+        onRevoke={() => {}}
+        onRefresh={() => {}}
+      />,
+    ),
+  );
+  const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+  expect(visibleText(panel)).toContain("bun test");
+  expect(visibleText(panel)).toContain("In /workspace/project");
+  await act(async () => root.unmount());
+});
+
+test("a minimal ACP tool subject uses the request title in the grouped row", async () => {
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  const state = permissions("pending");
+  state.groups[0]!.items[0]!.request = {
+    title: "Allow Calculator control",
+    subject: { type: "tool_call", toolCall: { toolCallId: callId } },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      <PermissionPanel
+        state={state}
+        working
+        onRespond={() => {}}
+        onRetry={() => {}}
+        onRevoke={() => {}}
+        onRefresh={() => {}}
+      />,
+    ),
+  );
+  expect(visibleText(document.querySelector<HTMLElement>(".acpmux-permission-panel")!)).toContain(
+    "Allow Calculator control",
+  );
+  await act(async () => root.unmount());
+});

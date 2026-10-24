@@ -181,7 +181,7 @@ cmux harness doctor acme                              # one real hello turn
   refused: the key goes only into the Keychain.
 - Without `--keychain-item` the item is `cmux-harness/<id>/<KEY>`, which `cmux harness secret set`
   writes. With it, the profile reads the item you name (`service` or `service/account`).
-- A family or global route (`cmux route use`) never rewrites an endpoint harness; a chat's or
+- A family or global route binding never rewrites an endpoint harness; a chat's or
   workspace's route still does.
 - `cmux harness doctor ID` (and `_acpmux/harness/doctor {id, prompt: true}`) sends one real prompt:
   `claude -p` with the profile's env for `anthropic-endpoint` (at least 60 s), the ACP prompt for

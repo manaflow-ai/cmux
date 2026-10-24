@@ -1,6 +1,7 @@
 public import AppKit
 public import AVFoundation
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// A video wallpaper behind a window's content (cx-14vdf): the file loops, muted, through
 /// `AVPlayerLayer`, filling the window as the art does. It plays only while someone can see it

@@ -76,6 +76,10 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// Leeway of `requestedDeadline` (`delayedLeeway`, capped by its delay).
     private var requestedTolerance: TimeInterval = 0
     private var safetyNetDeadline: TimeInterval?
+    /// The earliest Chromium-thread request the gate kept (``CEFPumpCrossThreadGate``). It stays
+    /// until a pass at or after it: a later CEF request does not replace it, since that request may
+    /// be a stale one posted before the keep.
+    private var keptDeadline: TimeInterval?
     /// The interval of the pending safety-net wake (nil when none is armed).
     private(set) var armedSafetyNetInterval: TimeInterval?
     /// The gap of the next follow-up wake; nil when the chain has ended.
@@ -94,6 +98,8 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     var nextWake: Wake? {
         guard !isWorking else { return nil }
         if immediate { return Wake(deadline: -.infinity, tolerance: 0) }
+        let requestedDeadline = [self.requestedDeadline, keptDeadline].compactMap { $0 }.min()
+        let requestedTolerance = requestedDeadline == self.requestedDeadline ? self.requestedTolerance : Self.delayedLeeway
         switch (requestedDeadline, safetyNetDeadline) {
         case let (requested?, net?) where net < requested:
             return Wake(deadline: net, tolerance: safetyNetTolerance, reason: .fallback)
@@ -123,6 +129,12 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         }
     }
 
+    /// A Chromium thread's delayed request that the gate kept (``CEFPumpCrossThreadGate``): a pass
+    /// runs no later than `deadline`, whatever CEF requests until then.
+    mutating func requestNoLater(than deadline: TimeInterval) {
+        keptDeadline = min(keptDeadline ?? .infinity, deadline)
+    }
+
     /// Call before `CefDoMessageLoopWork`. Returns false when a pass is
     /// already running (the timer fired in a nested run loop): do not call
     /// CEF; the outer pass runs the pump again when it returns.
@@ -139,6 +151,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         // The timer and this clock differ by microseconds: a request due
         // within a millisecond is served by this pass.
         if let requested = requestedDeadline, requested <= now + 0.001 { requestedDeadline = nil }
+        if let kept = keptDeadline, kept <= now + 0.001 { keptDeadline = nil }
         return true
     }
 

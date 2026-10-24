@@ -16,6 +16,7 @@ public final class UpdateBrowserProfileRequest implements WireValue {
     private final Field<String> color;
     private final Field<String> icon;
     private final Field<String> name;
+    private final Field<Object> proxy;
 
     private UpdateBrowserProfileRequest(Builder builder) {
         if (!builder.browserProfileSet) throw new IllegalArgumentException("browser_profile is required");
@@ -23,6 +24,7 @@ public final class UpdateBrowserProfileRequest implements WireValue {
         this.color = builder.color;
         this.icon = builder.icon;
         this.name = builder.name;
+        this.proxy = builder.proxy.map(value -> Wire.immutableJson(value));
     }
 
     public static Builder builder() { return new Builder(); }
@@ -31,6 +33,7 @@ public final class UpdateBrowserProfileRequest implements WireValue {
     public Field<String> color() { return color; }
     public Field<String> icon() { return icon; }
     public Field<String> name() { return name; }
+    public Field<Object> proxy() { return proxy; }
 
     public static UpdateBrowserProfileRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "UpdateBrowserProfileRequest");
@@ -49,6 +52,10 @@ public final class UpdateBrowserProfileRequest implements WireValue {
         if (!Wire.isMissing(rawName)) {
             builder.name(rawName == null ? null : Wire.string(rawName, "UpdateBrowserProfileRequest.name"));
         }
+        Object rawProxy = Wire.optional(object, "proxy");
+        if (!Wire.isMissing(rawProxy)) {
+            builder.proxy(rawProxy == null ? null : Wire.immutableJson(rawProxy));
+        }
         return builder.build();
     }
 
@@ -59,17 +66,18 @@ public final class UpdateBrowserProfileRequest implements WireValue {
         Wire.put(object, "color", color);
         Wire.put(object, "icon", icon);
         Wire.put(object, "name", name);
+        Wire.put(object, "proxy", proxy);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof UpdateBrowserProfileRequest that)) return false;
-        return Objects.equals(browserProfile, that.browserProfile) && Objects.equals(color, that.color) && Objects.equals(icon, that.icon) && Objects.equals(name, that.name);
+        return Objects.equals(browserProfile, that.browserProfile) && Objects.equals(color, that.color) && Objects.equals(icon, that.icon) && Objects.equals(name, that.name) && Objects.equals(proxy, that.proxy);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserProfile, color, icon, name); }
+    public int hashCode() { return Objects.hash(browserProfile, color, icon, name, proxy); }
 
     @Override
     public String toString() { return "UpdateBrowserProfileRequest" + toWire(); }
@@ -80,6 +88,7 @@ public final class UpdateBrowserProfileRequest implements WireValue {
         private Field<String> color = Field.omitted();
         private Field<String> icon = Field.omitted();
         private Field<String> name = Field.omitted();
+        private Field<Object> proxy = Field.omitted();
 
         public Builder browserProfile(String value) {
             this.browserProfile = value;
@@ -96,6 +105,10 @@ public final class UpdateBrowserProfileRequest implements WireValue {
         }
         public Builder name(String value) {
             this.name = Field.ofNullable(value);
+            return this;
+        }
+        public Builder proxy(Object value) {
+            this.proxy = Field.ofNullable(value);
             return this;
         }
         public UpdateBrowserProfileRequest build() { return new UpdateBrowserProfileRequest(this); }

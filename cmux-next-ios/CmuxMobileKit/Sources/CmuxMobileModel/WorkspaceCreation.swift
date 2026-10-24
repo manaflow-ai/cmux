@@ -359,6 +359,9 @@ public final class WorkspaceCreator {
     @ObservationIgnored private let recents: RecentDirectories
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
+    /// The last group request of each Mac: group requests go to a Mac one
+    /// after another, so the Mac applies quick taps in the order they came.
+    @ObservationIgnored var groupRequestTail: [String: Task<Void, Never>] = [:]
     private static let preferredMacKey = "cmuxMobile.workspaces.newMac"
 
     public init(store: AppStore, backend: any WorkspaceCreationBackend, defaults: UserDefaults = .standard) {
@@ -371,7 +374,7 @@ public final class WorkspaceCreator {
 
     /// The active team's Macs this backend can create on, in team order.
     public var availableMacs: [MacDevice] {
-        (store.activeTeam?.macs ?? []).filter { $0.isOnline && backend.canCreate(on: $0.id) }
+        (store.activeTeam?.listedMacs ?? []).filter { $0.isOnline && backend.canCreate(on: $0.id) }
     }
 
     /// The preferred Mac when available, else the first available one.
@@ -496,12 +499,15 @@ public final class WorkspaceCreator {
 
     public func canDuplicate(_ workspace: Workspace) -> Bool { canManage(workspace) && !workspace.isHome }
 
-    func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
+    @discardableResult
+    func track(_ id: String, _ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let key = "manage-\(id)-\(UUID().uuidString)"
-        tasks[key] = Task { [weak self] in
+        let task = Task { [weak self] in
             await work()
             self?.tasks[key] = nil
         }
+        tasks[key] = task
+        return task
     }
 
     static func message(_ error: any Error) -> String {

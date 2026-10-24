@@ -7,6 +7,8 @@ import Foundation
 public struct ProvisionalPane: Sendable, Hashable {
     /// Daemon pane handles count up from 1; provisional ones live far above them.
     private static let handleBase: UInt64 = 1 << 62
+    /// The lowest stand-in handle: a pane handle at or above it is a stand-in.
+    static let firstHandle: UInt64 = handleBase
     @MainActor private static var next: UInt64 = 0
 
     /// The provisional pane's handle in the store.
@@ -27,10 +29,29 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// id of the split it shows under, which the daemon's split keeps, so the daemon's layout
     /// names the split already shown.
     public let splitID: String
+    /// Set when the pane opens as a new scrolling column after the target's column (New Column,
+    /// `new-pane-right`) instead of splitting the target.
+    public private(set) var column: ProvisionalColumn?
+    /// Set when the pane opens as a new row below the target's row (New Row, `new-row`).
+    public private(set) var row: ProvisionalRow?
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
         self.init(tab: nil)
+    }
+
+    /// A fresh provisional terminal pane that opens as a new column (New Column): `width` is its
+    /// viewport fraction; `widths` and `treeWidth` are the width changes it brings
+    /// (``ProvisionalColumn``).
+    @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil) {
+        self.init(tab: nil)
+        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth)
+    }
+
+    /// A fresh provisional terminal pane that opens as a new row of `height` permille (New Row).
+    @MainActor public init(rowHeight height: Int) {
+        self.init(tab: nil)
+        row = ProvisionalRow(paneHandle: handle, height: height)
     }
 
     /// A provisional pane holding `tab`, a new conversation tab (an agent chat or the New Tab page)

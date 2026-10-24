@@ -1,6 +1,7 @@
 import { defaultProviderId, getProvider } from "../vms/drivers";
 import { resolveVmImage } from "../vms/images/resolver";
 import { vmModelPlaneGatewayFor, vmModelPlaneRevoker } from "../vms/modelPlaneGateway";
+import { isVmNotFoundError } from "../vms/errors";
 import { createVm, destroyVm, runVmWorkflow } from "../vms/workflows";
 import type { VmEntitlements } from "../vms/entitlements";
 import type { AuthedUser } from "../vms/auth";
@@ -249,8 +250,16 @@ export async function reapExpiredCloudVmAttempts(input: { readonly limit?: numbe
       succeeded = true;
       cleaned += 1;
     } catch (error) {
-      errors += 1;
-      console.error("[runs] retained cloud VM cleanup failed", error);
+      if (isVmNotFoundError(error)) {
+        // The VM is gone, or this run's user and billing scope can no longer reach it, so this
+        // row can never destroy it. Leaving it claimable would fail it every minute and, with
+        // claims oldest first, starve the rows behind it.
+        succeeded = true;
+        console.warn("[runs] retained cloud VM was already gone", { attemptId: claim.attempt.id });
+      } else {
+        errors += 1;
+        console.error("[runs] retained cloud VM cleanup failed", error);
+      }
     } finally {
       await finishAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, succeeded });
     }

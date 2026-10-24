@@ -55,11 +55,10 @@
   /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
+  /* Its fill, frost, rim and shadow are the liquid glass's (.ui-glass; popupSurface.css). */
   color: var(--ui-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  box-shadow: var(--ui-popup-shadow);
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
@@ -230,6 +229,27 @@
   background: var(--ui-line);
 }
 
+/* A long menu's search field (MenuSearchField): a row-high field above its rows. */
+.ui-menu-search {
+  appearance: none;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ui-row-height);
+  margin: 0 0 4px;
+  padding: 0 var(--ui-row-padding-inline);
+  border: 0;
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-hover);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.ui-menu-search:focus-visible {
+  box-shadow: inset 0 0 0 var(--cmux-focus-ring-width, 1.5px) var(--ui-ring);
+}
+
 .ui-toolbar .ui-separator {
   width: 1px;
   height: 16px;
@@ -353,7 +373,7 @@
 /* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
    tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--cmux-motion-quick) ease-out;
 }
 
 .ui-sheet[data-starting-style],

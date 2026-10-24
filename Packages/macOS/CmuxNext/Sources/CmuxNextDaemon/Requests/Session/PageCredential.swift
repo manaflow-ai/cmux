@@ -17,7 +17,7 @@ public struct PageCredentialRequest: DaemonRequest {
     }
 
     public static let command = "page-credential"
-    public static var requiredCapability: String? { DaemonCapabilities.shared.pageCredential }
+    public static var requiredCapability: String? { DaemonCapability.pageCredential.rawValue }
 
     public init() {}
 }
@@ -30,7 +30,7 @@ public struct ScopedPageCredentialRequest: DaemonRequest {
     public typealias Response = PageCredentialRequest.Response
 
     public static let command = "page-credential"
-    public static var requiredCapability: String? { DaemonCapabilities.shared.scopedPageCredential }
+    public static var requiredCapability: String? { DaemonCapability.scopedPageCredential.rawValue }
     /// The page id (`home-channels`).
     public var page: String
 

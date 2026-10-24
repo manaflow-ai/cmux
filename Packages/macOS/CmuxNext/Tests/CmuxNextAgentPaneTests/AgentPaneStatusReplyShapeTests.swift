@@ -35,6 +35,27 @@ struct AgentPaneStatusReplyShapeTests {
         #expect(peers.allSatisfy { $0["url"] == nil && $0.count == 3 })
     }
 
+    /// A chat whose machine is not connected says when it was last seen (chatUnavailable.ts): each
+    /// peer keeps acpmux's link `state`, `lastSeen` and `attempts`, and nothing else it sends.
+    @Test func eachPeerKeepsItsLinkStateLastSeenAndAttempts() throws {
+        let peers = try Self.peers(Self.reply(["peers": [
+            ["name": "laptop", "url": "ssh://me@laptop", "connected": false, "state": "reconnecting",
+             "lastSeen": 1_792_600_000_000, "attempts": 4, "downSince": 1_792_600_001_000, "error": "refused"],
+        ]]))
+        let peer = try #require(peers.first)
+        #expect(peer["state"] as? String == "reconnecting")
+        #expect((peer["lastSeen"] as? NSNumber)?.int64Value == 1_792_600_000_000)
+        #expect((peer["attempts"] as? NSNumber)?.intValue == 4)
+        #expect(peer["downSince"] == nil && peer["error"] == nil && peer["url"] == nil)
+    }
+
+    @Test func aLastSeenThatIsNotANumberIsDropped() throws {
+        let peers = try Self.peers(Self.reply(["peers": [
+            ["name": "one", "lastSeen": true, "attempts": "3"],
+        ]]))
+        #expect(peers.first?["lastSeen"] == nil && peers.first?["attempts"] == nil)
+    }
+
     @Test func aConnectedThatIsNotABooleanIsDropped() throws {
         let peers = try Self.peers(Self.reply(["peers": [
             ["name": "one", "connected": 1],

@@ -47,6 +47,90 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
+        // closed.reopen by a closed tab's id (its link), with the pane a tab
+        // whose pane and workspace are gone opens in.
+        (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // Fields added since the case list last covered them: each one's CLI path.
+        (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
+        (
+            vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
+            "notification.create",
+        ),
+        (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
+        (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
+        (vec!["screen", "create", "--shell", "make watch"], "screen.create"),
+        (vec!["screen", "create", "--", "make", "watch"], "screen.create"),
+        (vec!["tab", "create", "terminal", "--shell", "make watch"], "tab.create_terminal"),
+        (vec!["tab", "create", "terminal", "--", "make", "watch"], "tab.create_terminal"),
+        (
+            vec!["tab", "create", "browser", "--url", "https://a.test", "--engine", "webkit"],
+            "tab.create_browser",
+        ),
+        (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
+        (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
+        (vec!["attention", "clear", "--tab", TAB], "tab.update"),
+        (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "rename",
+                "--name",
+                "logs",
+                "--source",
+                "user",
+                "--expected-generation",
+                "daemon",
+                "--expected-name-revision",
+                "3",
+            ],
+            "workspace.rename",
+        ),
+        (vec!["workspace", WORKSPACE, "rename", "--release-to-auto"], "workspace.rename"),
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "update",
+                "--description",
+                "notes",
+                "--task-status",
+                "review",
+            ],
+            "workspace.update",
+        ),
+        // A finished turn's last message rides beside the event as live_reply.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "Stop",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+            ],
+            "session.journal.append",
+        ),
+        // column.update: the pinned (Home) dock and whether it takes tabs (pinned-dock-v1).
+        (
+            vec![
+                "screen",
+                "current",
+                "column",
+                "split_00000000000000000000000000000011",
+                "update",
+                "--pinned",
+                "true",
+                "--allow-tabs",
+                "false",
+            ],
+            "column.update",
+        ),
         // machine.list and machine.get: the reader opts in to owner metadata
         // and admitted remote records.
         (vec!["machine", "list", "--catalog"], "machine.list"),

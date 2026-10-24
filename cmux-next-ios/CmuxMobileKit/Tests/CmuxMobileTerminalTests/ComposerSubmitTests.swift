@@ -21,6 +21,24 @@ import Testing
         #expect(!submit.delaysEnter)
     }
 
+    /// TUI live check (2026-10-21): in vim, Send with `:q` inserted `:q` as
+    /// text. vim takes a bracketed paste as text even in normal mode. In a
+    /// full-screen app a one-line draft is typed, like keys; Return follows.
+    @Test func aFullScreenAppGetsAOneLineDraftTyped() {
+        let submit = ComposerSubmit(text: ":q", pressReturn: true, fullScreenApp: true)
+        #expect(submit.steps == [.type(":q"), .enter])
+        #expect(submit.delaysEnter)
+        // Past an agent's paste-burst window (Codex QA F1), longer than after a paste.
+        #expect(submit.enterWait == ComposerSubmit.typedEnterDelay)
+        #expect(ComposerSubmit.typedEnterDelay >= .milliseconds(200))
+        #expect(ComposerSubmit(text: "ls", pressReturn: true).enterWait == ComposerSubmit.enterDelay)
+        #expect(ComposerSubmit(text: "", pressReturn: true).enterWait == nil)
+        // Several lines stay one paste (a block of text for the app).
+        #expect(ComposerSubmit(text: "a\nb", pressReturn: true, fullScreenApp: true).steps == [.paste("a\nb"), .enter])
+        // The shell and main-screen programs keep the paste.
+        #expect(ComposerSubmit(text: ":q", pressReturn: true, fullScreenApp: false).steps == [.paste(":q"), .enter])
+    }
+
     @Test func sendWithoutReturnOnlyPastes() {
         #expect(ComposerSubmit(text: "ls", pressReturn: false).steps == [.paste("ls")])
     }

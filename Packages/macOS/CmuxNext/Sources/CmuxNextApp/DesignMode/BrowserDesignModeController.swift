@@ -138,9 +138,9 @@ final class BrowserDesignModeController {
 
     /// The page as shown, without design mode's own outline and badges.
     private static func capture(_ page: any BrowserTab) async -> CGImage? {
-        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.prepareCapture(); true", world: .isolated)
+        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.prepareCapture(); true", world: .isolated, gesture: .cmux)
         let image = try? await page.snapshot()
-        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.finishCapture(); true", world: .isolated)
+        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.finishCapture(); true", world: .isolated, gesture: .cmux)
         return image
     }
 

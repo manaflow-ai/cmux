@@ -110,9 +110,10 @@ fn set_profile(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
 
 /// The fields of a profile record an agent sees. An allow list, so a field
 /// the record gains later stays out until someone adds it here.
-const PUBLIC_FIELDS: [&str; 5] = ["id", "name", "color", "icon", "index"];
+const PUBLIC_FIELDS: [&str; 6] = ["id", "name", "color", "icon", "index", "proxy"];
 
-/// `browser.profile.list`: each record's id, name, color, icon and index.
+/// `browser.profile.list`: each record's id, name, color, icon, index and
+/// proxy (#24432; it holds no secret, and an agent asserts its exit with it).
 /// The import origin (a browser and its profile directory) stays out: it
 /// names the person's other browsers and their files.
 fn list(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {

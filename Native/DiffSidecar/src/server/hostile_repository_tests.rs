@@ -9,7 +9,9 @@ use std::process::Command;
 
 use crate::protocol::DiffSource;
 
-use super::{SESSION_GIT_TIMEOUT, SessionGit, git_generated_paths, run_git_patch_with_limit};
+use super::{
+    SESSION_GIT_TIMEOUT, SessionGit, Whitespace, git_generated_paths, run_git_patch_with_limit,
+};
 
 /// A fresh folder for one test, removed when dropped.
 struct Scratch(PathBuf);
@@ -131,11 +133,12 @@ async fn open(scratch: &Scratch, source: &DiffSource, repo: &Path) -> Session {
         .await
         .expect("open the session's git");
     let patch_path = scratch.0.join("session.patch");
-    let written = run_git_patch_with_limit(source, &git, &patch_path, 1024 * 1024).await;
+    let written =
+        run_git_patch_with_limit(source, Whitespace::Show, &git, &patch_path, 1024 * 1024).await;
     let patch = written
         .ok()
         .map(|()| std::fs::read_to_string(&patch_path).expect("read the patch"));
-    let generated = git_generated_paths(source, &git).await;
+    let generated = git_generated_paths(source, Whitespace::Show, &git).await;
     Session { patch, generated }
 }
 

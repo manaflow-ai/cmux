@@ -47,10 +47,15 @@ final class TerminalRetryButton: NSButton {
     /// Visible only while the view is disconnected and its attach kept failing
     /// (never for an administrator's block: it cannot reconnect).
     func show(_ status: TerminalConnectionStatus) {
+        isHidden = !Self.shows(status)
+    }
+
+    /// Whether `status` shows the button (the host builds it the first time one does).
+    static func shows(_ status: TerminalConnectionStatus) -> Bool {
         switch status {
-        case .disconnected(.turnedOffByOrganization, _): isHidden = true
-        case .disconnected(_, reconnecting: false): isHidden = false
-        case .connected, .restoring, .disconnected, .exited: isHidden = true
+        case .disconnected(.turnedOffByOrganization, _): false
+        case .disconnected(_, reconnecting: false): true
+        case .connected, .restoring, .disconnected, .exited: false
         }
     }
 

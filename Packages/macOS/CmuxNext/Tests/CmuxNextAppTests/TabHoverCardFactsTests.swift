@@ -93,6 +93,71 @@ struct TabHoverCardFactsTests {
         #expect(shown.filter { $0.contains("cargo build") }.count == 1, "the command repeated under the title: \(shown)")
     }
 
+    /// A terminal tab built from a `session.events` snapshot whose terminal record carries
+    /// `extra`, as the app maps it.
+    private func terminalItem(extra: String) throws -> TabItem {
+        let store = DaemonStore()
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let line = #"{"type":"stream_item","item":{"kind":"snapshot","snapshot":{"terminals":[{"id":"term_7","extra":\#(extra)}],"extra":{"state":{}}}}}"#
+        store.session.apply(try #require(SessionStreamItem.decode(Data(line.utf8))), in: store)
+        let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        return TabItemMapping.shared.item(tab, fallbackTitle: "zsh")
+    }
+
+    /// The daemon's ms clock `seconds` ago, as its records write it.
+    private func ms(_ seconds: TimeInterval) -> String { String(UInt64(Date().addingTimeInterval(-seconds).timeIntervalSince1970 * 1000)) }
+
+    /// Leo 2026-10-21: "the tab hover card shows 'Idle · 5m' or 'Output · 12s' for a plain shell at
+    /// its prompt." Output under a minute old reads as Output, with a quiet dot, never working.
+    @Test func aShellAtItsPromptThatJustPrintedSaysOutput() throws {
+        let item = try terminalItem(extra: #"{"prompt":{"since_ms":"\#(ms(30))"},"last_output":{"at_ms":"\#(ms(12))"}}"#)
+        let shown = lines(item, report: nil)
+        #expect(shown.contains("Output · 12s") || shown.contains("Output · 13s"), "how long ago it printed: \(shown)")
+        #expect(TabHoverCardLines.tone(item) == .secondary, "a shell at its prompt is quiet")
+    }
+
+    @Test func aShellAtItsPromptThatPrintedLongAgoSaysIdle() throws {
+        let item = try terminalItem(extra: #"{"prompt":{"since_ms":"\#(ms(600))"},"last_output":{"at_ms":"\#(ms(300))"}}"#)
+        let shown = lines(item, report: nil)
+        #expect(shown.contains("Idle · 5m"), "how long it has been quiet: \(shown)")
+        #expect(TabHoverCardLines.tone(item) == .secondary)
+    }
+
+    /// Before its first output after the daemon starts or adopts it, a shell at its prompt has no
+    /// last output yet: it has been quiet since its prompt printed.
+    @Test func aShellAtItsPromptWithNoOutputYetSaysIdleSinceItsPrompt() throws {
+        let item = try terminalItem(extra: #"{"prompt":{"since_ms":"\#(ms(300))"}}"#)
+        let shown = lines(item, report: nil)
+        #expect(shown.contains("Idle · 5m"), "quiet since its prompt: \(shown)")
+        #expect(TabHoverCardLines.tone(item) == .secondary)
+    }
+
+    /// A daemon whose clock runs ahead names a prompt in this Mac's future: it counts from when this
+    /// Mac saw it, so two minutes on the shell reads as quiet, not as output that never ages.
+    @Test func aPromptFromADaemonAheadCountsFromWhenItArrived() throws {
+        let item = try terminalItem(extra: #"{"prompt":{"since_ms":"\#(ms(-600))"}}"#)
+        let later = TabHoverCardLines.make(item, report: nil, now: Date().addingTimeInterval(120))
+        #expect(later.status == "Idle · 2m", "counted from its arrival: \(String(describing: later.status))")
+    }
+
+    /// With no shell integration the daemon sends no prompt: no claim that the shell is idle.
+    @Test func aTerminalWithNoPromptRecordSaysNothingAboutOutput() throws {
+        let item = try terminalItem(extra: #"{"last_output":{"at_ms":"\#(ms(12))"}}"#)
+        let shown = lines(item, report: nil)
+        #expect(!shown.contains { $0.hasPrefix("Output") || $0.hasPrefix("Idle") }, "no prompt, no output row: \(shown)")
+        #expect(TabHoverCardLines.tone(item) == nil)
+    }
+
+    /// A running command keeps its Running row, whatever it printed.
+    @Test func aRunningCommandStillSaysRunning() throws {
+        let item = try terminalItem(extra: #"{"busy":{"since_ms":"\#(ms(12))"},"last_output":{"at_ms":"\#(ms(1))"}}"#)
+        let shown = lines(item, report: nil)
+        #expect(shown.contains("Running · 12s") || shown.contains("Running · 13s"), "the running time: \(shown)")
+        #expect(!shown.contains { $0.hasPrefix("Output") }, "\(shown)")
+    }
+
     /// A local file's place is its path from home, like the rest of cmux.
     @Test func aLocalFilesPlaceUsesTheTildeForm() {
         let path = NSHomeDirectory() + "/Docs/notes.html"

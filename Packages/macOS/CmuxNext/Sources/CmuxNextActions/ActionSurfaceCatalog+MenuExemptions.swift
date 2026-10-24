@@ -22,10 +22,9 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .unimplemented: [
             "palette.browserToggleOmnibar",
-            "palette.openFindPane",
-            "palette.openFilesPane",
         ],
         .noObject: [
+            "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
@@ -65,7 +64,7 @@ nonisolated extension ActionSurfaceCatalog {
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
             "music.open", "music.stop",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
+            "layout.undo", "agentActivity.open",
             "palette.openVaultPane",
         ],
         .noTargetSurface: [
@@ -84,11 +83,10 @@ nonisolated extension ActionSurfaceCatalog {
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
             "diffViewerGoToTop", "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction",
             "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart", "fileExplorerOpenSelection",
-            "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux", "fileExplorerReveal",
-            "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "vaultOpenSession",
+            "fileExplorerOpenSelectionFinderAlias", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudListMachines",
         ],
         .focusMove: [
             "history.goTo",

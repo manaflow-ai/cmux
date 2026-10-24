@@ -25,7 +25,9 @@ extension HomeStore {
             return running
         }
         guard mirror.windows[id] == nil else { return Task {} }
-        mirror.beginLoading(id)
+        // Switching back: the transcript it showed draws now, and the read below lays what the
+        // owner holds over it (``HomeMirror/restoreKept(_:)``).
+        if mirror.restoreKept(id) { bumpTranscript(id) } else { mirror.beginLoading(id) }
         return load(id)
     }
 

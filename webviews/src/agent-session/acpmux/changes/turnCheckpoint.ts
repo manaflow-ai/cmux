@@ -3,8 +3,9 @@
 // a file once with its net change, and it holds changes no tool call made (a shell command, a
 // formatter). Those are shown read-only; hunks that still match a tool edit carry its review key
 // so Keep and Undo stay connected to the tool call that produced them.
-import { hunkKey, type DiffHunk, type TurnFile } from "../diff";
+import { hunkKey, type DiffHunk, type PathRef, type TurnFile } from "../diff";
 import { currentLanguage, translatorFor, type Translate } from "../i18n";
+import { pathKey } from "../model";
 import { changeSetFiles, readChangeSet, type ChangeSet } from "./model";
 
 /// The host's answer for one turn: a checkpoint pair's diff in `git.diff`'s shape, or null when
@@ -109,8 +110,8 @@ function checkpointReviewKeys(file: TurnFile, hunk: DiffHunk, toolFile: TurnFile
 
 function checkpointReviewFile(file: TurnFile, toolFiles: readonly TurnFile[]): TurnFile {
   const matchingToolFiles = toolFiles.filter((candidate) => changedByTools(file, [candidate]));
-  // A suffix match can represent two path aliases for one physical file. Without a canonical
-  // identity, mapping to the first one could leave the other tool edit unreviewed.
+  // A suffix match (no canonical path) can represent two path aliases for one physical file;
+  // mapping to the first one could leave the other tool edit unreviewed.
   const toolFile = matchingToolFiles.length === 1 ? matchingToolFiles[0] : undefined;
   return {
     ...file,
@@ -124,23 +125,84 @@ function checkpointReviewFile(file: TurnFile, toolFiles: readonly TurnFile[]): T
   };
 }
 
-/// A checkpoint file is one a tool call changed when a tool call's path is it, or ends with its
-/// path under the repository: tool calls report paths as the agent wrote them (`~/code/x/a.ts`).
+/// A checkpoint file is one a tool call changed when their canonical paths are the same (model.ts
+/// `pathKey`; a loaded checkpoint's is `${root}/${path}`, `checkpointFiles`). Without both, by the
+/// path as the agent wrote it: when a tool call's path is it, or ends with its path under the
+/// repository (`~/code/x/a.ts`).
 export function changedByTools(
-  file: Pick<TurnFile, "path" | "displayPath">,
-  toolFiles: readonly Pick<TurnFile, "path">[],
+  file: Pick<TurnFile, "path" | "displayPath" | "canonical">,
+  toolFiles: readonly PathRef[],
 ) {
-  return toolFiles.some((tool) => tool.path === file.path || tool.path.endsWith(`/${file.displayPath}`));
+  return toolFiles.some((tool) =>
+    tool.canonical && file.canonical
+      ? tool.canonical === file.canonical
+      : tool.path === file.path || tool.path.endsWith(`/${file.displayPath}`),
+  );
+}
+
+/// Whether a tool call's path is checkpoint `file` of the repository at `root`, more strictly than
+/// `changedByTools`. With both canonical paths, when they are the same. Without, under the root, the
+/// same path from it (docs/notes.txt is not notes.txt); outside it, the same path from the root's own
+/// folder, so /tmp/repo/notes.txt is a repository at /private/tmp/repo's notes.txt and ~/code/x/a.ts
+/// is x's a.ts, but /elsewhere/notes.txt is not. A listed file outside the repository (a /tmp file,
+/// named from another folder) is only its own path.
+export function namesCheckpointFile(
+  { path, canonical }: PathRef,
+  file: Pick<TurnFile, "path" | "displayPath" | "canonical">,
+  root: string | undefined,
+) {
+  if (canonical && file.canonical) return canonical === file.canonical;
+  if (path === file.path) return true;
+  const top = root?.replace(/\/+$/, "");
+  if (top === undefined) return changedByTools(file, [{ path }]);
+  if (file.path.startsWith("/") && !file.path.startsWith(`${top}/`)) return false;
+  if (path.startsWith(`${top}/`)) return path.slice(top.length + 1) === file.displayPath;
+  return path.endsWith(`/${top.slice(top.lastIndexOf("/") + 1)}/${file.displayPath}`);
+}
+
+/// The tool calls' files at an absolute path outside the repository at `root`, which no checkpoint
+/// of it holds, by their canonical paths when acpmux recorded them. A relative path is the agent's,
+/// under its folder, so it stays with the checkpoint, and so does a file a checkpoint file already
+/// matches (`changedByTools`), such as /tmp/x for a repository under /private/tmp, so no file lists
+/// twice. The edited-files card reads its paths without counts the same way.
+export function outsideRepository<File extends PathRef>(
+  toolFiles: readonly File[],
+  root: string | undefined,
+  checkpointFiles: readonly Pick<TurnFile, "path" | "displayPath" | "canonical">[],
+): File[] {
+  const top = root?.replace(/\/+$/, "");
+  if (top === undefined) return [];
+  // A canonical path is composed (NFC); git prints the root as stored, which may be decomposed.
+  const under = (file: File) =>
+    file.canonical ? file.canonical.startsWith(`${top.normalize("NFC")}/`) : file.path.startsWith(`${top}/`);
+  return toolFiles.filter((file) => {
+    const key = pathKey(file);
+    return (
+      key.startsWith("/") &&
+      !under(file) &&
+      !checkpointFiles.some((checkpointFile) => changedByTools(checkpointFile, [file]))
+    );
+  });
+}
+
+/// A loaded checkpoint's files, each with its canonical path: `${root}/${path}` as git names the
+/// repository (`rev-parse --show-toplevel`, its real path), composed (NFC) as acpmux's canonical
+/// paths are: git prints names as stored, and a folder created decomposed stays so.
+function checkpointFiles(changeSet: ChangeSet): TurnFile[] {
+  const files = changeSetFiles(changeSet);
+  return changeSet.root ? files.map((file) => ({ ...file, canonical: file.path.normalize("NFC") })) : files;
 }
 
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless
 /// Keep or Undo choices on those edits are still unsent: the view switches once they are sent
-/// or cleared, so no choice moves under the reader's hand.
+/// or cleared, so no choice moves under the reader's hand. `pathsOnly`: paths the tool calls changed
+/// without a diff (diff.ts `turnPathsOnly`), so a checkpoint file there is not marked `outside`.
 export function turnDisplay(
   t: Translate,
   toolFiles: TurnFile[],
   load: TurnCheckpointLoad,
   pending: boolean,
+  pathsOnly: readonly PathRef[] = [],
 ): TurnDisplay {
   const tools = (note?: string): TurnDisplay => ({ files: toolFiles, source: "tools", note });
   switch (load.state) {
@@ -155,26 +217,37 @@ export function turnDisplay(
       return tools(t("turn.checkpoint.incomplete"));
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
-      const files = changeSetFiles(load.changeSet).map((file) => {
+      const changed = [...toolFiles, ...pathsOnly];
+      const files = checkpointFiles(load.changeSet).map((file) => {
         const reviewFile = checkpointReviewFile(file, toolFiles);
         return {
           ...reviewFile,
           edits: reviewFile.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
-          ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
+          ...(changedByTools(file, changed) ? {} : { outside: true }),
         };
       });
-      return { files, source: "checkpoint" };
+      // The checkpoint holds only its repository: a file a tool call wrote elsewhere (a new file in
+      // /tmp) keeps its tool-call diff, or it would vanish from the card and the view.
+      return { files: [...files, ...outsideRepository(toolFiles, load.changeSet.root, files)], source: "checkpoint" };
     }
   }
 }
 
 /// The edited-files card's totals: the checkpoint's once it has loaded, else the tool calls'.
-export function turnCounts(toolFiles: readonly TurnFile[], load: TurnCheckpointLoad | undefined) {
+/// `root`: the loaded checkpoint's repository. `pathsOnly` as for `turnDisplay`.
+export function turnCounts(
+  toolFiles: readonly TurnFile[],
+  load: TurnCheckpointLoad | undefined,
+  pathsOnly: readonly PathRef[] = [],
+) {
   const display =
-    load?.state === "loaded" ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false) : undefined;
+    load?.state === "loaded"
+      ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false, pathsOnly)
+      : undefined;
   const files = display?.files ?? toolFiles;
   return {
     files,
+    root: load?.state === "loaded" ? load.changeSet.root : undefined,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
     outside: files.some((file) => file.outside),

@@ -25,8 +25,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// endpoint directory is allowed; legacy socket tokens are withheld.
     public var computerUse: [String: String] = [:]
     /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
-    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while the Debug
-    /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
+    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
+    /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
     public var offersSessionTools = false
     /// Whether the daemon this app spawns keeps the agent message runaway guard on (acpmux
@@ -50,6 +50,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public static let offerToolsKey = "ACPMUX_OFFER_TOOLS"
     /// acpmux `hub::agent_pairs::GUARD_ENV`: `0` turns the agent message runaway guard off.
     public static let agentPairGuardKey = "ACPMUX_AGENT_PAIR_GUARD"
+    /// acpmux `config::chief_builtins::CHIEF_MUX_HOME_ENV`: the Chief home whose built-in presets
+    /// this daemon fills, in the daemon's own environment (NIGHTLY's app daemon runs its Chief).
+    public static let chiefMuxHomeKey = "ACPMUX_CHIEF_MUX_HOME"
     /// acpmux `hub::agent_pairs::MAX_MESSAGES_ENV` and `WINDOW_ENV`.
     public static let agentPairCapKey = "ACPMUX_AGENT_PAIR_MAX_MESSAGES"
     public static let agentPairWindowKey = "ACPMUX_AGENT_PAIR_WINDOW_SECS"

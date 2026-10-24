@@ -1,13 +1,16 @@
 #if os(iOS)
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import CmuxMobileOnboarding
 import CmuxMobileSettings
+import CmuxMobileVoice
 import SwiftUI
 import OSLog
 import UIKit
@@ -175,6 +178,9 @@ public struct RootView: View {
         }
         // Signed in (or out): live data and the team list follow the account.
         .task(id: auth.isResolved ? auth.user?.id : nil) {
+            // A reply a cold background launch is sending holds the device's one
+            // signaling socket: let it finish before this coordinator dials.
+            await PushReplies.shared.headlessFinished()
             accountChanged()
             await auth.loadTeams()
         }
@@ -260,6 +266,9 @@ public struct RootView: View {
     /// same account signs in again (verify/persistence.md). Removing it from
     /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
+        // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
+        ChiefLiveCall.shared.signedOut()
+        ChiefCallLauncher.shared.cancelPending()
         let ending = live
         live = nil
         setupPlan = nil
@@ -273,6 +282,10 @@ public struct RootView: View {
             accountUserID = nil
         }
         store.resetForSignOut()
+        // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
+        PushSnapshots().removeAll()
+        PushOutbox(group: .current())?.removeAll()
+        PushRetryStore.app?.removeAll()
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -296,24 +309,13 @@ public struct RootView: View {
         }
         #endif
         guard live == nil, !auth.isMock, let base = auth.apiBaseURL else { return }
-        let api = LiveAPI(baseURL: base) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
-        let coordinator = LiveCoordinator(
-            store: store,
-            api: api,
-            identity: DeviceIdentity.load(userID: user.id),
-            userID: user.id,
-            deviceName: UIDevice.current.name,
-            transport: settings.transport.link,
-            relayOnly: DeveloperOptions.relayOnly,
-            blockUDP: DeveloperOptions.blockUDP,
-            dialer: FFIMacLinkDialer(),
-            keys: PhoneKeys(userID: user.id)
-        )
+        let coordinator = LiveCoordinator.forAccount(auth: auth, user: user, base: base, store: store, transport: settings.transport)
         coordinator.onFollow = { [auth] teamID in
             guard !teamID.hasPrefix("personal-") else { return }
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
+        PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
         auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
@@ -401,11 +403,16 @@ struct ShellView: View {
         )
         .ignoresSafeArea()
         .cmuxMobileToast($shell.toast)
+        .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
+        }
+        .sheet(item: $shell.connectedDevices) { item in
+            TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
+                .presentationDetents([.medium, .large])
         }
         .alert("Invite to \(shell.invitingTeam?.name ?? "team")", isPresented: Binding(
             get: { shell.invitingTeam != nil },
@@ -432,8 +439,9 @@ struct ShellView: View {
         // Notification taps: open now, or once the Mac's tree places the tab.
         .onChange(of: NotificationRouter.shared.pending, initial: true) { _, route in
             guard let route else { return }
-            if shell.open(route) { NotificationRouter.shared.pending = nil }
+            if shell.open(route) { NotificationRouter.shared.opened() }
         }
+        .modifier(NotificationRouteObserver(shell: shell))
         // Design/terminal P10: remember where the user is; finish a launch
         // restore once the workspace is listed (or its Mac says it is gone).
         // Back to the workspace and tab that were open (P10), once, on the
@@ -452,6 +460,8 @@ struct ShellView: View {
         }
         .onChange(of: shell.store.macData) { _, _ in
             shell.continueRestore()
+            // Its Mac answered or went away: open the route, or the Feed.
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
             shell.terminalTabs.liveDataChanged()
@@ -460,13 +470,11 @@ struct ShellView: View {
             // A terminal page shown before the tree arrived (a launch
             // restore) attaches now (design/terminal R1-0).
             shell.terminalTabs.liveDataChanged()
-            guard let route = NotificationRouter.shared.pending else { return }
-            // One retry after the tree arrives; then the Feed is where it is.
-            shell.open(route)
-            NotificationRouter.shared.pending = nil
+            // A tapped notification waits for its Mac's tree (a cold launch), then opens.
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
-        .onChange(of: pushKinds, initial: true) { _, kinds in
-            PushRegistration.shared.setKinds(kinds)
+        .onChange(of: pushKinds, initial: true) { _, preferences in
+            PushRegistration.shared.setPreferences(preferences)
         }
         .onAppear {
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
@@ -475,14 +483,36 @@ struct ShellView: View {
         }
         .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
             shell.attach(live: live)
+            // A tapped notification that waited for the link (cold launch) opens now, or waits for its Mac's tree.
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .task {
+            #if DEBUG
+            if CommandLine.arguments.contains("-cmux-mobile-team-transparent") { DemoDriver(shell: shell).seedTransparentTeams() }
+            #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
+    }
+}
+
+/// A tapped notification's route that waits (review #4): opened as the Feed
+/// once its budget ends, dropped when the person goes elsewhere. Its own
+/// modifier, so ShellView's chain stays small enough to type-check.
+private struct NotificationRouteObserver: ViewModifier {
+    let shell: ShellModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: NotificationRouter.shared.expired) { _, _ in
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+            }
+            .onChange(of: shell.tab) { _, tab in
+                if tab != .feed { NotificationRouter.shared.userNavigated() }
+            }
     }
 }
 
@@ -510,25 +540,67 @@ private struct LinkSettingsObserver: ViewModifier {
                 shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { shell.live?.foreground() }
+                if phase == .active {
+                    shell.live?.foreground()
+                    // The content extension's replies, and those waiting for the app.
+                    PushReplies.shared.drainOutbox()
+                }
                 // Inactive (Control Center, a banner, the app switcher's first
                 // moment) still shows the page: only the background hides it.
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
+                // The notification preview shows these chats' last messages.
+                if phase == .background { PushSnapshots().save() }
             }
     }
 }
 
 extension ShellView {
-    /// The event kinds Settings → Notifications asks for.
-    var pushKinds: [String] {
-        PushRegistration.kinds(questions: shell.settings.notifyQuestions, finished: shell.settings.notifyFinished, errors: shell.settings.notifyErrors)
+    /// What Settings → Notifications asks the service for.
+    var pushKinds: PushRegistration.Preferences {
+        PushRegistration.Preferences(kinds: shell.settings.notifyLevel.kinds, mutedMacs: shell.settings.notifyMutedMacs,
+                                     previews: shell.settings.notifyPreviews)
     }
 }
 
 extension CmuxMobileModel.TransportKind {
     /// The link layer's transport for the Settings choice.
     var link: CmuxMobileTransport.TransportKind { self == .webrtc ? .webRTC : .wireGuard }
+}
+
+/// The live Chief call over the signed-in shell: the full-screen call, the
+/// pill while it is minimized, and every Call Chief entry point
+/// (``ChiefCallLauncher``) routed to ``ShellModel/callChief()``.
+private struct LiveCallHost: ViewModifier {
+    let shell: ShellModel
+    private let call = ChiefLiveCall.shared
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let session = call.session, call.isMinimized, !session.hasEnded {
+                    LiveCallPill(call: call, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .fullScreenCover(isPresented: Binding(
+                get: { call.showsScreen },
+                set: { if !$0 { call.isMinimized = true } }
+            )) {
+                if let session = call.session {
+                    LiveCallScreen(call: call, session: session) { shell.openChiefCallSettings() }
+                }
+            }
+            .task(id: shell.auth.isSignedIn ? shell.auth.user?.id : nil) {
+                let user = shell.auth.isSignedIn ? shell.auth.user : nil
+                call.configure(store: shell.store, accountID: user?.id,
+                               userName: user?.name.split(separator: " ").first.map(String.init))
+                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+            }
+            .onDisappear { ChiefCallLauncher.shared.handler = nil }
+    }
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
@@ -558,6 +630,8 @@ struct ShellTabs: View {
                     path: $shell.settingsPath,
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
+                    sizing: shell.sizingService,
+                    callChief: { shell.callChief() },
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {

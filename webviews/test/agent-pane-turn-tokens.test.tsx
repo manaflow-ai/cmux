@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
 // The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// working dots, the time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
+// time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
 // reports each model call's usage as it lands, and acpmux marks those records as one call's
 // (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's tokens are the
 // sum of the marked calls since its `turn_started`. Every other usage record is the context a
@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
 import {
   WorkingCountsContext,
   WorkingFor,
@@ -139,16 +140,27 @@ function fakeDaemon(
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
+  let snapshots = 0;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      snapshots += 1;
+    },
     undefined,
     daemon.open,
   );
-  await settle();
-  return { client, snapshot: () => snapshot };
+  await until(() => snapshot?.connection === "connected", "the attach");
+  return { client, snapshot: () => snapshot, snapshots: () => snapshots };
 }
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+/// Yields until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
 
@@ -162,20 +174,21 @@ test("a Claude turn's tokens are the sum of its model calls since it started, li
       call(43_800),
     ]),
   );
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, snapshots } = await connect(daemon);
   try {
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(85_000);
     daemon.push(record([call(46_000)], 5));
-    await settle();
+    await until(() => snapshot().turnTokens === 131_000, "the third call");
     expect(snapshot().turnTokens).toBe(131_000);
     // The turn ends: no running line, nothing to count.
+    const seen = snapshots();
     daemon.push(record([held(46_000), ["mux", "turn_result", { status: "completed" }]], 6));
-    await settle();
+    await until(() => snapshots() > seen, "the turn's end to land");
     expect(snapshot().turnTokens).toBeUndefined();
     // The next turn counts from zero.
     daemon.push(record([prompt("again"), started, call(50_000)], 8));
-    await settle();
+    await until(() => snapshot().turnTokens !== undefined, "the next turn's call");
     expect(snapshot().turnTokens).toBe(50_000);
   } finally {
     client.close();
@@ -251,26 +264,28 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
     await client.loadOlder();
-    await settle();
+    await until(() => snapshot().rows.some((row: AcpmuxRow) => row.kind === "user"), "the older page");
     expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
     daemon.notify("_acpmux/lagged", { dropped: 1 });
-    await settle();
+    expect(snapshot().connection).toBe("resyncing");
+    await until(() => snapshot().connection === "resynced", "the resync");
     expect(snapshot().turnTokens).toBeUndefined();
 
+    // The rebuild and its snapshot are synchronous.
     client.suggestedTasksChanged();
-    await settle();
     expect(snapshot().turnTokens).toBeUndefined();
 
     daemon.drop();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().connection).toBe("disconnected");
+    await until(() => snapshot().connection === "connected", "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
     // A turn that starts while the client watches counts from its start.
     daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
-    await settle();
+    await until(() => snapshot().turnTokens !== undefined, "the new turn's call");
     expect(snapshot().turnTokens).toBe(7_000);
   } finally {
     client.close();
@@ -290,11 +305,12 @@ test("a reconnect whose page starts after the turn began keeps the count it held
   try {
     expect(snapshot().turnTokens).toBe(85_000);
     daemon.push(record([call(46_000)], 5));
-    await settle();
+    await until(() => snapshot().turnTokens === 131_000, "the third call");
     expect(snapshot().turnTokens).toBe(131_000);
     daemon.pageFrom(4);
     daemon.drop();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().connection).toBe("disconnected");
+    await until(() => snapshot().connection === "connected", "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(131_000);
   } finally {
@@ -315,7 +331,7 @@ test("a live call that lands before a mid-turn attach's reply does not make it a
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
     await client.loadOlder();
-    await settle();
+    await until(() => snapshot().rows.some((row: AcpmuxRow) => row.kind === "user"), "the older page");
     expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
   } finally {
@@ -339,7 +355,7 @@ test("a reconnect whose gap read fails hides the count it can no longer add up",
     daemon.pageFrom(7);
     daemon.failGap(true);
     daemon.drop();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await until(() => snapshot().turnTokens === undefined, "the gap read to fail");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
   } finally {
@@ -369,12 +385,61 @@ for (const [harness, family] of [
     }
   });
 
+// The composer tooltip stays compact for harnesses without a category breakdown. The usage record
+// still carries the setup value for the context summary, but it is intentionally not guessed into
+// the small Codex-style hover surface.
+const compactCard = (usage: { used: number; size: number; setup?: number }) =>
+  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-compact-content");
+
+test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
+  const withSetup: Step = [
+    "in",
+    "usage_update",
+    update({ sessionUpdate: "usage_update", used: 111_000, size: 475_000, _meta: { acpmux: { setup: 20_000 } } }),
+  ];
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, withSetup]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.usage !== undefined, "the usage");
+    expect(snapshot().summary.usage).toEqual({ used: 111_000, size: 475_000, setup: 20_000 });
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    // A later record with no setup keeps the same compact tooltip.
+    daemon.push(record([held(120_000, 475_000)], 4));
+    await until(() => snapshot().summary.usage.used === 120_000, "the next usage");
+    expect(snapshot().summary.usage).toEqual({ used: 120_000, size: 475_000 });
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "usage_update",
+            update({
+              sessionUpdate: "usage_update",
+              used: 10_000,
+              size: 475_000,
+              _meta: { acpmux: { setup: 30_000 } },
+            }),
+          ],
+        ],
+        5,
+      ),
+    );
+    await until(() => snapshot().summary.usage.used === 10_000, "the odd usage");
+    expect(snapshot().summary.usage.setup).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
   commands: 0,
+  sessions: 0,
   openAgents: () => {},
   openCommands: () => {},
+  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
@@ -394,7 +459,9 @@ test("the line reads the time, then the turn's tokens, after the working dots", 
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
   // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M tokens · 2 agents");
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe(
+    "Working for 5m 54s · 2.1M tokens · 2 subagents",
+  );
 });
 
 test("tokens are compact in the pane's language", () => {

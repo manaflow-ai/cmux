@@ -32,8 +32,10 @@ import Foundation
 ///   scrollback, in the same order as on the Mac.
 ///
 /// The alternate screen (DEC modes 47, 1047, 1049) is drawn from the mirror's
-/// top and clipped to the TUI rows, so nothing is shifted there; leaving it
-/// resets the scroll margins a TUI set for its rows. Escape
+/// top and clipped to the TUI rows, so nothing is shifted there, but its
+/// scroll margins are the Mac's rows (set on entering it, and for a TUI's
+/// margin reset): a line feed on the Mac's last row scrolls, as on the Mac.
+/// Leaving it resets the scroll margins a TUI set for its rows. Escape
 /// sequences split across chunks are held until complete; OSC, DCS, APC, PM
 /// and SOS strings pass through untouched.
 public struct TerminalRowShift: Sendable {
@@ -113,14 +115,52 @@ public struct TerminalRowShift: Sendable {
         if text.hasPrefix("?"), final == UInt8(ascii: "h") || final == UInt8(ascii: "l") {
             let modes = text.dropFirst().split(separator: ";").compactMap { Int($0) }
             guard modes.contains(where: { [47, 1047, 1049].contains($0) }) else { return sequence }
+            let wasAlternate = isAlternate
             isAlternate = final == UInt8(ascii: "h")
+            let resetMargins = Self.saved(Self.csi("", UInt8(ascii: "r")))
             // Scroll margins are shared by both screens. A TUI's full-screen
             // region (`1;remoteRows`, unshifted there) is only the mirror's top
             // rows: back on the primary screen, output at the bottom row would
             // never scroll again. Reset the margins, keeping the cursor
             // (DECSTBM homes it).
-            if !isAlternate, offset > 0 { return sequence + [0x1B, UInt8(ascii: "7"), 0x1B, UInt8(ascii: "["), UInt8(ascii: "r"), 0x1B, UInt8(ascii: "8")] }
+            if !isAlternate, offset > 0 {
+                // Modes 47 and 1047 copy the alternate screen's cursor (the
+                // Mac's row r, unshifted) to the primary screen, where the Mac's
+                // row r is the mirror's row r + offset. 1049 restores the cursor
+                // it saved on the primary screen, already shifted.
+                let copiesCursor = wasAlternate && !modes.contains(1049)
+                return sequence + resetMargins + (copiesCursor ? Self.csi("\(offset)", UInt8(ascii: "B")) : [])
+            }
+            if isAlternate, offset > 0 {
+                // Entering it copies the primary screen's cursor, the Mac's
+                // row r at the mirror's row r + offset; on the alternate
+                // screen the Mac's row r is the mirror's row r. Up by
+                // `offset`, so a program that draws from the cursor draws
+                // where the Mac does. The daemon's replay of a TUI does: its
+                // modes, the switch, then its rows from the cursor (`\r\r\n`
+                // ...), with no cursor home. Left below, the replay's rows
+                // landed under the rows the phone shows while the live
+                // updates (positioned) landed on them: a black screen with a
+                // few changed cells (user report 2026-10-21, Claude Code).
+                // Margins reset first, so the move is not stopped at a region top.
+                let up = wasAlternate ? [] : resetMargins + Self.csi("\(offset)", UInt8(ascii: "A"))
+                // The alternate screen is drawn from the mirror's top: its
+                // margins are the Mac's rows, so a line feed on the Mac's last
+                // row scrolls (less scrolls that way, with no margins of its own;
+                // on the full mirror it moved below the rows shown).
+                return sequence + up + Self.saved(Self.csi("1;\(remoteRows)", UInt8(ascii: "r")))
+            }
             return sequence
+        }
+        if isAlternate, offset > 0, final == UInt8(ascii: "r"),
+           body.allSatisfy({ (0x30...0x39).contains($0) || $0 == UInt8(ascii: ";") }) {
+            // A TUI's margins are within the Mac's screen, not the mirror's:
+            // a missing or zero bottom (a reset, `ESC[;r`, `ESC[5r`) is the
+            // Mac's last row, and none goes past it.
+            let params = text.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
+            let top = max(1, params.first ?? 0)
+            let bottom = params.count > 1 && params[1] > 0 ? min(params[1], remoteRows) : remoteRows
+            return Self.csi("\(top);\(bottom)", final)
         }
         guard offset > 0, !isAlternate,
               body.allSatisfy({ (0x30...0x39).contains($0) || $0 == UInt8(ascii: ";") }) else { return sequence }
@@ -142,6 +182,11 @@ public struct TerminalRowShift: Sendable {
         default:
             return sequence
         }
+    }
+
+    /// `sequence` with the cursor kept (DECSTBM homes it).
+    private static func saved(_ sequence: [UInt8]) -> [UInt8] {
+        [0x1B, UInt8(ascii: "7")] + sequence + [0x1B, UInt8(ascii: "8")]
     }
 
     private static func csi(_ params: String, _ final: UInt8) -> [UInt8] {

@@ -262,6 +262,32 @@ impl BuildIdentity {
         }
     }
 
+    /// Where an untagged NIGHTLY, RC or staging app records that it adopted
+    /// the old shared `cmux-app` daemon session (CmuxNext
+    /// `LegacyChannelSession.marker`: beside its daemon state directory
+    /// `Application Support/cmux/tags/<channel>/tui`). `None` for every other
+    /// build, which never adopts it.
+    pub fn legacy_session_marker(&self, user_home: &Path) -> Option<PathBuf> {
+        let tag = match &self.kept {
+            Some(KeptNames { session_tag: Some(tag), .. }) => tag,
+            _ => return None,
+        };
+        if !["nightly", "rc", "staging"].contains(&tag.as_str())
+            || self.bundle_id() != Some(&format!("com.cmuxterm.app.{tag}"))
+        {
+            return None;
+        }
+        Some(
+            user_home
+                .join("Library")
+                .join("Application Support")
+                .join("cmux")
+                .join("tags")
+                .join(tag)
+                .join("legacy-session-adopted"),
+        )
+    }
+
     /// The acpmux home (`ACPMUX_HOME`): `~/.acpmux` for NIGHTLY and a
     /// standalone acpmux, else `~/.acpmux/builds/<key>`.
     pub fn acpmux_home(&self, user_home: &Path) -> PathBuf {

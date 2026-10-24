@@ -577,6 +577,10 @@ workspace_tests() {
   env "$run_marker" cargo "${args[@]}" 2>&1 | tee "$test_log"
   rc="${PIPESTATUS[0]}"
   pty_watch_stop "$pty_start"
+  # The custom test groups (nextest.toml [test-groups]) and their tests, so a
+  # step shows which tests ran alone. The run above built every binary.
+  echo "=== nextest test groups (profile ci)"
+  cargo nextest show-config test-groups "${test_scope[@]}" --locked --profile ci 2>&1 || echo "test groups: show-config failed"
   reap_leaked "after the full run, before reruns"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_full"
   [[ "$rc" -ne 0 ]] || return 0
@@ -630,7 +634,7 @@ prune_target() {
   [[ -d "$deps" ]] || return 0
   list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
   if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
-    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
+    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
     rm -f "$list"
     echo "prune: skipped (cargo did not list the build's artifacts)"
     return 0
@@ -803,7 +807,9 @@ if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+  # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
+  # lint may fail it (its own [lints] allow everything; `-D warnings` here would override them).
+  step clippy cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red

@@ -534,3 +534,136 @@ fn expiring_and_refused_asks_keep_their_pace_across_leases() {
     assert_eq!(count(&events, &mut seen, "expiring"), 1, "{seen:?}");
     assert_eq!(count(&events, &mut seen, "unauthenticated"), 1, "{seen:?}");
 }
+
+fn chief_stream() -> String {
+    format!("host:{HOST}/chief")
+}
+
+fn chief_conversation(mux: &Arc<Mux>, client: u64) -> String {
+    let created = run(
+        mux,
+        client,
+        json!({"cmd":"conversation-create","idempotency_key":"chief-create","actor":"user_local",
+               "title":"Chief","participants":[
+                   {"id":"user_local","kind":"human","display_name":"You"},
+                   {"id":"agent_mux","kind":"agent","display_name":"Chief","agent_class":"mux","acp_session":"mux"}]}),
+    )
+    .unwrap();
+    created["conversation"]["id"].as_str().unwrap().to_string()
+}
+
+fn chief_texts(mux: &Arc<Mux>, client: u64, conversation: &str) -> Vec<(String, String)> {
+    let snapshot = run(
+        mux,
+        client,
+        json!({"cmd":"conversation-snapshot","conversation":conversation,"tail":50}),
+    )
+    .unwrap();
+    snapshot["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["author"].as_str().unwrap_or("").to_string(),
+                m["parts"][0]["text"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The phone reaches the Mac Chief through the cloud copy (a450, cmux-prompts
+/// logs/iphone-chief-DESIGN.md): the daemon publishes the Chief conversation on
+/// `host:<h>/chief`, and a `conversation.message.send` the cloud forwards (live or
+/// from HostDO's mailbox, `to: "mailbox"`) becomes the person's message once.
+#[test]
+fn the_daemon_publishes_the_chief_chat_and_takes_the_phones_messages_once() {
+    let (mux, client, backend) = replica_mux();
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let conversation = chief_conversation(&mux, client);
+    run(
+        &mux,
+        client,
+        json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"mac-1",
+               "actor":"user_local","op":{"kind":"message.send","client_msg_id":"mac-1",
+               "parts":[{"type":"text","text":"hello from the Mac"}]}}),
+    )
+    .unwrap();
+
+    backend.reply("/v1/ops", 200, json!({"ok":true,"value":{"id":HOST,"name":"studio"}}));
+    let wire = backend.wire();
+    wire.push_text(json!({"t":"welcome","role":"publisher","host":HOST,"heads":{}}).to_string());
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+
+    // The Chief chat is published with the Mac offline-readable copy: summary and messages.
+    let chief = wait_frame(&wire, "the chief snapshot", |f| {
+        f["t"] == "publish" && f["stream"] == chief_stream() && f["snapshot"].is_object()
+    });
+    let state = &chief["snapshot"]["state"];
+    assert_eq!(state["conversation"]["id"], conversation);
+    assert!(state["messages"].to_string().contains("hello from the Mac"), "{state}");
+
+    // A queued phone message (from the mailbox): the person's message, then published, then settled.
+    let op = |key: &str, to: &str, params: Value| {
+        json!({"t":"op","stream":chief_stream(),"op":"conversation.message.send","params":params,
+               "idempotency_key":key,"origin":"user","to":to,
+               "principal":{"user":ME,"kind":"session"}})
+        .to_string()
+    };
+    wire.push_text(op("phone-1", "mailbox", json!({"text":"from the phone"})));
+    let settled = wait_frame(&wire, "the mailbox settle", |f| {
+        f["t"] == "request-settled" && f["to"] == "mailbox" && f["idempotency_key"] == "phone-1"
+    });
+    assert_eq!(settled["ok"], true);
+    let texts = chief_texts(&mux, client, &conversation);
+    assert_eq!(texts.iter().filter(|(_, t)| t == "from the phone").count(), 1, "{texts:?}");
+    assert!(texts.iter().any(|(who, t)| who == "user_local" && t == "from the phone"), "{texts:?}");
+    let snapshot = run(
+        &mux,
+        client,
+        json!({"cmd":"conversation-snapshot","conversation":conversation,"tail":50}),
+    )
+    .unwrap();
+    assert!(
+        snapshot["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["client_msg_id"] == "cloud-phone-1"),
+        "the phone's id names the delivered message"
+    );
+    wait_frame(&wire, "the published phone message", |f| {
+        f["stream"] == chief_stream() && f.to_string().contains("from the phone")
+    });
+
+    // The same key again (a lost answer, a resend): no second message.
+    wire.push_text(op("phone-1", "mailbox", json!({"text":"from the phone"})));
+    wait_until("the replay", || {
+        frames(&wire)
+            .iter()
+            .filter(|f| f["t"] == "request-settled" && f["idempotency_key"] == "phone-1")
+            .count()
+            == 2
+    });
+    let texts = chief_texts(&mux, client, &conversation);
+    assert_eq!(texts.iter().filter(|(_, t)| t == "from the phone").count(), 1, "{texts:?}");
+
+    // Only the text passes: another field is refused and nothing is sent.
+    wire.push_text(op("phone-2", "r2", json!({"text":"x","actor":"agent_mux"})));
+    let refused = wait_frame(&wire, "a closed field", |f| f["t"] == "reject" && f["to"] == "r2");
+    assert_eq!(refused["code"], "validation.invalid");
+
+    // A new Mac message reaches the copy too.
+    run(
+        &mux,
+        client,
+        json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"mac-2",
+               "actor":"user_local","op":{"kind":"message.send","client_msg_id":"mac-2",
+               "parts":[{"type":"text","text":"answer for the phone"}]}}),
+    )
+    .unwrap();
+    wait_frame(&wire, "the Mac's answer", |f| {
+        f["stream"] == chief_stream() && f.to_string().contains("answer for the phone")
+    });
+}

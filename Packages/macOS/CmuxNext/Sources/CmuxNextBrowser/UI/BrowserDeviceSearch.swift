@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The search field on top of the device menu's All Devices submenu: as you type, it hides the browse rows
 /// (group headers, brand submenus, devices) and lists the devices whose brand and title hold every typed word,
@@ -55,7 +56,9 @@ final class BrowserDeviceSearch: NSObject, NSSearchFieldDelegate {
         for item in menu.items.dropFirst() {
             item.isHidden = !words.isEmpty
         }
-        guard !words.isEmpty else { return }
+        // The browse rows show again, a checked device among them: the themed menu measures its
+        // columns again, so its rows take the state column back while it is open.
+        guard !words.isEmpty else { return menu.themeAddedRows() }
         let matches = devices.filter { device in
             let text = "\(device.brand) \(device.title)"
             return words.allSatisfy { text.localizedStandardContains($0) }
@@ -63,6 +66,7 @@ final class BrowserDeviceSearch: NSObject, NSSearchFieldDelegate {
         let before = menu.items.count
         if matches.isEmpty {
             let none = NSMenuItem(title: BrowserDeviceMenu.Strings.noMatch, action: nil, keyEquivalent: "")
+            none.image = NSImage.menuSymbol("magnifyingglass")
             none.isEnabled = false
             menu.addItem(none)
         }
@@ -72,5 +76,7 @@ final class BrowserDeviceSearch: NSObject, NSSearchFieldDelegate {
         for item in menu.items[before...] {
             item.tag = Self.resultTag
         }
+        // Results added while a themed menu is open take its look.
+        menu.themeAddedRows()
     }
 }

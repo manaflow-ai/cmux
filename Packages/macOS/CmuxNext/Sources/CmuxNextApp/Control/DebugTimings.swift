@@ -60,7 +60,7 @@ enum DebugTimings {
         }
         if first {
             LaunchMarkSink.shared.write(name: name, ms: ms)
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("launch.\(name)", at: date)
             #endif
         }

@@ -53,9 +53,14 @@ const text = (value: unknown) => (typeof value === "string" && value.trim() ? va
 /// What one request asks, as its row names it: a verb and the command, path, address or pattern
 /// the call carries (in the code face), else the agent's title for it.
 function askOf(item: PermissionGroupItem, fallback: string) {
-  const tool = record(item.request.toolCall);
-  const input = record(tool?.rawInput);
-  const kind = text(tool?.kind);
+  const request = record(item.request);
+  const subject = record(request?.subject);
+  const subjectTool = subject?.type === "tool_call" ? record(subject.toolCall) : undefined;
+  const subjectCommand = subject?.type === "command" ? subject : undefined;
+  const requestTitle = text(request?.title) ?? text(request?.description);
+  const tool = record(request?.toolCall) ?? subjectTool;
+  const input = record(tool?.rawInput) ?? subjectCommand;
+  const kind = text(tool?.kind) ?? (subjectCommand ? "execute" : undefined);
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
@@ -79,11 +84,22 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     subject:
       named ??
       (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
+      text(subjectCommand?.title) ??
+      requestTitle ??
       text(tool?.title) ??
       fallback,
     code: named !== undefined,
     command,
     cwd: text(input?.cwd),
+    scope:
+      text(input?.app) ??
+      text(input?.application) ??
+      text(input?.appName) ??
+      paths[0] ??
+      text(input?.file_path) ??
+      text(input?.path) ??
+      text(input?.url) ??
+      text(input?.cwd),
     paths,
     input: tool?.rawInput,
   };
@@ -134,10 +150,12 @@ function AskRow({
         </button>
         {actions}
       </div>
+      {ask.scope && <p className="acpmux-ask-scope">{t("permission.cwd", { path: ask.scope })}</p>}
       {open && (
         <div id={detailsId} className="acpmux-ask-details">
           {ask.command ? (
-            <ShellBlock command={ask.command} />
+            // A command waiting to run shows whole: what is approved is never under a fade.
+            <ShellBlock command={ask.command} whole />
           ) : ask.input !== undefined ? (
             <pre className="acpmux-ask-input">
               {typeof ask.input === "string" ? ask.input : JSON.stringify(ask.input, null, 2)}
@@ -157,7 +175,8 @@ function AskRow({
         </div>
       )}
       {files.map((file) => (
-        <EditDiff key={file.path} file={file} />
+        // An edit awaiting approval shows whole: never under a fade.
+        <EditDiff key={file.path} file={file} whole />
       ))}
     </>
   );
