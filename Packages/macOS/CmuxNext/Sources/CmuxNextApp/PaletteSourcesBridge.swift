@@ -122,11 +122,13 @@ enum PaletteSourcesBridge {
 
         func selectWorkspace(id: String) {
             // No active window (all closed, CLI run): show it in its own window, else a new one.
-            guard let state = services.windows.active?.state else {
+            guard let window = services.windows.active else {
                 services.windows.reveal(workspaceID: id)
                 return
             }
-            services.windows.show(workspaceID: id, in: state)
+            // Keep Cmd-P on the same selection path as a sidebar click and the numbered navigation
+            // shortcuts so the row highlight moves with the workspace in the same turn.
+            SidebarNavigation.activate(.workspace(WorkspaceID(id)), in: window, services)
         }
 
         func renameWorkspace(id: String, to title: String) {
