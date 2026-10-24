@@ -213,23 +213,25 @@ final class NotificationCenterService {
     /// it may start dragging the tab or the pane, and the ring goes with it.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
         stripPress = nil
-        guard let tab = clickedTab(in: window, at: location) else { return }
-        if let window, Self.pressesTabStrip(in: window, at: location) {
-            stripPress = StripPress(tab: tab, screenLocation: window.convertPoint(toScreen: location))
+        guard let press = clickedTab(in: window, at: location) else { return }
+        if press.onStrip, let window {
+            stripPress = StripPress(tab: press.tab, screenLocation: window.convertPoint(toScreen: location))
             return
         }
-        interacted(.click, tabID: tab)
+        interacted(.click, tabID: press.tab)
     }
 
     /// The selected tab of the pane under `location` in `window`. A child
     /// window (a Chromium page's) is hit-tested in the workspace window it
     /// belongs to. A window outside any workspace window, or one showing a top
     /// page, reads the tab that has the keyboard, which the click gave it.
-    func clickedTab(in window: NSWindow?, at location: NSPoint) -> String? {
+    /// `onStrip`: the press is on the pane's tab strip, found from the pane's own
+    /// strip rather than a window hit test (in the top row the titlebar takes that).
+    func clickedTab(in window: NSWindow?, at location: NSPoint) -> (tab: String, onStrip: Bool)? {
         guard let services, let window else { return nil }
         let host = CmuxApplication.accessibilityWindow(for: window) ?? window
         guard let controller = services.windows.controllers.first(where: { $0.window === host }),
-              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window) }
+              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window).map { ($0, false) } }
         let inHost = host === window ? location : host.convertPoint(fromScreen: window.convertPoint(toScreen: location))
         let root = content.layoutView
         let point = root.convert(inHost, from: nil)
@@ -240,7 +242,10 @@ final class NotificationCenterService {
         guard let pane = hits.first(where: { $0.rawValue == focused }) ?? (hits.count == 1 ? hits.first : nil),
               let model = content.paneModel(key: pane.rawValue), !model.tabs.isEmpty else { return nil }
         let selected = controller.state.selection.selection(in: model.id)
-        return (model.tabs.first { $0.id == selected } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
+        let tab = (model.tabs.first { $0.id == selected } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
+        let strip = content.panes[pane]?.view.stripView
+        let onStrip = strip.map { $0.window === host && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.contains($0.convert(inHost, from: nil)) } ?? false
+        return (tab, onStrip)
     }
 
     /// A window's settled focus changed (window key, app active, workspace or
