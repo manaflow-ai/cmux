@@ -218,8 +218,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await trayLines(1)(ctx);
         const tray = ctx.document.querySelector<HTMLElement>(".acpmux-transcript-after-latest .acpmux-running-tray");
-        if (!tray)
-          throw new Error("after-latest placement must stay in the transcript flow");
+        if (!tray) throw new Error("after-latest placement must stay in the transcript flow");
         const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock");
         const reserve = ctx.document.querySelector<HTMLElement>(".acpmux-transcript-after-latest");
         if (dock && reserve && reserve.getBoundingClientRect().bottom > dock.getBoundingClientRect().top + 1)

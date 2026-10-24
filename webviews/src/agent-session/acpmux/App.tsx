@@ -174,10 +174,7 @@ import {
   useSubagentTray,
   withSubagentLines,
 } from "./subagents/runningTray";
-import {
-  configureSubagentTrayPlacement,
-  useSubagentTrayPlacement,
-} from "./subagents/subagentTrayPlacement";
+import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -5578,9 +5575,7 @@ function AcpmuxPane() {
     [subagentTray, chatAgents, childSessions],
   );
   const trayNode =
-    !quick &&
-    !freshView &&
-    (trayList.length > 0 || trayFinished.length > 0) ? (
+    !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
           <SubagentTray
@@ -7809,7 +7804,11 @@ function AcpmuxPane() {
                                                   reveal={childRows ? undefined : revealRow}
                                                   coldOpen={!childRows && opened.cold ? opened.open : undefined}
                                                   onColdOpenShown={coldOpenShown}
-                                                  afterLatest={!childRows && trayPlacement === "after-latest-message" ? trayNode : undefined}
+                                                  afterLatest={
+                                                    !childRows && trayPlacement === "after-latest-message"
+                                                      ? trayNode
+                                                      : undefined
+                                                  }
                                                   registry={registry}
                                                   githubRepository={githubRepository}
                                                   fallbackRepository={
