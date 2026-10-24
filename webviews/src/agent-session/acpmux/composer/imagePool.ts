@@ -1,9 +1,10 @@
 // Runs an attached image's pixel work (imageWork.ts) in one worker beside the page, so pasting
 // several Retina screenshots never blocks typing (Leo, 2026-10-24: "they freeze the composer").
 // The bundled page starts `image-worker.js` from its own origin, as the code highlighter does
-// (conversation/highlightPool.ts); the Vite dev server serves the module itself. Where no worker
-// starts, the work runs on the page as before; a worker that stops answering fails its jobs and is
-// replaced, never handing them to the page.
+// (conversation/highlightPool.ts); the Vite dev server serves the module itself. Where there is no
+// Worker, or the engine cannot draw in one, the work runs on the page as before; a worker that fails
+// or stops answering fails its jobs (the file then goes as a file) and is replaced, never handing
+// them to the page.
 import { usesHighlightWorker } from "../conversation/highlightPool";
 import { prepareImage, thumbnailOf, type PreparedImage, type Thumb } from "./imageWork";
 
@@ -46,9 +47,10 @@ function startWorker(): Worker | null {
       waiting.delete(data.id);
       job.settle(data.value);
     };
-    // A worker that could not start: no worker serves this page, so its jobs and every later one
-    // run on the page, as they did before workers.
-    started.onerror = () => stopWorker(started, "page");
+    // A worker that failed (its script did not load, or it crashed): its jobs fail, never rerun on
+    // the page, and the next job starts a new one. Only a worker that says it cannot draw hands
+    // work to the page.
+    started.onerror = () => stopWorker(started, "fresh");
     worker = started;
   } catch {
     worker = null;
@@ -56,8 +58,8 @@ function startWorker(): Worker | null {
   return worker;
 }
 
-/// Ends `stopped` if it is still the worker. `page`: no worker can serve this page, its jobs run
-/// here. `fresh`: it stopped answering; its jobs fail (never rerun on the page, where a Retina
+/// Ends `stopped` if it is still the worker. `page`: the engine cannot draw in a worker, its jobs
+/// run here. `fresh`: it failed or stopped answering; its jobs fail (never rerun on the page, where a Retina
 /// screenshot would stall typing) and the next job starts a new worker.
 function stopWorker(stopped: Worker, then: "page" | "fresh") {
   stopped.terminate();

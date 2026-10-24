@@ -26,15 +26,25 @@ class FakeWorker {
 
 const g = globalThis as Record<string, unknown>;
 const saved = { Worker: g.Worker, location: g.location };
+/// Each decode the page itself does: a Retina screenshot decoded here stalls typing.
+let decodedOnPage = 0;
 afterEach(() => {
   g.Worker = saved.Worker;
   g.location = saved.location;
+  delete g.createImageBitmap;
+  delete g.OffscreenCanvas;
   made.length = 0;
+  decodedOnPage = 0;
 });
 
 /// A fresh copy of the pool on the bundled page, with FakeWorker as its Worker.
 async function pool() {
   g.Worker = FakeWorker;
+  g.createImageBitmap = async () => {
+    decodedOnPage += 1;
+    throw new Error("not a picture");
+  };
+  g.OffscreenCanvas = class {};
   g.location = { protocol: "cmux-agent:", href: "cmux-agent://pane/index.html" };
   return import(`../src/agent-session/acpmux/composer/imagePool.ts?${Math.random()}`);
 }
@@ -52,8 +62,8 @@ test("a worker that cannot draw hands its job to the page, and no worker starts 
   const { prepareImageOffThread } = await pool();
   const result = prepareImageOffThread(new Blob(["png"]));
   made[0]!.answer({ id: made[0]!.posted[0]!.id, value: undefined, unsupported: true });
-  // No engine here either: the page answers that it cannot decode it.
   expect(await result).toBeUndefined();
+  expect(decodedOnPage).toBe(1);
   expect(made[0]!.terminated).toBe(true);
   await prepareImageOffThread(new Blob(["png"]));
   expect(made).toHaveLength(1);
@@ -64,6 +74,7 @@ test("a worker that stops answering fails its job, never reruns it on the page, 
   imageJobDeadline.ms = 20;
   const wedged = prepareImageOffThread(new Blob(["a"]));
   expect(await wedged).toBeUndefined();
+  expect(decodedOnPage).toBe(0);
   const old = made[0]!;
   expect(old.terminated).toBe(true);
   // The next job goes to a new worker; the old one's late error or answer never touches it.
@@ -75,4 +86,16 @@ test("a worker that stops answering fails its job, never reruns it on the page, 
   expect(fresh.terminated).toBe(false);
   fresh.answer({ id: fresh.posted[0]!.id, value: { mimeType: "image/png", data: "NEW" } });
   expect(await next).toEqual({ mimeType: "image/png", data: "NEW" });
+  expect(decodedOnPage).toBe(0);
+});
+
+test("a worker whose script fails fails its job and never decodes it on the page", async () => {
+  const { prepareImageOffThread } = await pool();
+  const job = prepareImageOffThread(new Blob(["a"]));
+  made[0]!.onerror?.();
+  expect(await job).toBeUndefined();
+  expect(decodedOnPage).toBe(0);
+  // The next job tries a new worker.
+  void prepareImageOffThread(new Blob(["b"]));
+  expect(made).toHaveLength(2);
 });
