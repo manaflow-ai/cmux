@@ -3,7 +3,6 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
-import CmuxNextHomeEngine
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -43,7 +42,7 @@ public struct CmuxNextApp {
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         // What the launch draws or keeps (the panes' last frames, the chats' drafts and composer states,
         // the Home caches) is read and decoded off the main thread while AppKit starts (#17587).
-        let launchFiles = LaunchFiles(environment: environment)
+        let launchFiles = environment.startLaunchFiles()
         environment.launchFiles = launchFiles
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())

@@ -98,6 +98,7 @@
     "CmuxNextAgentPermissions": {"layer": "ui"},
     "CmuxNextChiefViews": {"layer": "ui"},
     "CmuxNextChiefPetWiring": {"layer": "ui"},
+    "CmuxNextLaunchFiles": {"layer": "ui", "mixes": ["domain"], "plan": "domain once Terminal, AgentPane and HomeEngine keep their launch reads below their views"},
     "CmuxNextAccounts": {"layer": "ui"},
     "CmuxNextScreenshots": {"layer": "ui"},
     "CmuxNextFileGrid": {"layer": "ui"},

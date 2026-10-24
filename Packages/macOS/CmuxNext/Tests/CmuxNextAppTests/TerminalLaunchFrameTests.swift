@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextLaunch
+import CmuxNextLaunchFiles
 @testable import CmuxNextTerminal
 import Dispatch
 import ImageIO
@@ -161,8 +162,8 @@ import Testing
         await TerminalLaunchFrames(directory: TerminalLaunchFrames.directory(beside: state))
             .save(images: ["tab-1": Self.frame(size, scale: pane.window.backingScaleFactor)])
         let home = ChiefHome(root: state.appending(path: "chief"), isolated: false, buildID: ChiefHome.nightlyBundleID)
-        let first = LaunchFiles(state: state, chiefHome: home)
-        let second = LaunchFiles(state: state, chiefHome: home)
+        let first = LaunchFiles(state: state, chiefHome: home, mark: { _ in })
+        let second = LaunchFiles(state: state, chiefHome: home, mark: { _ in })
         await first.terminalFrames.decoded()
         await second.terminalFrames.decoded()
         #expect(first.terminalFrames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
