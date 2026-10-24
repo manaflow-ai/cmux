@@ -87,9 +87,10 @@ package final class AgentPaneLaunchImages {
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             encoded[SavedFrameDirectory.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
+        let encode = encoded
         do {
             try await work.run(.userVisible, mayBlock: .files) {
-                SavedFrameDirectory.write(encoded.compactMapValues { $0.pageImageData() }, to: directory)
+                SavedFrameDirectory.write(encode.compactMapValues { $0.pageImageData() }, to: directory)
             }
         } catch {
             // Only CancellationError (the quit's task was cancelled, or the lanes shut down, before the

@@ -133,9 +133,10 @@ public final class TerminalLaunchFrames {
             let scale = max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded())))
             frames[SavedFrameDirectory.fileName(key, scale: scale, ext: "jpg")] = frame
         }
+        let encode = frames
         do {
             try await work.run(.userVisible, mayBlock: .files) {
-                SavedFrameDirectory.write(frames.compactMapValues {
+                SavedFrameDirectory.write(encode.compactMapValues {
                     NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
                 }, to: directory)
             }
