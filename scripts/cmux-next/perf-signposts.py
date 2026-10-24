@@ -33,6 +33,13 @@ What the action rows mean:
                            perform, commit or input_to_commit rows (the run it lets through has
                            its own)
 
+What the scroll rows mean (detail = the end's target=: layout when the layout scrolled, content when the
+event went on to the pane):
+  key.scroll_frame          a scroll event's dispatch to the end of the turn's Core Animation commit
+  key.scroll_frame.missed   commits the boundary missed: kept out of the rows above and below
+  key.scroll_input_to_frame key.scroll_frame plus the begin's age_ms (the event's wait in the queue), for
+                            events with an age: input to frame, the number Chrome reports for scrolls
+
 Categories (SignpostCategory.swift): action, motion, key, switch, create, cef, launch, stall, and
 burst (events, not intervals: scripts/cmux-next/burst-bench.py reads those; this script pairs
 intervals only, so --category burst prints no rows).
@@ -147,7 +154,7 @@ def parse(lines, timebase: tuple[int, int] | None) -> dict:
             start, info = open_intervals.pop(key)
             end = fields(event.get("eventMessage", ""))
             done.append({"name": key[2], "category": key[1], "ms": (at - start) * 1000, "at_s": start, "fields": info,
-                         "missed": end.get("commit") == "missed", "nested_loop": end.get("loop") == "nested"})
+                         "end_fields": end, "missed": end.get("commit") == "missed", "nested_loop": end.get("loop") == "nested"})
     return {"intervals": done, "lost": lost, "unpaired": len(open_intervals)}
 
 
@@ -160,7 +167,9 @@ def percentile(values: list[float], fraction: float) -> float:
 def summarize(intervals: list[dict]) -> list[dict]:
     groups: dict[tuple[str, str], list[float]] = {}
     for interval in intervals:
-        detail = interval["fields"].get("id") or interval["fields"].get("kind") or ""
+        # key.scroll_frame names who took the event at its end (target=layout|content), not at its begin.
+        detail = (interval["fields"].get("id") or interval["fields"].get("kind")
+                  or interval.get("end_fields", {}).get("target") or "")
         suffix = ".nested_loop" if interval.get("nested_loop") else ".missed" if interval.get("missed") else ""
         name = interval["name"] + suffix
         groups.setdefault((name, detail), []).append(interval["ms"])
@@ -168,6 +177,10 @@ def summarize(intervals: list[dict]) -> list[dict]:
         age = interval["fields"].get("input_age_ms")
         if name == "action.commit" and age and float(age) >= 0:
             groups.setdefault(("action.input_to_commit", detail), []).append(interval["ms"] + float(age))
+        scroll_age = interval["fields"].get("age_ms")
+        if name == "key.scroll_frame" and scroll_age and float(scroll_age) >= 0:
+            groups.setdefault(("key.scroll_input_to_frame", detail), []).append(interval["ms"] + float(scroll_age))
+            groups.setdefault(("key.scroll_input_to_frame", "*"), []).append(interval["ms"] + float(scroll_age))
     rows = []
     for (name, detail), values in sorted(groups.items()):
         rows.append({
