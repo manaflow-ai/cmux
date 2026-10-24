@@ -16,9 +16,6 @@
 //! share a file (another volume), the kept file is a copy taken again at each
 //! turn's end. Deleting the chat deletes its folder, and the transcript with it.
 
-// The regression tests first: `keep` and `restore` do nothing yet.
-#![allow(dead_code)]
-
 use super::*;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read};
@@ -80,8 +77,37 @@ const FIRST_RECORD_BYTES: u64 = 64 * 1024;
 /// only the lines since: they are appended to the kept transcript, and
 /// Claude's name points at the whole of it again.
 pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()> {
-    let _ = (session_dir, store, sid);
-    Ok(())
+    if !crate::adopt::is_bare_id(sid) {
+        return Ok(());
+    }
+    let Some(live) = crate::adopt::find_claude(store, sid) else { return Ok(()) };
+    let Some(project) = live.parent().and_then(Path::file_name) else { return Ok(()) };
+    let kept = match kept_file(session_dir, sid) {
+        Some(kept) => kept,
+        None => {
+            let kept = session_dir.join(KEPT_DIR).join(project).join(file_name(sid));
+            fs::create_dir_all(kept.parent().unwrap_or(session_dir))?;
+            return share(&live, &kept);
+        }
+    };
+    if same_file(&live, &kept) {
+        return Ok(());
+    }
+    if first_record(&live)? == first_record(&kept)? {
+        // The same conversation: Claude's file is the whole of it (a copy
+        // kept on another volume is only as new as the last turn).
+        return replace(&live, &kept);
+    }
+    // Claude started its file again: what it holds came after the kept lines.
+    let mut tail = Vec::new();
+    File::open(&live)?.read_to_end(&mut tail)?;
+    let mut whole = OpenOptions::new().append(true).open(&kept)?;
+    if !ends_with_newline(&kept)? {
+        io::Write::write_all(&mut whole, b"\n")?;
+    }
+    io::Write::write_all(&mut whole, &tail)?;
+    drop(whole);
+    replace(&kept, &live)
 }
 
 /// Puts session `sid`'s kept transcript back in the store `store` when Claude
@@ -91,8 +117,19 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
 /// written would be past the retention again, and the cleanup of the very
 /// process that resumes it could delete it from under that process.
 pub(super) fn restore(session_dir: &Path, store: &Path, sid: &str) -> io::Result<bool> {
-    let _ = (session_dir, store, sid);
-    Ok(false)
+    if !crate::adopt::is_bare_id(sid) {
+        return Ok(false);
+    }
+    if crate::adopt::find_claude(store, sid).is_some() {
+        return Ok(true);
+    }
+    let Some(kept) = kept_file(session_dir, sid) else { return Ok(false) };
+    let Some(project) = kept.parent().and_then(Path::file_name) else { return Ok(false) };
+    let live = store.join("projects").join(project).join(file_name(sid));
+    fs::create_dir_all(live.parent().unwrap_or(store))?;
+    share(&kept, &live)?;
+    OpenOptions::new().write(true).open(&live)?.set_modified(std::time::SystemTime::now())?;
+    Ok(true)
 }
 
 fn file_name(sid: &str) -> String {
