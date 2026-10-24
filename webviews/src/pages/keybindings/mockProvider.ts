@@ -248,6 +248,15 @@ export class MockKeybindingsProvider implements PageClient {
   }
 
   private set(params: SetParams): void {
+    // As the app (KeybindingPageWrites.verdict): another action's keys in the same place are a
+    // refusal, unless the person keeps both.
+    const taken = this.active().some(
+      (entry) =>
+        entry.command !== params.command &&
+        normalized(entry.key) === normalized(params.key) &&
+        (entry.when ?? null) === (params.when ?? null),
+    );
+    if (taken && !params.keep_both) throw pageError("cmux.keybindings.conflict", "another action has these keys");
     // An unbound command stays unbound: its new key is a cmux.json override, the defaults stay out.
     if (params.replaces) {
       this.removeEntry({ command: params.command, key: params.replaces.key, when: params.replaces.when });

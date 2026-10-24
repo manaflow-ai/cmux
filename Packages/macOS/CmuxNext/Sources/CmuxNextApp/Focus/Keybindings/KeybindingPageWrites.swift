@@ -24,8 +24,11 @@ struct KeybindingPageWrites {
     let registry: ActionRegistry
     let settings: SettingsController
     let file: KeybindingsFileService
+    /// `keep_both` on `set`: the person chose to keep another action's keys too (the page's
+    /// Ignore and Overwrite): a conflict in the same place is no refusal.
+    var keepsBoth = false
 
-    /// `{command, key, when?, args?, replaces?: {key, when}}`.
+    /// `{command, key, when?, args?, replaces?: {key, when}, keep_both?}`.
     func set(_ params: [String: JSONValue]) async throws {
         let id = try command(params)
         let target = try entry(id, params["replaces"]?.objectValue)
@@ -245,7 +248,7 @@ struct KeybindingPageWrites {
         case .refused(let refusal):
             throw PageError(code: "cmux.keybindings.refused", message: text.refusal(refusal, shortcut: shortcut, id: id))
         case .conflict(let owners, let canKeepBoth, _, _):
-            guard canKeepBoth else {
+            guard canKeepBoth || keepsBoth else {
                 throw PageError(code: "cmux.keybindings.conflict", message: text.conflict(shortcut, owners: owners, canKeepBoth: false))
             }
         }

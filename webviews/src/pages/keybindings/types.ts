@@ -55,6 +55,9 @@ export interface SetParams {
   when?: string | null;
   args?: Record<string, unknown>;
   replaces?: BindingRef;
+  /** The person keeps another action's keys too (the recorder's Ignore and Overwrite): the app
+   *  does not refuse a conflict in the same place. */
+  keep_both?: boolean;
   idempotency_key: string;
 }
 

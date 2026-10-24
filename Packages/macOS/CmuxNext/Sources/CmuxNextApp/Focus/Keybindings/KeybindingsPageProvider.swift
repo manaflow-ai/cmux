@@ -22,6 +22,8 @@ final class KeybindingsPageProvider: PageProvider {
     private var flagsMonitor: Any?
     /// A stroke was recorded and some of its keys are still down.
     private var awaitingRelease = false
+    /// Every key up ends the shortcut (a row's recorder; the search's records a chord's strokes).
+    private var resetsOnRelease = false
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var fileListener: UUID?
@@ -38,7 +40,8 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.conflicts":
             return KeybindingReports.conflicts(params.objectValue ?? [:], registry: services.registry)
         case "cmux.keybindings.record.start":
-            startRecording()
+            // A row's recorder starts a new shortcut after each release; the search's keeps the chord.
+            startRecording(resetsOnRelease: params.objectValue?["target"]?.stringValue == "row")
             return .object([:])
         case "cmux.keybindings.record.stop":
             stopRecording()
@@ -121,8 +124,9 @@ final class KeybindingsPageProvider: PageProvider {
         return ["path": .string(url.path)]
     }
 
-    private func startRecording() {
+    private func startRecording(resetsOnRelease: Bool) {
         recorder = KeyRecorder()
+        self.resetsOnRelease = resetsOnRelease
         services.keyRouter.keyRecorder = { [weak self] event, window in
             guard let self, let page = self.pageWindow(), window === page || window?.parent === page else { return false }
             self.record(event)
@@ -170,7 +174,7 @@ final class KeybindingsPageProvider: PageProvider {
             send(recorder.keys, done: false, cancelled: false, held: "", released: true)
             // Every key up ends the shortcut (the page saves it): the next key starts a new one,
             // which replaces it. A chord is typed with a modifier held between its strokes.
-            self.recorder = KeyRecorder()
+            if resetsOnRelease { self.recorder = KeyRecorder() }
             return
         }
         if event.type == .flagsChanged { send(recorder.keys, done: false, cancelled: false, held: held) }

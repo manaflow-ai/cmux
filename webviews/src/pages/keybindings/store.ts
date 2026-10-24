@@ -200,15 +200,15 @@ export class KeybindingsStore {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row") return;
     const { command, key, when } = recording.binding;
+    // The saved row can carry another `when` (a default's own conditions, not cmux.json's).
+    const same = (binding: Binding) =>
+      !binding.removed &&
+      binding.command === command &&
+      (key ? keyMatches(binding.key, { key, exact: true }) : binding.unset === true);
     const row =
       bindings.find((binding) => identity(binding) === recording.row) ??
-      bindings.find(
-        (binding) =>
-          !binding.removed &&
-          binding.command === command &&
-          binding.when === when &&
-          (key ? keyMatches(binding.key, { key, exact: true }) : binding.unset === true),
-      );
+      bindings.find((binding) => same(binding) && binding.when === when) ??
+      bindings.find(same);
     if (!row) this.endRecording();
     else if (identity(row) !== recording.row)
       this.set({ recording: { ...recording, row: identity(row), binding: row } });
@@ -313,7 +313,9 @@ export class KeybindingsStore {
       return;
     }
     this.set({ recording: asked });
-    const saved = await this.save(asked);
+    // The app refuses keys another action has in the same place unless the person keeps both;
+    // Overwrite saves first, then takes the keys from the others.
+    const saved = await this.save(asked, { keepBoth: true });
     if (saved && choice === "overwrite") {
       for (const other of prompt.conflicts) {
         try {
@@ -330,7 +332,9 @@ export class KeybindingsStore {
       await this.reload();
     }
     const current = this.snapshot.recording;
-    if (prompt.after === "close" || current?.target !== "row") this.endRecording();
+    // Another row's recorder took over while the writes ran: it stays as it is.
+    if (current?.target !== "row" || current.binding.command !== recording.binding.command) return;
+    if (prompt.after === "close") this.endRecording();
     else await this.recapture(current);
   }
 
@@ -354,7 +358,7 @@ export class KeybindingsStore {
     if (!this.client) return;
     this.set({ recording, notice: undefined });
     try {
-      await this.client.call(KeybindingOps.recordStart, {});
+      await this.client.call(KeybindingOps.recordStart, { target: recording.target });
     } catch (error) {
       this.set({ recording: undefined, ...failure(error) });
     }
@@ -428,13 +432,15 @@ export class KeybindingsStore {
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
     const conflicts = same ? [] : await this.conflictsOf(binding, key);
     const current = this.snapshot.recording;
-    if (current?.target !== "row" || current.row !== recording.row) return;
+    // Newer keys went down (or another row records) while the app answered: they decide.
+    if (current?.target !== "row" || current.row !== recording.row || current.key !== key || current.prompt) return;
     if (conflicts.length) {
       await this.recapture({ ...current, key, display, held: "", prompt: { key, display, conflicts, after } });
       return;
     }
     await this.save({ ...current, key, display });
-    if (after === "close") this.endRecording();
+    const now = this.snapshot.recording;
+    if (after === "close" && now?.target === "row" && now.binding.command === binding.command) this.endRecording();
   }
 
   /** The entries `key` would take from other actions; none when the app cannot say. */
@@ -453,7 +459,10 @@ export class KeybindingsStore {
 
   /** Saves the recording's keys as its row's (the shortcut so far, a release or a confirmed
    *  conflict); the recording goes on, its light confirming. False when the write failed. */
-  private async save(recording: Extract<Recording, { target: "row" }>): Promise<boolean> {
+  private async save(
+    recording: Extract<Recording, { target: "row" }>,
+    options: { keepBoth?: boolean } = {},
+  ): Promise<boolean> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
     // The recorder follows the new keys before the write: the provider's `changed` re-read can
@@ -462,6 +471,7 @@ export class KeybindingsStore {
     this.set({ recording: { ...recording, binding: saved }, notice: undefined });
     if (!same) {
       const params = this.setParams(binding, key, binding.when);
+      if (options.keepBoth) params.keep_both = true;
       try {
         await this.client?.call(KeybindingOps.set, params);
       } catch (error) {

@@ -100,9 +100,12 @@ enum KeybindingReports {
     }
 
     /// `cmux.keybindings.conflicts` `{command, key, when?}`: the entries new
-    /// keys for `command` would take from other actions before they are
-    /// saved. A new user entry comes after every listed one, so it takes the
-    /// keys from each entry whose `when` holding means its own `when` holds.
+    /// keys for `command` would take from other actions, or lose to, before
+    /// they are saved. A new user entry comes after every default, app and
+    /// Ghostty entry, so it takes the keys from each one whose `when` holding
+    /// means its own holds. Against another user entry the order depends on
+    /// the file each lands in (keybindings.json comes after cmux.json), so
+    /// either direction counts.
     static func conflicts(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
         let command = registry.canonicalID(for: ActionID(rawValue: params["command"]?.stringValue ?? ""))
         guard let keys = keys(from: params["key"]?.stringValue ?? "") else { return ["bindings": []] }
@@ -112,8 +115,10 @@ enum KeybindingReports {
         var seen: Set<KeyBinding> = []
         let rows = entries.indices.filter { index in
             let entry = entries[index]
-            return entry.keys == keys && entry.command != command && entry.source != .ghosttyFallback
-                && WhenClause.implies(entry.when, when) && seen.insert(entry).inserted
+            guard entry.keys == keys, entry.command != command, entry.source != .ghosttyFallback else { return false }
+            let conflicts = WhenClause.implies(entry.when, when)
+                || (entry.source == .user && WhenClause.implies(when, entry.when))
+            return conflicts && seen.insert(entry).inserted
         }.map { index -> JSONValue in
             guard case .object(var object) = json(entries[index], registry: registry) else { return .null }
             object["id"] = JSONValue(index)

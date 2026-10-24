@@ -422,7 +422,7 @@ test("keys another action has: the recorder asks Overwrite, Ignore or Cancel bef
   await keys("cmd+shift+p");
   await click(choices()?.querySelectorAll("button")[1]);
   await settle();
-  expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+p" });
+  expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+p", keep_both: true });
   expect(row("Open Command Palette")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
   expect(choices()).toBeFalsy();
   expect(conflict()).toContain("Open Command Palette");
@@ -448,7 +448,13 @@ test("keys another action has: the recorder asks Overwrite, Ignore or Cancel bef
     await Promise.resolve();
   });
   await settle();
-  expect(sets().at(-1)?.params).toMatchObject({ command: "tab.new", key: "cmd+w", replaces: { key: "cmd+t" } });
+  expect(sets().at(-1)?.params).toMatchObject({
+    command: "tab.new",
+    key: "cmd+w",
+    replaces: { key: "cmd+t" },
+    keep_both: true,
+  });
+  expect(doc.querySelector(".keys-notice")).toBeNull();
   const removals = provider.calls.filter(({ op }) => op === KeybindingOps.remove).map(({ params }) => params);
   expect(removals).toContainEqual({ command: "tab.close", key: "cmd+w", when: null, idempotency_key: "key" });
   expect(row("Close Tab")?.querySelector(".keys-key-button")?.textContent).toBe(strings.t("keybindings.page.notSet"));

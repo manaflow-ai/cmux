@@ -45,6 +45,20 @@ import Testing
         }
     }
 
+    /// A later binding takes an earlier one's keys when the earlier `when` holding means the later
+    /// one's holds, read over `&&` and `||` (code review: an `||` that covers it was missed).
+    @Test func implicationReadsAndAndOr() throws {
+        let browser = try WhenClause.parse("browserFocused")
+        #expect(WhenClause.implies(browser, try WhenClause.parse("browserFocused || terminalFocused")))
+        #expect(!WhenClause.implies(try WhenClause.parse("browserFocused || terminalFocused"), browser))
+        #expect(WhenClause.implies(try WhenClause.parse("browserFocused && !dialogOpen"), browser))
+        #expect(!WhenClause.implies(browser, try WhenClause.parse("browserFocused && !dialogOpen")))
+        #expect(WhenClause.implies(try WhenClause.parse("browserFocused || markdownFocused"),
+                                   try WhenClause.parse("markdownFocused || browserFocused")))
+        #expect(WhenClause.implies(browser, nil))
+        #expect(!WhenClause.implies(nil, browser))
+    }
+
     /// One action on the same keys twice (its cmux default and its Ghostty default keybind, as
     /// Focus Left on Cmd-Opt-Left) runs either way: never its own conflict.
     @Test func noActionConflictsWithItself() {
