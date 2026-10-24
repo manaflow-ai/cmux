@@ -3,20 +3,24 @@ import CmuxNextErrorJournal
 import CmuxNextHomeEngine
 import Foundation
 
-/// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log
-/// (page console errors included), the Chief's acpmux `daemon.log`, `host.log` and
-/// `client.log`, the app's own acpmux log, and cmux crash reports. Harvests every
-/// ``harvestInterval`` and before every `errors.list`.
+/// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log, the
+/// Chief's acpmux `daemon.log`, `host.log` and `client.log`, the app's own acpmux log, and cmux
+/// crash reports. Page console errors are not harvested: ``ConsoleErrorCapture`` records them
+/// when they happen.
+///
+/// It harvests at launch (crash reports and log lines written while the app was not running),
+/// at quit (``stop()``: what this run logged, since a later launch cannot read an ended process's
+/// log store) and before every `errors.list`. Never on a timer: an idle app wakes for nothing
+/// (plans/cmux-next/idle-wakeups.md); a periodic harvest read `OSLogStore` every 300 s.
 ///
 /// The journal lives in `~/Library/Application Support/<bundle id>/errors`, one per build.
 @MainActor
 final class ErrorJournalService {
     let journal: ErrorJournal
     let sources: [any ErrorHarvestSource]
-    private var harvesting: Task<Void, Never>?
-
-    /// How often the journal reads its sources while the app runs.
-    static let harvestInterval: Duration = .seconds(300)
+    /// The launch harvest, while it runs; the quit's harvest waits for it.
+    private var launchHarvest: Task<Void, Never>?
+    private var started = false
 
     init(journal: ErrorJournal, sources: [any ErrorHarvestSource]) {
         self.journal = journal
@@ -52,30 +56,23 @@ final class ErrorJournalService {
                                    sources: sources)
     }
 
-    /// Starts the periodic harvest; the first one runs at once.
+    /// The launch harvest, once, off the main actor (the journal's actor reads the sources).
     func start() {
-        guard harvesting == nil else { return }
+        guard !started else { return }
+        started = true
         let journal = journal
         let sources = sources
-        let interval = Self.harvestInterval
-        // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
-        // the delay is the intended cadence; nothing waits on it).
-        harvesting = Task.detached(priority: .utility) {
-            // concurrency-allow: a detached utility task, never the main thread; each pass awaits a harvest, then the cancellable cadence sleep
-            // wakeup-allow: one harvest every 300 s (harvestInterval) while the app runs, ended by stop()
-            while !Task.isCancelled {
-                await journal.harvest(sources)
-                // concurrency-allow: async cadence sleep on the detached harvest task; cancelled by stop(), blocks no thread
-                // wakeup-allow: the 300 s harvest cadence; nothing waits on it
-                guard (try? await ContinuousClock().sleep(for: interval)) != nil else { return }
-            }
+        // task-owner: the one launch harvest; stop() waits for it before the quit's harvest
+        launchHarvest = Task.detached(priority: .utility) {
+            _ = await journal.harvest(sources)
         }
     }
 
-    /// Stops harvesting and writes what is pending.
+    /// The quit's harvest: waits for the launch harvest if it still runs, reads every source once
+    /// more and writes what is pending. The quit awaits it (`QuitSteps.harvestErrors`).
     func stop() async {
-        harvesting?.cancel()
-        harvesting = nil
-        await journal.flush()
+        await launchHarvest?.value
+        launchHarvest = nil
+        _ = await journal.harvest(sources)
     }
 }
