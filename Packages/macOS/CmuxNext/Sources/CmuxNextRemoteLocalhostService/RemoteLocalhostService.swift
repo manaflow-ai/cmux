@@ -60,7 +60,7 @@ public final class RemoteLocalhostService {
     /// routes to that machine whatever daemon holds the tab, and never to this Mac.
     public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil) -> RemoteLocalhostRoute {
         if let machine = Self.desktopMachine(url: url) {
-            let name = machines.machineBadge(machine) ?? machine
+            let name = machines.cloudMachineBadge(machine: machine) ?? machine
             return engine == .cef ? .machine(name) : .thisMacInstead(name, .webKit)
         }
         let daemon = machines.daemon(forTab: tab)
@@ -140,7 +140,7 @@ public final class RemoteLocalhostService {
     /// The host suffix of an Open Desktop page: `<machine id>.cloud-desktop.localhost`, a name
     /// under `.localhost` (loopback by the remote-localhost rule) that carries its machine, so the
     /// route follows the page's own URL through relaunches, moves and hibernation.
-    static let desktopHostSuffix = ".cloud-desktop.localhost"
+    static let desktopHostSuffix = BrowserNavigationGuard.cloudDesktopHostSuffix
 
     /// Cloud machine `machine`'s desktop: its noVNC (6901 on the machine's loopback) at a host
     /// that names the machine; it connects at once, scales to the tab and reconnects by itself.

@@ -36,4 +36,13 @@ public nonisolated enum BrowserNavigationGuard: Int32, Hashable, Sendable {
     /// this Mac that goes there reroutes to that machine's store, never this Mac's
     /// loopback.
     case exceptCloudDesktop = 3
+
+    /// The host suffix of an Open Desktop page: `<machine id>.cloud-desktop.localhost`.
+    public static let cloudDesktopHostSuffix = ".cloud-desktop.localhost"
+
+    /// Whether `url` is an Open Desktop page. Only a Chromium tab can show one (through the app's
+    /// Cloud tunnel); anywhere else it would be this Mac's own loopback, so WebKit refuses it.
+    public static func isCloudDesktop(_ url: URL) -> Bool {
+        url.host(percentEncoded: false)?.lowercased().hasSuffix(cloudDesktopHostSuffix) == true
+    }
 }

@@ -1,4 +1,6 @@
+import CmuxNextBrowser
 import CmuxNextRemoteLocalhost
+import CmuxNextRemoteLocalhostService
 import Darwin
 import Foundation
 import Testing
@@ -119,6 +121,19 @@ struct CloudHubLoopbackTests {
             _ = try await opener.openTunnel(host: "localhost", port: 6901)
         }
         #expect(hub.connectRequest.isEmpty, "no CONNECT after a refused token")
+    }
+
+    /// An Open Desktop URL names its machine in any case, and only such a URL is one: WebKit
+    /// refuses exactly these, since in WebKit the page would be this Mac's own loopback.
+    @Test func openDesktopURLsAreRecognizedWhateverTheirCase() throws {
+        let url = try #require(RemoteLocalhostService.cloudDesktopURL(machine: "VM-Test"))
+        #expect(url.host(percentEncoded: false) == "vm-test.cloud-desktop.localhost")
+        #expect(BrowserNavigationGuard.isCloudDesktop(url))
+        #expect(BrowserNavigationGuard.isCloudDesktop(try #require(URL(string: "http://VM-TEST.Cloud-Desktop.LOCALHOST:6901/"))))
+        #expect(RemoteLocalhostService.desktopMachine(url: url) == "vm-test")
+        for other in ["http://localhost:6901/vnc.html", "http://cloud-desktop.localhost.example.com/", "https://example.com/"] {
+            #expect(!BrowserNavigationGuard.isCloudDesktop(try #require(URL(string: other))), "\(other)")
+        }
     }
 
     @Test func onlyTheMachinesLocalhostGoesThroughTheHub() async throws {

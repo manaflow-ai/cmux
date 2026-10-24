@@ -34,7 +34,15 @@ extension MachineRegistry: RemoteLocalhostMachines {
 
     /// A Cloud machine's private address on its Cloud network (the app's WireGuard tunnel reaches it).
     func cloudTunnelAddress(machine machineID: String) -> String? {
-        // Open Desktop's URL carries the id lowercased (a DNS label).
-        (session(machineID) ?? cloud.first { $0.machineID.lowercased() == machineID.lowercased() })?.machine.address?.ipv4
+        cloudSession(machineID)?.machine.address?.ipv4
+    }
+
+    func cloudMachineBadge(machine machineID: String) -> String? {
+        cloudSession(machineID)?.machine.title
+    }
+
+    /// Open Desktop's URL carries the id lowercased (a DNS label).
+    private func cloudSession(_ machineID: String) -> CloudMachineSession? {
+        session(machineID) ?? cloud.first { $0.machineID.lowercased() == machineID.lowercased() }
     }
 }
