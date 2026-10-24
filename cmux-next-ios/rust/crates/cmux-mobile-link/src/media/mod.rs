@@ -533,15 +533,20 @@ pub(crate) struct InInner {
 pub(crate) struct Gate {
     /// The current source (None before the first frame).
     current: Option<u64>,
-    /// The RTP timestamp (the host's capture time) of the newest frame that
-    /// passed: a keyframe older than it never moves the gate back (a late
-    /// keyframe of the route the Mac just left).
-    newest_ts: Option<u32>,
+    /// Per tab ([`tag`]), the RTP timestamp (that tab's host capture time) of
+    /// its newest frame that passed: a keyframe older than it never moves the
+    /// gate back (a late keyframe of the route the Mac just left). Each tab's
+    /// browser host has its own clock, so timestamps of different tabs never
+    /// compare: a tab opened minutes later is minutes behind.
+    newest_ts: Vec<(Option<u32>, u32)>,
     /// When a frame last passed, and when the gate last asked for a keyframe
     /// because only another source's frames were coming.
     last_pass: Option<std::time::Instant>,
     last_ask: Option<std::time::Instant>,
 }
+
+/// Tabs whose newest timestamp the gate keeps.
+const GATE_TABS: usize = 16;
 
 /// A source whose frames are the only ones coming waits this long for a
 /// keyframe of its own before the gate asks for one.
@@ -563,16 +568,25 @@ impl Gate {
         &mut self,
         id: u64,
         keyframe: bool,
-        _tag: Option<u32>,
+        tag: Option<u32>,
         ts: u32,
         now: std::time::Instant,
     ) -> Admit {
-        let newer = self.newest_ts.is_none_or(|newest| (ts.wrapping_sub(newest) as i32) > 0);
+        let newest = self.newest_ts.iter().position(|(t, _)| *t == tag);
+        let newer = newest
+            .and_then(|at| self.newest_ts.get(at))
+            .is_none_or(|(_, newest)| (ts.wrapping_sub(*newest) as i32) > 0);
         let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
         if pass {
             self.current = Some(id);
             if newer {
-                self.newest_ts = Some(ts);
+                // The tab that passed last goes to the end; the oldest tab is forgotten first.
+                if let Some(at) = newest {
+                    self.newest_ts.remove(at);
+                } else if self.newest_ts.len() >= GATE_TABS {
+                    self.newest_ts.remove(0);
+                }
+                self.newest_ts.push((tag, ts));
             }
             self.last_pass = Some(now);
             return Admit::Pass;
