@@ -27,8 +27,9 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const START = Date.UTC(2026, 9, 19, 9, 0, 0);
-  /// How long acpmux takes to answer an attach (a busy daemon, a large chat).
-  const ATTACH_MS = 80;
+  /// How long acpmux takes to answer an attach (a busy daemon, a large chat). This intentionally
+  /// exceeds the old 400 ms switch hold so a slow switch proves it never paints a blank transcript.
+  const ATTACH_MS = 600;
   const modes = (current: string) => ({
     currentModeId: current,
     availableModes: [
