@@ -465,6 +465,16 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// Terminal views attach as client streams on the app's one connection, with no
+    /// handshake of their own (plans/cmux-next/app-daemon-connection-DESIGN.md).
+    case attachStreams = "attach-streams-v1"
+    /// The streams' events travel as binary frames, output without base64 (D4).
+    /// Advertised only where every hop carries bytes unchanged (``advertised(carriesFrames:)``).
+    case attachFrames = "attach-frames-v1"
+    /// A local terminal's output stays in a shared-memory ring the view maps; its stream
+    /// carries only the ring's new end. Only the connection to the local daemon advertises it
+    /// (``advertisedLocally``): a descriptor cannot cross a link.
+    case terminalOutputRing = "terminal-output-ring-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -513,7 +523,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .attachStreams,
+             .attachFrames, .terminalOutputRing:
             return .optional
         }
     }
@@ -561,7 +572,18 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
         !notAdvertised.contains($0)
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing]))
+                                                               .sharedSizing, .terminalOutputRing]))
+
+    /// ``advertised`` plus ``terminalOutputRing``: the app's connection to its local daemon.
+    public static var advertisedLocally: [String] { advertised + [terminalOutputRing.rawValue] }
+
+    /// ``advertised`` for a connection whose path does or does not carry binary frames
+    /// unchanged. A local socket and a paired server's `cmux link dial` bridge do; the SSH
+    /// bridge splits lines and parses JSON (`cmux-remote` mux_codec), so it gets JSON
+    /// events tagged with their stream.
+    public static func advertised(carriesFrames: Bool) -> [String] {
+        carriesFrames ? advertised : advertised.filter { $0 != attachFrames.rawValue }
+    }
 
     /// What a connection echoes in `set-client-info`.
     ///

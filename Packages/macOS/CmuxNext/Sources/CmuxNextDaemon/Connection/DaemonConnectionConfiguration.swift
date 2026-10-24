@@ -5,6 +5,17 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var clientName: String
     public var requiredCapabilities: [String]
     public var advertisedCapabilities: [String]
+    /// Terminal views attach as streams on this connection when the daemon
+    /// serves `attach-streams-v1` (``DaemonConnection/terminalStreams(device:)``);
+    /// false keeps one connection per view. Defaults from
+    /// `CMUX_NEXT_TERMINAL_STREAMS` (`0` turns it off): the per-view path's one-release
+    /// rollback switch (design section 6), removed with that path.
+    public var terminalStreams: Bool
+
+    /// ``terminalStreams``' default: on unless `CMUX_NEXT_TERMINAL_STREAMS=0`.
+    public static var terminalStreamsByDefault: Bool {
+        ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_STREAMS"] != "0"
+    }
     public var treeEvents: TreeEventMode
     /// Spacing and budget of reconnect attempts.
     public var retry: RetryPolicy
@@ -77,8 +88,10 @@ public struct DaemonConnectionConfiguration: Sendable {
         sessionEvents: Bool = false,
         role: DaemonClientRole = .main,
         relayIdentity: PageRelayIdentity? = nil,
-        clientHello: ClientHelloIdentity? = nil
+        clientHello: ClientHelloIdentity? = nil,
+        terminalStreams: Bool = DaemonConnectionConfiguration.terminalStreamsByDefault
     ) {
+        self.terminalStreams = terminalStreams
         self.clientName = clientName
         self.requiredCapabilities = requiredCapabilities
         self.advertisedCapabilities = advertisedCapabilities

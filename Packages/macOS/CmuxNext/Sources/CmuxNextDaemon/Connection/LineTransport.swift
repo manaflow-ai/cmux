@@ -26,6 +26,25 @@ final class LineTransport: Sendable {
     typealias EventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64) -> Void
     typealias CloseHandler = @Sendable (TransportCloseReason) -> Void
 
+    /// One message of a client attach stream (`attach-streams-v1`), delivered on
+    /// the reader thread in wire order.
+    enum StreamMessage: Sendable {
+        /// A binary frame other than EVENT and RING (`attach-frames-v1`).
+        case frame(AttachFrameHeader, Data)
+        /// A RING frame and the ring's read-only descriptor that rode on it;
+        /// the sink owns the descriptor (`terminal-output-ring-v1`).
+        case ring(AttachFrameHeader, Data, descriptor: Int32)
+        /// One JSON event of the stream: an EVENT frame's object, or a JSON
+        /// line tagged with the stream. `stream-end` is the stream's last one.
+        case event(name: String, line: Data)
+        /// The connection ended; no message follows.
+        case closed(TransportCloseReason)
+    }
+
+    /// Receives one stream's messages on the reader thread. It must not block:
+    /// every stream and the control plane share the reader.
+    typealias StreamSink = @Sendable (StreamMessage) -> Void
+
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
     /// The event name a `cmux.protocol/2` stream line is routed under
@@ -57,6 +76,33 @@ final class LineTransport: Sendable {
         var eventCount: UInt64 = 0
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+        /// Open client attach streams by id, until their `stream-end` or the
+        /// connection's end.
+        var attachStreams: [UInt16: StreamSink] = [:]
+        /// The next id to try when minting one.
+        var nextAttachStream: UInt16 = 1
+        /// Messages for a stream id that is not open (a contract drift).
+        var strayStreamMessages: UInt64 = 0
+
+        /// Mints an id no open stream holds and registers `sink` under it.
+        mutating func openAttachStream(_ sink: @escaping StreamSink) -> UInt16? {
+            guard closed == nil else { return nil }
+            // At most one pass over the 65,535 ids: nil when every one is open.
+            for _ in 0..<0xFFFF {
+                let id = nextAttachStream
+                nextAttachStream = id == UInt16.max ? 1 : id + 1
+                if attachStreams[id] == nil {
+                    attachStreams[id] = sink
+                    return id
+                }
+            }
+            return nil
+        }
+
+        /// The open stream `id`'s sink; taken out when `removing` (its end).
+        mutating func attachSink(_ id: UInt16, removing: Bool) -> StreamSink? {
+            removing ? attachStreams.removeValue(forKey: id) : attachStreams[id]
+        }
 
         /// Marks a pending reply expired; its command and slot, or nil when
         /// `id` is not waiting for a reply.
@@ -107,6 +153,15 @@ final class LineTransport: Sendable {
             fd = try Self.connect(path)
             child = nil
         }
+        socket = Mutex(Socket(fd: fd))
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+    }
+
+    /// A transport over an already connected socket `fd`, which it owns
+    /// (tests: one end of a `socketpair`; `path` only names it).
+    init(connected fd: Int32, path: String) {
+        self.path = path
+        child = nil
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
     }
@@ -168,6 +223,23 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+
+    /// Opens a client attach stream: mints its id and registers `sink`
+    /// before any request names it, so the messages that precede the attach
+    /// reply (the READY) are routed. Nil once the transport closed.
+    func openStream(_ sink: @escaping StreamSink) -> UInt16? {
+        state.withLock { $0.openAttachStream(sink) }
+    }
+
+    /// Forgets a stream whose attach request failed before the daemon opened
+    /// it (the daemon then sends nothing for the id). A stream the daemon
+    /// opened is forgotten at its `stream-end`.
+    func forgetStream(_ id: UInt16) {
+        _ = state.withLock { $0.attachStreams.removeValue(forKey: id) }
+    }
+
+    /// Messages that named a stream id not open (diagnostics, tests).
+    var strayStreamMessages: UInt64 { state.withLock { $0.strayStreamMessages } }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
@@ -294,13 +366,17 @@ final class LineTransport: Sendable {
     }
 
     private func failAll(_ reason: TransportCloseReason) {
-        let waiters: [Waiter] = state.withLock { state in
+        let (waiters, streams): ([Waiter], [StreamSink]) = state.withLock { state in
             if state.closed == nil { state.closed = reason }
             let waiters = state.waitersInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
-            return waiters
+            let streams = Array(state.attachStreams.values)
+            state.attachStreams.removeAll()
+            return (waiters, streams)
         }
+        let closedReason = state.withLock { $0.closed } ?? reason
+        for sink in streams { sink(.closed(closedReason)) }
         let error = Self.closedError(reason)
         for waiter in waiters {
             switch waiter {
@@ -312,21 +388,46 @@ final class LineTransport: Sendable {
 
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
-        var lines = LineSplitter()
+        var messages = WireSplitter()
+        var received = SocketDescriptorReader()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
         // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
-            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let count = chunk.withUnsafeMutableBytes { received.read(fd, into: $0) }
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
-            if lines.pending.count > Self.maxLineBytes {
-                closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
+            var missingDescriptor = false
+            do {
+                try chunk.withUnsafeBytes { raw in
+                    try messages.append(UnsafeRawBufferPointer(rebasing: raw.prefix(count))) { message in
+                        switch message {
+                        case .line(let line): route(line, decoder: decoder, onEvent: onEvent)
+                        case .frame(let header, let payload) where header.kind == .ring:
+                            // A RING frame takes the descriptor that rode on it.
+                            guard let descriptor = received.take() else {
+                                missingDescriptor = true
+                                return
+                            }
+                            deliverRing(header, payload, descriptor: descriptor)
+                        case .frame(let header, let payload): routeFrame(header, payload, decoder: decoder)
+                        }
+                    }
+                }
+            } catch {
+                closeDetail = "bad frame: \(error)"
+                break reading
+            }
+            if missingDescriptor {
+                closeDetail = "a RING frame came without its descriptor"
+                break reading
+            }
+            if messages.bufferedBytes > Self.maxLineBytes {
+                closeDetail = "message exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }
         }
@@ -334,6 +435,7 @@ final class LineTransport: Sendable {
             if let closed = state.closed { return closed }
             return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
         }
+        received.closeAll()
         failAll(reason)
         writer.close()
         socket.withLock { socket in
@@ -343,6 +445,22 @@ final class LineTransport: Sendable {
             }
         }
         onClose(reason)
+    }
+
+    /// Hands a RING frame and its descriptor to its stream, which owns the
+    /// descriptor from then on; a stream that is not open gets none, and the
+    /// descriptor is closed here.
+    private func deliverRing(_ header: AttachFrameHeader, _ payload: Data, descriptor: Int32) {
+        let sink: StreamSink? = state.withLock { state in
+            let sink = state.attachSink(header.stream, removing: false)
+            if sink == nil { state.strayStreamMessages += 1 }
+            return sink
+        }
+        guard let sink else {
+            Darwin.close(descriptor)
+            return
+        }
+        sink(.ring(header, payload, descriptor: descriptor))
     }
 
     /// Events routed so far. Read after a command's reply, it bounds every
@@ -357,6 +475,9 @@ final class LineTransport: Sendable {
         let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
         if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
             return handler(streamID, line)
+        }
+        if !streamed, let stream = envelope.attachStream, let name = envelope.event {
+            return deliver(stream: stream, .event(name: name, line: line))
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in
@@ -386,5 +507,28 @@ final class LineTransport: Sendable {
         case .discard(_, let onError): onError?(error)
         case .expired: break
         }
+    }
+
+    /// Routes one frame to its stream; an EVENT frame as the stream's event.
+    private func routeFrame(_ header: AttachFrameHeader, _ payload: Data, decoder: JSONDecoder) {
+        guard header.kind == .event else { return deliver(stream: header.stream, .frame(header, payload)) }
+        guard let name = (try? decoder.decode(Envelope.self, from: payload))?.event else {
+            state.withLock { $0.strayStreamMessages += 1 }
+            return
+        }
+        deliver(stream: header.stream, .event(name: name, line: payload))
+    }
+
+    /// Hands `message` to the open stream `id`; after its `stream-end` the id
+    /// is free again.
+    private func deliver(stream id: UInt16, _ message: StreamMessage) {
+        var ends = false
+        if case .event(let name, _) = message, name == "stream-end" { ends = true }
+        let sink: StreamSink? = state.withLock { state in
+            let sink = state.attachSink(id, removing: ends)
+            if sink == nil { state.strayStreamMessages += 1 }
+            return sink
+        }
+        sink?(message)
     }
 }
