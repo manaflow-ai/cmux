@@ -430,6 +430,7 @@
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(SRCROOT)/cmux-tui/Cargo.lock",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN)",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN).ref",
 			);
 			name = "Bundle optchat-chief";
 			outputFileListPaths = (
@@ -465,6 +466,7 @@
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-engine",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-ffi",
 				"$(CMUX_NEXT_MOBILE_HOST_BIN)",
+				"$(CMUX_NEXT_MOBILE_HOST_BIN).ref",
 			);
 			name = "Bundle cmux-mobile-host";
 			outputFileListPaths = (
@@ -495,9 +497,13 @@
 				"$(SRCROOT)/scripts/cmux-next/ensure-cef.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-cef-shim.sh",
 				"$(SRCROOT)/scripts/cmux-next/merge-cef-universal.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef_build_flags.py",
 				"$(SRCROOT)/scripts/cmux-next/sign-cef.sh",
 				"$(SRCROOT)/scripts/cmux-next/install-cef-credits.sh",
 				"$(SRCROOT)/scripts/cmux-next/install-cef-license.sh",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/CEFShim",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim",
 				"$(CMUX_CEF_PATH)",
 				"$(CMUX_CEF_MANIFEST)",
 			);
@@ -536,6 +542,8 @@
 				"$(SRCROOT)/scripts/cmux-next/ensure-remote-browser-host.sh",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/Chromium Embedded Framework.framework",
 				"$(CMUX_NEXT_RB_HOST_PIN)",
+				"$(CMUX_NEXT_SKIP_RB_HOST)",
+				"$(CMUX_NEXT_REQUIRE_RB_HOST)",
 			);
 			name = "Embed remote browser host";
 			outputFileListPaths = (
@@ -561,6 +569,8 @@
 				"$(SRCROOT)/scripts/cmux-next/ensure-cua-pinned-asset.sh",
 				"$(SRCROOT)/scripts/ci/macho_minos.py",
 				"$(CMUX_NEXT_CUA_HELPER_PIN)",
+				"$(CMUX_NEXT_SKIP_CUA_HELPER)",
+				"$(CMUX_NEXT_REQUIRE_CUA_HELPER)",
 			);
 			name = "Embed Computer Use helper (dev)";
 			outputFileListPaths = (
@@ -684,6 +694,9 @@
 				"$(SRCROOT)/Resources/markdown-viewer/webviews-app",
 				"$(SRCROOT)/schemas/settings",
 				"$(SRCROOT)/Resources/markdown-viewer/marked.min.js",
+				"$(SRCROOT)/Resources/markdown-viewer/viewer-navigation.js",
+				"$(SRCROOT)/config/vite-plus/check.ts",
+				"$(SRCROOT)/web/data/model-catalog/snapshot.json",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources",
 			);
 			name = "Verify web bundles";
