@@ -363,7 +363,14 @@ surface's later control requests; the connection's other control requests run
 past it. `set-client-info` is the one connection-wide barrier: a stream request
 sent after it waits until it is applied (the capabilities an attach needs).
 Requests of different surfaces never wait for each other. Replies of different
-surfaces may therefore come out of wire order; match by `id`. `cancel-stream {attach_stream}` ends a stream at once (idempotent: a stream that
+surfaces may therefore come out of wire order; match by `id`.
+
+Ordering is per surface. A caller that needs another surface's earlier request
+done (a `list-workspaces` that must not show a terminal it closed) waits for that
+request's reply before it sends the next one; the CLI and scripts do. Only
+requests pipelined on one connection, without waiting, can see the earlier
+state; a frontend corrects from the event the earlier request emits (the close's
+topology event). `cancel-stream {attach_stream}` ends a stream at once (idempotent: a stream that
 is not open answers `{"outcome": "ended"}`).
 
 ### Binary attach frames (`attach-frames-v1`)
