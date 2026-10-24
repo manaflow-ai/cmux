@@ -22,7 +22,12 @@ impl Hub {
             }
         } else {
             let less = |v: usize| Some(v.saturating_sub(n));
-            let _ = session.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
+            let was = session.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
+            // The last client let go: the idle reaper arms this harness's idle period now
+            // (`idle.rs` keeps no timer for a held one).
+            if was.is_ok_and(|was| was <= n) {
+                self.idle_wake.notify_one();
+            }
             if !visible {
                 let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
             }

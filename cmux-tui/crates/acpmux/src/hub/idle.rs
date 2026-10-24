@@ -81,11 +81,14 @@ impl Hub {
         }
     }
 
-    /// When the first live child's idle period ends, on the hub clock.
+    /// When the first live child's idle period ends, on the hub clock. A child some client holds
+    /// has none: it cannot be stopped while held, and the last client's detach wakes the reaper
+    /// (`attach_count`), so an app that keeps its chats attached arms no timer for them (D6).
     fn next_idle_deadline(&self) -> Option<std::time::Duration> {
         let idle = (*self.idle_child.lock().unwrap())?;
         self.sessions()
             .iter()
+            .filter(|s| s.attached.load(Ordering::SeqCst) == 0)
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
             .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + idle)
             .min()
@@ -102,7 +105,9 @@ impl Hub {
         let now = self.clock_now();
         let idle = idle.as_nanos() as u64;
         for session in self.sessions() {
-            if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
+            if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now
+                || session.attached.load(Ordering::SeqCst) > 0
+            {
                 continue;
             }
             let has_child = session.child.try_lock().map(|c| c.is_some()).unwrap_or(true);
