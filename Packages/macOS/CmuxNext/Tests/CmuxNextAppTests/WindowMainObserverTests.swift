@@ -2,10 +2,11 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// The tab strip's main-window follow (`WindowMainObserver`) runs on `MainActorObservation` tokens:
-/// it reports the window's main changes, a new window replaces the old one's observations, and a
-/// released observer reports nothing. Each test posts on its own `NotificationCenter`, so no test
-/// broadcasts to the app's (or another test's) observers.
+/// The tab strip's main-window and occlusion follows (`WindowMainObserver`,
+/// `WindowVisibilityObserver`) follow their window's `WindowNotices` (CmuxNextDesign): they report
+/// the window's changes, a new window replaces the old one, a released follower reports nothing, and
+/// the window is observed once for all of its strips. Each test posts on its own
+/// `NotificationCenter`, so no test broadcasts to the app's (or another test's) observers.
 @MainActor
 @Suite
 struct WindowMainObserverTests {
