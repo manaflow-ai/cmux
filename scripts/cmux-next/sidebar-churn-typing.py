@@ -382,7 +382,9 @@ def main():
     groups = []
     try:
         try:
-            bench.launch(timeout=180, settle=3.0)
+            # Ready when debug.windows answers with a window (no settle sleep: BenchApp.launch has none); the
+            # workspace setup below runs before the first measured key.
+            bench.launch(timeout=180)
         except LaunchError as error:
             results["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
             raise
