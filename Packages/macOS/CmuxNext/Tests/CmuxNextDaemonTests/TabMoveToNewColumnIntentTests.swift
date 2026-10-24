@@ -110,3 +110,22 @@ struct TabMoveToNewColumnIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 }
+
+/// The request carries the stand-in's client keys as `pane_id` and `split_id` (`tab-column-client-keys-v1`),
+/// and only when given: an older daemon gets the request it knows.
+struct MoveTabToColumnClientKeysWireTests {
+    private func fields(_ request: MoveTabToColumnRequest) throws -> [String: JSONValue] {
+        let line = try WireCoding.encodeRequest(request, id: 1)
+        guard case .object(let fields) = try JSONDecoder().decode(JSONValue.self, from: line) else { return [:] }
+        return fields
+    }
+
+    @Test func theClientKeysGoOutSnakeCasedAndOnlyWhenGiven() throws {
+        let keyed = try fields(MoveTabToColumnRequest(surface: SurfaceID(rawValue: 7), target: .pane(PaneID(rawValue: 3)), width: 0.5,
+                                                      paneID: "pane_abc", splitID: "split_def"))
+        #expect(keyed["pane_id"] == .string("pane_abc"))
+        #expect(keyed["split_id"] == .string("split_def"))
+        let plain = try fields(MoveTabToColumnRequest(surface: SurfaceID(rawValue: 7), target: .pane(PaneID(rawValue: 3)), width: 0.5))
+        #expect(plain["pane_id"] == nil && plain["split_id"] == nil)
+    }
+}

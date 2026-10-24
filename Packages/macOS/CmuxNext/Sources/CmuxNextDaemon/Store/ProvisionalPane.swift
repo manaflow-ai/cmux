@@ -34,6 +34,10 @@ public struct ProvisionalPane: Sendable, Hashable {
     public private(set) var column: ProvisionalColumn?
     /// Set when the pane opens as a new row below the target's row (New Row, `new-row`).
     public private(set) var row: ProvisionalRow?
+    /// The existing tab the pane takes when it opens (Move Tab to New Column, `move-tab-to-column` with
+    /// client keys, `tab-column-client-keys-v1`): no tab is minted, ``surface`` is that tab's, and the
+    /// overlay moves it out of its pane into this one (``ProvisionalSplit``). Nil: a pane with a new tab.
+    public private(set) var moving: SurfaceID?
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
@@ -54,16 +58,24 @@ public struct ProvisionalPane: Sendable, Hashable {
         row = ProvisionalRow(paneHandle: handle, height: height)
     }
 
+    /// A provisional pane that takes existing tab `surface` and opens as a new column (Move Tab to New
+    /// Column): `width`, `widths` and `treeWidth` as for ``init(columnWidth:widths:treeWidth:)``.
+    @MainActor public init(moving surface: SurfaceID, columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil) {
+        self.init(tab: nil, moving: surface)
+        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth)
+    }
+
     /// A provisional pane holding `tab`, a new conversation tab (an agent chat or the New Tab page)
     /// that `new-conversation-tab {split}` creates (``ProvisionalTab/conversation(_:)``).
     @MainActor public init(holding tab: TabSnapshot) {
         self.init(tab: tab)
     }
 
-    @MainActor private init(tab: TabSnapshot?) {
+    @MainActor private init(tab: TabSnapshot?, moving: SurfaceID? = nil) {
         Self.next += 1
         handle = PaneID(rawValue: Self.handleBase + Self.next)
-        surface = tab?.surface ?? ProvisionalTab().surface
+        surface = moving ?? tab?.surface ?? ProvisionalTab().surface
+        self.moving = moving
         let hex = { UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
         paneID = "pane_" + hex()
         tabID = "tab_" + hex()

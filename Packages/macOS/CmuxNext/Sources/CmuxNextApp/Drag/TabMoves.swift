@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -136,6 +137,30 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
+        // In the input's turn when the daemon takes client keys and the tab's pane keeps another tab: a stand-in
+        // column holds the tab under the pane id the daemon's pane keeps (ProvisionalSplit); a refusal puts it back.
+        if afterColumn == nil, echoes, daemon.supports(DaemonCapability.tabColumnClientKeys.rawValue),
+           let source = daemon.store.pane(containing: surface), source.tabs.count > 1 {
+            let provisional = ProvisionalPane(moving: surface, columnWidth: width,
+                                              widths: spawn.widths, treeWidth: spawn.treeWidth)
+            let intent = Intent.splitPane(pane: paneHandle, direction: .right, ratio: 0.5, provisional: provisional)
+            let paneID = provisional.paneID, splitID = provisional.splitID
+            let send = daemon.intendNowReporting("move-tab-to-column", intent, transaction: transaction) { connection in
+                try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, keepFocus: keepFocus,
+                                                     transaction: transaction, paneID: paneID, splitID: splitID)
+            }
+            services.registry.track(Task {
+                let failure: ActionWorkFailure?
+                switch await send() {
+                case .success: failure = nil
+                case .failure(let error): failure = ActionWorkFailure("move-tab-to-column", error)
+                }
+                if failure == nil { spawn.commit() }
+                completion(failure == nil)
+                return failure
+            })
+            return
+        }
         services.registry.track(Task {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
             let failure = await daemon.failure("move-tab-to-column") { connection in

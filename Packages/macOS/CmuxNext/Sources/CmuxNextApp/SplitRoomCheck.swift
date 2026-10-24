@@ -119,8 +119,23 @@ extension AppServices {
         let removing = source.flatMap { $0.tabs.count == 1 ? content.handles.paneIDs[$0.handle] : nil }
         let model = content.layoutModel
         let request = model.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
-        return NewColumnSpawn(width: request.width, commit: { [weak model] in model?.commitNewColumnResize(request) })
+        // The width changes for a stand-in column (ProvisionalColumn): by daemon column, or the split-tree
+        // screen's lone column, as New Column computes them.
+        let columns = daemon(for: pane).store.screen(containing: pane.handle)?.columns ?? []
+        var widths: [DaemonColumnID: Double] = [:]
+        var treeWidth: Double?
+        for change in request.widthChanges {
+            guard let changed = change.panes.lazy.compactMap({ content.handles.panes[$0] }).first else { continue }
+            if let column = columns.first(where: { $0.layout.paneIDs.contains(changed) }) {
+                widths[column.id] = change.width
+            } else if columns.isEmpty {
+                treeWidth = change.width
+            }
+        }
+        return NewColumnSpawn(width: request.width, widths: widths, treeWidth: treeWidth,
+                              commit: { [weak model] in model?.commitNewColumnResize(request) })
     }
+
 }
 
 /// What a split that opens a new tool does (`AppServices.toolSplit`).
@@ -139,6 +154,10 @@ enum ToolSplitDecision {
 /// A new column's width and the lone column's width change to run after it exists.
 struct NewColumnSpawn {
     let width: Double
+    /// Width changes of existing daemon columns the new column brings (a stand-in column shows them).
+    var widths: [DaemonColumnID: Double] = [:]
+    /// The split-tree screen's lone column width beside the new one, when the screen has no columns yet.
+    var treeWidth: Double?
     let commit: @MainActor () -> Void
 }
 

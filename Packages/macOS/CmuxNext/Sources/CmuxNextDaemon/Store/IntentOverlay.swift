@@ -208,6 +208,10 @@ import Foundation
             CancelledCreation.unhide(.hiddenTab(hidden), in: store)
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
+        case .movedIntoSplit(let split, let moved):
+            // The tab first: the stand-in pane it is in leaves with the split's undo.
+            ProvisionalSplit.undoMove(moved, in: store)
+            self.undo(split, in: store)
         case .createdWorkspace(let key, let inserted):
             ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):

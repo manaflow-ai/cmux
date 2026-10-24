@@ -118,6 +118,11 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Client-minted `pane_id` / `tab_id` on `new-row` (New Row in the key's turn), as
     /// ``splitClientKeys`` on `split`.
     case rowClientKeys = "row-client-keys-v1"
+    /// Client-minted `pane_id` / `split_id` on `move-tab-to-column` (Move Tab to New Column in the input's
+    /// turn: the moved tab shows in a stand-in column under the pane id the daemon's pane keeps), as
+    /// ``splitClientKeys`` on `split`. Proposed for PL-daemon (2026-10-24); a daemon without it gets the
+    /// waiting move.
+    case tabColumnClientKeys = "tab-column-client-keys-v1"
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     case conversationTabSplit = "conversation-tab-split-v1"
@@ -515,6 +520,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
             return .optional
+        case .tabColumnClientKeys:
+            return .unservedByBundledDaemon
         }
     }
 

@@ -24,7 +24,7 @@ extension DaemonService {
     }
 
     /// ``intendNow(_:_:transaction:_:)`` whose work returns the failure too (``intentEffect(_:_:_:)``).
-    func intendNowReporting<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+    public func intendNowReporting<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                                          _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T)
         -> @MainActor () async -> Result<T, any Error> {
         let ticket = openTicket(label)

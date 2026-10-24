@@ -65,8 +65,16 @@ public struct MoveTabToColumnRequest: DaemonRequest {
     /// and ``DaemonConnection/moveTabToColumn`` sends true only to a daemon that has it).
     public var keepFocus: Bool
     public var transaction: ClientTransactionID?
+    /// The new pane's client-minted public id (`tab-column-client-keys-v1`): the daemon's pane keeps it,
+    /// so a stand-in shown under it is replaced in place. Nil: the daemon mints one.
+    public var paneID: String?
+    /// The new column split's client-minted public id, with ``paneID``.
+    public var splitID: String?
     public init(surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                dock: DockSnapshot? = nil, keepFocus: Bool = false, transaction: ClientTransactionID? = nil) {
+                dock: DockSnapshot? = nil, keepFocus: Bool = false, transaction: ClientTransactionID? = nil,
+                paneID: String? = nil, splitID: String? = nil) {
+        self.paneID = paneID
+        self.splitID = splitID
         self.surface = surface
         self.target = target
         self.afterColumn = afterColumn
@@ -76,7 +84,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction }
+    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction, paneID, splitID }
     enum PinKeys: String, CodingKey { case edge, mode, role, pinned }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -97,5 +105,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
         }
         if keepFocus { try c.encode(true, forKey: .keepFocus) }
         try c.encodeIfPresent(transaction, forKey: .transaction)
+        try c.encodeIfPresent(paneID, forKey: .paneID)
+        try c.encodeIfPresent(splitID, forKey: .splitID)
     }
 }

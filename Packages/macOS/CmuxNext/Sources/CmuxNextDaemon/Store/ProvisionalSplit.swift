@@ -104,10 +104,17 @@ import Foundation
             store.standInTargets[target] = paneID
         }
         guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
-              daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
+              daemon != nil || (store.panesByHandle[provisional.handle] == nil
+                                && (provisional.moving != nil || store.tabsBySurface[provisional.surface] == nil)),
               let screen = store.screen(containing: target) else { return nil }
+        // A move takes a tab out of a pane that keeps another: a pane's only tab leaves its pane closing
+        // on the daemon, which the stand-in does not show (the move waits for the daemon then).
+        let moving = daemon == nil ? provisional.moving.flatMap { movable($0, in: store) } : nil
+        if provisional.moving != nil, daemon == nil, moving == nil { return nil }
         if let column = provisional.column {
-            return applyColumn(column, after: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
+            let undo = applyColumn(column, after: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
+            guard let undo, let moving else { return undo }
+            return move(moving, into: provisional, in: store).map { .movedIntoSplit(split: undo, moved: $0) } ?? undo
         }
         if let row = provisional.row {
             return applyRow(row, below: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
@@ -220,14 +227,43 @@ import Foundation
         return undo
     }
 
+    /// The tab on `surface` and its pane, when that pane keeps another tab after it leaves.
+    private static func movable(_ surface: SurfaceID, in store: DaemonStore) -> (TabModel, PaneModel)? {
+        guard let tab = store.tabsBySurface[surface], let source = store.index.pane(holding: tab), source.tabs.count > 1 else { return nil }
+        return (tab, source)
+    }
+
+    /// Moves `moving`'s tab out of its pane into `provisional`'s pane (just inserted, empty); the tab's place
+    /// for the undo.
+    private static func move(_ moving: (TabModel, PaneModel), into provisional: ProvisionalPane, in store: DaemonStore) -> HiddenTab? {
+        let (tab, source) = moving
+        guard let pane = store.panesByHandle[provisional.handle], let index = source.tabs.firstIndex(where: { $0 === tab }),
+              let removed = source.removeTab(surface: tab.surface) else { return nil }
+        store.index.remove(removed)
+        pane.insertTab(removed, at: 0)
+        store.index.insert(removed, in: pane)
+        store.index.noteTabOrderChanged()
+        return HiddenTab(tab: removed, pane: source.handle, index: index)
+    }
+
+    /// Undoes ``move(_:into:in:)``: the tab leaves the stand-in pane and goes back to its place.
+    static func undoMove(_ moved: HiddenTab, in store: DaemonStore) {
+        guard let pane = store.index.pane(holding: moved.tab), pane.removeTab(surface: moved.tab.surface) != nil else {
+            return store.reportMirrorViolation("intent overlay undo found moved tab \(moved.tab.surface) in no pane")
+        }
+        store.index.remove(moved.tab)
+        CancelledCreation.unhide(.hiddenTab(moved), in: store)
+    }
+
     /// The one model of `provisional` while its intent is pending: every restore shows the same
     /// object, and the daemon's pane-added takes it over (``DaemonStore/confirmedPane(_:)``).
     private static func model(of provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel {
         if let model = store.provisionalPanes[provisional.paneID] { return model }
         let tab = provisional.tab ?? TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
                                                  terminalID: TerminalID(rawValue: provisional.terminalID))
+        // A move's pane starts empty: the existing tab moves in (``move(_:into:in:)``).
         let model = PaneModel(PaneSnapshot(id: provisional.handle, resourceID: ResourceID(rawValue: provisional.paneID),
-                                           tabs: [tab]))
+                                           tabs: provisional.moving == nil ? [tab] : []))
         store.provisionalPanes[provisional.paneID] = model
         return model
     }
