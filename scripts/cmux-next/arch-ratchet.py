@@ -3,7 +3,7 @@
 
 guardrails.py runs it (one entry, one report: `prepush-gate.py --pre-push` starts guardrails' ratchet on a
 thread next to its scanners, and the guardrails report prints it). The counts are
-scripts/cmux-next/arch_counts.py's (method v3; its docstring defines every row), recorded in
+scripts/cmux-next/arch_counts.py's (method v4; its docstring defines every row), recorded in
 plans/cmux-next/arch-ratchet.json. guardrails.py has no line rule for these rows: a count row has exactly one
 escape, the dated json exception below.
 
@@ -59,8 +59,10 @@ stale_rows for the one case it can still name wrongly). An internal error prints
 push through (fail open). Never runs
 under GitHub Actions (Lawrence 2026-10-23: no new CI gates, nothing that slows pushes). Its cost is the files
 it reads: the changed files, and for a type lookup the declaring and mentioning files, each analyzed once per
-content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-23 at load 50-70: an 80-file
-cross-package move about 2 s warm, 8 s on the first run after arch_counts.py changes.
+content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-23 at load 50-70 (method v3,
+before the v4 observer count): an 80-file cross-package move about 2 s warm, 8 s on the first run after
+arch_counts.py changes. v4 adds the observer count at both ends of every Swift push: two worktree greps and the
+observer facts of about 150 files from the cache when warm (one parse of each when cold); not measured yet.
 
   scripts/cmux-next/arch-ratchet.py                  # HEAD over its merge base with origin/feat-cmux-next
   scripts/cmux-next/arch-ratchet.py --base A --head B
@@ -116,7 +118,8 @@ FIX = {
     "app_broadcast_names": "tell the subscriber directly (an injected protocol, a closure or an AsyncStream), not "
                            "through a NotificationCenter name",
     "observer_sites": "observe a system notification once per app or window in an adapter that calls only the "
-                      "affected subscribers; tell app subscribers directly",
+                      "affected subscribers; tell app subscribers directly. A wrapper (MainActorObservation, a "
+                      "helper) is still an observer at each use that configures it",
 }
 
 
