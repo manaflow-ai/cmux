@@ -94,12 +94,12 @@ export function WorkflowSummaryRow({
         <div className="acpmux-workflow__detail">
           {workflow.large && (
             <p className="acpmux-workflow__warning" role="alert">
-              {t("composer.tooLarge", { name: workflow.title })}
+              {t("workflow.large")}
             </p>
           )}
           <div className="acpmux-workflow__columns">
             <div className="acpmux-workflow__phases">
-              <h4>{t("summary.subagents.active", { n: workflow.phases.length })}</h4>
+              <h4>{t("workflow.phases")}</h4>
               {workflow.phases.map((entry) => (
                 <button
                   type="button"
