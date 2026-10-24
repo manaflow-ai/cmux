@@ -21,7 +21,10 @@ stored or computed, typed `String` or untyped, or a static func returning one.
 cc7a964ef61's regex over `let NAME = "..."` constants missed a typed one, its
 hand-kept lists were the registry CLAUDE.md asks to derive, and the gate APIs
 (`supports`, `require`, `missingCapabilities`) still take any String, so such a
-static compiles at a gate.
+static compiles at a gate. That stray check is lexical and has known gaps (a
+static in a type nested in an extension, a `typealias` of String, a brace inside
+a string literal of the catalog body); typed gates close the hole and delete it
+(architecture-refactor-DESIGN.md slice B6).
 
 It then renders the export the way DaemonCapabilityExportTests.json does
 (JSONEncoder with .prettyPrinted, .sortedKeys and .withoutEscapingSlashes, each
