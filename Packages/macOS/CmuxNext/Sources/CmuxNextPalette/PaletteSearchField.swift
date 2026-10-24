@@ -12,11 +12,13 @@ final class PaletteSearchField: NSTextField {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if responderWindow !== window {
-            responderWindow?.initialFirstResponder = nil
+            if responderWindow?.initialFirstResponder === self {
+                responderWindow?.initialFirstResponder = nil
+            }
         }
+        responderWindow = window
         guard let window else { return }
         window.initialFirstResponder = self
-        responderWindow = window
     }
 }
 
