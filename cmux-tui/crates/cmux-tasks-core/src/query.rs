@@ -100,7 +100,7 @@ pub fn list(state: &State, caller: &Principal, filter: &ListFilter) -> Vec<TaskV
     let labels: Vec<Option<String>> = filter.label.iter().map(|l| state.resolve_label(l)).collect();
     let project = filter.project.as_deref().map(|p| state.resolve_project(p));
     let search = filter.search.as_deref().map(str::to_lowercase);
-    let mut out: Vec<TaskView> = state
+    let mut out: Vec<&Task> = state
         .live_tasks()
         .filter(|t| t.archived == filter.archived)
         .filter(|t| !filter.mine || is_mine(t, caller))
@@ -135,24 +135,23 @@ pub fn list(state: &State, caller: &Principal, filter: &ListFilter) -> Vec<TaskV
                     || t.description.text.to_lowercase().contains(q)
             }
         })
-        .map(|t| view(state, t))
         .collect();
     match filter.order {
-        Order::Manual => out.sort_by(|a, b| a.task.sort_key.cmp(&b.task.sort_key)),
+        Order::Manual => out.sort_by(|a, b| a.sort_key.cmp(&b.sort_key)),
         Order::Priority => out.sort_by(|a, b| {
-            priority_rank(a.task.priority)
-                .cmp(&priority_rank(b.task.priority))
-                .then(a.task.sort_key.cmp(&b.task.sort_key))
+            priority_rank(a.priority)
+                .cmp(&priority_rank(b.priority))
+                .then(a.sort_key.cmp(&b.sort_key))
         }),
-        Order::Updated => out.sort_by(|a, b| {
-            b.task.updated_at.cmp(&a.task.updated_at).then(a.task.number.cmp(&b.task.number))
-        }),
-        Order::Created => out.sort_by_key(|v| std::cmp::Reverse(v.task.number)),
+        Order::Updated => {
+            out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then(a.number.cmp(&b.number)))
+        }
+        Order::Created => out.sort_by_key(|task| std::cmp::Reverse(task.number)),
     }
     if let Some(limit) = filter.limit {
         out.truncate(limit);
     }
-    out
+    out.into_iter().map(|task| view(state, task)).collect()
 }
 
 pub fn detail(state: &State, reference: &str) -> Option<TaskDetail> {
