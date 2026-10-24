@@ -187,12 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageWebView.openPanel = services.openPanel
         // A WebKit browser tab's file input takes the same made-ahead panel as a cmux page's.
         services.cache.webKit.fileInput = services.openPanel
-        PageWebView.chromiumHosting = ChromiumPageHost(
-            cef: services.cache.cef,
-            preference: { [weak services] in
-                services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
-            },
-            keyRouter: services.keyRouter)
+        PageWebView.chromiumHosting = services.makeChromiumPageHost()
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")

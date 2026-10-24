@@ -150,8 +150,7 @@ struct PageChromiumCostTests {
     private func hiddenBootedPage(provider: TestProvider = TestProvider()) async throws
         -> (PageWebView, FakeChromiumPage, NSView, RecordingFreezePolicy, FakeChromiumHosting) {
         let policy = RecordingFreezePolicy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = policy
+        let hosting = FakeChromiumHosting(freezePolicy: policy)
         let pane = container()
         let view = try makeView(hosting, provider: provider)
         pane.addSubview(view)
@@ -342,8 +341,7 @@ struct PageChromiumCostTests {
     @Test func aHiddenPageFreezesOnlyForThePolicyAndThawsBeforeAScriptOrAShow() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let policy = RecordingFreezePolicy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = policy
+        let hosting = FakeChromiumHosting(freezePolicy: policy)
         let pane = container()
         let view = try makeView(hosting)
         pane.addSubview(view)
@@ -489,8 +487,7 @@ struct PageChromiumCostTests {
     @Test func aPageInACoveredWindowFreezesAndThawsWhenTheWindowIsBack() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let policy = RecordingFreezePolicy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = policy
+        let hosting = FakeChromiumHosting(freezePolicy: policy)
         let view = try makeView(hosting)
         stage.show(view)
         await view.chromiumStart?.value
