@@ -73,6 +73,8 @@ public final class HoverCardCoordinator {
         if let eventPointer, eventPointer.mouse == mouse { return eventPointer.point }
         return mouse
     }
+    /// The clock the cached top window expires on, in seconds (tests inject one).
+    public var now: () -> CFTimeInterval = { CACurrentMediaTime() }
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
