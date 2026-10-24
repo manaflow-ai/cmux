@@ -21,22 +21,28 @@ pub fn auto_work(host: Option<&str>) -> Option<&'static str> {
 /// of that name, else the daemon's pick. `None` is this machine. A running
 /// session is used only with `--reuse`, as for `new -n`; without it this
 /// says where it runs instead of making a second one elsewhere. Prints the
-/// pick and why to stderr.
+/// pick and why to stderr. A name running on more than one machine is not
+/// guessed at: `--host` chooses.
 pub async fn resolve(
     client: &Client,
     work: &str,
     name: Option<&str>,
     reuse: bool,
 ) -> Result<Option<String>> {
-    if let Some(name) = name
-        && let Ok(v) = client.request(method::MUX_INFO, json!({"sessionId": name})).await
-        && v.get("name").and_then(Value::as_str) == Some(name)
-    {
-        let host = v.get("peer").and_then(Value::as_str).map(str::to_owned);
-        if !reuse {
-            bail!("{}", running(name, host.as_deref()));
+    if let Some(name) = name {
+        let list = client.request(method::MUX_SESSIONS, json!({})).await?;
+        match running_on(&list, name).as_slice() {
+            [] => {}
+            [host] if reuse => return Ok(host.clone()),
+            [host] => bail!("{}", running(name, host.as_deref())),
+            many => {
+                // This machine first, then the peers by name.
+                let mut many = many.to_vec();
+                many.sort();
+                let at: Vec<String> = many.iter().map(|h| at(h.as_deref())).collect();
+                bail!("session {name:?} runs on {}; pass --host with one of them", at.join(", "))
+            }
         }
-        return Ok(host);
     }
     let v = client.request("_acpmux/place", json!({"work": work})).await?;
     let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
@@ -49,8 +55,29 @@ pub async fn resolve(
 
 /// Why `new --host auto -n NAME` without `--reuse` stops: NAME already runs.
 fn running(name: &str, host: Option<&str>) -> String {
-    let at = host.map_or_else(|| "this machine".to_owned(), str::to_owned);
+    let at = at(host);
     format!("session {name:?} already runs on {at}; add --reuse to use it, or pick another -n")
+}
+
+fn at(host: Option<&str>) -> String {
+    host.map_or_else(|| "this machine".to_owned(), str::to_owned)
+}
+
+/// Every machine in `_acpmux/sessions`' `list` running a session named
+/// `name`, once each: `None` for this machine, else the peer (its rows read
+/// `peer/name`).
+fn running_on(list: &Value, name: &str) -> Vec<Option<String>> {
+    let mut hosts: Vec<Option<String>> = Vec::new();
+    for s in list.get("sessions").and_then(Value::as_array).into_iter().flatten() {
+        let Some(listed) = s.get("name").and_then(Value::as_str) else { continue };
+        let peer = s.get("peer").and_then(Value::as_str);
+        let bare = peer.and_then(|p| listed.strip_prefix(p)?.strip_prefix('/')).unwrap_or(listed);
+        let host = peer.map(str::to_owned);
+        if bare == name && !hosts.contains(&host) {
+            hosts.push(host);
+        }
+    }
+    hosts
 }
 
 /// `host place`'s lines: the pick, then each host with its room or refusal.
@@ -101,5 +128,21 @@ mod tests {
         assert_eq!(auto_work(Some("auto")), Some("agent"));
         assert_eq!(auto_work(Some("auto-build")), Some("build"));
         assert_eq!(auto_work(Some("huge-blue")), None);
+    }
+
+    #[test]
+    fn a_running_name_is_found_on_each_machine_that_runs_it() {
+        let list = json!({"sessions": [
+            {"name": "lane"},
+            {"name": "b/lane", "peer": "b"},
+            {"name": "c/lane", "peer": "c"},
+            {"name": "c/lane", "peer": "c"},
+            {"name": "b/other", "peer": "b"},
+            {"name": "lane-2"},
+        ]});
+        assert_eq!(running_on(&list, "lane"), [None, Some("b".into()), Some("c".into())]);
+        assert_eq!(running_on(&list, "other"), [Some("b".to_owned())]);
+        assert!(running_on(&list, "b").is_empty(), "a peer's name is not a session name");
+        assert!(running_on(&list, "fresh").is_empty());
     }
 }
