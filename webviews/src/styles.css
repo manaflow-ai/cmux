@@ -65,9 +65,11 @@
      page header; the files panel takes a lift off the backdrop (--cmux-diff-files-bg). */
   --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
   /* The header's controls: the toolbar pill on the right and the source, base and jump chips on
-     the left share one fill and one rim. */
-  --cmux-diff-pill-bg: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
-  --cmux-diff-pill-border: color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
+     the left share one glossy fill (a tint of the text color, so the page or the window's backdrop
+     shows through) and one hairline rim. */
+  --cmux-diff-pill-bg: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  --cmux-diff-pill-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
   /* The files panel paints opaque (the tree's truncation marker must hide the text under it):
      3% of the text color over the solid backdrop. */
@@ -1580,8 +1582,11 @@ body[data-loading="true"] #status::before {
   display: flex;
   align-items: center;
   border-radius: 7px;
-  /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code. */
+  /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code in
+     an opaque window; over glass it is the panel's glass plus its blur, so code under it frosts. */
   background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
+  -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+  backdrop-filter: var(--cmux-diff-glass-filter, none);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim),
     var(--elevation-2);
@@ -1820,7 +1825,7 @@ svg[data-icon-fill] {
   padding: 2px 10px 2px 2px;
   border-radius: 7px;
   background: var(--cmux-diff-pill-bg);
-  box-shadow: inset 0 0 0 1px var(--cmux-diff-pill-border);
+  box-shadow: var(--cmux-diff-pill-rim);
   font-variant-numeric: tabular-nums;
 }
 .source-pill-button {
@@ -1866,11 +1871,11 @@ svg[data-icon-fill] {
   border: 0;
   border-radius: 7px;
   background: var(--cmux-diff-pill-bg);
-  box-shadow: inset 0 0 0 1px var(--cmux-diff-pill-border);
+  box-shadow: var(--cmux-diff-pill-rim);
   font-weight: 400;
 }
 #toolbar .base-picker-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cmux-diff-fg) 14%, var(--cmux-diff-solid-bg));
+  background: var(--cmux-diff-pill-hover-bg);
 }
 #toolbar .base-picker-button[aria-expanded="true"] {
   background: var(--cmux-diff-accent-tint);
@@ -1889,12 +1894,12 @@ svg[data-icon-fill] {
   border: 0;
   border-radius: 7px;
   background: var(--cmux-diff-pill-bg);
-  box-shadow: inset 0 0 0 1px var(--cmux-diff-pill-border);
+  box-shadow: var(--cmux-diff-pill-rim);
   color: var(--cmux-diff-fg);
   cursor: pointer;
 }
 .toolbar-round-button:hover {
-  background: color-mix(in srgb, var(--cmux-diff-fg) 14%, var(--cmux-diff-solid-bg));
+  background: var(--cmux-diff-pill-hover-bg);
 }
 .toolbar-round-button[aria-expanded="true"] {
   background: var(--cmux-diff-accent-tint);
@@ -2078,10 +2083,12 @@ svg[data-icon-fill] {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--cmux-diff-pill-border);
+  /* 3 px and no border: the same 34 px as before, with the rim drawn inside. */
+  padding: 3px;
+  border: 0;
   border-radius: 8px;
   background: var(--cmux-diff-pill-bg);
+  box-shadow: var(--cmux-diff-pill-rim);
 }
 .diff-pill-button {
   position: relative;
@@ -2099,12 +2106,12 @@ svg[data-icon-fill] {
 }
 .diff-pill-button:hover,
 .diff-pill-button[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--cmux-diff-fg) 14%, var(--cmux-diff-solid-bg));
+  background: var(--cmux-diff-pill-hover-bg);
   color: var(--cmux-diff-fg);
 }
 /* A pressed toggle (the files sidebar) sinks into the pill. */
 .diff-pill-button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
+  background: color-mix(in lab, var(--cmux-diff-fg) 16%, transparent);
   color: var(--cmux-diff-fg);
 }
 /* An unavailable pill button: its tooltip says why, and hover does not light it. */
