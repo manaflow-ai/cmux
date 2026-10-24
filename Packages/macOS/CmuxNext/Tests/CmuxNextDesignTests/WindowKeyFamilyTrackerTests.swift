@@ -13,7 +13,7 @@ import Testing
     /// The keyboard a test drives, and the checks the trackers left for the next turn.
     @MainActor
     final class Keyboard {
-        let center = NotificationCenter()
+        let center = CountingNotificationCenter()
         var key: NSWindow?
         var active = true
         var pending: [@MainActor () -> Void] = []
@@ -94,6 +94,30 @@ import Testing
                                NSApplication.didResignActiveNotification]) == 2)
         #expect(measuredFamily.viewUpdates == views.count)
         #expect(otherFamily.viewUpdates == 3 && otherFamily.isInactive)
+    }
+
+    /// The key, main and activation notices (and the inactive-dim setting) are heard once per app by
+    /// one adapter, however many windows have a material view: each window's tracker used to
+    /// register its own seven app-wide observers, so a Cmd-Tab woke one observer per window per
+    /// notice (P3).
+    @Test func theAppHearsEachKeyMomentOnceWhateverItsWindows() {
+        let keyboard = Keyboard()
+        let windows = (0..<3).map { _ in Self.window() }
+        for window in windows { _ = WindowKeyFamily.of(window, environment: keyboard.environment) }
+        let views = windows.map { Self.addViews(2, to: $0) }
+        keyboard.post([])
+        let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                     WindowMaterialView.inactiveDimDidChange]
+        for name in names {
+            #expect(keyboard.center.observers(of: name) == 1, "\(name.rawValue) is observed more than once per app")
+        }
+        // The last material view of the app left: nothing listens.
+        for view in views.joined() { view.removeFromSuperview() }
+        for name in names {
+            #expect(keyboard.center.observers(of: name) == 0, "\(name.rawValue) is still observed with no material view left")
+        }
     }
 
     @Test func aViewLeavingItsWindowLeavesTheTracker() {

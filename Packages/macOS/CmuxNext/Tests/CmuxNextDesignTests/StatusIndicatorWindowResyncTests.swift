@@ -48,6 +48,15 @@ import Testing
             return fixture
         }
 
+        /// A window this app does not keep (a test frees it), its tracker reading this app.
+        func unretainedWindow() -> NSWindow {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                                  backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            _ = WindowKeyFamily.of(window, environment: environment)
+            return window
+        }
+
         static func indicator(in parent: NSView) -> StatusIndicatorView {
             let view = StatusIndicatorView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
             parent.addSubview(view)
@@ -172,25 +181,67 @@ import Testing
         #expect(!indicators.isObserving, "a window whose indicators left still hears every notice")
     }
 
-    /// An app-wide moment (activation, unhide, wake, a session switch back) and a window's occlusion
-    /// change are heard once per app, by one adapter that calls only the window they concern: each
-    /// window with an indicator used to register its own observer of every moment (O(windows)
-    /// wakeups per moment, P3), and its own occlusion observer.
+    /// Every notice a window's indicators resync on, with the center it arrives on.
+    private static func moments(_ app: App) -> [(CountingNotificationCenter, Notification.Name)] {
+        [(app.center, NSWindow.didBecomeMainNotification), (app.center, NSWindow.didChangeOcclusionStateNotification),
+         (app.center, NSApplication.didBecomeActiveNotification), (app.center, NSApplication.didUnhideNotification),
+         (app.workspace, NSWorkspace.didWakeNotification), (app.workspace, NSWorkspace.screensDidWakeNotification),
+         (app.workspace, NSWorkspace.sessionDidBecomeActiveNotification)]
+    }
+
+    /// A window becoming main, a window's occlusion change and an app-wide moment (activation,
+    /// unhide, wake, a session switch back) are heard once per app, by one adapter that calls only
+    /// the window they concern: each window with an indicator used to register its own observer of
+    /// every moment (O(windows) wakeups per moment, P3), and its own main and occlusion observers.
     @Test func theAppHearsEachMomentOnceWhateverItsWindows() {
         let app = App()
         defer { app.close() }
         let windows = (0..<3).map { _ in app.window(shown: 1, parked: 1) }
-        let moments: [(CountingNotificationCenter, Notification.Name)] = [
-            (app.center, NSApplication.didUnhideNotification), (app.center, NSWindow.didChangeOcclusionStateNotification),
-            (app.workspace, NSWorkspace.didWakeNotification), (app.workspace, NSWorkspace.screensDidWakeNotification),
-            (app.workspace, NSWorkspace.sessionDidBecomeActiveNotification),
-        ]
-        for (center, name) in moments {
-            #expect(center.observers(of: name) == 1, "\(name.rawValue) is observed once per window holding an indicator")
+        for (center, name) in Self.moments(app) {
+            #expect(center.observers(of: name) == 1, "\(name.rawValue) is observed more than once per app")
         }
         // The last indicator of the app left: nothing listens.
         for window in windows { window.window.contentView = nil }
-        for (center, name) in moments {
+        for (center, name) in Self.moments(app) {
+            #expect(center.observers(of: name) == 0, "\(name.rawValue) is still observed with no indicator left")
+        }
+    }
+
+    /// A window torn down while its indicators are still filed in it (no leave: a host outlives the
+    /// window, or is freed without moving out) takes its place in the app's listener with it: the
+    /// app stops listening once no live window holds an indicator, and a later window, at whatever
+    /// address, is never taken for it. Before, the dead window's entry and every observer stayed
+    /// until the next activation, unhide or wake happened to look it up.
+    @Test func aWindowTornDownWithoutALeaveTakesItsPlaceWithIt() throws {
+        let app = App()
+        defer { app.close() }
+        let orphan = MomentCounter()
+        weak var gone: NSWindow?
+        autoreleasepool {
+            let window = app.unretainedWindow()
+            orphan.placement.update(orphan, in: window, shown: true)
+            gone = window
+        }
+        try #require(gone == nil, "the test window was not freed")
+        for (center, name) in Self.moments(app) {
+            #expect(center.observers(of: name) == 0,
+                    "\(name.rawValue) is still observed after the last window holding an indicator was torn down")
+        }
+
+        // A later window (it may sit at the torn-down window's address).
+        let next = app.unretainedWindow()
+        defer { next.close() }
+        let client = MomentCounter()
+        client.placement.update(client, in: next, shown: true)
+        app.show(next)
+        _ = app.post([(app.center, NSApplication.didBecomeActiveNotification, nil)])
+        _ = app.post([(app.center, NSWindow.didBecomeMainNotification, next)])
+        #expect(client.resyncs == 2)
+        #expect(orphan.resyncs == 0, "a moment reached an indicator of a window torn down")
+
+        // Its last indicator leaves: the app stops listening.
+        client.placement.update(client, in: nil, shown: false)
+        for (center, name) in Self.moments(app) {
             #expect(center.observers(of: name) == 0, "\(name.rawValue) is still observed with no indicator left")
         }
     }
@@ -211,4 +262,11 @@ import Testing
                 "a window paid a resync it owed to indicators that had all left")
         #expect(WindowKeyFamily.of(front.window).indicators.touches == 0)
     }
+}
+
+/// A resync host that counts its resyncs and files itself through its own placement.
+@MainActor private final class MomentCounter: StatusIndicatorResyncClient {
+    let placement = StatusIndicatorPlacement()
+    var resyncs = 0
+    func statusIndicatorResync() { resyncs += 1 }
 }
