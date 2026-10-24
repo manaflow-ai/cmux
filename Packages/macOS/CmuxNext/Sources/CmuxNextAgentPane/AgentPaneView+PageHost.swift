@@ -23,6 +23,9 @@ extension AgentPaneView {
             }
         }
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
+        // A frozen page runs no script: the chat's transport frames wait in the pacer (bounded by
+        // the transport's queue; an overflow closes the socket and the page resyncs) until it thaws.
+        page.onChromiumFrozenChange = { [weak self] frozen in self?.transportPacer?.setPageFrozen(frozen) }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }
@@ -34,6 +37,9 @@ extension AgentPaneView {
         }
         addSubview(page)
     }
+
+    /// Whether this chat shows in `page` (the hibernation finds a page's chat by it).
+    public func shows(_ page: PageWebView) -> Bool { self.page === page }
 
     /// The view that takes the keyboard when the chat is focused: Chromium's view when the page
     /// shows in Chromium (the `agent.chromium` spike), else the WebKit view.

@@ -62,6 +62,9 @@ import CmuxNextWakeups
     private(set) var waitingWhileHidden = false
     /// A hidden pane's frames wait for it to show, or for frames its page waits on.
     private(set) var held = false
+    /// The pane's page is frozen (the hibernation, ``setPageFrozen(_:)``): it runs no script, so
+    /// every frame waits, the ones its page waits on too, until it thaws.
+    private(set) var pageFrozen = false
     /// The waiting frames include ones the page waits on (``schedule(urgent:_:)``) or a backlog.
     private var urgent = false
     /// The pane's ``AgentPaneVisibilityProbe``.
@@ -115,7 +118,7 @@ import CmuxNextWakeups
         // Only frames the page waits on reach a held pacer (the socket wakes it for no others);
         // the rest go when the pane shows (``visibilityChanged()``).
         if held {
-            guard urgent else { return }
+            guard urgent, !pageFrozen else { return }
             held = false
         }
         guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled, !waitingWhileHidden else { return }
@@ -169,9 +172,20 @@ import CmuxNextWakeups
         probe = nil
     }
 
+    /// The page froze or thawed: a frozen page gets no call; a thawed one gets what waited, as a
+    /// hidden pane gets the frames its page waits on (or all of them once it shows).
+    public func setPageFrozen(_ frozen: Bool) {
+        guard frozen != pageFrozen else { return }
+        pageFrozen = frozen
+        guard !frozen, held else { return }
+        held = false
+        guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled, !waitingWhileHidden else { return }
+        call()
+    }
+
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
-        guard held || waitingWhileHidden, !isHidden() else { return }
+        guard held || waitingWhileHidden, !isHidden(), !pageFrozen else { return }
         held = false
         if waitingWhileHidden {
             waitingWhileHidden = false
@@ -183,6 +197,10 @@ import CmuxNextWakeups
     private func call() {
         guard let flush, pending else { return }
         // Every path here has the deadline free: none of the waits that use it is on.
+        if pageFrozen {
+            held = true
+            return
+        }
         if isHidden() {
             guard urgent else {
                 held = true

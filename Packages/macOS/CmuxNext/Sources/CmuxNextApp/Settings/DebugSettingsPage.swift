@@ -91,7 +91,8 @@ final class DebugSettingsPageProvider: PageProvider {
                 for await _ in changes { if let self { emit() } else { return } } // gone: the stream ends
             }
         }
-        return PageSubscription { [weak self] in self?.unsubscribe(id) }
+        // Each event carries the whole state (`emit()`).
+        return PageSubscription(freezing: .newest) { [weak self] in self?.unsubscribe(id) }
     }
 
     /// The last listener leaving stops following the hang files (the Observation watch ends at

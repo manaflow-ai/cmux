@@ -102,15 +102,18 @@ public final class DiffPageProvider: PageProvider {
         case Self.eventsStream:
             let id = UUID()
             events[id] = onEvent
-            return PageSubscription { [weak self] in self?.events[id] = nil }
+            // The diff's changes, applied one by one.
+            return PageSubscription(freezing: .every) { [weak self] in self?.events[id] = nil }
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(stream) }
             let stop = languages.listen(onEvent)
-            return PageSubscription { stop() }
+            // One language pack each: each one counts.
+            return PageSubscription(freezing: .every) { stop() }
         case Self.prefsStream:
             guard let stores else { throw PageError.unknownOp(stream) }
             let stop = stores.prefs.listen { prefs in onEvent(["prefs": .object(prefs)]) }
-            return PageSubscription { stop() }
+            // The whole prefs each time.
+            return PageSubscription(freezing: .newest) { stop() }
         default:
             throw PageError.unknownOp(stream)
         }
