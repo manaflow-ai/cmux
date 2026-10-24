@@ -37,6 +37,7 @@ RUNSC_SHA256 = "1298e8ed9c3fee900f00d2ea96ec2d79d80ed93f2175812f29b7e7da718041a3
 FIRECRACKER_VERSION = "v1.17.0"
 FIRECRACKER_SHA256 = "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558"
 CLOUD_HYPERVISOR_VERSION = "v54.0"
+CLOUD_HYPERVISOR_SHA256 = "4f4f98a3d661a40f3e5272627cc895a1b2e525f2f6bedf5f895f9cd21ba5c65b"
 
 
 class RunnerError(RuntimeError):
@@ -102,6 +103,7 @@ tar -xzf /tmp/rd-sandbox-download/firecracker.tgz -C /tmp/rd-sandbox-download
 install -m 0755 /tmp/rd-sandbox-download/release-{FIRECRACKER_VERSION}-x86_64/firecracker-{FIRECRACKER_VERSION}-x86_64 /opt/rd-sandbox/bin/firecracker
 curl -fsSL -o /opt/rd-sandbox/bin/cloud-hypervisor \\
   https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/{CLOUD_HYPERVISOR_VERSION}/cloud-hypervisor-static
+echo '{CLOUD_HYPERVISOR_SHA256}  /opt/rd-sandbox/bin/cloud-hypervisor' | sha256sum -c -
 chmod 0755 /opt/rd-sandbox/bin/cloud-hypervisor
 date +%s > /var/lib/rd-sandbox/boot-epoch
 touch /var/lib/rd-sandbox/last-activity
