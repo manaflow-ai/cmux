@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The wallpaper choices displayed by Appearance settings.
-public nonisolated struct BackdropCatalog: Sendable {
+public nonisolated struct BackdropCatalog: Equatable, Sendable {
     /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
     /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``), then the
     /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos).
@@ -14,7 +14,17 @@ public nonisolated struct BackdropCatalog: Sendable {
         BackdropArt.allCases.filter { $0.collection == collection }.map(BackdropSelection.art)
     }
 
-    /// Builds a catalog from an injected directory listing.
+    /// What the picker lists before any folder is read: the bundled art and the desktop picture.
+    /// Reads no file, so it is safe on the main actor while a full catalog is built elsewhere.
+    public static let unlisted = BackdropCatalog(choices: bundled + [.desktop], appleWallpapers: [:])
+
+    private init(choices: [BackdropSelection], appleWallpapers: [String: AppleWallpaper]) {
+        self.choices = choices
+        self.appleWallpapers = appleWallpapers
+    }
+
+    /// Builds a catalog from an injected directory listing. It reads every macOS wallpaper
+    /// description and the downloaded assets (tens of milliseconds): build it off the main actor.
     ///
     /// - Parameters:
     ///   - systemDirectory: The macOS wallpaper directory.
