@@ -114,27 +114,26 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
 function replies(rows: unknown): SubsessionReply[] | undefined {
   if (!Array.isArray(rows)) return undefined;
   return rows.filter(isRecord).flatMap((row): SubsessionReply[] => {
-        const id = text(row.sessionId);
-        if (!id) return [];
-        const name = text(row.shortName) ?? text(row.name);
-        const reply = text(typeof row.lastReply === "string" ? row.lastReply.trim() : undefined);
-        const state = rowState(row);
-        // A question's first prompt is in the row's doing line (subsession_send.rs `doing`).
-        const asked = typeof row.doing === "string" ? QUESTION_DOING.exec(row.doing)?.[1] : undefined;
-        const waiting =
-          state === "input" ? sessionWaiting({ waitingOn: row.waitingOn, waitingPrompt: asked }) : undefined;
-        const harness = text(row.harness);
-        return [
-          {
-            sessionId: id,
-            ...(name && { name }),
-            state,
-            ...(reply && { reply }),
-            ...(waiting && { waiting }),
-            ...(harness && { harness }),
-          },
-        ];
-      });
+    const id = text(row.sessionId);
+    if (!id) return [];
+    const name = text(row.shortName) ?? text(row.name);
+    const reply = text(typeof row.lastReply === "string" ? row.lastReply.trim() : undefined);
+    const state = rowState(row);
+    // A question's first prompt is in the row's doing line (subsession_send.rs `doing`).
+    const asked = typeof row.doing === "string" ? QUESTION_DOING.exec(row.doing)?.[1] : undefined;
+    const waiting = state === "input" ? sessionWaiting({ waitingOn: row.waitingOn, waitingPrompt: asked }) : undefined;
+    const harness = text(row.harness);
+    return [
+      {
+        sessionId: id,
+        ...(name && { name }),
+        state,
+        ...(reply && { reply }),
+        ...(waiting && { waiting }),
+        ...(harness && { harness }),
+      },
+    ];
+  });
 }
 
 /// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`.

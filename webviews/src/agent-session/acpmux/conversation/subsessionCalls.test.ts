@@ -76,7 +76,12 @@ test("the cmux server's subsessions_* tools read as the server's own", () => {
     turnId: "01a16f99-634c",
     waitsForSlot: false,
   };
-  const args = { name: "update-toggle", harness: "claude", model: "opus", prompt: 'You are "update-toggle".\n\nStep 1' };
+  const args = {
+    name: "update-toggle",
+    harness: "claude",
+    model: "opus",
+    prompt: 'You are "update-toggle".\n\nStep 1',
+  };
   const viaCmux = (name: string, input: unknown, output?: string, status = "completed"): Tool => ({
     id: `call-${(ids += 1)}`,
     title: `mcp__cmux__subsessions_${name}`,

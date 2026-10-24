@@ -26,7 +26,7 @@ const viaCmux = (name: string, args: unknown, result?: unknown, status = "comple
 
 /// A recorded `start_session` request: a lane's brief, Markdown with quotes and blank lines.
 const BRIEF = [
-  'You are **net-retries**, a Claude Opus lane started by the coordinator. Use subagents if useful.',
+  "You are **net-retries**, a Claude Opus lane started by the coordinator. Use subagents if useful.",
   "",
   'The ask, word for word: "the retry banner still flickers when the network comes back".',
   "",

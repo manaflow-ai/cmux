@@ -91,7 +91,9 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
   const t = useT();
   if (call.running && !call.prompt)
     return (
-      <RunningLine>{call.name ? t("subsession.starting", { name: call.name }) : t("subsession.startingBare")}</RunningLine>
+      <RunningLine>
+        {call.name ? t("subsession.starting", { name: call.name }) : t("subsession.startingBare")}
+      </RunningLine>
     );
   return (
     <SessionCard
@@ -122,7 +124,10 @@ function Cut({
   const t = useT();
   const [open, setOpen] = useState(false);
   const id = useId();
-  const long = useMemo(() => text.length > CUT_CHARS || text.split("\n").filter((line) => line.trim()).length > 3, [text]);
+  const long = useMemo(
+    () => text.length > CUT_CHARS || text.split("\n").filter((line) => line.trim()).length > 3,
+    [text],
+  );
   return (
     <div className="cv-subsession__cut">
       <div id={id} className="cv-subsession__markdown selectable" data-cut={long && !open ? true : undefined}>
@@ -165,7 +170,16 @@ function Raw({ tool }: { tool: Tool }) {
         {t("subsession.raw")}
         <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>
-      {open && <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={0} />}
+      {open && (
+        <McpCallDetails
+          id={id}
+          call={call}
+          raw={mcpRawName(tool, call)}
+          output={tool.output}
+          strip={false}
+          reveal={0}
+        />
+      )}
     </div>
   );
 }
@@ -227,7 +241,8 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
 /// A wait's or a list's sub-sessions, a card each, a finished one's last reply under its card.
 function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "wait" | "list" }>; tool: Tool }) {
   const t = useT();
-  if (call.running) return <RunningLine>{t(call.tool === "wait" ? "subsession.waiting" : "subsession.listing")}</RunningLine>;
+  if (call.running)
+    return <RunningLine>{t(call.tool === "wait" ? "subsession.waiting" : "subsession.listing")}</RunningLine>;
   if (call.sessions.length === 0)
     return (
       <div className="cv-tool cv-subsession">
