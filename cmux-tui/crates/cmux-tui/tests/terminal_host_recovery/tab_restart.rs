@@ -349,7 +349,12 @@ fn a_manual_restart_of_a_kept_layout_tab_starts_in_its_directory_and_ends_the_ke
 /// request needs its shell: text sent to it through the control socket
 /// (`send {surface}`, the path of the CLI's `send`) starts it in place, in
 /// the same tab, and reaches its new shell; the socket never finds a dead
-/// tab the app draws as live.
+/// tab the app draws as live. The send never waits for the start: the
+/// restarted daemon's respawn worker is held at a gate (a FIFO the test keeps
+/// closed) after it put the new shell in the tab and before that shell's
+/// launch stream starts, and the send's reply arrives while it is held, with
+/// the text queued. Once the gate opens, the queued text reaches the new
+/// shell, and by then the tab is an ordinary terminal tab again.
 #[test]
 fn text_sent_to_an_unstarted_kept_tab_starts_it_and_reaches_its_new_shell() {
     let _exclusive = exclusive_process_test();
@@ -376,23 +381,40 @@ fn text_sent_to_an_unstarted_kept_tab_starts_it_and_reaches_its_new_shell() {
     }
     wait_for_no_host_records(&harness.host_root());
 
-    harness.restart();
+    let gate_path = harness.dir.join("respawn-start-gate");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_RESPAWN_START_GATE", &gate_path);
+    harness.child = Some(command.spawn().expect("spawn the daemon"));
+    wait_for_socket(&harness.socket);
+    // Every respawn worker from here on waits at the gate.
+    let gate = HostGate::create(gate_path);
     let dead = tab_named(&harness, "kept-hidden");
     assert_eq!(dead["dead"], true, "{dead}");
     assert!(dead["relaunch"]["cwd"].is_string(), "{dead}");
     let surface = dead["surface"].as_u64().expect("the kept tab has a surface id");
     // No `restart-tab`: the send alone starts the tab.
-    let sent = request_response(
-        &harness.socket,
-        serde_json::json!({"id": 4, "cmd": "send", "surface": surface, "text": "echo kept-$((40+2))\n"}),
-    );
+    let (replied, reply) = std::sync::mpsc::channel();
+    let socket = harness.socket.clone();
+    std::thread::spawn(move || {
+        let _ = replied.send(request_response(
+            &socket,
+            serde_json::json!({"id": 4, "cmd": "send", "surface": surface, "text": "echo kept-$((40+2))\n"}),
+        ));
+    });
+    let sent = reply
+        .recv_timeout(test_timeout(Duration::from_secs(10)))
+        .expect("the send waited for the kept tab's start: no reply while its worker is held");
     assert_eq!(sent["ok"], true, "the send to the unstarted kept tab failed: {sent}");
+    assert_eq!(sent["data"]["queued"], true, "the text was not queued for the start: {sent}");
+
+    let _open = gate.open();
+    let text = wait_for_screen(&harness.socket, surface, "kept-42");
+    assert!(text.contains("kept-42"), "the text never reached the new shell: {text}");
+    // The worker writes the queued text only after its start ended.
     let live = tab_named(&harness, "kept-hidden");
     assert_eq!(live["dead"], false, "the send left the kept tab dead: {live}");
     assert_eq!(live["tab_resource_id"], dead["tab_resource_id"], "the start made a new tab");
     assert!(live["relaunch"].is_null(), "the started tab is still kept: {live}");
-    let text = wait_for_screen(&harness.socket, surface, "kept-42");
-    assert!(text.contains("kept-42"), "the text never reached the new shell: {text}");
 }
 
 /// f. `run --on-exit shell`: the command's end drops the tab into a shell.

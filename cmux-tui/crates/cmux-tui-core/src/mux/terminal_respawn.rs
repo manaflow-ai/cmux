@@ -517,6 +517,7 @@ impl Mux {
         let mut forgot_kept = false;
         let activated = match self.install_respawned_runtime(&plan, &surface) {
             Ok(true) => {
+                wait_at_start_gate();
                 // A restarted kept tab is an ordinary terminal tab again: its
                 // exit closes it, a host loss respawns it, and no frontend
                 // restarts it on its next connect. Forgotten before the launch
@@ -628,6 +629,19 @@ impl Mux {
                 Err(error)
             }
         }
+    }
+}
+
+/// Test hook (fault injection): while a FIFO exists at this path, a respawn worker that put the
+/// new shell in the tab opens it before the shell's launch stream starts, so it waits there until
+/// the test opens the other end. A test proves with it that no request waits for a start.
+#[cfg(any(unix, windows))]
+const START_GATE_ENV: &str = "CMUX_TUI_TEST_RESPAWN_START_GATE";
+
+#[cfg(any(unix, windows))]
+fn wait_at_start_gate() {
+    if let Some(gate) = std::env::var_os(START_GATE_ENV).filter(|gate| Path::new(gate).exists()) {
+        let _ = std::fs::File::open(gate);
     }
 }
 
