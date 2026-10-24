@@ -98,6 +98,8 @@ public final class FrameScheduler: NSObject {
     private var closeObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
+    /// Display links made since creation (debug: a link that stays up through a backlog makes one per burst).
+    public private(set) var linksMade: UInt64 = 0
     /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
@@ -206,6 +208,7 @@ public final class FrameScheduler: NSObject {
         } else {
             made = nil
         }
+        if made != nil { linksMade += 1 }
         link = made
         return made
     }
