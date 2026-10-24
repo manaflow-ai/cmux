@@ -10,11 +10,14 @@ extension AgentPaneView {
         deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
     }
 
-    /// On the page host, runs the user's `registry.js` as a host script (the old host's scripts
-    /// include it): the page's CSP (script-src 'self') refuses a script element the page makes.
+    /// On the page host, runs the user's `registry.js` as the page's host state script (the old
+    /// host's scripts include it): the page's CSP (script-src 'self') refuses a script element the
+    /// page makes. A push of the host's state: a frozen hidden page keeps only the newest and runs
+    /// it at its thaw (``PageWebView/evaluateHostState(_:key:)``, PATTERNS.md P10); a host script
+    /// here thawed it on every edit.
     func runPageHostRegistry() {
-        guard pageEvents != nil, let script = customization.registryScript else { return }
-        evaluateScript(script)
+        guard pageEvents != nil, let page, let script = customization.registryScript else { return }
+        page.evaluateHostState(script, key: "registry.js")
     }
 
     /// Re-pushes a non-empty ``customization`` to a page that may not have
