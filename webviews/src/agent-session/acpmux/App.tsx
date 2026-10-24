@@ -7348,9 +7348,12 @@ function AcpmuxPane() {
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
-    setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
+        // Keep the New Tab on screen while the host confirms a picked folder. Clearing it before
+        // that async handoff mounted the empty chat hero for a frame, then replaced it again when
+        // the first prompt landed.
+        setNewTab(undefined);
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
