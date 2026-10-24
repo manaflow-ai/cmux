@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextErrorJournal
 import CmuxNextPages
 import CmuxNextSidebar
 
@@ -42,6 +43,7 @@ final class IconPickerService {
     }
 
     private(set) weak var services: AppServices?
+    private let errors: any ErrorRecording
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
@@ -52,8 +54,10 @@ final class IconPickerService {
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
 
-    init(services: AppServices?) {
+    /// `errors` takes the picker page's console errors (the app's journal; tests pass their own recorder).
+    init(services: AppServices?, errors: any ErrorRecording) {
         self.services = services
+        self.errors = errors
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -143,7 +147,7 @@ final class IconPickerService {
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
         guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
-                                     dynamicResources: symbols) else { return nil }
+                                     dynamicResources: symbols, errors: errors) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made

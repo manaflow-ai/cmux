@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextErrorJournal
 public import CmuxNextSettings
 public import CmuxNextWakeups
 
@@ -27,6 +28,8 @@ public final class PageHostPool {
     let options: PageEngineOptions
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
+    /// Takes the console errors of every host the pool makes (the app's journal).
+    let errors: any ErrorRecording
     let timer: DemandTimer
     let parking = PageHostParking()
     var spare: PageWebView?
@@ -48,11 +51,15 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
+    /// - Parameter errors: Takes the console errors of every host the pool makes: the app's one
+    ///   journal (its composition root passes it); tests pass their own recorder.
     public init(policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
-                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
+                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+                errors: any ErrorRecording) {
         self.policy = policy
+        self.errors = errors
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu

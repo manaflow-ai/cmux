@@ -50,20 +50,20 @@ extension PageWebView {
     /// True while the view is the pool's parked spare (hidden, not claimed by any page).
     public var isParkedSpare: Bool { superview is PageHostParking }
 
-    /// Makes a pooled page host without loading its document.
-    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
+    /// Makes a pooled page host without loading its document; `errors` takes its console errors.
+    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = [], errors: any ErrorRecording) {
         self.init(descriptor: recipe.served, configuration: recipe.configuration,
                   inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
+                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false, errors: errors)
         pooledOwner = recipe.owner
         recipe.owner.view = self
     }
 
     /// Makes and starts a pooled page host in one call.
     convenience init?(pooledHost served: PageDescriptor = .settings, routes: [PageRoute] = [],
-                      options: PageEngineOptions = .standard) {
+                      options: PageEngineOptions = .standard, errors: any ErrorRecording) {
         guard let recipe = Self.pooledHostRecipe(served, options: options) else { return nil }
-        self.init(recipe: recipe, routes: routes)
+        self.init(recipe: recipe, routes: routes, errors: errors)
         startLoading()
     }
 

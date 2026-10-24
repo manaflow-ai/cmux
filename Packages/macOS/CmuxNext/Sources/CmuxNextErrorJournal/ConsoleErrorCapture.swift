@@ -1,15 +1,15 @@
 public import WebKit
-import OSLog
 
 /// Catches an app page's `console.error`, `console.warn`, uncaught errors and unhandled promise
-/// rejections and records each, redacted, in the ``ErrorJournal`` when it happens (source
-/// `page:<page>`), so a crash loses none and no log harvest is needed for them. Each also goes to
-/// the unified log under ``subsystem`` with the page name as category, for Console.app;
+/// rejections and records each, redacted, when it happens (source `page:<page>`), through the
+/// one reporting path (``ErrorReporter``): into the recorder the page was made with (the app's
+/// ``ErrorJournal``), so a crash loses none and no log harvest is needed for them, and into the
+/// unified log under ``subsystem`` with the page name as category, for Console.app.
 /// ``OSLogErrorSource`` leaves that subsystem out, so nothing counts twice. Nothing flows back
 /// into the page; the page script drops all but 20 reports a second.
 ///
 /// ```swift
-/// ConsoleErrorCapture(page: "settings", journal: journal).install(in: configuration.userContentController)
+/// ConsoleErrorCapture(page: "settings", recorder: journal).install(in: configuration.userContentController)
 /// ```
 @MainActor
 public struct ConsoleErrorCapture {
@@ -20,17 +20,17 @@ public struct ConsoleErrorCapture {
 
     /// The page's name: the log category and the journal source `page:<page>`.
     public let page: String
-    /// The app's journal, which each report goes into when it happens. Nil only where no journal
-    /// exists (a view made in a test): the report then goes to the unified log alone.
-    public let journal: ErrorJournal?
+    /// Logs and records each report (``ErrorReporter``'s one path).
+    private let reporter: ErrorReporter
 
     /// Makes a capture for one page.
     /// - Parameters:
     ///   - page: The page's name (log category, journal source `page:<page>`).
-    ///   - journal: The app's journal (its composition root makes the one journal).
-    public init(page: String, journal: ErrorJournal?) {
+    ///   - recorder: Where each report goes when it happens: the app's journal (its composition
+    ///     root makes the one journal and passes it to every page); a test's recorder.
+    public init(page: String, recorder: any ErrorRecording) {
         self.page = page
-        self.journal = journal
+        reporter = ErrorReporter(subsystem: Self.subsystem, category: page, source: "page:\(page)", recorder: recorder)
     }
 
     /// The document-start script that reports console errors to ``handlerName``.
@@ -93,8 +93,7 @@ public struct ConsoleErrorCapture {
     /// binding, which reaches the host another way.
     ///
     /// - Parameter body: The posted object (`level`, `message`, `stack`).
-    /// - Returns: The journal's record of it (tests await it); nil for a body that is not a report
-    ///   or with no journal.
+    /// - Returns: The journal's record of it (tests await it); nil for a body that is not a report.
     @discardableResult
     public func record(_ body: Any) -> Task<Void, Never>? {
         guard let body = body as? [String: Any] else { return nil }
@@ -102,18 +101,14 @@ public struct ConsoleErrorCapture {
                       stack: body["stack"] as? String ?? "")
     }
 
-    /// Logs one report and records it in the journal now. The journal gets the same event the log
-    /// harvest made of the log line (``OSLogErrorSource/event(subsystem:category:isFault:message:date:)``),
-    /// so its fingerprint is the one earlier launches kept.
-    private func report(level: String, message: String, stack: String) -> Task<Void, Never>? {
+    /// Logs one report and records it now. The journal gets the same event the log harvest made
+    /// of the log line (``OSLogErrorSource/event(subsystem:category:isFault:message:date:)``), so
+    /// its fingerprint is the one earlier launches kept.
+    private func report(level: String, message: String, stack: String) -> Task<Void, Never> {
         let text = Self.logText(level: level, message: message, stack: stack)
-        // Redacted above, so public: Console.app shows it as the journal keeps it.
-        Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
-        guard let journal else { return nil }
         let event = OSLogErrorSource.event(subsystem: Self.subsystem, category: page, isFault: false, message: text,
                                            date: Date())
-        // task-owner: one record; the journal actor folds it and appends it in its next batched write
-        return Task { await journal.record(event) }
+        return reporter.report(event, logText: text)
     }
 
     /// The log line for one report: `[warn] ` for warnings, then the message, then the top

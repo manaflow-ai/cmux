@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextPagesTestSupport
 
 /// The Dictation key (Globe-D, the 🎤 key) and Edit ▸ Start Dictation in an agent pane start the pane's
 /// own dictation, the waveform inside the composer, not macOS's black overlay that AppKit placed
@@ -36,7 +37,7 @@ struct AgentPaneDictationKeyTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: "index.html")
         try Data("<html><body><textarea></textarea></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), errors: DroppedErrors()))
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         host.addSubview(view)
         let routes = Routes()

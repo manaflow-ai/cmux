@@ -24,13 +24,14 @@ enum ChiefUsagePageTab {
         let hasLocalChief = tool != nil || HomeBrainHost.canStart()
         // at launch, so a restored tab finds it; one `optchat-chief usage` run per call, off the
         // main actor, and no tool answers unavailable.
+        let errors = services.errorJournal.journal
         services.pages.register(WebPageTab(.chiefUsage, symbol: "dollarsign.circle", title: ChiefUsagePageProvider.title) { [weak services] in
             let muxHome = HomeBrainHost.muxHome(tag: services?.environment.tag)
             let provider = ChiefUsagePageProvider { arguments in
                 guard let tool else { return nil }
                 return try await tool.run(arguments, muxHome: muxHome)
             }
-            return PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)])
+            return PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)], errors: errors)
         })
         registry.bind(actionID, unavailable: {
             hasLocalChief ? nil : ChiefUsagePageProvider.noLocalChief

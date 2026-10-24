@@ -5,6 +5,7 @@ import CmuxNextTabs
 import Foundation
 import Testing
 @testable import CmuxNextApp
+import CmuxNextPagesTestSupport
 
 /// cx-ckt2z: a chat started from a prewarmed New Tab page (the spare a tab adopts) refused
 /// `tab.open` and `tab.typeAhead` once it became a chat, while a chat in a tab made without the
@@ -16,7 +17,7 @@ struct SpareNewTabChatOpensTabsTests {
     /// The tabs' page: a loopback dev server origin (Debug), so views are made without the bundle.
     private static func agentTabs() -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true, errors: DroppedErrors())
         tabs.localHost = host
         return tabs
     }

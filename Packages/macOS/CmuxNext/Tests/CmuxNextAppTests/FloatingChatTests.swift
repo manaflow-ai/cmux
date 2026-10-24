@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextApp
 @testable import CmuxNextFloating
+import CmuxNextPagesTestSupport
 
 /// Start Agent's floating chat (cx-b9qi). With it on, the chat the page starts
 /// stays in the panel and keeps running there, and the panel stays up when
@@ -84,7 +85,7 @@ struct FloatingChatTests {
         let controller = QuickComposerController(
             makeChat: { session in
                 rig.made.append(session)
-                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(page))
+                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(page), errors: DroppedErrors())
             },
             makeWindow: { rig.window },
             openInWindow: { session in

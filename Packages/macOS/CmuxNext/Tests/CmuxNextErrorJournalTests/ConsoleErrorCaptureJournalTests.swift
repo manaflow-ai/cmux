@@ -12,7 +12,7 @@ import Testing
 
     @Test func aReportIsInTheJournalWithoutAHarvest() async throws {
         let journal = ErrorJournal(directory: directory)
-        let capture = ConsoleErrorCapture(page: "settings", journal: journal)
+        let capture = ConsoleErrorCapture(page: "settings", recorder: journal)
         await capture.record(["level": "warn", "message": "theme missing token=abc123secret\nmore",
                               "stack": "Error\n    at load (cmux-page://settings/main.js:4:9)"])?.value
         await journal.flush()
@@ -28,7 +28,7 @@ import Testing
 
     @Test func aBodyThatIsNotAReportRecordsNothing() async {
         let journal = ErrorJournal(directory: directory)
-        #expect(ConsoleErrorCapture(page: "settings", journal: journal).record("not an object") == nil)
+        #expect(ConsoleErrorCapture(page: "settings", recorder: journal).record("not an object") == nil)
         #expect(await journal.entryCount == 0)
     }
 }

@@ -88,7 +88,7 @@ extension PageFactory {
         let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
+        let page = PageWebView(descriptor: .changelog, routes: routes, route: route, errors: services.errorJournal.journal)
         native.anchor = { [weak page] in page }
         provider.anchor = { [weak page] in page }
         return page

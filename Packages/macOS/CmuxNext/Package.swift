@@ -949,6 +949,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextErrorJournal",
                 "CmuxNextHome",
                 "CmuxNextPages",
                 "CmuxNextSettings",

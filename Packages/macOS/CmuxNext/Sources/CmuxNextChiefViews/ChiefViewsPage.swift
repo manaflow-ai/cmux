@@ -2,6 +2,7 @@ public import CmuxNextActions
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextDesign
+public import CmuxNextErrorJournal
 public import Foundation
 import CmuxNextAgentActivity
 import CmuxNextHome
@@ -27,12 +28,16 @@ public struct ChiefViewsHost {
     var revealTab: @MainActor (String) -> Bool
     /// Opens a pull request on Home's right side.
     var openURL: @MainActor (URL) -> Void
+    /// Takes the page's console errors (the app's journal).
+    var errors: any ErrorRecording
 
     public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, DaemonService)],
                 machineName: @escaping @MainActor (DaemonService) -> String?,
                 openChat: @escaping @MainActor (String) throws -> Void,
                 revealTab: @escaping @MainActor (String) -> Bool,
-                openURL: @escaping @MainActor (URL) -> Void) {
+                openURL: @escaping @MainActor (URL) -> Void,
+                errors: any ErrorRecording) {
+        self.errors = errors
         self.workspaces = workspaces
         self.machineName = machineName
         self.openChat = openChat
@@ -69,7 +74,8 @@ public final class ChiefViewsPage {
     /// A new page view with its own provider; nil when the page's bundle is missing.
     public func makeView() -> PageWebView? {
         let provider = ChiefViewsPageProvider(host: .live(host))
-        return PageWebView(descriptor: .chiefViews, routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)])
+        return PageWebView(descriptor: .chiefViews, routes: [PageRoute(prefix: ChiefViewsPageProvider.prefix, provider: provider)],
+                           errors: host.errors)
     }
 }
 

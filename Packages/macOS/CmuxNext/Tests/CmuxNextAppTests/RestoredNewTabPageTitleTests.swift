@@ -6,6 +6,7 @@ import CmuxNextTabs
 import Foundation
 import Testing
 @testable import CmuxNextApp
+import CmuxNextPagesTestSupport
 
 /// A New Tab page left open at quit comes back after a relaunch as a store tab with a blank chat
 /// record (cx-eqkt0). Before anything shows it, the strip and the sidebar already name it
@@ -29,7 +30,7 @@ struct RestoredNewTabPageTitleTests {
 
     /// The app's agent tabs after a relaunch: they know this Mac and the store, and have made no view.
     private static func agentTabs(_ store: DaemonStore) -> AgentTabStore {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true, errors: DroppedErrors())
         tabs.localHost = host
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         return tabs

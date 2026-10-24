@@ -5,6 +5,7 @@ import AppKit
 import CmuxNextFocus
 import Foundation
 import Testing
+import CmuxNextPagesTestSupport
 
 /// Keys typed right after a New Tab page opens wait in the window's key hold
 /// (`NewTabInputCoordinator`) and go to the page's field when it reports ready. The hold gives the
@@ -81,7 +82,7 @@ struct NewTabHoldFocusTests {
         try Data("<html><body><input></body></html>".utf8).write(to: file)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let page = try #require(AgentPaneView(model: model, source: .bundled(file), errors: DroppedErrors()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page

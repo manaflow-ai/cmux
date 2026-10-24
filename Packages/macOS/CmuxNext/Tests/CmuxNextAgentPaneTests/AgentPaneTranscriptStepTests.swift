@@ -5,6 +5,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextPagesTestSupport
 
 /// The agent chat's transcript steps at the action boundary: Previous Turn and Next Turn keep their
 /// Ctrl-Opt arrow keys, and Previous and Next Bookmarked Prompt are command palette actions with no
@@ -42,7 +43,7 @@ struct AgentPaneTranscriptStepTests {
 
     @Test func eachStepSendsItsPageCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, errors: DroppedErrors()))
         let provider = try #require(view.pageEvents, "the shared page host has no event stream")
         let received = Received()
         let subscription = try await provider.subscribe(

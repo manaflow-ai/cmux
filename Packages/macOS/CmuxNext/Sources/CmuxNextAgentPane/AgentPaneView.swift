@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
-import CmuxNextErrorJournal
+public import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
 import Observation
@@ -134,9 +134,11 @@ public final class AgentPaneView: NSView {
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - errors: Takes the page's console errors when they happen, on either host: the app's one
+    ///     journal (`AppServices.errorJournal`); tests pass their own recorder.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil) {
+                 openPanel: MadeAheadOpenPanel? = nil, errors: any ErrorRecording) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -150,7 +152,7 @@ public final class AgentPaneView: NSView {
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium)
+                                                                 chromium: chromium, errors: errors)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -184,7 +186,7 @@ public final class AgentPaneView: NSView {
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             }
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
-            ConsoleErrorCapture(page: "agent-pane", journal: PageWebView.errorJournal).install(in: configuration.userContentController)
+            ConsoleErrorCapture(page: "agent-pane", recorder: errors).install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Pages share web content processes, 8 per process (WebProcessGroups): a process per
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).

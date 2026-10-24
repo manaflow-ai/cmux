@@ -281,7 +281,7 @@ final class DiffPageService: InternalPageProvider {
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,
-                                     dynamicResources: DiffPatchSource { [weak provider] in provider?.ready }) else {
+                                     dynamicResources: DiffPatchSource { [weak provider] in provider?.ready }, errors: services.errorJournal.journal) else {
             ready?.cancel()
             return NSView()
         }

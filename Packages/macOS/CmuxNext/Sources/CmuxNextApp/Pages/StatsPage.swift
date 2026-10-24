@@ -14,6 +14,7 @@ enum StatsPageTab {
         let services = context.services
         // at launch, so a restored tab finds it; one request line per call to this app's acpmux,
         // and no acpmux answers unavailable.
+        let errors = services.errorJournal.journal
         services.pages.register(WebPageTab(.stats, symbol: "chart.bar.xaxis", title: StatsPageProvider.title) { [weak services] in
             let socket = services.flatMap(QuitAgents.environment)?.socketPath
             let provider = StatsPageProvider(allowed: { [weak services] in
@@ -22,7 +23,7 @@ enum StatsPageTab {
                 guard let socket else { return nil }
                 return try await AgentActivityLineConnection.oneShot(path: socket, send: line, deadline: .seconds(30))
             }
-            return PageWebView(descriptor: .stats, routes: [PageRoute(prefix: "cmux.stats.", provider: provider)])
+            return PageWebView(descriptor: .stats, routes: [PageRoute(prefix: "cmux.stats.", provider: provider)], errors: errors)
         })
         registry.bind("stats.show", unavailable: { [weak services] in
             services?.settings?.snapshot.previewFeatures == true ? nil : StatsPageProvider.previewRefusal
