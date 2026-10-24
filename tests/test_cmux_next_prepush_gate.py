@@ -713,6 +713,21 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("count-swift-code-lines.py", pushed.stdout + pushed.stderr)
         self.assertIn("installed hook copy", pushed.stdout + pushed.stderr)
 
+    def test_an_installed_pre_push_hook_older_than_origin_s_is_named_as_stale(self):
+        # The hook passes the remote's URL to the compile trailer rule (7ea27860336): an old hook leaves it off.
+        hook = "scripts/git-hooks/pre-push"
+        self.write(hook, (self.repo / hook).read_text() + "# changed upstream\n")
+        self.commit("the pre-push hook changes on feat-cmux-next")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("clean")
+
+        pushed = self.push()
+
+        self.assertIn("pre-push (the hook)", pushed.stdout + pushed.stderr)
+        self.assertIn("run scripts/install-git-hooks.sh", pushed.stdout + pushed.stderr)
+
     def test_push_from_a_linked_worktree_leaves_the_repository_alone(self):
         # git runs the hook with GIT_DIR=<repo>/.git/worktrees/<name>: the gate's own temp-tree
         # git calls must not inherit it (2026-10-19: it set core.bare=true on the shared clone and

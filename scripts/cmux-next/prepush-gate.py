@@ -1025,6 +1025,12 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
             mine = trusted_scripts / TRUSTED_COPIES[index]
             if not mine.is_file() or mine.read_bytes() != theirs:
                 stale.append(TRUSTED_COPIES[index])
+        # The pre-push hook itself (it passes the remote's URL to the compile trailer rule, 7ea27860336): the
+        # installed hook sits next to the checks folder.
+        hook = trusted_scripts.parent / "pre-push"
+        tracked = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:scripts/git-hooks/pre-push"], capture_output=True)
+        if tracked.returncode == 0 and hook.is_file() and hook.read_bytes() != tracked.stdout:
+            stale.append("pre-push (the hook)")
         if stale:
             log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
                 f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
