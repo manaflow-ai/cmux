@@ -23,13 +23,21 @@ import Testing
             }
             for work in works { work() }
         }
+
+        /// A display frame is booked and not fired yet.
+        var isBooked: Bool { pending.withLock { !$0.isEmpty } }
     }
 
-    /// A pane whose selection needs a new surface until it is shown.
+    /// A pane whose selection needs a new surface until it is shown; `onShow` runs inside its
+    /// `showSelected()` (a shown page marking the launch's pane ready, whose waiters queue more).
     @MainActor final class Pane: PresentablePane {
         private(set) var shown = false
+        var onShow: (@MainActor () -> Void)?
         var selectedContentIsAlive: Bool { shown }
-        func showSelected() { shown = true }
+        func showSelected() {
+            shown = true
+            onShow?()
+        }
     }
 
     @Test func idleWorkWaitsUntilEveryQueuedPaneShowedItsSelection() {
@@ -57,5 +65,29 @@ import Testing
         #expect(!idle, "not in the caller's turn: a pane the same turn queues still comes first")
         frames.fire()
         #expect(idle)
+    }
+
+    /// ec14f8345f5 review: a pane shown by the drain ran `LaunchReveal.markReady(.pane)`, whose
+    /// waiter queued the deferred chat pane inside the drain; the drain then replaced the queue
+    /// with the panes it had left and lost the chat. The chat stayed pending for good: it never
+    /// showed, and every drain booked another display frame for the rest of the session.
+    @Test func aPaneQueuedWhileTheDrainShowsAnotherShowsOnTheNextFrameAndTheFramesStop() {
+        let frames = Frames()
+        let scheduler = ContentPresentationScheduler(frames: frames)
+        let page = Pane()
+        let chat = Pane()
+        page.onShow = { scheduler.setNeedsShowSelected(chat) }
+        scheduler.setNeedsShowSelected(page)
+        var idle = false
+        scheduler.whenIdle { idle = true }
+        frames.fire()
+        #expect(page.shown)
+        #expect(!chat.shown, "the page spent this frame's new surface")
+        #expect(!idle, "the chat still waits for its frame")
+        frames.fire()
+        #expect(chat.shown, "the chat queued during the drain shows on the next frame")
+        #expect(idle)
+        frames.fire()
+        #expect(!frames.isBooked, "an idle scheduler books no display frame")
     }
 }
