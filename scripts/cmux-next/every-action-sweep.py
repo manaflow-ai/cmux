@@ -77,10 +77,12 @@ A sharded run (--shard K/N) times the interactions in shard 1 only; merge the sh
 step log of a failed step (the EVERY-ACTION-REPORT lines it printed).
 Exit status FAILED_SESSION_EXIT (3) when a session failed (its error is in failed_sessions and every-action.md; a
 session that failed partway keeps its rows, marked `failed`); a --merge that holds a shard's failure exits the same.
-Exit status NEW_GAP_EXIT (4) when the derived-coverage check of a whole-catalog run (no --only, --limit, failed
-session, or incomplete shard set) finds an action no session covered that every-action-gaps.json does not list: a
-`gap` skip (no fixture), an action the app refused at every sample, or an id a SKIPS pattern excluded that the
-reviewed `excluded` list does not name. Session-state skips and EXPECTED_REFUSALS are listed, never a verdict. Any
+Exit status NEW_GAP_EXIT (4) when the derived-coverage check of a whole-catalog run (no --only, --limit, --sessions,
+failed session, or incomplete shard set) finds an action no session covered that every-action-gaps.json does not
+list. Covered means one sample whose handler ran (its action signpost) and was not refused. Not covered: a `gap` skip
+(no fixture, or a context the sweep sets up that did not hold), a harness failure, a row whose samples ran no handler,
+an action the app refused at every sample, a session-state skip in every session, or an id a SKIPS pattern excluded
+that the reviewed `excluded` list does not name. EXPECTED_REFUSALS are listed, never a verdict. Any
 non-zero exit prints the whole report into the step log (report_to_log). --write-gaps rewrites the baseline from a
 whole-catalog run only (a partial or failed run is refused) and then exits without the new-gap status.
 A STRESS session of another shape (perf-stress-session's StressShapeError at the build, SessionShapeError at a
@@ -107,7 +109,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--sessions", default="light,stress")
+# Every session of a whole-catalog run: a coverage verdict needs both (an action light cannot set up STRESS may cover).
+SESSIONS = ("light", "stress")
+parser.add_argument("--sessions", default=",".join(SESSIONS))
 parser.add_argument("--repeat", type=int, default=3)
 parser.add_argument("--only", default="", help="comma-separated action ids (default: every action)")
 parser.add_argument("--limit", type=int, default=0, help="at most N actions per session (a smoke run)")
@@ -142,13 +146,17 @@ FAILED_SESSION_EXIT = 3
 NEW_GAP_EXIT = 4
 GAPS = os.path.join(HERE, "every-action-gaps.json")
 # Why a row was skipped (`skip_kind`), set where the skip is decided, never read back from the reason's words:
-#   gap       plan() or argument_values() found no fixture: a context the sweep does not set up, a target or argument
-#             it has no value for (the derived-coverage check counts these);
+#   gap       no fixture: plan() or argument_values() found a context the sweep does not set up, a target kind or
+#             argument it has no value for; or a context the sweep does set up did not hold (the base pane showed no tab of
+#             its kind, describe answered unavailable after show()): the fixture is broken (the coverage check counts
+#             these);
 #   excluded  a deliberate exclusion: a catalog flag (debug-only, waits for a person, destructive, palette-internal),
 #             a SKIPS pattern over the id (`excluded_by: pattern`: such an id must also be listed, reviewed, in
 #             every-action-gaps.json `excluded`, or the coverage check names it), or a STRESS-only exclusion;
-#   state     what the session showed at that moment (no Chromium tab in the base pane, describe said unavailable,
-#             no pane with a neighbor that way): listed in the report, never a coverage verdict.
+#   state     a true condition of the session (no pane with a neighbor that way in its grid, no Chromium page because
+#             the launch's Chromium fell back, no other workspace for a workspace target, an empty history): listed in
+#             the report; an action skipped for its state in
+#             every session is measured nowhere, so the coverage check counts it as a gap.
 SKIP_KINDS = ("gap", "excluded", "state")
 # A failed run prints its report into the step log as `EVERY-ACTION-REPORT k/N <gzip+base64 chunk>` lines.
 REPORT_LINE = "EVERY-ACTION-REPORT"
@@ -268,9 +276,13 @@ def harness_frames(error, count=4):
 # The app.
 
 class App:
-    def __init__(self):
+    def __init__(self, teardown=None):
         self.process = None
         self.pids = []
+        # One teardown for every launch: remember() after each launch records the daemon and its state root while it
+        # runs, so stop() still finds the hosts and holders of a daemon that died mid-session (no ancestry, no pid
+        # anchor left), and a relaunch's stop() ends that launch's processes too.
+        self.teardown = teardown or TagTeardown(opts.app, log=note)
 
     def launch(self):
         with open(CONFIG, "w") as f:
@@ -291,11 +303,13 @@ class App:
             self.process = process
             self.pids.append(process.pid)
             SIGNPOSTS.pids.add(process.pid)
+            self.teardown.remember()  # arms stop()'s end() for this launch, also when the launch then fails
             note(f"every-action: launched pid {process.pid}")
         # One launch path (bench_launch.py): the state-folder socket, the session check, and the reason (crash
         # report, main-thread sample, log tail) when the app does not come up; raises LaunchError (a SystemExit).
         global SOCKET
         _, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180, on_start=started)
+        self.teardown.remember()  # the daemon runs now: its pid and state root
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
@@ -304,7 +318,7 @@ class App:
         finally:
             # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
             # session starts empty (a relaunch otherwise restores every workspace the last session left).
-            TagTeardown(opts.app, log=note).end()
+            self.teardown.end()
 
     def quit(self):
         if not self.process or self.process.poll() is not None:
@@ -329,23 +343,17 @@ class App:
     def why_unresponsive(self, since):
         """Why the app stopped answering, before it is relaunched: it exited (code or signal, and the crash
         report written since `since`, copied to OUT/crashes) or it is alive and stuck (a 3 s `sample` of it,
-        kept in OUT/hangs). Never signals the app. One dict for the row's `stopped` field."""
+        kept in OUT/hangs). Never signals the app. One dict for the row's `stopped` field. ReportCrash writes the
+        report some seconds after the exit, so an exited row keeps its pid and `since`: ``attach_crash_reports``
+        looks again at report time."""
         process = self.process
         if process is None:
             return {"state": "unknown"}
         code = process.poll()
         if code is not None:
-            out = {"state": "exited", "code": code, "signal": -code if code < 0 else None}
-            reports = crash_reports(since, pid=process.pid)
-            if reports:
-                os.makedirs(os.path.join(OUT, "crashes"), exist_ok=True)
-                kept = os.path.join(OUT, "crashes", os.path.basename(reports[-1]))
-                try:
-                    with open(reports[-1], "rb") as src, open(kept, "wb") as dst:
-                        dst.write(src.read())
-                except OSError:
-                    kept = reports[-1]
-                out.update(report=kept, summary=crash_summary(reports[-1])[:1500])
+            out = {"state": "exited", "code": code, "signal": -code if code < 0 else None, "pid": process.pid,
+                   "since": since}
+            out.update(kept_crash_report(since, process.pid))
             return out
         os.makedirs(os.path.join(OUT, "hangs"), exist_ok=True)
         path = os.path.join(OUT, "hangs", f"sample-{process.pid}-{int(time.time())}.txt")
@@ -354,6 +362,32 @@ class App:
         except (OSError, subprocess.TimeoutExpired):
             return {"state": "alive", "sample": None}
         return {"state": "alive", "sample": path}
+
+
+def kept_crash_report(since, pid):
+    """{"report", "summary"} of the newest crash report of `pid` written since `since`, copied to OUT/crashes, or {}."""
+    reports = crash_reports(since, pid=pid)
+    if not reports:
+        return {}
+    os.makedirs(os.path.join(OUT, "crashes"), exist_ok=True)
+    kept = os.path.join(OUT, "crashes", os.path.basename(reports[-1]))
+    try:
+        with open(reports[-1], "rb") as src, open(kept, "wb") as dst:
+            dst.write(src.read())
+    except OSError:
+        kept = reports[-1]
+    return {"report": kept, "summary": crash_summary(reports[-1])[:1500]}
+
+
+def attach_crash_reports(report):
+    """Adds the crash report to each row of `report` whose app had exited with no report yet (ReportCrash writes it
+    seconds after the exit, after why_unresponsive looked). Run at report time, when that has long passed."""
+    for session in report.get("sessions") or []:
+        for row in session.get("rows") or []:
+            stopped = row.get("stopped")
+            if isinstance(stopped, dict) and stopped.get("state") == "exited" and not stopped.get("report") \
+                    and stopped.get("pid") and stopped.get("since") is not None:
+                stopped.update(kept_crash_report(stopped["since"], stopped["pid"]))
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -602,6 +636,12 @@ def neighbor(cell, other, direction):
             "up": across_x and oy + oh <= y + EDGE_PT, "down": across_x and oy >= y + h - EDGE_PT}[direction]
 
 
+def cell_at(cells, cell):
+    """The pane of `cells` ({pane: [x, y, w, h]}) whose cell holds the center of `cell`, or None."""
+    cx, cy = cell[0] + cell[2] / 2, cell[1] + cell[3] / 2
+    return next((pane for pane, (x, y, w, h) in cells.items() if x <= cx < x + w and y <= cy < y + h), None)
+
+
 def newest_history_id():
     """The newest history entry's id (`history.list`), for history.open; None when the history is empty."""
     reply = rpc("history.list", {"range": "all", "limit": 1})
@@ -609,17 +649,26 @@ def newest_history_id():
     return next((e.get("id") for e in entries or [] if isinstance(e, dict) and e.get("id")), None)
 
 
-# Arguments a plain value cannot stand in for: a fixture gives a value the action accepts in the sweep's session,
-# or None with the reason no fixture exists yet (the row is skipped with it, so the gap shows in the report).
+# Arguments a plain value cannot stand in for: a fixture gives a value the action accepts in the sweep's session, or
+# None with a skip (``skip``) saying why (the row is skipped with it, so the gap or the session's state shows).
 ARGUMENT_FIXTURES = {
     # A string argument with suggested values (CatalogArgument.fitChoice): an aspect ratio the page accepts.
     ("browserFit", "fit"): lambda base: ("16:9", None),
-    ("history.open", "id"): lambda base: (lambda found: (found, None) if found else (None, "the history is empty"))(newest_history_id()),
+    # An empty history is the session's state at that moment (nothing visited yet), not a missing fixture.
+    ("history.open", "id"): lambda base: (lambda found: (found, None) if found else (None, skip("the history is empty", "state")))(newest_history_id()),
 }
+# The target kinds the sweep's base fills (snapshot_base): a base without one (light has no other workspace) is the
+# session's state; any other target kind has no fixture.
+BASE_TARGETS = {"workspace": "other_workspace", "tab": "tab", "pane": "pane", "window": "window"}
+
+
+def skip(reason, kind):
+    """A row's skip: its reason and its typed kind (SKIP_KINDS)."""
+    return {"skipped": reason, "skip_kind": kind}
 
 
 def argument_values(action, base):
-    """Values for required arguments, or (None, reason)."""
+    """Values for required arguments, or (None, skip) with the typed skip (``skip``)."""
     values = {}
     for argument in action.get("arguments") or []:
         if not argument.get("required"):
@@ -640,17 +689,17 @@ def argument_values(action, base):
         elif kind == "enum":
             choices = argument.get("choices") or []
             if not choices:
-                return None, f"argument {name} has no choices"
+                return None, skip(f"argument {name} has no choices", "gap")
             values[name] = choices[0]["value"]
         elif kind == "target":
             target = (argument.get("target_kind") or "").split("-")[0]
-            pick = {"workspace": base.get("other_workspace"), "tab": base.get("tab"), "pane": base.get("pane"),
-                    "window": base.get("window")}.get(target)
+            pick = base.get(BASE_TARGETS[target]) if target in BASE_TARGETS else None
             if not pick:
-                return None, f"needs a {argument.get('target_kind') or 'target'} argument"
+                return None, skip(f"needs a {argument.get('target_kind') or 'target'} argument",
+                                  "state" if target in BASE_TARGETS else "gap")
             values[name] = f"{argument.get('target_kind') or target}:{pick}"
         else:
-            return None, f"argument {name} of kind {kind}"
+            return None, skip(f"argument {name} of kind {kind}", "gap")
     return values, None
 
 
@@ -858,6 +907,9 @@ class Sweep:
             reply = rpc("action.run", {"action": action_id, "focus": True})
             if error_of(reply):
                 drift.append(f"toggle {action_id} again: {error_of(reply)}"[:120])
+            elif self.pending:
+                # The toggle is back: a harness failure later in this restore must not read it as not run (unfit()).
+                self.pending = dict(self.pending, toggled=False)
         mark, self.closed_mark = self.closed_mark, None
         problem, self.mark_problem = self.mark_problem, None
         closed = []
@@ -917,24 +969,33 @@ class Sweep:
         error = undo()
         return [f"undo {pending['id']}: {error}"[:120]] if error else []
 
-    def cells(self):
-        """{pane id: [x, y, w, h]} of the shown window's grid (debug.pane_chrome)."""
-        return {p["pane"]: p["cell"] for p in self.pane_chrome().get("panes") or [] if p.get("pane") and p.get("cell")}
+    def cells(self, synced=False):
+        """{pane id: [x, y, w, h]} of the shown window's grid (debug.pane_chrome); `synced`: behind the read barrier
+        (`after: "sync"`), so every change the daemon committed before the call (a swap's) is in the store first."""
+        return {p["pane"]: p["cell"] for p in self.pane_chrome(synced).get("panes") or [] if p.get("pane") and p.get("cell")}
 
     def swap_back(self, start):
         """The inverse of a directional swap from `start`, taken before it: after the swap, the pane that now sits in
-        `start`'s old cell is the one it swapped with, and swapping the two again (palette.swapWithSession, the one
-        pane-with-pane swap) gives the base layout back. Nothing when nothing moved."""
-        was = self.cells().get(start)
+        `start`'s old place is the one it swapped with, and swapping the two again (palette.swapWithSession, the one
+        pane-with-pane swap) gives the base layout back. Nothing when nothing moved. A place is the old cell's center
+        (``cell_at``), never float equality of cells (nested splits in STRESS). Every read is behind the read barrier:
+        the swap reaches the store after its reply, and the next sample's start and `was` read this layout."""
+        was = self.cells(synced=True).get(start)
 
         def undo():
-            now = self.cells()
-            if was is None or now.get(start) == was:
+            if was is None:
                 return None
-            other = next((pane for pane, cell in now.items() if cell == was and pane != start), None)
+            other = cell_at(self.cells(synced=True), was)
+            if other == start:
+                return None  # nothing moved
             if other is None:
                 return "no pane in the start pane's old cell"
-            return error_of(act("palette.swapWithSession", f"pane:{start}", args={"pane": f"pane:{other}"}, origin="script"))
+            error = error_of(act("palette.swapWithSession", f"pane:{start}", args={"pane": f"pane:{other}"}, origin="script"))
+            if error:
+                return error
+            if cell_at(self.cells(synced=True), was) != start:
+                return "the swap back did not put the start pane in its old cell"
+            return None
         return undo
 
     def check_extras(self):
@@ -1309,9 +1370,9 @@ class Sweep:
             return None, {"skipped": f"needs context the sweep does not set up: {', '.join(missing)}", "skip_kind": "gap"}
         kinds = [CONTEXT_SETUP[k] for k in action.get("requires") or [] if CONTEXT_SETUP.get(k)]
         context = "omnibar" if "omnibar" in kinds else (kinds[0] if kinds else None)
-        args, why = argument_values(action, self.base)
+        args, skipped = argument_values(action, self.base)
         if args is None:
-            return None, {"skipped": why, "skip_kind": "gap"}  # no value the action accepts: a missing fixture
+            return None, skipped  # no value the action accepts: a missing fixture, or the session's state
         return {"context": context, "args": args, "key": key_of(action) if not args else None}, None
 
     def run_action(self, action):
@@ -1328,21 +1389,27 @@ class Sweep:
         toggled = bool(re.search(TOGGLES, ident)) and not checked(ident)
 
         def ready():
-            """(start pane, None) when the session can take this sample now, else (None, why): the base pane shows no
-            tab of the context's kind, describe says unavailable, or no pane has a neighbor that way."""
+            """(start pane, None, None) when the session can take this sample now, else (None, why, skip_kind). Every
+            context the action requires is one the sweep sets up (plan()), so the base pane showing no tab of the
+            context's kind, or describe answering unavailable after show(), is a broken fixture: `gap`. Only a true
+            layout condition is `state`: no pane with a neighbor that way in this grid, or no Chromium page because
+            this launch's Chromium fell back (``check_validity``)."""
             if not self.show(plan["context"]):
-                return None, f"no {plan['context']} tab in the base pane"
+                fell_back = plan["context"] in ("chromium", "omnibar") and self.launches \
+                    and self.launches[-1].get("chromium_ok") is False
+                return None, f"no {plan['context']} tab in the base pane", "state" if fell_back else "gap"
             described = rpc("action.describe", {"action": ident})
             info = (described or {}).get("action") if isinstance(described, dict) else None
             if info and info.get("available") is False and not plan["args"]:
-                return None, f"unavailable here: {info.get('context_reason') or info.get('unavailable_reason') or 'context'}"
+                why = info.get("context_reason") or info.get("unavailable_reason") or "context"
+                return None, f"unavailable here: {why}", "gap"
             start, why = self.focus_start(ident)
-            return (start, None) if why is None else (None, why)
+            return (start, None, None) if why is None else (None, why, "state")
 
-        stopped = None
+        stopped, stopped_kind = None, None
         for attempt in range(opts.repeat):
             self.mark_closed()
-            start, stopped = ready()
+            start, stopped, stopped_kind = ready()
             if stopped:
                 break
             before = shape(topology())
@@ -1359,7 +1426,7 @@ class Sweep:
                     drifts.extend(self.restore(ident, False) if key_runs else self.undo_sample())
                     self.pending = None
                     self.mark_closed()
-                    start, stopped = ready()
+                    start, stopped, stopped_kind = ready()
                     if stopped:
                         break
                     before = shape(topology())
@@ -1402,7 +1469,7 @@ class Sweep:
             if err and attempt == 0 and ("unavailable" in err or "not_found" in err or "refused" in err or "invalid" in err):
                 break
         if stopped and not samples:
-            row.update(skipped=stopped, skip_kind="state")
+            row.update(skipped=stopped, skip_kind=stopped_kind)
             return row
         if stopped:
             row["cut_short"] = stopped  # later samples could not start; the ones that ran are the row
@@ -1430,6 +1497,9 @@ class Sweep:
         # Every sample refused: the handler never did its work, so the row is no coverage and its timings are a
         # refusal's (misses() and the target table leave them out; the report lists the row as refused).
         row["refused"] = bool(samples) and all(s["refused"] for s in samples)
+        # Coverage: at least one sample whose handler ran (its action signpost) and was not refused. A row whose every
+        # sample ran no handler (not_found, invalid, "no handler run recorded") measured nothing.
+        row["covered"] = any(s["ran"] and not s["refused"] for s in samples)
         row["drift"] = sorted(set(drifts))[:6]
         starts = sorted({s["from_pane"] for s in samples if s.get("from_pane")})
         if starts:
@@ -1510,8 +1580,8 @@ class Sweep:
                                                        "main_max_ms": round(frames.get("main_max_ms") or 0, 2)},
                 "hangs": hang_summary(hangs), **extra}
 
-    def pane_chrome(self):
-        reply = rpc("debug.pane_chrome") or {}
+    def pane_chrome(self, synced=False):
+        reply = rpc("debug.pane_chrome", {"after": "sync"} if synced else None) or {}
         window = (reply.get("windows") or [{}])[0] if isinstance(reply, dict) else {}
         return window
 
@@ -1764,7 +1834,7 @@ class Sweep:
                 raise  # a restore rebuilt another layout: the session fails, it is never measured as STRESS
             except Exception as error:  # a harness failure (a builder step's timeout too) is this action's row; the session goes on
                 row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
-                       "frames": {"missed": None}, "check": "n/a", "harness_at": harness_frames(error)}
+                       "frames": {"missed": None}, "check": "n/a", "harness_at": harness_frames(error), "covered": False}
             self.stamp(row)
             self.rows.append(row)
             note(f"every-action: {self.session} {index + 1}/{len(actions)} {action['id']}: "
@@ -1802,14 +1872,14 @@ class Sweep:
         and its restore (inside measure(), check() or close_new), so first the part of the restore that leaves no trace
         in the layout runs now: the pending sample's inverse (UNDO, a swap back) and the settings back to the build's
         (``restore_settings``; what it changed is in ``recovered``). A toggle whose restore did not run leaves the
-        session unfit: whether the toggle ran cannot be read back. Then the topology must be the base (``restored``)
+        session unfit: whether the toggle ran cannot be read back (a restore that re-ran it clears `toggled`). Then the topology must be the base (``restored``)
         and Chromium valid (``check_validity``); STRESS also needs its shape (``check_stress_shape`` raises
         SessionShapeError, which fails the session as for a restore)."""
         pending = self.pending
         self.recovered = self.undo_sample() if pending else []
         self.pending = None
         if pending and pending.get("toggled"):
-            return f"the restore of toggle {pending['id']} did not run"
+            return f"the restore of toggle {pending['id']} did not run (or its re-run failed)"
         self.recovered += [f"settings {name}" for name in self.restore_settings()]
         old = self.base.get("settings")
         if isinstance(old, dict) and self.settings() != old:
@@ -2180,8 +2250,8 @@ def markdown(report):
 
 
 def main():
-    if opts.write_gaps and (opts.only or opts.limit or opts.shard):
-        raise SystemExit("every-action: --write-gaps needs a whole-catalog run (no --only, --limit or --shard): "
+    if opts.write_gaps and (opts.only or opts.limit or opts.shard or {s for s in opts.sessions.split(",") if s} != set(SESSIONS)):
+        raise SystemExit("every-action: --write-gaps needs a whole-catalog run (no --only, --limit, --shard or --sessions): "
                          "a partial run would shrink the baseline")
     stress_module = load("perf_stress_session", "perf-stress-session.py")
     SIGNPOSTS.start(load("perf_signposts", "perf-signposts.py"))
@@ -2210,6 +2280,8 @@ def main():
         actions = actions[:opts.limit]
     if only or opts.limit:
         env["partial"] = True  # no derived-coverage verdict: not every action was offered
+    if {s for s in opts.sessions.split(",") if s} != set(SESSIONS):
+        env["partial"] = True  # no verdict: an action one session skips for its state is a gap only if no session ran it
     surfaces = os.path.join(ROOT, "plans/cmux-next/action-surfaces.json")
     try:
         exported = {a["id"] for a in json.load(open(surfaces))["actions"]}
@@ -2248,6 +2320,7 @@ def main():
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:
+        attach_crash_reports(report)
         with open(report_path, "w") as f:
             json.dump(report, f, indent=1, default=str)
         if report_path != os.path.join(OUT, "every-action.json"):
@@ -2329,26 +2402,33 @@ def report_from(path):
 
 
 # The category an action no session covered falls in, most telling first (``uncovered``).
-COVERAGE_ORDER = ("gap", "refused", "pattern", "policy", "state", "excluded")
+COVERAGE_ORDER = ("gap", "harness", "no-run", "refused", "pattern", "policy", "state", "excluded")
+# The categories that count as a gap (no session measured the action's handler at work): everything but a reviewed
+# exclusion and a policy refusal.
+GAP_CATEGORIES = ("gap", "harness", "no-run", "refused", "state")
 
 
 def covered_ids(report):
-    """The ids some session ran with at least one sample the app did not refuse."""
-    return {row["id"] for session in report.get("sessions") or [] for row in session["rows"]
-            if not row.get("skipped") and not row.get("refused")}
+    """The ids some session ran with at least one sample whose handler ran and was not refused (the row's
+    `covered`, set where the samples are judged)."""
+    return {row["id"] for session in report.get("sessions") or [] for row in session["rows"] if row.get("covered")}
 
 
 def uncovered(report):
     """{category: {action id: reason}} of every action no session covered (``covered_ids``), each in the first
     COVERAGE_ORDER category any of its rows has:
-      gap      skip_kind `gap`: no fixture (plan(), argument_values());
+      gap      skip_kind `gap`: no fixture, or a fixture that did not hold (plan(), argument_values(), ready());
+      harness  the harness failed in the row (an exception before or while it measured): nothing was measured;
+      no-run   it ran, but no sample ran its handler (not_found, invalid, no handler run recorded);
       refused  it ran and the app refused every sample with a typed refusal EXPECTED_REFUSALS does not name: its
                handler never did its work (the sweep did not set it up), so it is a gap too;
       pattern  a SKIPS pattern over the id excluded it (the reviewed `excluded` list must name it);
       policy   EXPECTED_REFUSALS: the refusal is the action's right answer to a script;
-      state    a session-state skip (no Chromium tab, describe said unavailable, no neighbor that way);
+      state    a layout condition skipped it (no neighbor that way, Chromium fell back) in every session that
+               offered it: measured nowhere, so a gap too;
       excluded a catalog flag or a STRESS-only exclusion.
-    None when a skipped row has no typed skip_kind (a report from before typed skips): no verdict from words."""
+    None when a skipped row has no typed skip_kind, or a run row no `covered` flag (a report from before them): no
+    verdict from words."""
     covered, found = covered_ids(report), {}
     for session in report.get("sessions") or []:
         for row in session["rows"]:
@@ -2359,11 +2439,16 @@ def uncovered(report):
                     return None
                 category = "pattern" if row.get("excluded_by") == "pattern" else row["skip_kind"]
                 reason = row["skipped"]
+            elif "covered" not in row:
+                return None
+            elif row.get("harness_at"):
+                category, reason = "harness", "harness failure: " + "; ".join(row.get("errors") or [])[:160]
             elif row.get("refused"):
                 category = "policy" if row.get("expected_refusal") else "refused"
                 reason = row.get("expected_refusal") or "refused at run: " + "; ".join(row.get("errors") or [])[:160]
             else:
-                continue
+                category = "no-run"
+                reason = "no sample ran its handler: " + ("; ".join(row.get("errors") or []) or "no error")[:160]
             was = found.get(row["id"])
             if was is None or COVERAGE_ORDER.index(category) < COVERAGE_ORDER.index(was[0]):
                 found[row["id"]] = (category, reason)
@@ -2374,17 +2459,21 @@ def uncovered(report):
 
 
 def gaps_of(report):
-    """{action id: reason} of every action no session covered for lack of a fixture: a `gap` skip, or every sample
-    refused at run (``uncovered``). An action one session ran (light or STRESS) is covered."""
+    """{action id: reason} of every action no session measured at work (``uncovered``, GAP_CATEGORIES): no fixture, a
+    harness failure, no handler run, refused at every sample, or a state skip in every session. An action one session
+    covered (light or STRESS) is covered."""
     found = uncovered(report) or {}
-    return dict(sorted({**found.get("gap", {}), **found.get("refused", {})}.items()))
+    gaps = {}
+    for category in GAP_CATEGORIES:
+        gaps.update(found.get(category, {}))
+    return dict(sorted(gaps.items()))
 
 
 def verdict_blocker(report):
     """Why `report` gives no whole-catalog coverage verdict, or None: a partial run (--only, --limit, a merge of an
     incomplete shard set), or a failed session (the actions after its failure have no row: neither ran nor gap)."""
     if report["env"].get("partial"):
-        return "a partial run (--only, --limit, or not every shard of the set)"
+        return "a partial run (--only, --limit, --sessions other than both, or not every shard of the set)"
     if report.get("failed_sessions"):
         return "a session failed: the actions after its failure have no row"
     return None
