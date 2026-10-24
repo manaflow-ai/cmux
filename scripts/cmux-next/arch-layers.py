@@ -79,7 +79,9 @@ def swift_lines(path: Path) -> int:
 COUNTS = {
     "static_shared": re.compile(r"static\s+(?:let|var)\s+shared\b"),
     "assume_isolated": re.compile(r"MainActor\.assumeIsolated"),
-    "nc_observers": re.compile(r"addObserver\s*\(|\.notifications\s*\(\s*named\s*:|\.publisher\s*\(\s*for\s*:"),
+    # A MainActorObservation token is a registration too: a NotificationCenter observer behind the wrapper.
+    "nc_observers": re.compile(r"addObserver\s*\(|\.notifications\s*\(\s*named\s*:|\.publisher\s*\(\s*for\s*:"
+                               r"|\bMainActorObservation\s*\("),
     "if_debug": re.compile(r"^\s*#if\s+DEBUG\b", re.M),
 }
 
