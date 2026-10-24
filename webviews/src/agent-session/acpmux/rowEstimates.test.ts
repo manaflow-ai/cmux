@@ -130,6 +130,17 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
   expect(layoutConversation(live, 720).heights.at(-1)).toBe(48);
   expect(layoutConversation(settled, 720).heights.at(-1)).toBe(48);
+
+  const legacy = turnView(liveSource as never, new Set(), {
+    now: 5_000,
+    working: true,
+    lineBelow: false,
+    liveRuns: false,
+    sessionStatus: true,
+  });
+  expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
+  expect(legacy.at(-1)?.below).toBeUndefined();
+  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(34);
 });
 
 test("the chat's last footer is placed again when a prompt follows it", () => {

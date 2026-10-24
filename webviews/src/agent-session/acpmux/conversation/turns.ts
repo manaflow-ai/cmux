@@ -758,7 +758,7 @@ function liveTurn(
     // the turn's last row and ticks from the prompt.
     if (plan && last?.kind !== "assistant") {
       const work = shown.filter((row) => row !== plan);
-      return [...work, plan, activityLine(user, work, plan, clockOffset)];
+      return [...work, plan, activityLine(user, work, plan, clockOffset, undefined, true)];
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
@@ -871,6 +871,7 @@ function codexLiveTurn(
       plan,
       clockOffset,
       named?.tool,
+      true,
     ),
   ];
 }
@@ -925,6 +926,7 @@ function activityLine(
   plan: AcpmuxRow,
   clockOffset: number,
   named?: NonNullable<AcpmuxActivity["tool"]>,
+  below = false,
 ): AcpmuxRow {
   const running = named
     ? { kind: "tool", text: "", tool: named }
@@ -945,9 +947,9 @@ function activityLine(
     at: user.at + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
-    // This line occupies the footer's slot under the plan.  Keeping the marker on the row lets
-    // the estimator and the DOM swap it for `turnSummary` without changing the rows above it.
-    below: true,
+    // The line below a plan occupies the footer's slot. Keeping the marker on that row lets the
+    // estimator and the DOM swap it for `turnSummary` without changing the rows above it.
+    ...(below && { below: true }),
   };
   if (command) line.doingCommand = true;
   return line;
