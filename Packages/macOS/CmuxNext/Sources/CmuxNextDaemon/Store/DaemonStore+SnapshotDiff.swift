@@ -27,8 +27,12 @@ extension DaemonStore {
     func applyTreeIncrementally(_ tree: DaemonTree, touching touched: Set<String>) {
         directories.follow(tree.generation)
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
+        // The sidebar's sections follow the groups' order (their `index`), which an in-place update can change.
+        let groupOrder = groups.map { ($0.id, $0.index) }
         if let reordered = reconcile(groups, with: tree.groups, id: \.id, make: WorkspaceGroupModel.init, update: { $0.update($1) }) {
             groups = reordered
+        }
+        if groups.count != groupOrder.count || zip(groups, groupOrder).contains(where: { $0.id != $1.0 || $0.index != $1.1 }) {
             sidebarNeedsRecompute = true
         }
         applyPersonal(tree.personal)
