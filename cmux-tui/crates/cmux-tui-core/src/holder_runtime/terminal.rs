@@ -234,8 +234,7 @@ impl HolderTerminal {
     /// dup of its ring segment (up to a MiB of output no process maps)
     /// goes, and the holder may forget it.
     fn end(&self) {
-        let _ = self.service.close(self.chan, 0);
-        self.service.untrack(self.chan);
+        self.service.end(self.chan, self.id);
         self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     }
 
