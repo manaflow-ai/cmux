@@ -1,23 +1,20 @@
 import AppKit
-import Observation
 
 /// The right sidebar's section views, by mode: the app registers Vault, Feed,
 /// Dock and Cloud; the file explorer registers Files and Find. A mode without
 /// a provider has no button and its switch action refuses.
 @MainActor
-@Observable
 final class RightSidebarSections {
     /// Makes one window's view of a section (once per window; the view is kept).
     typealias Provider = @MainActor (WindowController) -> NSView
 
-    @ObservationIgnored private var providers: [RightSidebarMode: Provider] = [:]
-    /// The section buttons' SF Symbol images, made off the main thread by ``prewarmIcons()``: CoreUI decodes
-    /// each symbol's vectors when its image is made, which cost the first Focus Right Sidebar 47 ms in its turn.
-    @ObservationIgnored private var icons: [RightSidebarMode: NSImage] = [:]
-    /// Every registered mode's icon is made (tests and the debug report read it).
-    private(set) var iconsReady = false
-    /// Makes one SF Symbol image; called off the main thread (NSImage is thread-safe to make).
-    @ObservationIgnored private let symbolImage: @Sendable (String) -> NSImage?
+    private var providers: [RightSidebarMode: Provider] = [:]
+    /// The section buttons' SF Symbol images, made and drawn once off the main thread by ``prewarmIcons()``:
+    /// making a symbol's image and CoreUI's decode of its vectors (on its first draw) cost the first Focus
+    /// Right Sidebar 47 ms in its turn.
+    private var icons: [RightSidebarMode: NSImage] = [:]
+    /// Makes one SF Symbol image; called off the main thread (an image made and drawn on one thread is safe there).
+    private let symbolImage: @Sendable (String) -> NSImage?
 
     /// - Parameter symbolImage: Makes an SF Symbol image by name (tests count the calls).
     init(symbolImage: @escaping @Sendable (String) -> NSImage? = { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }) {
@@ -43,20 +40,28 @@ final class RightSidebarSections {
         return made
     }
 
-    /// Makes the registered modes' icons on a detached task, once, after the sections are registered (launch).
-    func prewarmIcons() {
+    /// Makes the registered modes' icons on a detached task, once, after the sections are registered (launch),
+    /// and draws each one there into a bitmap, so the symbol's vectors are decoded off the main thread too
+    /// (CoreUI decodes them on an image's first draw, not when it is made).
+    ///
+    /// - Returns: The task, done once every icon landed on the main actor (nil: nothing to make).
+    @discardableResult
+    func prewarmIcons() -> Task<Void, Never>? {
         let modes = self.modes.filter { icons[$0] == nil }
-        guard !modes.isEmpty else { return iconsReady = true }
+        guard !modes.isEmpty else { return nil }
         let symbolImage = symbolImage
-        // task-owner: one pass per launch; the images land on the main actor.
-        Task.detached(priority: .utility) { [weak self] in
-            let made = modes.compactMap { mode in symbolImage(mode.symbol).map { (mode, $0) } }
+        // task-owner: one pass per launch (AppServices keeps the sections); the images land on the main actor.
+        return Task.detached(priority: .utility) { [weak self] in
+            let made = modes.compactMap { mode -> (RightSidebarMode, NSImage)? in
+                guard let image = symbolImage(mode.symbol) else { return nil }
+                _ = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                return (mode, image)
+            }
             await self?.land(made)
         }
     }
 
     private func land(_ made: [(RightSidebarMode, NSImage)]) {
         for (mode, image) in made where icons[mode] == nil { icons[mode] = image }
-        iconsReady = true
     }
 }

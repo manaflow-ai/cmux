@@ -10,21 +10,31 @@ import Testing
 struct RightSidebarIconsTests {
     private nonisolated final class Made: Sendable {
         private let onMain = Mutex<[Bool]>([])
+        private let drawnOnMain = Mutex<[Bool]>([])
         func note() { onMain.withLock { $0.append(Thread.isMainThread) } }
+        func drew() { drawnOnMain.withLock { $0.append(Thread.isMainThread) } }
         var threads: [Bool] { onMain.withLock { $0 } }
+        var drawThreads: [Bool] { drawnOnMain.withLock { $0 } }
     }
 
-    @Test func iconsAreMadeOffTheMainThreadOnceAndThePanelUsesThem() async {
+    /// Each icon is made AND first drawn off the main thread (the draw is where a symbol's vectors are
+    /// decoded), before the panel takes it.
+    @Test func iconsAreMadeAndDrawnOffTheMainThreadOnceAndThePanelUsesThem() async throws {
         let made = Made()
         let sections = RightSidebarSections(symbolImage: { name in
             made.note()
-            return NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in name.isEmpty }
+            return NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in
+                made.drew()
+                return !name.isEmpty
+            }
         })
         sections.register(.files) { _ in NSView() }
         sections.register(.feed) { _ in NSView() }
-        sections.prewarmIcons()
-        for await ready in ObservationStream({ sections.iconsReady }) where ready { break }
+        let prewarm = try #require(sections.prewarmIcons())
+        await prewarm.value
         #expect(made.threads == [false, false], "icons made: \(made.threads) (true = on the main thread)")
+        #expect(made.drawThreads.count >= 2 && !made.drawThreads.contains(true),
+                "icons drawn: \(made.drawThreads) (true = on the main thread; none: the decode is left to the first show)")
 
         let view = RightSidebarView(modes: sections.modes, title: { $0.rawValue }, icon: sections.icon,
                                     makeSection: { _ in nil }, run: { _ in })
