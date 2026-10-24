@@ -415,9 +415,23 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
 /// A preview as sent: secrets masked, whitespace folded, at most
 /// `PREVIEW_CHARS` characters.
 fn preview(text: &str) -> String {
-    // Only a bounded head is masked and folded: past it nothing is shown anyway.
-    let head: String = text.chars().take(PREVIEW_CHARS * 8).collect();
-    let text = crate::secret_scan::mask(&head).split_whitespace().collect::<Vec<_>>().join(" ");
+    // Folded first and then cut to a bounded head (past it nothing is shown), which is masked
+    // before the cut to `PREVIEW_CHARS`: a raw cut inside a token behind a blank run would leave
+    // the token's head unmasked once the run folds away (`hub/views.rs` `masked_line`).
+    let (mut head, mut chars) = (String::new(), 0);
+    for word in text.split_whitespace() {
+        if chars > 0 {
+            head.push(' ');
+            chars += 1;
+        }
+        let taken: String = word.chars().take((PREVIEW_CHARS * 8).saturating_sub(chars)).collect();
+        chars += taken.chars().count();
+        head.push_str(&taken);
+        if chars >= PREVIEW_CHARS * 8 {
+            break;
+        }
+    }
+    let text = crate::secret_scan::mask(&head);
     if text.chars().count() <= PREVIEW_CHARS {
         return text;
     }

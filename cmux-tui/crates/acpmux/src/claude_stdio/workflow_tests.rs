@@ -329,6 +329,24 @@ async fn a_plain_background_agent_ends_only_with_its_notification() {
     assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
 }
 
+/// A secret behind a long blank run is masked whole: the preview folds the blanks before it cuts
+/// and masks, so no part of the token reaches the preview.
+#[tokio::test]
+async fn a_preview_never_shows_part_of_a_secret() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    // Built here, not written out, so the repository holds no token-shaped string.
+    let token = format!("gh{}_{}", "p", "Q7ZJ4XK2MD5P3WRT8N6C1VBH9YLFGSA0TEUI");
+    let prompt = format!("{}{token} and more", " ".repeat(5000));
+    let items = json!([{"type": "workflow_agent", "index": 1, "label": "a", "state": "progress",
+        "startedAt": 1, "promptPreview": prompt}]);
+    let out = updates(&t.inbound(&snapshot(items)).await);
+    let shown = of_kind(&out, "subagent_progress")[0]["workflowAgents"][0]["prompt"].clone();
+    let shown = shown.as_str().unwrap();
+    assert!(!shown.contains("Q7ZJ4XK2"), "{shown}");
+    assert!(shown.starts_with("[GitHub Personal Access Token]"), "{shown}");
+}
+
 /// The hub's subagent model carries the run's id, phases and agent changes.
 #[test]
 fn workflow_agents_reach_clients_in_the_subagent_model() {
