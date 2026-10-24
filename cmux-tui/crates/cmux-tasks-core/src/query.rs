@@ -143,9 +143,9 @@ pub fn list(state: &State, caller: &Principal, filter: &ListFilter) -> Vec<TaskV
                 .cmp(&priority_rank(b.priority))
                 .then(a.sort_key.cmp(&b.sort_key))
         }),
-        Order::Updated => out.sort_by(|a, b| {
-            b.updated_at.cmp(&a.updated_at).then(a.number.cmp(&b.number))
-        }),
+        Order::Updated => {
+            out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then(a.number.cmp(&b.number)))
+        }
         Order::Created => out.sort_by_key(|task| std::cmp::Reverse(task.number)),
     }
     if let Some(limit) = filter.limit {

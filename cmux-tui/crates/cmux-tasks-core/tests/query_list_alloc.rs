@@ -104,9 +104,5 @@ fn list_limit_one_does_not_clone_unreturned_descriptions() {
     let bytes = allocated_bytes();
 
     assert_eq!(result.len(), 1);
-    assert!(
-        bytes < 512 * 1024,
-        "limit=1 materialized too many task bytes: {bytes} allocated"
-    );
+    assert!(bytes < 512 * 1024, "limit=1 materialized too many task bytes: {bytes} allocated");
 }
-
