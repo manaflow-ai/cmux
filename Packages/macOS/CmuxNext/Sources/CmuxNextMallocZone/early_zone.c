@@ -17,7 +17,21 @@ static malloc_zone_t* g_default_zone;
 static void* d_malloc(malloc_zone_t* z, size_t size) { return g_default_zone->malloc(g_default_zone, size); }
 static void* d_calloc(malloc_zone_t* z, size_t n, size_t size) { return g_default_zone->calloc(g_default_zone, n, size); }
 static void* d_valloc(malloc_zone_t* z, size_t size) { return g_default_zone->valloc(g_default_zone, size); }
-static void* d_realloc(malloc_zone_t* z, void* p, size_t size) { return g_default_zone->realloc(g_default_zone, p, size); }
+// The zone that owns `p`: the system default zone, or (after PartitionAlloc's constructor ran) the
+// zone that allocated it. A caller that cached this zone before the swap (malloc_default_zone(),
+// CFAllocator) can hand it a pointer another zone made; giving that pointer to the system zone
+// would free memory it does not own. This zone never claims a pointer (d_size is 0), so the
+// lookup never returns it.
+static malloc_zone_t* owner_of(const void* p) {
+  if (!p || g_default_zone->size(g_default_zone, p) != 0) return g_default_zone;
+  malloc_zone_t* owner = malloc_zone_from_ptr(p);
+  return owner ? owner : g_default_zone;  // no owner: the system zone reports the bad free
+}
+
+static void* d_realloc(malloc_zone_t* z, void* p, size_t size) {
+  malloc_zone_t* owner = owner_of(p);
+  return owner->realloc(owner, p, size);
+}
 static unsigned d_batch_malloc(malloc_zone_t* z, size_t size, void** results, unsigned n) {
   return g_default_zone->batch_malloc(g_default_zone, size, results, n);
 }
@@ -26,13 +40,30 @@ static void* d_memalign(malloc_zone_t* z, size_t alignment, size_t size) {
 }
 // Never claims memory, so free() always skips this zone.
 static size_t d_size(malloc_zone_t* z, const void* p) { return 0; }
-// CoreFoundation calls malloc_zone_free(zone, ptr) directly: forward.
-static void d_free(malloc_zone_t* z, void* p) { g_default_zone->free(g_default_zone, p); }
-static void d_free_definite_size(malloc_zone_t* z, void* p, size_t size) {
-  g_default_zone->free_definite_size(g_default_zone, p, size);
+// CoreFoundation calls malloc_zone_free(zone, ptr) directly: forward to the pointer's owner.
+static void d_free(malloc_zone_t* z, void* p) {
+  malloc_zone_t* owner = owner_of(p);
+  owner->free(owner, p);
 }
-static void d_batch_free(malloc_zone_t* z, void** p, unsigned n) { g_default_zone->batch_free(g_default_zone, p, n); }
-static void d_try_free_default(malloc_zone_t* z, void* p) { g_default_zone->try_free_default(g_default_zone, p); }
+static void d_free_definite_size(malloc_zone_t* z, void* p, size_t size) {
+  malloc_zone_t* owner = owner_of(p);
+  if (owner == g_default_zone) {
+    g_default_zone->free_definite_size(g_default_zone, p, size);
+  } else {
+    owner->free(owner, p);
+  }
+}
+static void d_batch_free(malloc_zone_t* z, void** p, unsigned n) {
+  for (unsigned i = 0; i < n; i++) d_free(z, p[i]);
+}
+static void d_try_free_default(malloc_zone_t* z, void* p) {
+  malloc_zone_t* owner = owner_of(p);
+  if (owner == g_default_zone) {
+    g_default_zone->try_free_default(g_default_zone, p);
+  } else {
+    owner->free(owner, p);
+  }
+}
 static size_t d_pressure_relief(malloc_zone_t* z, size_t goal) { return 0; }
 
 static kern_return_t i_enumerator(task_t task, void* context, unsigned type_mask, vm_address_t zone_address,
