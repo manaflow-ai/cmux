@@ -21,6 +21,6 @@ extension PageWebView {
 
     func applyLiveDocumentAttributes() {
         guard loaded, let script = Self.attributesScript(liveDocumentAttributes) else { return }
-        evaluateInPage(script)
+        evaluateDocumentState(script)
     }
 }

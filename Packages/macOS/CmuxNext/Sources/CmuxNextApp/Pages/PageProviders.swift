@@ -149,7 +149,8 @@ final class DaemonPageRelay: PageProvider {
             let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
                 onEvent((try? Self.pageValue(payload)) ?? .object([:]))
             }
-            return PageSubscription(onCancel: cancel)
+            // The daemon's events, whatever they carry: each one counts.
+            return PageSubscription(freezing: .every, onCancel: cancel)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
