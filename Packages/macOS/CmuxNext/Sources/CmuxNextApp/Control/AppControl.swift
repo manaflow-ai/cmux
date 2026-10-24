@@ -34,6 +34,9 @@ final class AppControl {
     private(set) var errorJournal: ErrorJournalService?
     /// Over-budget action runs: the Release report's counters, and the Debug log line per run.
     private(set) var actionBudget: ActionBudgetReporter?
+    /// The task diagnostics mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`): the watchdog records over-budget
+    /// tasks with a stack, and the action budget's Debug line names that it sampled them. Read once.
+    private let recordsTaskBudgets = MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment)
 
     var socketPath: String? { service?.socketPath }
 
@@ -52,8 +55,7 @@ final class AppControl {
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
-        watchdog.attach(board: mainWork.budget.board,
-                        recordTaskBudgets: MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment))
+        watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -69,7 +71,7 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
-                                          overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets,
+                                          overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                           logsRuns: ControlService.isDebugBuild)
         actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
