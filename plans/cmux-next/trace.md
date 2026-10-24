@@ -146,6 +146,48 @@ Two causes: the all-process recording ran while the Chromium trace (then a 400 M
 categories) transferred, and nothing reported progress. The recording now ends with the window, the Chromium
 buffer is 128 MB without IPC categories, and every stage has a bound.
 
+## Key-press flows
+
+A terminal key press is followed across every process, on one clock (`CLOCK_UPTIME_RAW`, nanoseconds: the
+app's signposts and `clock_gettime_nsec_np` in the Rust processes read the same mach time, so no offset is
+guessed). The app mints a flow id for each key press (`TypingLatencyProbe`: the app's pid in the high 32 bits,
+the press number below). Each hop records the id where a message carries it; otherwise it records its
+terminal. `trace.py` joins the hops of one press and draws them as slices on `key flow` tracks, joined by
+Perfetto flow arrows (JSON `bind_id` / `flow_out` / `flow_in`).
+
+Turned on by `CMUX_TRACE_FLOWS=<dir>`, which `trace.py record --app` sets; the daemon, the terminal hosts and
+the holder inherit it. Off, each hop costs one load. On, a Rust hop is a `try_send` to a bounded queue (8192
+records); one writer thread appends JSON lines to `<dir>/flows-<pid>.jsonl`. A full queue drops records and
+counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
+
+| Hop | Process, thread | Carries |
+|---|---|---|
+| `app.key.dispatch` | app main (`CmuxApplication.sendEvent`, `debug.key`) | flow id, key age |
+| `app.key.terminal` | app main (`TerminalSurfaceView.keyDown`) | flow id |
+| `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
+| `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
+| `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
+| `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
+| `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
+| `app.output.decoded` | the attach socket's reader | flow id (the open press) |
+| `app.output.lane`, `app.output.parsed` | the output task, the Ghostty output lane (parse) | flow id |
+| `app.frame.contents` | app main (`setContents:` of the terminal layer: Ghostty's frame) | flow id |
+| `app.frame.commit` | app main (the run-loop end after it: the Core Animation commit to the screen) | flow id |
+
+A hop with no flow id joins the press as the first record of that hop on the same terminal after the hop that
+causes it (the daemon's `send.write` for a PTY write; the PTY write for the echo read; the read for the
+daemon's output; the output for the attach). So keys must go to a terminal whose only output is their echo:
+`stress-storm` focuses a pane whose terminal is not one of the 10 busy ones. Presses that never reach a
+terminal (a chord the key router ran as an action) are not flows. The summary lists, per hop, the time since
+the previous hop (p50/p95/max over complete presses), key to the echo frame's commit, and each incomplete
+press with the hops it misses. `check-import` also checks that every flow arrow imports (`flow` table).
+
+Limits: the frame's commit is the app's Core Animation commit. The display's own present (vsync) is later and
+has no mark here. The probe follows one press at a time: a key typed before the last echo landed closes the
+open press as unfinished (`--key-interval` keeps keys apart).
+
 ## How to open it
 
 1. Go to https://ui.perfetto.dev and click "Open trace file", or drag `trace.json.gz` onto the page.
