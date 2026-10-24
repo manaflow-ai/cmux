@@ -595,7 +595,11 @@ class RuleTests(Fixture):
         # longer loads turns off the App rules (app-size, app-type) only, never the whole module (and so every rule).
         installed = self.root / "installed"
         installed.mkdir()
-        shutil.copy(SOURCE / "scripts/cmux-next/guardrails.py", installed)
+        # As scripts/install-git-hooks.sh installs it: every top-level file of scripts/cmux-next, so the modules
+        # guardrails.py loads at import (swift_scope.py, which check-concurrency.sh shares, and what it loads)
+        # are next to it, as in the hook.
+        for script in (SOURCE / "scripts/cmux-next").glob("*.py"):
+            shutil.copy(script, installed)
         (installed / "count-swift-code-lines.py").write_text("raise ImportError('a lexer that does not load')\n")
         spec = importlib.util.spec_from_file_location("cmux_next_guardrails_broken_lexer", installed / "guardrails.py")
         copy = importlib.util.module_from_spec(spec)
