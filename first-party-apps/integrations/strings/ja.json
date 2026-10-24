@@ -94,7 +94,7 @@
   "provider.linear.blurb": "Issue の作成とチームの更新の追跡",
   "provider.mcp.blurb": "Streamable HTTP で接続するリモート MCP サーバー",
   "provider.openapi.blurb": "OpenAPI 3 の記述がある任意の REST API",
-  "provider.slack.blurb": "cmux ボットとしてチャンネルに投稿",
+  "provider.slack.blurb": "更新を投稿してメッセージのパーマリンクを開く",
   "revoke.done": "{name} の接続を解除しました。",
   "row.subtitle.private": "{provider} · 自分のみ",
   "row.subtitle.team": "{provider} · チームと共有",

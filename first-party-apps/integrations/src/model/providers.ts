@@ -44,7 +44,17 @@ const TABLE: Record<ProviderId, ProviderInfo> = {
       { op: "linear.issue.create", op_class: "mutate-shared" }
     ]
   },
-  slack: { id: "slack", name: "Slack", symbol: "number", generic: false, availability: "available", ops: [{ op: "slack.post_as_bot", op_class: "send-external" }] },
+  slack: {
+    id: "slack",
+    name: "Slack",
+    symbol: "number",
+    generic: false,
+    availability: "available",
+    ops: [
+      { op: "slack.message.permalink", op_class: "read" },
+      { op: "slack.post_as_bot", op_class: "send-external" }
+    ]
+  },
   google_calendar: {
     id: "google_calendar",
     name: "Google Calendar",
@@ -86,7 +96,7 @@ export const providerBlurb = (id: string): string => {
     case "linear":
       return t("provider.linear.blurb", "Create issues and follow team updates")
     case "slack":
-      return t("provider.slack.blurb", "Post to channels as the cmux bot")
+      return t("provider.slack.blurb", "Post updates and open message permalinks")
     case "google_calendar":
       return t("provider.google_calendar.blurb", "Read events and answer invitations")
     case "gmail":

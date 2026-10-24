@@ -377,6 +377,44 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Resolve a posted Slack message timestamp to a workspace permalink.
+    SlackMessagePermalinkOp {
+        name: "slack.message.permalink",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: SlackMessagePermalinkParams,
+        result: SlackMessagePermalinkResult,
+        error: SlackMessagePermalinkError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SlackMessagePermalinkParams {
+    pub connection: ConnectionId,
+    pub channel: String,
+    pub message_ts: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SlackMessagePermalinkResult {
+    pub permalink: String,
+}
+
+wire_errors! {
+    /// The error codes slack.message.permalink declares.
+    SlackMessagePermalinkError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
     /// Post a message to a Slack channel as the cmux bot.
     SlackPostAsBotOp {
         name: "slack.post_as_bot",
@@ -859,48 +897,3 @@ pub struct TeamDevicePolicyResultEnforced {}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamDevicePolicyResultFeatures {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDevicePolicyResult {
-    pub team: TeamId,
-    pub managed: bool,
-    pub team_name: String,
-    pub version: i64,
-    pub defaults: TeamDevicePolicyResultDefaults,
-    pub enforced: TeamDevicePolicyResultEnforced,
-    pub features: TeamDevicePolicyResultFeatures,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.device.policy declares.
-    TeamDevicePolicyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.
-    TeamDeviceReleaseOp {
-        name: "team.device.release",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: TeamDeviceReleaseParams,
-        result: TeamDeviceReleaseResult,
-        error: TeamDeviceReleaseError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceReleaseParams {
-    pub install: InstallId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceReleaseResult {
-    pub install: InstallId,
-}

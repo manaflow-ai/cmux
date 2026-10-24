@@ -154,6 +154,7 @@ pub mod op_names {
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
+    pub const SLACK_MESSAGE_PERMALINK: &str = "slack.message.permalink";
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
     pub const SSO_CONNECTION_ACTIVATE: &str = "sso.connection.activate";
     pub const SSO_CONNECTION_CREATE: &str = "sso.connection.create";
@@ -363,6 +364,7 @@ pub mod op_names {
         SERVER_PAIR_APPROVE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
+        SLACK_MESSAGE_PERMALINK,
         SLACK_POST_AS_BOT,
         SSO_CONNECTION_ACTIVATE,
         SSO_CONNECTION_CREATE,
@@ -575,6 +577,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
+        "slack.message.permalink" => visitor.visit::<SlackMessagePermalinkOp>(),
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),
         "sso.connection.activate" => visitor.visit::<SsoConnectionActivateOp>(),
         "sso.connection.create" => visitor.visit::<SsoConnectionCreateOp>(),

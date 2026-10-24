@@ -53148,6 +53148,129 @@
         }
       }
     },
+    "slack.message.permalink": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "channel": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Z0-9]{2,30}$"
+            }
+          },
+          "message_ts": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^\\d{10}\\.\\d{1,6}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "permalink": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "slack message permalink",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "slack"
+      },
+      "docs": "Resolve a posted Slack message timestamp to a workspace permalink.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "channel": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{2,30}$"
+          },
+          "message_ts": {
+            "type": "string",
+            "pattern": "^\\d{10}\\.\\d{1,6}$"
+          }
+        },
+        "required": [
+          "connection",
+          "channel",
+          "message_ts"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "permalink": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "permalink"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "slack.post_as_bot": {
       "class": "mutation",
       "idempotency": "required",
