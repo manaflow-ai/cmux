@@ -260,7 +260,12 @@ async fn dispatch_brief(
         .unwrap_or_else(|| {
             conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label())
         });
-    let to = params.get("to").and_then(Value::as_str).unwrap_or("local").to_owned();
+    let explicit_to = params.get("to").and_then(Value::as_str);
+    let target_to = params.get("target").and_then(Value::as_str).filter(|target| *target != "auto");
+    let to = explicit_to
+        .or(target_to)
+        .unwrap_or_else(|| if selected == "auto" { "local" } else { &selected })
+        .to_owned();
     let stop = params
         .get("stopCondition")
         .or_else(|| params.get("stop_condition"))
