@@ -566,21 +566,20 @@
     inset 0 -1px 0 var(--ui-line);
 }
 
-/* The saved keys' conflicts: "ⓘ Conflicts with:" in the theme's warning yellow, then the actions. */
+/* The saved keys' conflicts, one line of text in the primary ink: "ⓘ Conflicts with: A, B". */
 .keys-recorder-conflict {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  display: block;
   font-size: var(--text-caption);
   color: var(--ui-fg);
 }
 
+.keys-recorder-conflict .keys-icon {
+  margin-inline-end: 4px;
+  vertical-align: -2px;
+}
+
 .keys-recorder-conflict-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--cmux-app-warning, #ffcc00);
+  margin-inline-end: 4px;
 }
 
 /* The footer: the action on the left, cut to one line with an ellipsis, and a small Close with its
