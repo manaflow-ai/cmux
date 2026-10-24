@@ -1,0 +1,150 @@
+name: Fast checks
+run-name: Fast checks ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact scratch snapshot commit
+        required: true
+      command:
+        description: Shell-quoted command from the fast checks client
+        required: true
+      directory:
+        description: Worktree-relative working directory
+        default: '.'
+      setup:
+        type: choice
+        options: [none, webviews, playwright, rust]
+        default: none
+      timeout:
+        description: Command deadline in seconds, at most 10800
+        default: '3600'
+
+# Same read-only checkout scope as the existing Linux test jobs. No secrets,
+# environment, provider credentials or write token is passed to test commands.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 195
+    env:
+      CARGO_TARGET_DIR: /home/runner/.cache/fast-checks/target
+      CARGO_HOME: /home/runner/.cache/fast-checks/cargo
+      BUN_INSTALL_CACHE_DIR: /home/runner/.cache/fast-checks/bun
+      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/fast-checks/browsers
+      ZIG_GLOBAL_CACHE_DIR: /home/runner/.cache/fast-checks/zig
+      CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+    steps:
+      - name: Validate request
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          COMMAND_TIMEOUT: ${{ inputs.timeout }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
+          (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      # This cache namespace is private to fast checks. Release/signing jobs
+      # never read it. Concurrent callers fork snapshots without a global queue.
+      - name: Mount package and compilation caches
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: fast-checks-v1-${{ github.repository_id }}
+          path: /home/runner/.cache/fast-checks
+          commit: on-change
+
+      - name: Read repository Bun pin
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        id: bun-pin
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          pin = json.load(open('webviews/package.json'))['devEngines']['packageManager']
+          assert pin['name'] == 'bun' and re.fullmatch(r'\d+\.\d+\.\d+', pin['version'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('version=' + pin['version'], file=output)
+          PY
+
+      - name: Set up Bun
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.bun-pin.outputs.version }}
+
+      - name: Set up Node
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.22.1'
+
+      - name: Install webview dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Install gallery dependencies and browsers
+        if: inputs.setup == 'playwright'
+        working-directory: scripts/gallery-matrix
+        run: |
+          bun install --frozen-lockfile
+          bunx --no-install playwright install --with-deps chromium webkit
+          echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
+
+      - name: Initialize Rust native dependencies
+        if: inputs.setup == 'rust'
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty-next
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+          ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        if: inputs.setup == 'rust'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Run fast checks
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+          FAST_CHECKS_TIMEOUT: ${{ inputs.timeout }}
+          FAST_CHECKS_SOURCE: ${{ inputs.source_sha }}
+        run: |
+          umask 022
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, time
+          root = pathlib.Path.cwd().resolve()
+          directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
+          directory.relative_to(root)
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
+          start = time.monotonic()
+          code = subprocess.call(['timeout', '--signal=TERM', '--kill-after=30s',
+                                  os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
+                                  os.environ['FAST_CHECKS_COMMAND']], cwd=directory)
+          result = dict(source_sha=actual, source_tree=subprocess.check_output(
+              ['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+              command_seconds=round(time.monotonic() - start, 3), exit_code=code,
+              run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          raise SystemExit(code)
+          PY
+
+      - name: Save exact-source timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-receipt
+          path: ${{ runner.temp }}/fast-checks.json
+          if-no-files-found: ignore
+          retention-days: 7
