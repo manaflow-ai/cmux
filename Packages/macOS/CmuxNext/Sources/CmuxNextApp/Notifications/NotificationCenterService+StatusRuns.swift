@@ -18,6 +18,7 @@ extension NotificationCenterService {
             var tracker = FinishedStatusRunTracker()
             for await _ in ObservationStream({ store.workspaces.compactMap(\.status) }) {
                 guard let self else { return }
+                self.statusRunVisits += store.workspaces.count
                 for notice in self.statusRunNotices(in: store, tracker: &tracker) { self.postStatusRun(notice) }
             }
         }
