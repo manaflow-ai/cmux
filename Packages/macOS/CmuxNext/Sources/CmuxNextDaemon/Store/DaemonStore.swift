@@ -149,6 +149,9 @@ public final class DaemonStore: StateResourceQueries {
     /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next
     /// snapshot applies only the workspaces that differ.
     @ObservationIgnored var snapshotMemo = SnapshotMemo()
+    /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
+    /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
+    @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
