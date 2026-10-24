@@ -89,6 +89,26 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     watching.current?.();
     watching.current = undefined;
   };
+  /// Stops the active fold's policy observer. It only lives for the short window while a Web
+  /// Animation is running, so a settings change can settle that animation without adding a page-wide
+  /// observer for every collapsible.
+  const stopMotionWatch = useRef<(() => void) | undefined>(undefined);
+  const unwatchMotion = () => {
+    stopMotionWatch.current?.();
+    stopMotionWatch.current = undefined;
+  };
+  const watchMotion = (node: HTMLElement) => {
+    const root = node.ownerDocument.documentElement;
+    const Observer = node.ownerDocument.defaultView?.MutationObserver;
+    if (!root || !Observer) return;
+    const observer = new Observer(() => {
+      // Reduce Motion can leave fade tokens nonzero while the structural move token becomes zero.
+      // The fold must still settle immediately instead of finishing its old height animation.
+      if (running.current && foldMs(node) <= 0) running.current.cancel();
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["style", "data-agent-motion", "data-cmux-motion"] });
+    stopMotionWatch.current = () => observer.disconnect();
+  };
   // A theme update can cancel Web Animations while a fold is in flight (for example when the
   // person turns animations off). Detach handlers before replacing a running animation so a
   // reversal cannot finish the new fold's state early.
@@ -106,6 +126,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     if (played.current === open) return;
     played.current = open;
     stopWatching();
+    unwatchMotion();
     const node = ref.current;
     // A box a close left pinned shut (below) opens from its own size again.
     if (node) pin(node, undefined);
@@ -132,6 +153,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
       { duration: ms, easing: foldMotion.easing(node) },
     );
     running.current = animation;
+    watchMotion(node);
     // An open whose body draws its content late (a diff, highlighted code) grows to it in the same
     // motion: a later size takes over from the drawn height for the time left, instead of the box
     // stopping short and then snapping to its full height. It stops watching when the fold ends.
@@ -162,6 +184,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
           if (running.current !== rest) return;
           running.current = undefined;
           stopWatching();
+          unwatchMotion();
           node.style.overflow = "";
         };
         rest.onfinish = settledRest;
@@ -173,6 +196,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     const settled = () => {
       if (running.current !== animation) return;
       stopWatching();
+      unwatchMotion();
       running.current = undefined;
       if (open) {
         node.style.overflow = "";
@@ -190,6 +214,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
   useLayoutEffect(
     () => () => {
       stopWatching();
+      unwatchMotion();
       cancelRunning();
     },
     [],

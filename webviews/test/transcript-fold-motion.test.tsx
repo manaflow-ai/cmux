@@ -258,6 +258,21 @@ test("a motion policy cancellation finishes a closing tool call instead of leavi
   expect(container.querySelector(".cv-tool-output-card")).toBeNull();
 });
 
+test("a move token that becomes zero settles the active fold even when fade motion remains", async () => {
+  render(<ToolRow item={tool("policy-change")} />);
+  click();
+  animations[0]!.finish();
+  click();
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  document.documentElement.style.setProperty("--agent-motion-in", "80ms");
+  token = 0;
+  document.documentElement.style.setProperty("--agent-motion-move", "0ms");
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector(".cv-tool-output-card")).toBeNull();
+});
+
 test("a fold reopened as its close ends opens from its own size, not the pinned one", () => {
   render(<ToolRow item={tool("reopen")} />);
   click();
