@@ -184,7 +184,7 @@ public final class AgentPaneView: NSView {
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             }
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
-            ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
+            ConsoleErrorCapture(page: "agent-pane", journal: PageWebView.errorJournal).install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Pages share web content processes, 8 per process (WebProcessGroups): a process per
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
