@@ -783,7 +783,10 @@ impl Holder {
             .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
         let spawned = pty::spawn(&request, self.child_open_file_limit)
             .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
-        let terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
+        let mut terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
+        // Until the daemon's ATTACH (from 0) arrives, read no more than an
+        // attached stream would.
+        terminal.held = Some(terminal.ring.end());
         let rings = self.link.as_ref().is_some_and(|link| link.rings);
         let fds = terminal.descriptors(rings);
         if fds.is_empty() {
