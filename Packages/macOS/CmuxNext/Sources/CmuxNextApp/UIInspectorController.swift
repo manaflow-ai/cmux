@@ -40,7 +40,7 @@ final class UIInspectorController {
         observeToggle()
     }
 
-    deinit {
+    isolated deinit {
         if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
         if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
     }
