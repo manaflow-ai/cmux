@@ -998,6 +998,17 @@ impl Holder {
     /// terminal's room, and at most [`READ_PER_TURN`] per wakeup. Each read
     /// is in the ring (a shared segment the daemon keeps a dup of) the
     /// moment it returns, so a holder crash loses no byte it read.
+    ///
+    /// After a read that returned less than its room, the master is asked
+    /// whether it has more (a zero-timeout `poll`) before another read
+    /// starts: the read that would only say `EAGAIN` (the last one of
+    /// nearly every turn, one per keystroke echo) is never made. Every ring
+    /// read publishes `reading` before it starts, so a holder killed inside
+    /// such a read left a marker for a loss that did not happen, and the
+    /// daemon put a CAN at that read boundary, often inside an escape
+    /// sequence. A read is now made only when the master is readable, so a
+    /// marker names a read that could take bytes. A flood still reads the
+    /// whole turn's share in one turn.
     fn read_terminal(&mut self, chan: u32) -> ReadEnd {
         let Some(terminal) = self.terminals.get_mut(&chan) else { return ReadEnd::Eof };
         let mut read = 0;
@@ -1007,12 +1018,17 @@ impl Holder {
                 return ReadEnd::Stopped;
             }
             let master = terminal.master.as_raw_fd();
+            let mut offered = 0;
             let n = terminal.ring.read_with(len, |room| {
+                offered = room.len();
                 // SAFETY: reads into a live slice of the ring of `room.len()` bytes.
                 unsafe { libc::read(master, room.as_mut_ptr().cast(), room.len()) }
             });
             if n > 0 {
                 read += n as usize;
+                if (n as usize) < offered && !readable_now(master) {
+                    return ReadEnd::Drained;
+                }
                 continue;
             }
             if n == 0 {
@@ -1344,6 +1360,24 @@ fn ring_flag(fds: &[OwnedFd]) -> u16 {
 
 fn pollfd(fd: RawFd, events: libc::c_short) -> libc::pollfd {
     libc::pollfd { fd, events, revents: 0 }
+}
+
+/// Whether a read of `master` would not block now: it has bytes, or its
+/// slaves closed (the read then reports the end). Never waits.
+fn readable_now(master: RawFd) -> bool {
+    let mut fds = [pollfd(master, libc::POLLIN)];
+    loop {
+        // SAFETY: polls one live pollfd with a zero timeout.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, 0) };
+        if ready >= 0 {
+            return ready > 0
+                && fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0;
+        }
+        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            // Let the read say what is wrong.
+            return true;
+        }
+    }
 }
 
 fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
