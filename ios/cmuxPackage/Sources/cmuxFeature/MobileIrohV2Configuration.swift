@@ -74,7 +74,7 @@ public struct MobileIrohV2Configuration: Sendable {
             }
             url = derived
         }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         return Self(baseURL: url, environment: environment, projectID: projectID,
                     appNamespace: namespace, buildTag: tag,
                     appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",

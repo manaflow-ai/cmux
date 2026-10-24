@@ -100,6 +100,77 @@ struct WorktreeSeedRepositoryTests {
         #expect(entry.escapesRepository)
     }
 
+    @Test func aChainedSymlinkOutOfTheRepositoryIsAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        let target = try outside.file("secret")
+        try tree.symlink("redirect", to: target)
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aSymlinkedTargetParentDoesNotHideAnEscapingLeaf() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        let target = try outside.file("secret")
+        let directory = try tree.directory("config")
+        try tree.symlink("config/redirect", to: target)
+        try tree.symlink("alias", to: directory)
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("alias/redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aValidSymlinkChainCanRevisitAnAlias() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let directory = try tree.directory("real")
+        try tree.file("real/file")
+        try tree.symlink("alias", to: directory)
+        try tree.symlink("real/redirect", to: tree.root.appendingPathComponent("alias/file"))
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("alias/redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(!entry.escapesRepository)
+    }
+
+    @Test func aSelfExpandingSymlinkIsRefusedWithoutHanging() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        try tree.symlink("a", to: tree.root.appendingPathComponent("a/child"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "a" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aRootReachedThroughAnAliasKeepsInRepositoryLinksInside() throws {
+        let parent = try WorktreeSeedTemporaryTree("alias-root")
+        let real = try parent.directory("real")
+        try Data("x".utf8).write(to: real.appendingPathComponent("file"))
+        try FileManager.default.createSymbolicLink(
+            atPath: real.appendingPathComponent("link").path,
+            withDestinationPath: real.appendingPathComponent("file").path
+        )
+        let alias = try parent.symlink("alias", to: real)
+        let listing = WorktreeSeedRepository(root: alias).listing("")
+        let entry = try #require(listing.first { $0.name == "link" })
+        #expect(!entry.escapesRepository)
+    }
+
+    /// `future/..` names the repository only while `future` is missing or a
+    /// plain directory. Created later as a link, it would climb out, so a
+    /// target that steps back up through a missing component is refused.
+    @Test func aDanglingSymlinkThatClimbsThroughAMissingComponentIsAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        try tree.file("inside")
+        let target = URL(fileURLWithPath: tree.root.path + "/future/../inside")
+        try tree.symlink("climbing", to: target)
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "climbing" })
+        #expect(entry.escapesRepository)
+    }
+
     @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
         let tree = try WorktreeSeedTemporaryTree()
         let target = tree.root.appendingPathComponent("future/secret")

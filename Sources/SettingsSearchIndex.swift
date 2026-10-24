@@ -84,6 +84,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "always-confirm-workspace-close",
+            String(localized: "settings.app.alwaysConfirmWorkspaceClose", defaultValue: "Always Confirm Closing Workspaces"),
+            "always confirm close workspace idle protect confirmation"
+        ),
+        setting(
+            .app,
             "warn-before-closing-window",
             String(localized: "settings.app.warnBeforeClosingWindow", defaultValue: "Warn Before Closing Window"),
             "cmd ctrl w close window confirmation running process"
@@ -195,6 +201,11 @@ enum SettingsSearchIndex {
             ].joined(separator: " ")
         ),
         setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),
+        setting(.automation, "chief", String(localized: "settings.automation.chief", defaultValue: "Chief"), "chief.enabled home agent assistant imessage messages hide show disable off"),
+        setting(.automation, "chief-harness", String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness"), "chief.harness home agent claude code codex provider"),
+        setting(.automation, "chief-model", String(localized: "settings.automation.chief.model", defaultValue: "Chief Model"), "chief.model home agent model opus sonnet gpt"),
+        setting(.automation, "chief-effort", String(localized: "settings.automation.chief.effort", defaultValue: "Chief Effort"), "chief.effort home agent reasoning effort thinking low medium high"),
+        setting(.automation, "chief-dangerous-permissions", ChiefStrings.settingsDangerousPermissions, "chief.dangerouslySkipPermissions skip permission prompts bypass approval cards dangerous full access yolo"),
         setting(.automation, "canonical-agent-scratch", String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), "agent artifacts temporary files cleanup retention claude codex opencode storage"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
@@ -298,6 +309,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeClosingAgentSession": settingID(for: .app, idSuffix: "warn-before-closing-agent-session"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
         "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
+        "app.alwaysConfirmWorkspaceClose": settingID(for: .app, idSuffix: "always-confirm-workspace-close"),
         "app.warnBeforeClosingWindow": settingID(for: .app, idSuffix: "warn-before-closing-window"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
@@ -378,6 +390,10 @@ enum SettingsSearchIndex {
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.agentAutoResume": settingID(for: .automation, idSuffix: "agent-error-auto-resume"),
         "agentMessages.enabled": settingID(for: .automation, idSuffix: "agent-messages"),
+        "chief.enabled": settingID(for: .automation, idSuffix: "chief"),
+        "chief.harness": settingID(for: .automation, idSuffix: "chief-harness"),
+        "chief.model": settingID(for: .automation, idSuffix: "chief-model"),
+        "chief.effort": settingID(for: .automation, idSuffix: "chief-effort"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.kiroIntegration": settingID(for: .automation, idSuffix: "kiro"),

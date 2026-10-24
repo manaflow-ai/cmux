@@ -671,6 +671,54 @@ import Testing
         )
     }
 
+    @Test func directCodexRestoreIgnoresInheritedSubrouterRoutingFromSpacedBundlePath() throws {
+        let bundleBin = "/Applications/cmux 2.app/Contents/Resources/bin"
+        let shim = "/Users/me/Library/Application Support/cmux/cmux-cli-shims/surface/codex"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [:]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { $0 == shim }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "\(bundleBin):/usr/bin:/bin",
+                    "CMUX_CODEX_WRAPPER_SHIM": shim,
+                    "CMUX_CUSTOM_CODEX_PATH": "/Users/me/bin/sr",
+                    "SUBROUTER_CODEX_BIN": "/Users/me/bin/sr",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            )
+        )
+
+        #expect(invocation.arguments.first == shim)
+        #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
+        #expect(invocation.arguments.contains("model_provider=subrouter"))
+        #expect(invocation.arguments.contains("sr") == false)
+        #expect(invocation.codexResumeSessionID == sessionID)
+        #expect(invocation.environment["PATH"] == "\(bundleBin):/usr/bin:/bin")
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
+        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == nil)
+        #expect(invocation.environment[SubrouterCodexResumeRouting.environmentKey] == nil)
+        #expect(invocation.environment[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] == nil)
+    }
+
     @Test func managedRestoreUsesCapturedExecutableWhenWrapperShimIsUnavailable() throws {
         let executable = "/opt/custom tools/codex"
         let request = AgentRestoreRequest(
