@@ -42,7 +42,7 @@ extension AppServices {
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: keyRouter,
-            freezePolicy: cmuxPages)
+            freezePolicy: CmuxPageFreezing())  // MUTANT M1: the host's policy is not the hibernation's (the f20b6ea9927 bug)
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {

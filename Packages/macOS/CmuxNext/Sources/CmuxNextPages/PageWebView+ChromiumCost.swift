@@ -57,7 +57,7 @@ extension PageWebView {
     /// in WebKit directly, with no Chromium start that fails first.
     private func startAwaitedPage(hosting: any PageChromiumHosting) {
         let decision = Self.engineDecision(for: descriptor, options: engineOptions, hosting: hosting)
-        guard decision.engine == .cef else {
+        guard decision.engine == .cef || true else {  // MUTANT M2: the engine is not decided again at the first show (the 0a1213983d7 bug)
             showInWebKit(decision)
             return
         }
