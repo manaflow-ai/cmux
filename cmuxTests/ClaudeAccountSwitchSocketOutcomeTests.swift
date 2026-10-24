@@ -194,6 +194,24 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
         #expect(deliveries == [surfaceId])
     }
 
+    /// With notification hooks configured, recording a notification on a live pane is deferred
+    /// and returns no id yet. That is not "the pane is gone": a second, workspace-level copy
+    /// would show the same notification twice.
+    @Test
+    @MainActor
+    func aDeferredDeliveryOnALivePaneIsNotPostedTwice() {
+        let workspaceId = UUID()
+        let notification = ClaudeAccountSwitchSocketOutcome.ResumeNotification(title: "t", subtitle: "s", body: "b")
+        var deliveries: [UUID?] = []
+
+        notification.post(workspaceId: workspaceId, panelId: surfaceId) { _, surface, _, _, _ in
+            deliveries.append(surface)
+            return nil
+        }
+
+        #expect(deliveries == [surfaceId])
+    }
+
     private func makePlan(to target: String, from sourceConfigDirectory: String? = nil) throws -> ClaudeAccountSwitchPlan {
         let registry = ClaudeAccountRegistry(
             declarations: [ClaudeAccountDeclaration(name: "work", configDir: "~/.claude-work")],
