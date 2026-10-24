@@ -12,6 +12,7 @@
    low_power_mode_ok=True; a bench switches it only in an exclusive step and switches it back at exit, SIGTERM and
    SIGHUP; a launch after a switch nobody proved undone is refused while Low Power Mode differs from its value
    before that switch.
+5. Sound (a fake osascript): a launch mutes the sound output, BENCH_LAUNCH_AUDIO=keep leaves it.
 
 Runs on any Mac, no GUI session or build needed (BENCH_LAUNCH_ANY_SESSION=1, a copy of /bin/sleep stands in for the
 app's executable). Signals only the processes it starts.
@@ -35,6 +36,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 import bench_launch as bl  # noqa: E402
+
+# No test changes the host's sound output: osascript answers nothing unless a test gives its own fake.
+os.environ["BENCH_LAUNCH_OSASCRIPT"] = "/usr/bin/false"
 
 
 def fake_bundle(folder: str, tag: str) -> str:
@@ -323,6 +327,65 @@ class LowPowerModeTests(unittest.TestCase):
         self.set_state("0")
         self.assertEqual(self.launch_reason(self.bench()), "exited")
         self.assertFalse(os.path.exists(os.environ["BENCH_LAUNCH_LPM_MARKER"]))
+
+FAKE_OSASCRIPT = """#!/bin/sh
+# A fake osascript: the file muted holds true or false.
+state="$(dirname "$0")/muted"
+case "$2" in
+  "output muted of (get volume settings)") cat "$state" ;;
+  "set volume with output muted") echo true > "$state" ;;
+  *) exit 1 ;;
+esac
+"""
+
+
+class SoundTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-sound-"))
+        script = os.path.join(self.folder, "osascript")
+        with open(script, "w") as f:
+            f.write(FAKE_OSASCRIPT)
+        os.chmod(script, 0o755)
+        self.muted("false")
+        self.saved_env = dict(os.environ)
+        os.environ.update(BENCH_LAUNCH_OSASCRIPT=script, BENCH_LAUNCH_ANY_SESSION="1",
+                          BENCH_LAUNCH_PMSET="/usr/bin/false",
+                          BENCH_LAUNCH_LPM_MARKER=os.path.join(self.folder, "lpm-marker.json"))
+        os.environ.pop("BENCH_LAUNCH_AUDIO", None)
+        app = os.path.join(self.folder, f"cmux DEV bl-sound-{os.getpid()}.app")
+        os.makedirs(os.path.join(app, "Contents/MacOS"))
+        main = os.path.join(app, "Contents/MacOS/cmux DEV")
+        with open(main, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(main, 0o755)
+        self.app = app
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.saved_env)
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def muted(self, value=None):
+        path = os.path.join(self.folder, "muted")
+        if value is not None:
+            with open(path, "w") as f:
+                f.write(value + "\n")
+        with open(path) as f:
+            return f.read().strip()
+
+    def launch(self):
+        with self.assertRaises(bl.LaunchError):
+            bl.BenchApp(self.app, out=os.path.join(self.folder, "out"), teardown=False).launch(timeout=5)
+
+    def test_a_launch_mutes_the_sound_output(self):
+        self.launch()
+        self.assertEqual(self.muted(), "true")
+
+    def test_keep_leaves_the_sound_output(self):
+        os.environ["BENCH_LAUNCH_AUDIO"] = "keep"
+        self.launch()
+        self.assertEqual(self.muted(), "false")
+
 
 if __name__ == "__main__":
     unittest.main()
