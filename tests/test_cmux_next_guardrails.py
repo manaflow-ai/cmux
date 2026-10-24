@@ -645,9 +645,18 @@ class AppSizeTests(Fixture):
     def test_code_moved_between_the_root_and_feature_files_is_not_growth(self):
         lines = swift_body(200, "delegate").splitlines(keepends=True)
         self.write(f"{APP}/AppDelegate.swift", "".join(lines[:37] + lines[137:]))
+        self.write(f"{KIT}/Delegate/DelegateParts.swift", "".join(lines[37:137]))
+        self.commit("100 lines out of AppDelegate into a package")
+        self.assertPasses("out of the root into a package")
+        self.reset()
+        # Lead decision (b), item 2: out of the root into another App file is no App growth (no `total` warning),
+        # but it counts against the root's budget.
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:37] + lines[137:]))
         self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[37:137]))
-        self.commit("100 lines out of AppDelegate")
-        self.assertPasses("out of the root")
+        self.commit("100 lines out of AppDelegate into a feature file")
+        found = self.assertRefused("moved from the root into other App files count too")
+        self.assertEqual([h.bucket for h in found], ["root"])
+        self.assertEqual(self.growth(), [], "a move inside the App is no App growth")
         self.reset()
         self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:201]))
         self.append(f"{APP}/AppDelegate.swift", "".join(self.quit[201:]))
@@ -693,24 +702,28 @@ class AppSizeTests(Fixture):
         found = self.assertRefused(f"new App file, {total + 4} source lines")
         self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/QuitNew.swift"])
 
-    def test_a_move_out_of_the_root_stays_neutral_when_feature_files_drop_stub_lines(self):
+    def test_a_move_out_of_the_root_is_counted_whole_when_feature_files_drop_stub_lines(self):
         # The feature side's removed `}` and `return 0` lines match the moved block's: they must not cut the block
-        # into runs too short to count as moved out of the root (each line not counted is free root budget).
+        # into runs too short to count as moved out of the root. Each line not counted would be a root shrink (-1)
+        # instead of root growth (+1, lead decision (b) item 2): free root budget either way.
         lines = swift_body(200, "delegate").splitlines(keepends=True)
+        moved = code(lines[40:136])
+        self.assertEqual(moved, 84)
         wire = swift_body(35, "wire")
         self.assertEqual(code(wire), guardrails.ROOT_BUDGET + 1)
         self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]) + wire)
         self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
         self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
         self.commit("84 lines out of AppDelegate, dead Quit code deleted, 31 new wiring lines")
-        found = self.assertRefused(f"the composition root grows +{code(wire)} source lines", "budget of +30")
-        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", 1)])
+        found = self.assertRefused(f"the composition root grows +{code(wire) + moved} source lines",
+                                   f"{moved} moved from the root into other App files count too", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", code(wire) + moved - guardrails.ROOT_BUDGET)])
         self.reset()
         self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]))
-        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
+        self.write(f"{KIT}/Delegate/DelegateParts.swift", "".join(lines[40:136]))
         self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
-        self.commit("control: the same move with no new wiring")
-        self.assertPasses("a move out of the root and a deletion")
+        self.commit("control: the same block moved into a package, with no new wiring")
+        self.assertPasses("a move out of the root into a package and a deletion")
 
     def test_a_small_file_renamed_whole_is_a_move(self):
         flag = "import Foundation\n\nlet quitFlag = true\n"
@@ -734,7 +747,9 @@ class AppSizeTests(Fixture):
         self.rebase_on({f"{APP}/AppServices+Flag.swift": "import Foundation\n\nlet appFlag = true\n"}, "a small root file")
         self.git("mv", f"{APP}/AppServices+Flag.swift", f"{APP}/Quit/Flag.swift")
         self.commit("a root file renamed into a feature folder")
-        self.assertPasses("a rename out of the root is neutral, however short: no root shrink, no feature growth")
+        # Its 2 lines left the root for an App file: root +2 (lead decision (b) item 2), within the budget; no
+        # feature growth and no App growth.
+        self.assertPasses("a short rename out of the root is moved whole: no feature growth, root +2 of its budget")
 
     def test_feature_logic_pasted_into_an_existing_app_services_file_is_refused(self):
         lines = swift_body(120, "textBox").splitlines(keepends=True)
@@ -828,12 +843,18 @@ class AppSizeTests(Fixture):
         self.commit("84 lines out of AppDelegate into TextBoxView, which drops a function and adds 3 lines")
         grows = code(box[8:] + lines[40:136]) + 3 + code(swift_body(10, "zoomMore")) - code(box) - code(lines[40:136])
         self.assertGreater(grows, 0)
-        self.assertWarned(f"App outside the root grows +{grows} source lines", "TextBox/TextBoxView.swift +3 new")
+        # The 84 moved lines are root growth (lead decision (b) item 2), not feature growth: the root refuses.
+        self.assertEqual([h.bucket for h in self.hits()], ["root"])
+        text = "\n".join(self.growth())
+        self.assertIn(f"App outside the root grows +{grows} source lines", text)
+        self.assertIn("TextBox/TextBoxView.swift +3 new", text)
 
     def test_a_file_s_own_re_indented_braces_beside_a_move_out_of_the_root_are_not_moved(self):
         # AppDelegate moves 10 lines into TextBoxView, re-indents 20 of its own statements and adds 25 wiring lines;
         # TextBoxView wraps its own 20 statements and the moved lines in `Task { @MainActor in ... }`. Each file's
-        # re-added `}` lines are its own: none moved out of the root (the wiring is +25, not +45), and none is new.
+        # re-added `}` lines are its own: none moved out of the root, and none is new. The 10 moved lines count
+        # against the root's budget (lead decision (b) item 2): root +25 - 10 + 2 * 10 = +35, exactly; each `}`
+        # wrongly taken as moved out of the root would add 2.
         def statements(tag, indent):
             pad = " " * indent
             return "".join(f"{pad}if {tag}Ready{i} {{\n{pad}    {tag}Start{i}()\n{pad}}}\n" for i in range(20))
@@ -851,29 +872,34 @@ class AppSizeTests(Fixture):
                    "        Task { @MainActor in\n" + "".join("    " + line for line in moved.splitlines(keepends=True))
                    + statements("textBox", 12) + "        }\n    }\n}\n")
         self.commit("10 lines out of AppDelegate, both files re-indent their own statements, 25 wiring lines")
-        self.assertWarned("App outside the root grows +2 source lines", "CmuxNextApp grows +27 source lines",
-                          "AppDelegate.swift +25 added, TextBox/TextBoxView.swift +2 new")
+        found = self.assertRefused("the composition root grows +35 source lines",
+                                   "10 moved from the root into other App files count too")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", 35 - guardrails.ROOT_BUDGET)])
+        text = "\n".join(self.growth())
+        for needle in ("App outside the root grows +2 source lines", "CmuxNextApp grows +27 source lines",
+                       "AppDelegate.swift +25 added, TextBox/TextBoxView.swift +2 new"):
+            self.assertIn(needle, text)
 
     def test_a_new_wrapper_around_a_block_moved_out_of_the_root_is_not_moved(self):
         # The block moved out of AppDelegate goes into a new `extension TextBoxView { ... }`. The wrapper's `}`
         # closes no opener of the block, so it is new feature code, not a line moved out of the root, even when the
         # root re-adds braces (a re-indented function of its own) that could pay for it: the wiring count is exact.
+        # The 84 moved lines count against the root's budget (lead decision (b) item 2): root = wiring + 84, and
+        # the wrapper's `}` wrongly taken as moved out of the root would make it wiring + 86.
         lines = swift_body(200, "delegate").splitlines(keepends=True)
+        moved = code(lines[40:136])
         own = ["  " + line if line.strip() else line for line in lines[:8]]
         block = "extension TextBoxView {\n" + "".join(lines[40:136]) + "}\n"
-        for wire, verdict in ((swift_body(34, "wire"), None), (swift_body(35, "wire"), ("root", 1))):
+        for wire in (swift_body(34, "wire"), swift_body(35, "wire")):
             with self.subTest(wiring=code(wire)):
                 self.reset()
                 self.write(f"{APP}/AppDelegate.swift", "".join(own + lines[8:40] + lines[136:]) + wire)
                 self.append(f"{APP}/TextBox/TextBoxView.swift", block)
                 self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
                 self.commit(f"84 lines out of AppDelegate into a new extension, {code(wire)} new wiring lines")
-                if verdict is None:
-                    self.assertEqual(code(wire), guardrails.ROOT_BUDGET)
-                    self.assertPasses("wiring exactly at the budget")
-                else:
-                    found = self.assertRefused(f"the composition root grows +{code(wire)} source lines")
-                    self.assertEqual([(h.bucket, h.excess) for h in found], [verdict])
+                found = self.assertRefused(f"the composition root grows +{code(wire) + moved} source lines")
+                self.assertEqual([(h.bucket, h.excess) for h in found],
+                                 [("root", code(wire) + moved - guardrails.ROOT_BUDGET)])
 
     def test_the_growth_summary_counts_a_file_s_own_re_added_lines_whatever_the_root_removed(self):
         # TextBoxView's `}` and `return 0` lines that its own removed lines explain are not new, whether or not the

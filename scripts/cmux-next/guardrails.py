@@ -34,7 +34,8 @@ Warnings (never refuse):
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
 counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way). It refuses
 when the root (top-level AppDelegate, CmuxNextApp and AppServices(+X).swift) adds more than ROOT_BUDGET lines per
-push (lines moved into it from feature files count; lines moved out are free), and when a new App file is
+push (lines moved into it from feature files count, and so do lines it moves into other App files; only a move
+into a package is free), and when a new App file is
 neither a move nor the push's one AppServices+<Domain>Host.swift of one-line forwards (outside the budget), so
 feature logic does not become wiring by moving into a root file, and when an existing App file gains a new
 top-level type that is not a move (the new-file rule's god-file dodge; a small private helper and
@@ -812,8 +813,9 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     file; a new top-level type in an existing App file is refused the same way (new_type_hits). Growth of the
     App as a whole (exactly check-app-size.sh --base's count: a split file's new import lines are growth there
     and here) and of the App outside the root are NetHit.warn hits: warnings, not refusals. Lines moved between
-    feature files (a git mv, a split) and out of the root are not growth; code moved into the root (a Host file
-    too) counts against the root's budget and gives the rest no shrink credit. CHANGES holds every Sources file:
+    feature files (a git mv, a split) are not growth; code moved into the root (a Host file too) counts against
+    the root's budget and gives the rest no shrink credit, and code moved out of the root into another App file
+    counts against the root's budget too (a move into a package is free). CHANGES holds every Sources file:
     package files' lost lines only make a new App file or type a move (placement); code moved into the App from
     a package is App growth all the same. MOVED is not used.
     """
@@ -959,18 +961,24 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         lines = new_lines[first.path] or first.added
         return first.path, lines[0].number if lines else 1, shown
 
-    # Code moved into the root counts against its wiring budget (a move does not make feature logic wiring); code
-    # moved out of it is free: neutral for the root and the rest. The push's one Host file (one-line forwards
-    # only, host_problem) is outside the budget; what it takes from feature files still gives them no credit.
-    root_net = net(root_files) + out_of_root
+    # Code moved into the root counts against its wiring budget (a move does not make feature logic wiring). Code
+    # moved out of the root into another App file counts against it too (lead decision (b), 2026-10-23): it is no
+    # root shrink, and wiring that leaves the root for a feature file is still App wiring, built outside the
+    # composition root (P1); only a move into a package (not an App file, so not in out_of_root) is the wanted
+    # direction and stays free. The feature files do not count those lines again. The push's one Host file
+    # (one-line forwards only, host_problem) is outside the budget; what it takes from feature files still gives
+    # them no credit.
+    root_net = net(root_files) + 2 * out_of_root
     other_net = net(other_files) + into_root - out_of_root
     wiring = root_net - (len(host.added) if host else 0)
     total = net(app)
     if wiring > ROOT_BUDGET:
         path, number, shown = top([f for f in root_files if f is not host] or root_files)
         besides = f" besides {app_rel(host.path)}'s {len(host.added)}" if host else ""
+        out = (f"; {out_of_root} moved from the root into other App files count too: move them to their package"
+               if out_of_root else "")
         hits.append(NetHit(path, number, f"the composition root grows {wiring:+d} source lines{besides}, over its "
-                           f"wiring budget of +{ROOT_BUDGET} per push ({shown})", "root", wiring - ROOT_BUDGET))
+                           f"wiring budget of +{ROOT_BUDGET} per push ({shown}{out})", "root", wiring - ROOT_BUDGET))
     # Growth warnings, not refusals, until the large domains are out of the App (see the values' comment above).
     if other_net > 0:
         path, number, shown = top(other_files)
@@ -1071,8 +1079,9 @@ RULES = (
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
-         f"push, moves into the root included, plus one Host file; new App files, and new top-level types in "
-         f"existing App files, only as moves; growth of the App and of its feature files warns)",
+         f"push, moves into the root and out of it into other App files included, plus one Host file; new App "
+         f"files, and new top-level types in existing App files, only as moves; growth of the App and of its "
+         f"feature files warns)",
          "the App re-emits its whole module on every edit and ends as the composition root only (cmuxApp, "
          "AppDelegate, AppServices wiring: about 5-10k lines, perf-lead.md \"Architecture targets\")",
          f"put the logic in its domain package ({DESIGN}); the root (top-level AppDelegate, CmuxNextApp, "
@@ -1082,9 +1091,9 @@ RULES = (
          "`extension AppServices: <Domain>Host { <one-line forwards> }`, no stored `let`/`var`); a new type goes "
          f"to its package, or to its own file, not into an existing App file (escape: `{TYPE_ESCAPE}`; a private "
          f"helper of <= {PRIVATE_TYPE_MAX} source lines may stay); moves between "
-         "feature files (git mv, a split; its new import lines are growth, as check-app-size.sh counts them) and "
-         "out of the root are not growth, moves into the root count against its budget; blank and comment lines "
-         "never count",
+         "feature files (git mv, a split; its new import lines are growth, as check-app-size.sh counts them) are "
+         "not growth; moves into the root, and out of it into another App file, count against its budget (out of "
+         "it into a package is free); blank and comment lines never count",
          None,
          app_size,
          scope=(SOURCES,),  # the App's files; package files only as the source of a type moved into the App
