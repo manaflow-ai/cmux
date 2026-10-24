@@ -227,8 +227,8 @@ import Testing
         let refusal = Data(#"{"id":\#(secondID),"ok":false,"error":"surface 4 not found"}"#.utf8) + Data([0x0A])
         _ = refusal.withUnsafeBytes { write(fixture.daemon, $0.baseAddress, $0.count) }
         await #expect(throws: (any Error).self) { try await refused.value }
-        var poll = pollfd(fd: fixture.daemon, events: Int16(POLLIN), revents: 0)
-        #expect(poll(&poll, 1, 200) == 0, "a refused attach sends no cancel")
+        var readable = pollfd(fd: fixture.daemon, events: Int16(POLLIN), revents: 0)
+        #expect(Darwin.poll(&readable, 1, 200) == 0, "a refused attach sends no cancel")
     }
 
     @Test func aStreamEndWithReasonOverflowClosesTheViewAsAnOverflow() async throws {
