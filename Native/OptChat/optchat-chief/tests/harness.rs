@@ -824,6 +824,67 @@ fn the_session_settings_carry_the_users_settings_env() {
     );
 }
 
+/// Claude Code's retention sweep covers every project of the configuration
+/// it runs on: a `cleanupPeriodDays` in a Chief turn's or subagent's project
+/// settings deleted the person's own chat transcripts in ~/.claude when that
+/// turn ran on it (claude-sr, a subagent). No project settings carry one, and
+/// a file an earlier host wrote loses it at the next cache write.
+#[test]
+fn no_project_settings_carry_a_transcript_retention() {
+    use optchat_chief::prompt::{CacheTtl, Tools};
+    use optchat_chief::session_dir::{
+        SessionSetup, set_session_cache, settings_json, write, write_subagent,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: Default::default(),
+        profile_tool: false,
+        chiefs_tool: false,
+    };
+    assert!(
+        settings_json(&setup, &paths, &[])
+            .get("cleanupPeriodDays")
+            .is_none()
+    );
+    write(&paths, &setup).unwrap();
+    write_subagent(&paths, &setup, "subagent").unwrap();
+    let read = |path: std::path::PathBuf| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    };
+    for project in [&paths.session, &paths.subagent] {
+        for name in ["settings.json", "settings.local.json"] {
+            let settings = read(project.join(".claude").join(name));
+            assert!(
+                settings.get("cleanupPeriodDays").is_none(),
+                "{}/{name}: {settings}",
+                project.display()
+            );
+        }
+    }
+    for name in ["settings.json", "settings.local.json"] {
+        std::fs::write(
+            paths.session.join(".claude").join(name),
+            r#"{"cleanupPeriodDays": 2, "autoMemoryEnabled": false}"#,
+        )
+        .unwrap();
+    }
+    set_session_cache(&paths.session, CacheTtl::OneHour, false).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let settings = read(paths.session.join(".claude").join(name));
+        assert!(
+            settings.get("cleanupPeriodDays").is_none(),
+            "{name}: {settings}"
+        );
+        assert_eq!(settings["autoMemoryEnabled"], false, "the other keys stay");
+    }
+}
+
 /// The session's project settings may hold the user's settings env (an
 /// API token among it): both settings files are the user's alone (0600);
 /// the copy happens only on a macOS host (the user's own Mac, never a Linux

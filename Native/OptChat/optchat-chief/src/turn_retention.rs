@@ -94,6 +94,13 @@ mod tests {
         let user = tempfile::tempdir().unwrap();
         let paths = Paths::new(root.path());
         let retention = TurnRetention::new(&paths, user.path());
+        // The subagents' project, which no settings expire any more.
+        let subagent = crate::compactor::project_dir_name(&paths.subagent);
+        assert!(
+            retention
+                .roots
+                .contains(&user.path().join("projects").join(&subagent))
+        );
         for dir in &retention.roots {
             std::fs::create_dir_all(dir.join("day")).unwrap();
             std::fs::write(dir.join("day/turn.jsonl"), "private turn").unwrap();
