@@ -28,6 +28,18 @@ public protocol PaneMotionSettling: NSView {
     func paneMotionDidSettle()
 }
 
+/// A view inside a ``RestingPlacement`` that wants its final size when a layout spring starts (or retargets,
+/// a press during the motion), not when it lands: a terminal sends its final grid to its PTY at the start
+/// of a split or close and draws each frame's size meanwhile. Called once per start or retarget, never per
+/// frame, and never for a placement that only moves.
+@MainActor
+public protocol PaneMotionTargeting: NSView {
+    /// The enclosing placement's content area will rest `sizeChange` larger (negative: smaller) than it is
+    /// now, in points; the pane chrome around this view does not change size during a spring, so this
+    /// view's final size is `bounds.size + sizeChange`.
+    func paneMotionWillRest(sizeChange: CGSize)
+}
+
 /// A window whose chrome resizes the content area over several frames: the sidebar sliding
 /// open or closed moves the content edge on every display frame of its width animation, which
 /// resizes every pane in it. Content whose resize is costly defers it to the landing, as it
@@ -49,6 +61,13 @@ public extension NSView {
             ancestor = view.superview
         }
         return false
+    }
+
+    /// Tells every ``PaneMotionTargeting`` view in this subtree (this view included) the size change its
+    /// placement's spring will rest at.
+    func notifyPaneMotionWillRest(sizeChange: CGSize) {
+        if let targeting = self as? PaneMotionTargeting { targeting.paneMotionWillRest(sizeChange: sizeChange) }
+        for subview in subviews { subview.notifyPaneMotionWillRest(sizeChange: sizeChange) }
     }
 
     /// Tells every ``PaneMotionSettling`` view in this subtree (this view included) that its
