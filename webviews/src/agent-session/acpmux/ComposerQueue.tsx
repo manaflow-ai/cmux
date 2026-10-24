@@ -42,6 +42,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
+import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
@@ -140,6 +141,7 @@ export function ComposerQueue({
   pauseReason,
   t,
   onRemove,
+  onCancelEdit,
   onChange,
   onLost,
   onLeave,
@@ -157,6 +159,8 @@ export function ComposerQueue({
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
+  /// Pulls a queued prompt into the composer, preserving its text and images.
+  onCancelEdit?(id: string, text: string, attachments: ComposerAttachment[]): Promise<boolean>;
   /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
   onChange?(id: string, edit: QueueEdit): Promise<boolean>;
   /// An edit of a prompt that started meanwhile: its text goes back to the prompt, so it is kept.
@@ -332,6 +336,25 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
+  const cancelEdit =
+    onCancelEdit &&
+    (async (entry: QueuedEntry) => {
+      if (entry.message) return;
+      const attachments = await Promise.all(
+        (entry.images ?? []).map(async (image): Promise<ComposerAttachment> => {
+          const src = image.src ?? (readImage ? await readImage(image.id) : undefined);
+          return {
+            id: image.id,
+            kind: "image",
+            name: image.name ?? "image",
+            mimeType: image.mimeType,
+            size: 0,
+            ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
+          };
+        }),
+      );
+      await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
+    });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
   const sideChat =
     onSideChat &&
@@ -484,6 +507,18 @@ export function ComposerQueue({
           >
             <Icon name="composer.steer" size={14} />
             <span>{t("composer.queueSteer")}</span>
+          </button>
+        )}
+        {cancelEdit && !entry.message && (
+          <button
+            type="button"
+            className="acpmux-queued-action"
+            data-action="cancel-edit"
+            aria-label={t("message.edit")}
+            title={t("message.edit")}
+            onClick={() => void cancelEdit(entry)}
+          >
+            <Icon name="action.close" size={14} />
           </button>
         )}
         {remove && (
