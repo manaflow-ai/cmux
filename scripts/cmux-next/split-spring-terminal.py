@@ -30,12 +30,8 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, require_gui_session  # noqa: E402
 
-# Every suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
-# without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout.
-if "--suite=pane-bench" not in sys.argv:
-    require_gui_session("split-spring")
 # `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is
-# this worker able to run GUI benches at all.
+# this worker able to run GUI benches at all. Dispatched before the session gate: `check` names no-gui-session itself.
 if "--suite=launch-check" in sys.argv:
     def _flag(name, default=None):
         for i, a in enumerate(sys.argv):
@@ -49,6 +45,19 @@ if "--suite=launch-check" in sys.argv:
     if _flag("--json"):
         rest += ["--json", _flag("--json")]
     os.execv(sys.executable, [sys.executable, suite] + rest)
+# Every other suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
+# without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout (the
+# build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
+if "--suite=pane-bench" not in sys.argv:
+    require_gui_session("split-spring")
+# `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
+if "--suite=bench-smoke" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
+if "--suite=open-panel" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
@@ -273,13 +282,16 @@ def cleanup():
 def main():
     global app, SOCKET
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
-                     env={"CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty")})
+    # CMUX_NEXT_NO_ACTIVATE stays unset, as before bench_launch.py: the app activates and its window is key, so these
+    # split-spring rows stay comparable with the earlier ones (an inactive app's terminals are unfocused).
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
+                     env={"CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
+                          "CMUX_NEXT_NO_ACTIVATE": None})
     try:
-        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
-        app = bench.process
-    SOCKET = bench.socket
+        app = launcher.process
+    SOCKET = launcher.socket
     print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
           flush=True)
     time.sleep(5)  # test harness: launch work settles

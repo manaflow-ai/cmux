@@ -161,6 +161,10 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swift_packages_linux_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 

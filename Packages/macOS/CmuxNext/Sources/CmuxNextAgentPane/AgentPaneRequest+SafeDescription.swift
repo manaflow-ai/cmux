@@ -12,6 +12,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         switch self {
         case .ready: "ready"
         case .reconnect: "reconnect"
+        case .uiPointerReport: "uiPointerReport"
         case .persistSession: "persistSession"
         case .missingChat: "missingChat"
         case .unsentDraft: "unsentDraft"
@@ -52,7 +53,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chatsPage: "chatsPage"
         case .environment: "environment"
         case .appAction: "appAction"
-        case .paneAction: "paneAction"
+        case .paneAction, .diffTurn: "paneAction"
         case .preview: "preview"
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"

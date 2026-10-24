@@ -939,15 +939,6 @@ impl crate::browser_policy::MacPages for ServiceConfig {
     }
 }
 
-impl ServiceConfig {
-    /// The app's daemon socket (`default_socket`, else the default session's).
-    fn daemon_socket(&self) -> PathBuf {
-        self.default_socket
-            .clone()
-            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
-    }
-}
-
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
 async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
     daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-upload\"}\n", "cmux-mobile-upload")

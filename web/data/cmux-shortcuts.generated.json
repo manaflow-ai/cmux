@@ -7823,6 +7823,15 @@
           "aliases": []
         },
         {
+          "id": "agentPane.togglePointerInspector",
+          "title": {
+            "en": "Point at cmux UI"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "palette.quickAgentChat",
           "title": {
             "en": "Start Agent…",
@@ -8386,27 +8395,27 @@
         {
           "id": "openTeamPicker",
           "title": {
-            "en": "Team Picker…",
-            "ar": "منتقي الفريق…",
-            "bs": "Odabir tima…",
-            "da": "Teamvælger…",
-            "de": "Team auswählen…",
-            "es": "Selector de equipo…",
-            "fr": "Sélecteur d’équipe…",
-            "it": "Selettore team…",
-            "ja": "チームを選択…",
-            "km": "ជ្រើសក្រុម…",
-            "ko": "팀 선택…",
-            "no": "Teamvelger…",
-            "pl": "Wybór zespołu…",
-            "pt-BR": "Seletor de Equipe…",
-            "ru": "Выбор команды…",
-            "th": "ตัวเลือกทีม…",
-            "tr": "Ekip Seçici…",
-            "uk": "Вибір команди…",
-            "vi": "Chọn nhóm…",
-            "zh-CN": "团队选择器…",
-            "zh-TW": "選擇團隊…"
+            "en": "Switch Active Team…",
+            "ar": "تبديل الفريق النشط…",
+            "bs": "Promijeni aktivni tim…",
+            "da": "Skift aktivt team…",
+            "de": "Aktives Team wechseln…",
+            "es": "Cambiar equipo activo…",
+            "fr": "Changer d’équipe active…",
+            "it": "Cambia team attivo…",
+            "ja": "アクティブなチームを切り替え…",
+            "km": "ប្ដូរក្រុមសកម្ម…",
+            "ko": "활성 팀 전환…",
+            "no": "Bytt aktivt team…",
+            "pl": "Zmień aktywny zespół…",
+            "pt-BR": "Trocar equipe ativa…",
+            "ru": "Сменить активную команду…",
+            "th": "สลับทีมที่ใช้งานอยู่…",
+            "tr": "Etkin ekibi değiştir…",
+            "uk": "Змінити активну команду…",
+            "vi": "Chuyển nhóm đang dùng…",
+            "zh-CN": "切换当前团队…",
+            "zh-TW": "切換目前團隊…"
           },
           "shortcut": {
             "key": "t",

@@ -11,10 +11,12 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
+    let deliveryID: UInt64?
 
-    public init(kind: String, value: JSONValue = .null) {
+    public init(kind: String, value: JSONValue = .null, deliveryID: UInt64? = nil) {
         self.kind = kind
         self.value = value
+        self.deliveryID = deliveryID
     }
 
     /// The stream event: `{kind, value}`.

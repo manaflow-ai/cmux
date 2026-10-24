@@ -144,6 +144,7 @@ impl ConversationStore {
                     .with_context(|| format!("open conversation store {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict conversation store {}", path.display()))?;
+                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
                 connection
             }
             None => Connection::open_in_memory()?,
@@ -157,9 +158,7 @@ impl ConversationStore {
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL

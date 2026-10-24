@@ -39,12 +39,15 @@ function probeElement(props: ProbeProps) {
 }
 
 function SessionProbe({ epoch, checkCwd }: { epoch: number; checkCwd: ProbeProps["checkCwd"] }) {
+  // A stream update can replace the action callback while the session's
+  // lifecycle inputs remain unchanged. The check must stay once per epoch.
+  const streamUpdatedCheck = (cwd: string) => checkCwd(cwd);
   useSessionCwdCheck({
     ready: true,
     connectionEpoch: epoch,
     phase: "chat",
     session: { id: "test", cwd: "/repo", provider: "codex", title: "test", status: "idle" },
-    checkCwd,
+    checkCwd: streamUpdatedCheck,
   });
   return null;
 }
@@ -140,10 +143,22 @@ try {
   assert.deepEqual(fallbackCalls, [], "a committed cwd failure must not reset a newer draft");
   requests.length = 0;
   act(() => { renderer!.update(createElement(SessionProbe, { epoch: 1, checkCwd })); });
-  act(() => { renderer!.update(createElement(SessionProbe, { epoch: 1, checkCwd })); });
-  assert.deepEqual(requests, ["/repo"], "session checks run once for the current connection");
+  for (let event = 0; event < 8; event += 1) {
+    act(() => { renderer!.update(createElement(SessionProbe, { epoch: 1, checkCwd })); });
+  }
+  assert.deepEqual(requests, ["/repo"], "stream renders must not repeat the session check");
   act(() => { renderer!.update(createElement(SessionProbe, { epoch: 2, checkCwd })); });
   assert.deepEqual(requests, ["/repo", "/repo"], "reconnect revalidates the same session directory");
+  let unavailableCalls = 0;
+  const unavailableCheck = (): CwdHarnessRequest | null => {
+    unavailableCalls += 1;
+    return null;
+  };
+  act(() => { renderer!.update(createElement(SessionProbe, { epoch: 3, checkCwd: unavailableCheck })); });
+  for (let event = 0; event < 8; event += 1) {
+    act(() => { renderer!.update(createElement(SessionProbe, { epoch: 3, checkCwd: unavailableCheck })); });
+  }
+  assert.equal(unavailableCalls, 1, "a stream render must not retry an unavailable lifecycle check");
   console.log("cwd validation: 30-character burst, commit, stale failure, newer draft and reconnect: OK");
 } finally {
   if (renderer) act(() => renderer!.unmount());

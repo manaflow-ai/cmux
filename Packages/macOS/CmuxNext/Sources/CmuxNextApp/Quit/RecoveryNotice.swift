@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// the draft, the toast says so; a draft never overwrites a file silently.
 @MainActor
 enum RecoveryNotice {
-    static func show(store: RecoveryDraftStore = .shared, toasts: CmuxToastCenter = .shared, in window: NSWindow) async {
+    static func show(store: RecoveryDraftStore, toasts: CmuxToastCenter = .shared, in window: NSWindow) async {
         for draft in await store.drafts() {
             let message = await message(for: draft, store: store)
             let action = store.restoreHandler.map { _ in CmuxToast.Action(title: QuitStrings.recoveredOpen) }

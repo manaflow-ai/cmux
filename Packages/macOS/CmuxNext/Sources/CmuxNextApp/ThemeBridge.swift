@@ -19,33 +19,34 @@ enum ThemeBridge {
         GhosttyRuntime.themeEdits.accent(for: name).flatMap { ThemeRGB(cssHex: $0) }
     }
 
-    static func start() {
+    /// Feeds `store` (the app's, from the composition root) the Ghostty config now and on every reload.
+    static func start(store: ThemeStore) {
         let runtime = GhosttyRuntime.shared
         let previous = runtime.onConfigChange
-        runtime.onConfigChange = {
+        runtime.onConfigChange = { [weak store] in
             previous?()
-            apply(runtime)
+            if let store { apply(runtime, to: store) }
         }
-        apply(runtime)
+        apply(runtime, to: store)
     }
 
     /// Applies the config's colors again, for a change only cmux reads (a theme's accent).
-    static func refresh() { apply(GhosttyRuntime.shared) }
+    static func refresh(store: ThemeStore) { apply(GhosttyRuntime.shared, to: store) }
 
     /// Repaints with cmux.json's window background over the config files' own opacity and blur,
     /// ahead of the config reload that brings the terminals along (an Opacity slider step).
-    static func repaintBackground() {
-        var input = ThemeStore.shared.input
+    static func repaintBackground(store: ThemeStore) {
+        var input = store.input
         (input.backgroundOpacity, input.backgroundBlur) = GhosttyRuntime.backgroundOverride.resolved(
             backgroundOpacity: GhosttyConfigBackground.loaded.opacity, backgroundBlur: GhosttyConfigBackground.loaded.blur)
-        ThemeStore.shared.apply(input)
+        store.apply(input)
     }
 
-    private static func apply(_ runtime: GhosttyRuntime) {
+    private static func apply(_ runtime: GhosttyRuntime, to store: ThemeStore) {
         let dim = unfocusedPaneDim(runtime.unfocusedSplit)
         if DesignSettings.shared.unfocusedPaneDim != dim { DesignSettings.shared.unfocusedPaneDim = dim }
         guard let colors = runtime.themeColors else { return }
-        ThemeStore.shared.apply(input(colors, background: GhosttyRuntime.backgroundOverride,
+        store.apply(input(colors, background: GhosttyRuntime.backgroundOverride,
                                       accent: GhosttyRuntime.themeName.flatMap(accent)))
     }
 

@@ -17,9 +17,11 @@
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
+    "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
-    "CmuxUpdater": "Packages/macOS/CmuxUpdater"
+    "CmuxUpdater": "Packages/macOS/CmuxUpdater",
+    "CmuxVNC": "Packages/Shared/CmuxVNC"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -32,11 +34,13 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
       "targets": [
+        "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextDesign",
         "CmuxNextIcons"
       ],
       "packages": [
+        "CMUXAuthCore",
         "CmuxAgentBrands"
       ]
     },
@@ -260,6 +264,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextDevices",
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFeed",
@@ -279,6 +284,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
+        "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
         "CmuxNextMobileHost",
@@ -296,6 +302,7 @@
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
+        "CmuxNextRemoteViewSessions",
         "CmuxNextResources",
         "CmuxNextScreenshots",
         "CmuxNextServer",
@@ -376,10 +383,13 @@
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
         "CmuxNextLayout",
+        "CmuxNextMacScreen",
         "CmuxNextNowPlaying",
+        "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
+        "CmuxNextRemoteViewSessions",
         "CmuxNextScreenshots",
         "CmuxNextSignposts",
         "CmuxNextStash",
@@ -398,9 +408,11 @@
         "CmuxHomeRender",
         "CmuxInstallAuthCore",
         "CmuxMessagesLab",
-        "CmuxUpdater"
+        "CmuxUpdater",
+        "CmuxVNC"
       ],
       "reads": [
+        ".git/config",
         "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Resources/cmux-themes/",
@@ -842,6 +854,25 @@
         "CmuxTheme"
       ]
     },
+    "CmuxNextDevices": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDevices",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDevicesTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDevicesTests",
+      "targets": [
+        "CmuxNextDevices",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextDictation": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDictation",
@@ -1131,6 +1162,23 @@
       ],
       "packages": []
     },
+    "CmuxNextMacScreen": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextDevices",
+        "CmuxNextRemoteView",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxScreenKit"
+      ]
+    },
     "CmuxNextMallocZone": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMallocZone",
@@ -1412,6 +1460,22 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextRemoteViewSessions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteView",
+        "CmuxNextSettings"
+      ],
+      "packages": [
+        "CmuxVNC"
+      ]
     },
     "CmuxNextRemoteViewTests": {
       "kind": "test",

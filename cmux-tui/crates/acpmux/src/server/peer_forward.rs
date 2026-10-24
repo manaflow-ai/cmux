@@ -30,6 +30,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // Briefs are daemon-scoped and dispatch selects its peer explicitly.
+    method::MUX_DISPATCH,
+    method::MUX_STEER,
+    method::MUX_BRIEFS,
+    method::MUX_REPORT,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
@@ -122,6 +127,12 @@ async fn forward_inner(
             if !peer.supports_file_put() {
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
+        }
+        // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+            && !peer.supports_media_read()
+        {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {

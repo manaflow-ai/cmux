@@ -100,6 +100,17 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
+//     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
+//     host approval prompt, Settings > Devices state; CmuxScreenKit links WebRTC.framework)
+//   CmuxNextDevices -> Compat, Wakeups (the device hub: Secure Enclave device identity, the signed
+//     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
+//     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
+//   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; CmuxNextRemoteViewSessions adapts it to the pane
+//     as a RemoteViewFrameSource for `via=vnc` records; remote-desktop.md 12)
+//   CmuxNextRemoteViewSessions -> Compat, Design, Icons, Settings, Browser, RemoteView, RemoteBrowser, CmuxVNC,
+//     CmuxVNCDemoServer (the remote_view browser tab and, in DEV builds, its live part: the mock desktop, the rd debug host, and `via=vnc`
+//     with its source, input sink, saved sign-ins and sign-in sheet; the App makes one per tab)
 //   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
 //     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
 //   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
@@ -184,6 +195,9 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
+        .package(path: "../../Shared/CmuxVNC"),
+        .package(path: "../../Shared/CmuxScreenKit"),
         // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
         // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
         .package(path: "../../Shared/CmuxSentryTelemetry"),
@@ -285,6 +299,9 @@ let package = Package(
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
                 "CmuxNextRemoteBrowser",
+                "CmuxNextMacScreen",
+                "CmuxNextDevices",
+                "CmuxNextRemoteViewSessions",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextAgentIntegrations",
@@ -406,7 +423,8 @@ let package = Package(
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                           .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
                 // BillingStrings (table Billing): moved from the App with Billing/ in B1.
@@ -1020,6 +1038,46 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The live part of a remote_view tab (DEV builds): the mock desktop,
+        // the rd debug host, and `via=vnc` (CmuxVNC as the pane's frame source
+        // and input sink, the Keychain sign-ins and the sign-in sheet).
+        .target(
+            name: "CmuxNextRemoteViewSessions",
+            dependencies: [
+                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextBrowser", "CmuxNextRemoteView",
+                "CmuxNextRemoteBrowser",
+                .product(name: "CmuxVNC", package: "CmuxVNC"),
+                .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Mac Screen tabs: another Mac's screen over a CmuxScreenKit stream
+        // (WebRTC video, input on data channels), the pairing home page and
+        // Share This Mac. Input capture comes from CmuxNextRemoteView.
+        .target(
+            name: "CmuxNextMacScreen",
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The device hub (docs/device-hub/PROTOCOL.md): this device's Secure
+        // Enclave identity, the device-signed HTTP client, the User DO socket,
+        // relay secret sealing and the DeviceHub model the UI reads. No UI.
+        .target(
+            name: "CmuxNextDevices",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextDevicesTests",
+            dependencies: ["CmuxNextDevices", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
             dependencies: ["CmuxNextRemoteView"],
@@ -1535,10 +1593,13 @@ let package = Package(
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
                 "CmuxNextLayout",
+                "CmuxNextMacScreen",
                 "CmuxNextNowPlaying",
+                "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
+                "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
@@ -1558,6 +1619,7 @@ let package = Package(
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
+                .product(name: "CmuxVNC", package: "CmuxVNC"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
