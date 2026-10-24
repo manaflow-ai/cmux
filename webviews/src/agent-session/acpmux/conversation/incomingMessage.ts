@@ -78,12 +78,13 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
 }
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks
-/// (a heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
-/// preview.
+/// (a heading's or quote's or list item's lead, emphasis, code ticks, a link's target) dropped: the
+/// closed line's preview (IncomingMessageCard.tsx in Minimal Mode).
 export function messagePreview(text: string): string {
   const line = text.split("\n").find((part) => part.trim()) ?? "";
   return line
     .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
+    .replace(/!?\[([^\]\n]*)\]\([^)\s]*\)/g, "$1")
     .replace(/(\*\*|__|`)/g, "")
     .replace(/\s+/g, " ")
     .trim()

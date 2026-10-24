@@ -511,6 +511,10 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
   expect(messagePreview("- [x] landed")).toBe("landed");
   expect(messagePreview("x".repeat(400))).toHaveLength(240);
+  // A link reads as its label: Minimal Mode's closed line shows no URL.
+  expect(messagePreview("Opened [#24772](https://github.com/manaflow-ai/cmux/pull/24772) for review")).toBe(
+    "Opened #24772 for review",
+  );
 });
 
 // `acpmux send` relayed from another machine records no provenance (`client: "acpmux-peer#…"`), so

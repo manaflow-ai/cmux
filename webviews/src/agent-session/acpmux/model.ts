@@ -1189,6 +1189,8 @@ function measuredRowHeight(
   // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
   if (row.incoming?.kind === "message") {
+    // In Minimal Mode the closed message is its line alone, images too (opened, the row measures itself).
+    if (chatDisplay().minimal) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
@@ -1407,7 +1409,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics } from "./chatDisplay";
+import { chatDisplay, currentChatMetrics } from "./chatDisplay";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(
