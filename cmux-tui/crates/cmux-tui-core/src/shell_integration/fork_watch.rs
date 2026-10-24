@@ -257,9 +257,11 @@ fn counts_posix_spawn_of_its_process() {
     assert_eq!(watch.counts().forks, 0);
     for expected in 1..=3 {
         stdin.write_all(b"go\n").unwrap();
-        // The test harness prints its own lines around the helper's.
+        // The test harness prints its own lines around the helper's; with
+        // --test-threads=1 libtest writes `test <name> ... ` with no newline
+        // before the test runs, so the first SPAWNED ends that line.
         let mut said = String::new();
-        while said.trim_end() != SPAWNED {
+        while !said.trim_end().ends_with(SPAWNED) {
             said.clear();
             assert_ne!(stdout.read_line(&mut said).unwrap(), 0, "the spawn helper exited");
         }
