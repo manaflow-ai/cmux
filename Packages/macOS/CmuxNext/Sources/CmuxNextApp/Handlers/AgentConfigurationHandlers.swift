@@ -82,11 +82,16 @@ enum AgentConfigurationHandlers {
                         choices[id] = ActionEnumCase(value: id, title: model["name"]?.stringValue ?? id)
                     }
                 }
-                let rows = choices
-                modelsByHarness[harnessID] = rows
-                if let short = harnessID.split(separator: "/").last.map(String.init) { modelsByHarness[short] = rows }
+                modelsByHarness[harnessID] = choices
             }
-            store.modelsByHarness = modelsByHarness.mapValues { choices in
+            var aliases: [String: [String: ActionEnumCase]] = [:]
+            var collisions = Set<String>()
+            for (harnessID, choices) in modelsByHarness {
+                guard let short = harnessID.split(separator: "/").last.map(String.init) else { continue }
+                if aliases[short] != nil { collisions.insert(short) } else { aliases[short] = choices }
+            }
+            for collision in collisions { aliases[collision] = nil }
+            store.modelsByHarness = modelsByHarness.merging(aliases) { current, _ in current }.mapValues { choices in
                 choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             }
         }
