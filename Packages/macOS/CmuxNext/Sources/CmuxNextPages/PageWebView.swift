@@ -88,8 +88,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
     private var reduceMotionObservers: [MainActorObservation] = []
-    /// The window's occlusion changes (PageWebView+Visibility.swift): a covered page gets no events.
-    var occlusionObservation: Task<Void, Never>?
     /// Whether the page's events wait while nobody can see it (PageWebView+Visibility.swift). True
     /// for every page but one whose owner paces its own events and knows which ones a hidden page
     /// waits on: the agent pane (`AgentPaneFramePacer`: a reply, `prompt_accepted`, a turn's end go
@@ -397,7 +395,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             statusLookObservation?.cancel()
-            occlusionObservation?.cancel()
         }
     }
 
@@ -570,7 +567,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
-        followWindowOcclusion()
+        updatePageVisibility()
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {

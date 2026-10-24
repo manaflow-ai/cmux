@@ -146,17 +146,16 @@ struct PageRouterHiddenPageTests {
         #expect(two.components(separatedBy: "try {").count == 3)
     }
 
-    /// The page view's rule: out of a window or hidden is hidden; the window's occlusion counts
-    /// unless an automation launch ignores it.
+    /// The page view's rule: out of a window or hidden is hidden.
     @Test func nobodySeesAPageOutOfAWindowOrHidden() {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
-        #expect(PageWebView.nobodySees(view, ignoringOcclusion: true))
+        #expect(PageWebView.nobodySees(view))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.contentView?.addSubview(view)
-        #expect(!PageWebView.nobodySees(view, ignoringOcclusion: true))
+        #expect(!PageWebView.nobodySees(view))
         window.contentView?.isHidden = true
-        #expect(PageWebView.nobodySees(view, ignoringOcclusion: true))
+        #expect(PageWebView.nobodySees(view))
     }
 }
 

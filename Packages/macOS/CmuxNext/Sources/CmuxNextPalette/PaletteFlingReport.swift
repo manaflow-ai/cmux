@@ -27,5 +27,18 @@ public struct PaletteFlingReport: Sendable, Equatable {
 
     /// Intervals longer than 1.5 refreshes: each one at least one refresh the list did not move.
     public var longFrames: Int { intervalsMs.filter { $0 > 1.5 * refreshMs }.count }
+
+    /// The nearest-rank `fraction` quantile (0 to 1) of ``intervalsMs``; nil with no frame.
+    public func intervalPercentileMs(_ fraction: Double) -> Double? { nearestRank(intervalsMs, fraction) }
+
+    /// The nearest-rank `fraction` quantile (0 to 1) of ``workMs``; nil with no frame.
+    public func workPercentileMs(_ fraction: Double) -> Double? { nearestRank(workMs, fraction) }
+}
+
+/// The nearest-rank `fraction` quantile of `values`; nil when empty.
+private func nearestRank(_ values: [Double], _ fraction: Double) -> Double? {
+    guard !values.isEmpty else { return nil }
+    let sorted = values.sorted()
+    return sorted[min(sorted.count - 1, max(0, Int((fraction * Double(sorted.count)).rounded(.up)) - 1))]
 }
 #endif

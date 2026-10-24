@@ -299,10 +299,29 @@ final class AppControl {
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
             // `debug.palette.fling {seconds?, px?, pointer?}`: flings the open palette's list under a
-            // resting pointer, with no real input (DebugPaletteFling, bench-palette-fling.py).
+            // resting pointer, with no real input (PaletteController.debugFling, bench-palette-fling.py):
+            // `seconds` (default 1, at most 1.5) from the first refresh, `px` points per refresh
+            // (default 24, about one row), `pointer` the pointer's place as a fraction of the list's
+            // height (default 0.5). Answers the main thread's frame intervals, the synchronous work per
+            // frame, hover changes and misses, and the whole-palette renders the fling caused.
             .async("debug.palette.fling") { [weak services] call in
                 guard let services else { return .null }
-                return await DebugPaletteFling(services: services).run(call.params)
+                let params = call.params
+                guard let report = await services.palette.debugFling(seconds: params["seconds"]?.doubleValue ?? 1,
+                                                                      pointsPerFrame: params["px"]?.doubleValue ?? 24,
+                                                                      pointerFraction: params["pointer"]?.doubleValue ?? 0.5)
+                else { return ["error": "the palette is not open"] }
+                let number = { (value: Double?) -> JSONValue in value.map { .number($0) } ?? .null }
+                return .object([
+                    "frames": .number(Double(report.intervalsMs.count)), "p50_ms": number(report.intervalPercentileMs(0.5)),
+                    "p95_ms": number(report.intervalPercentileMs(0.95)), "max_ms": number(report.intervalPercentileMs(1)),
+                    "long_frames": .number(Double(report.longFrames)), "refresh_ms": .number(report.refreshMs),
+                    "display_fps": number(services.palette.visiblePanel?.screen.map { Double($0.maximumFramesPerSecond) }),
+                    "intervals_ms": .array(report.intervalsMs.map { .number($0) }),
+                    "work_p95_ms": number(report.workPercentileMs(0.95)), "work_max_ms": number(report.workPercentileMs(1)),
+                    "scrolled_pt": .number(report.scrolledPoints), "hover_changes": .number(Double(report.hoverChanges)),
+                    "hover_misses": .number(Double(report.hoverMisses)), "palette_renders": .number(Double(report.paletteRenders)),
+                ])
             },
             // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
             // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.

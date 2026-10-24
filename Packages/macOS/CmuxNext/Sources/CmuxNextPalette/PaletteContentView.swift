@@ -38,10 +38,14 @@ final class PaletteContentView: NSView {
         set { recorderView.onChoose = newValue }
     }
 
+    /// The whole-palette render's tracking (``renderScheduled``).
+    private let renderChange = PaletteObservedChange()
+    /// The hover's tracking (``hoverScheduled``).
+    private let hoverChange = PaletteObservedChange()
     /// A model change scheduled a whole-palette render (set as the change happens; tests).
-    private(set) var renderScheduled = false
+    var renderScheduled: Bool { renderChange.isPending }
     /// A hover change waits for ``applyScheduledHover()`` (set as the change happens).
-    private(set) var hoverScheduled = false
+    var hoverScheduled: Bool { hoverChange.isPending }
     #if DEBUG
     /// Whole-palette renders so far (``PaletteFlingProbe`` reports how many a fling caused).
     private(set) var debugRenders = 0
@@ -122,14 +126,7 @@ final class PaletteContentView: NSView {
     // MARK: Rendering
 
     private func observe() {
-        renderScheduled = false
-        withObservationTracking {
-            render()
-        } onChange: { [weak self] in
-            // main-proof: the model is main-actor state; Observation calls onChange in its willSet
-            MainActor.assumeIsolated { self?.renderScheduled = true }
-            Task { @MainActor [weak self] in self?.observe() }
-        }
+        renderChange.track({ render() }, then: { [weak self] in self?.observe() })
     }
 
     /// Hover has its own tracking, apart from `render()`: a scroll slides rows under a resting
@@ -137,14 +134,7 @@ final class PaletteContentView: NSView {
     /// about once per row of travel, nearly every frame of a fling. A hover change touches the two
     /// row views it moves between; it never re-renders the search bar, footer, menus or layout.
     private func observeHover() { // perf-hot: 0.2ms (one hover change per row of scroll travel; touches two row views only)
-        hoverScheduled = false
-        withObservationTracking {
-            list.setHover(model.hoveredRowID)
-        } onChange: { [weak self] in
-            // main-proof: the model is main-actor state; Observation calls onChange in its willSet
-            MainActor.assumeIsolated { self?.hoverScheduled = true }
-            Task { @MainActor [weak self] in self?.applyScheduledHover() }
-        }
+        hoverChange.track({ list.setHover(model.hoveredRowID) }, then: { [weak self] in self?.applyScheduledHover() })
     }
 
     /// Applies a hover change that waits (the observation hop runs it; tests call it at once).
