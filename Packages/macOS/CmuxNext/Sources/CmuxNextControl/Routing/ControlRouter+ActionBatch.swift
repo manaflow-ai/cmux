@@ -3,7 +3,7 @@ public import CmuxNextSettings
 import Foundation
 
 /// `action.batch`: many app actions in one request (CLAUDE.md "Go past Chrome where cmux is
-/// scripted": a burst of scripted changes applies as one transaction).
+/// scripted": a burst of scripted changes is one request and one main-thread task, not one per op).
 ///
 /// Params: `ops`, an array of `action.run` param objects (`action` or `cli_name` with `cli`,
 /// `target`, `args`, `focus`, `background`, `origin`); and for the whole batch `wait` (default
@@ -12,9 +12,14 @@ import Foundation
 /// - Every op is resolved and validated off the main actor before any runs. One invalid op
 ///   refuses the whole batch: `not_run`, with `data.op` its index.
 /// - The ops run in order in one main-actor work item, an automation task of the main-thread
-///   scheduler: the person never sees a frame with half the batch, and the model publishes once.
-/// - A handler that refuses at run time stops the batch there: the ops before it ran
-///   (`data.applied`), the rest did not.
+///   scheduler. What the app owns (selection, focus, settings, app-local state) changes in that
+///   one task, so it shows together. What the session daemon owns (a daemon tab renamed, a
+///   column made, a close) the task only sends: it shows as the daemon's echoes arrive and the
+///   store applies them, which can take more than one frame and more than one store publish.
+/// - Not all-or-nothing: a handler that refuses at run time stops the batch there. The ops before
+///   it stay applied (`data.applied`), the rest never run. The same holds for a later transaction
+///   of `atomic: false` that never ran (its deadline passed in the queue, the queue was full):
+///   that answer is never `not_run`.
 /// - Bounded: at most ``ControlRouter/Configuration/batchOpLimit`` ops. A larger batch is
 ///   `batch_too_large` (`not_run`, naming the limit) unless `atomic` is false, which runs it as
 ///   consecutive work items of at most the limit each, in order.
@@ -117,6 +122,8 @@ extension ControlRouter {
         var runs: [ControlActionRun] = []
         runs.reserveCapacity(requests.count)
         let size = max(transactionSize, 1)
+        // Why a later transaction never ran, when earlier ones applied.
+        var cutShort: ControlError?
         do {
             for start in stride(from: 0, to: requests.count, by: size) {
                 let transaction = Array(requests.dropFirst(start).prefix(size))
@@ -139,13 +146,12 @@ extension ControlRouter {
                 runs += ran
                 guard ran.count == transaction.count, ran.last.map({ if case .ran = $0.outcome { true } else { false } }) ?? false else { break }
             }
-        } catch var error as ControlError where !runs.isEmpty {
+        } catch let error as ControlError where !runs.isEmpty {
             // A later transaction never ran (its deadline passed in the queue, the queue was full)
-            // after earlier ones applied: the batch's answer says how many did, under its key too,
-            // so a retry gets it instead of joining a run that will not come.
-            error = error.atBatchOp(runs.count, applied: runs.count)
-            if let key { idempotency.finish(key, with: .failure(error)) }
-            throw error
+            // after earlier ones applied: the batch ends there, as at a refusal. Its answer says
+            // how many ops applied and that the request did run (never `not_run`, which a client
+            // reads as safe to send again: the applied ops would run twice).
+            cutShort = error.atBatchOp(runs.count, applied: runs.count).ranInPart()
         }
         // The last run is the refused one when the batch stopped early.
         let refused = zip(given, runs).enumerated().reversed().first.flatMap { index, pair -> (index: Int, action: String, error: ControlError)? in
@@ -154,18 +160,12 @@ extension ControlRouter {
         }
         let applied = refused?.index ?? runs.count
         let work = ControlActionRun(outcome: .ran, work: runs.flatMap(\.work), results: runs.flatMap(\.results))
-        if let refused {
+        let ending: (failure: ControlError, action: String)? = refused.map { refused in
             // A refusal that started no work applied nothing.
             var failure = refused.error.atBatchOp(refused.index, applied: applied)
             if applied == 0, work.work.isEmpty { failure = failure.notRun() }
-            if wait, applied > 0 {
-                // The ops before it ran: the reply comes once they settled, as a run's would.
-                _ = await settle(work, scope: scope, action: refused.action, method: call.method, deadline: call.deadline,
-                                 replyBy: { call.movedDeadline })
-            }
-            if let key { idempotency.finish(key, with: .failure(failure)) }
-            throw failure
-        }
+            return (failure: failure, action: refused.action)
+        } ?? cutShort.map { (failure: $0, action: "action.batch") }
         let reply: [String: JSONValue] = [
             "ran": JSONValue(applied),
             "waited": .bool(wait),
@@ -176,10 +176,17 @@ extension ControlRouter {
         ]
         let settleDeadline = max(call.deadline, .now + Self.settleLimit)
         // Unstructured on purpose (as `action.run`): a request that times out or does not wait
-        // answers while the batch keeps settling; the key stays pending until it settled.
+        // answers while the batch keeps settling; the key stays pending until it settled. Every
+        // ending takes this one path: a batch that stopped early (a refusal, a later transaction
+        // that never ran) settles the ops that applied, closes its command scope, and only then
+        // records its answer under the key.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settle(work, scope: scope, action: "action.batch", method: call.method, deadline: settleDeadline,
-                                       replyBy: { call.movedDeadline })
+            let settled = await settle(work, scope: scope, action: ending?.action ?? "action.batch", method: call.method,
+                                       deadline: settleDeadline, replyBy: { call.movedDeadline })
+            if let ending {
+                if let key { idempotency.finish(key, with: .failure(ending.failure)) }
+                return .failure(ending.failure)
+            }
             let value = await Self.resultValue(of: work.results)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
@@ -192,6 +199,7 @@ extension ControlRouter {
             return result
         }
         guard wait else {
+            if let ending { throw ending.failure }
             var immediate = reply
             immediate["created"] = []
             immediate["sequence"] = JSONValue.number(Double(snapshots.current.topology.daemonSequence))
@@ -202,6 +210,17 @@ extension ControlRouter {
 }
 
 extension ControlError {
+    /// This error marked as one of a request whose work started (`data.not_run` false): an
+    /// `action.batch` cut short after some ops applied. ``annotated(progress:)`` keeps the mark,
+    /// also when a retry with the key replays the error.
+    func ranInPart() -> ControlError {
+        var error = self
+        var members = data?.objectValue ?? [:]
+        members["not_run"] = false
+        error.data = .object(members)
+        return error
+    }
+
     /// This error as op `index` of an `action.batch` (`data.op`), and with `applied`, how many
     /// ops before it ran (`data.applied`).
     func atBatchOp(_ index: Int, applied: Int? = nil) -> ControlError {

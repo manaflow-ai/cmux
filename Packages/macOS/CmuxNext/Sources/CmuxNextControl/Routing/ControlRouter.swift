@@ -60,9 +60,13 @@ public final class ControlRouter: Sendable {
     public static let terminalStartDeadline: Duration = TerminalStartDeadline.request
 
     /// Default ``Configuration/batchOpLimit``: one `action.batch` transaction applies in one
-    /// main-actor work item, which must fit the automation budget of the main-thread scheduler
-    /// (plans/cmux-next/main-thread-budget.md). Set from the per-op apply cost measured in STRESS
-    /// on the slowest fleet host (scripts/cmux-next/script-storm-bench.py, `batch_apply_us_per_op`).
+    /// main-actor work item, which cannot yield to the person's input while it runs.
+    ///
+    /// Not measured: 64 is a provisional bound on that item's op count. It does not bound its
+    /// cost (a transaction of 64 New Column or New Browser Tab ops costs far more than 64 tab
+    /// renames), and nothing yet ties it to the automation class's 1 ms per frame
+    /// (plans/cmux-next/main-thread-budget.md). Open item: plans/cmux-next/perf-lead.md section 2,
+    /// row 29 (a per-op main-thread cost, light and STRESS, then a limit derived from it).
     public static let batchOpLimit = 64
 
     /// Wire protocol version reported by `system.ping` and `system.identify`.
