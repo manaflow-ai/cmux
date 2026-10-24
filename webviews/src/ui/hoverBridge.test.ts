@@ -148,4 +148,21 @@ describe("hover trigger/card bridge", () => {
     clock.advance(HOVER_INTENT.cardDwell + 1);
     expect(opened).toBe(1);
   });
+
+  test("pointer motion within the trigger does not cancel dwell", () => {
+    const clock = new FakeClock();
+    let opened = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: HOVER_INTENT.cardDwell,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => (opened += 1),
+      close: () => {},
+    });
+
+    bridge.enter("trigger", trigger, point(60, 30));
+    bridge.move(point(70, 31));
+    clock.advance(HOVER_INTENT.cardDwell);
+    expect(opened).toBe(1);
+  });
 });
