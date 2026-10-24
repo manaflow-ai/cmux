@@ -11,6 +11,7 @@ extension AgentTabStore {
     func wireAgentFolder(_ model: AgentPaneModel, key provisional: String) {
         model.workspaceRoots = { [weak self] in self.map { $0.workspaceRoots(of: $0.resolve(provisional)) } ?? [] }
         model.workspaceAgentHome = { [weak self] in self.flatMap { $0.agentHome(of: $0.resolve(provisional)) } }
+        model.transport.workspaceID = { [weak self] in self.flatMap { $0.localWorkspaceKey(of: $0.resolve(provisional)) } }
         // Stage and Commit (cx-tcwj) run git on this Mac: never in a Cloud or SSH chat's same-named folder here.
         model.gitWritesHere = { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }
         model.startFolders.resolve = { [weak self] proposed in
@@ -69,6 +70,15 @@ extension AgentTabStore {
     func agentHome(of key: String) -> AgentHomeFill? {
         guard let workspace = workspace(holding: key), let home = Self.agentHomes, AgentHome.isSafeID(workspace.id) else { return nil }
         return AgentHomeFill(home: home, workspace: workspace.id)
+    }
+
+    /// The durable key of the workspace that holds agent tab `key`, when that workspace is this
+    /// Mac's own (its daemon is local): the relay stamps it on the tab's new local chats, so this
+    /// Mac's acpmux applies the workspace's sub-session limit to them. Nil for a workspace on
+    /// another machine, whose key this Mac's acpmux does not know.
+    func localWorkspaceKey(of key: String) -> String? {
+        guard daemonForTab(key)?.isLocal == true else { return nil }
+        return workspace(holding: key)?.key?.rawValue
     }
 
     /// `~/Library/Application Support/cmux/agent-home`, read once.

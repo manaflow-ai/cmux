@@ -8,6 +8,7 @@ nonisolated extension AcpmuxPaneMethods {
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
+        // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
