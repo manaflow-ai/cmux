@@ -333,6 +333,43 @@ class SingletonTests(Repo):
         self.assertEqual(self.check(base=base, head=moved)[0], [])
         self.assert_matches_full(base, moved)
 
+    def test_a_static_moved_to_another_type_counts_as_new_debt_and_a_typed_one_keeps_its_partner(self):
+        # Decision (arch_counts "Site identity"): the owner is part of a static's identity. A type rename (or an
+        # extraction into a new Coordinator) moves a typeless static to another type: new debt there, which the
+        # move fixes or a dated exception carries. A typed singleton still finds its partner by its type.
+        self.write(f"{SRC}/CmuxNextDomain/TerminalKeyEquivalent.swift",
+                   "enum TerminalKeyEquivalent {\n    nonisolated(unsafe) static var trace: ((String) -> Void)?\n"
+                   "    static let shared = Store()\n}\n")
+        base = self.commit("a typeless hook and a typed singleton")
+        self.git("mv", f"{SRC}/CmuxNextDomain/TerminalKeyEquivalent.swift", f"{SRC}/CmuxNextDomain/KeyEquivalentRouter.swift")
+        self.write(f"{SRC}/CmuxNextDomain/KeyEquivalentRouter.swift",
+                   "enum KeyEquivalentRouter {\n    nonisolated(unsafe) static var trace: ((String) -> Void)?\n"
+                   "    static let shared = Store()\n}\n")
+        renamed = self.commit("the owner type is renamed")
+        delta = counts.delta_count(self.repo, base, renamed)
+        self.assertEqual((delta.total("global_mutable_statics"), delta.total("stateful_singletons")), (0, 0))
+        self.assertEqual(delta.unpartnered("stateful_singletons"), [])
+        refusals, _ = self.check(base=base, head=renamed)
+        self.assertEqual(self.rows(refusals), ["global_mutable_statics"])
+        self.assertIn("moved to another type counts as new debt", refusals[0][1])
+        self.assertIn("KeyEquivalentRouter.swift:2: nonisolated(unsafe) static var trace", refusals[0][1])
+        self.assert_matches_full(base, renamed)
+
+    def test_a_file_scope_global_keeps_its_identity_across_the_files_of_its_package(self):
+        # One identity for a file-scope global (arch_counts.static_name: package and name), in the delta cancel
+        # and in the swap rule's key: a move to another file of the package is the same global.
+        hook = "nonisolated(unsafe) var routeHook: ((String) -> Void)?\n"
+        self.write(f"{SRC}/CmuxNextDomain/Route.swift", hook)
+        base = self.commit("a typeless file-scope hook")
+        self.remove(f"{SRC}/CmuxNextDomain/Route.swift")
+        self.write(f"{SRC}/CmuxNextDomain/Routing.swift", "enum Routing {\n}\n" + hook)
+        moved = self.commit("the hook moves to another file of its package")
+        self.assertEqual(self.check(base=base, head=moved)[0], [])
+        _, after, _ = counts.full_count(self.repo, moved)
+        self.assertIn("name:CmuxNextDomain:routeHook",
+                      [k for site in after.sites["global_mutable_statics"] for k in site.keys])
+        self.assert_matches_full(base, moved)
+
     def test_a_refusal_names_the_static_the_push_added_not_an_unchanged_one(self):
         # Replay of 16332dd2ced's shape: a file with one typeless `static var` gains a second of the same shape
         # below it. The refusal names the new line, not the unchanged one above it.
@@ -844,6 +881,65 @@ class RatchetTests(Repo):
         forged = self.commit("names a local commit")
         refusals, _ = ratchet.check_range(self.repo, landed, forged, [], upstream_ref="upstream")
         self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
+    def test_a_copied_generated_entry_and_one_that_names_a_commit_before_the_record_are_refused(self):
+        early = self.add_singleton()  # on upstream before the record: the record counted it already
+        self.assertEqual(self.update()[0], 0)
+        self.commit("record")
+        recorded = self.recorded()["totals"]["stateful_singletons"]
+        self.write(f"{SRC}/CmuxNextDomain/Store+Second.swift", "extension Store {\n    static let second = Store()\n}\n")
+        landed = self.commit("a second singleton lands past the hook")
+        self.git("branch", "upstream", landed)
+        self.write("README", "the runner's own commit\n")
+        mine = self.commit("the runner's own commit")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(ratchet.update(self.repo, upstream_ref="upstream"), 0, out.getvalue())
+        update = self.commit("--update")
+        data = self.recorded()
+        entry = data["exceptions"][-1]
+        self.assertEqual((entry["raised_by"], entry["applied_sha"], data["totals"]["stateful_singletons"]),
+                         ([landed], mine, recorded + 1))
+        self.assertEqual(ratchet.check_range(self.repo, landed, update, [], upstream_ref="upstream")[0], [])
+
+        def push(change):
+            """Commit the json at HEAD as CHANGE edits it; the record rule's refusals over UPDATE..it."""
+            edited = self.recorded()
+            change(edited)
+            self.write(counts.RATCHET_JSON, json.dumps(edited))
+            head = self.commit("a hand edit of the json")
+            refusals, notes = ratchet.check_range(self.repo, update, head, [], upstream_ref="upstream")
+            return self.rows(refusals), notes
+
+        def raise_with(*entries):
+            def change(edited):
+                edited["exceptions"] += [dict(e) for e in entries]
+                edited["totals"]["stateful_singletons"] += 1
+            return change
+
+        # A verbatim copy of the applied generated entry gives no second allowance.
+        rows, notes = push(raise_with(entry))
+        self.assertEqual(rows, [ratchet.RECORD_ROW], notes)
+        # Upstream raises the row once more. An entry that names the old upstream commit (before the record's
+        # measured_sha) does not cover that rise; one that names the commit that made it does.
+        self.git("reset", "--quiet", "--hard", update)
+        self.write(f"{SRC}/CmuxNextDomain/Store+Third.swift", "extension Store {\n    static let third = Store()\n}\n")
+        later = self.commit("a third singleton lands past the hook")
+        self.git("branch", "--force", "upstream", later)
+        generated = dict(entry, applied_sha=later)
+        for named, refused in ((early, [ratchet.RECORD_ROW]), (later, [])):
+            self.git("reset", "--quiet", "--hard", later)
+            rows, notes = push(lambda edited, named=named: (edited.update(measured_sha=later),
+                                                            raise_with(dict(generated, raised_by=[named]))(edited)))
+            self.assertEqual(rows, refused, (named[:11], notes))
+        # A rise a later upstream commit undid is no rise: an entry for it gives nothing.
+        self.git("reset", "--quiet", "--hard", later)
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Third.swift")
+        undo = self.commit("upstream removes the third singleton")
+        self.git("branch", "--force", "upstream", undo)
+        rows, notes = push(lambda edited: (edited.update(measured_sha=undo),
+                                           raise_with(dict(generated, raised_by=[later], applied_sha=undo))(edited)))
+        self.assertEqual(rows, [ratchet.RECORD_ROW], notes)
 
     def test_update_still_refuses_a_rise_in_commits_not_on_upstream(self):
         self.assertEqual(self.update()[0], 0)
