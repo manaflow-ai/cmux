@@ -129,7 +129,6 @@ struct AgentPaneUnsentPromptTests {
         run1.transport.gestures.record()
         #expect(await run1.transport.send(connection: run1.id, frames: [Self.prompt(id: 1, promptId: "restart-1")]) == nil)
         #expect(await first.wait { _ in Self.prompts(first, peer: 0).count == 1 })
-        first.stop()
 
         let replacement = AcpmuxStandInServer()
         try await replacement.start()
