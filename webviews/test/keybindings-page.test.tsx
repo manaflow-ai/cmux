@@ -487,7 +487,8 @@ test("keys another action has: the recorder says who has them and offers Overwri
     await Promise.resolve();
   });
   await settle();
-  expect(sets().length).toBe(setsBefore + 1);
+  // One save of the keys refused in Close Tab's place, then Overwrite's own once they are free.
+  expect(sets().length).toBe(setsBefore + 2);
   expect(choices()).toBeFalsy();
   const ops = provider.calls.map(({ op }) => op);
   const removedAt = ops.lastIndexOf(KeybindingOps.remove);
@@ -517,5 +518,50 @@ test("keys another action has: the recorder says who has them and offers Overwri
   });
   await settle();
   expect(sets().at(-1)?.params).toMatchObject({ command: "history.open", key: "cmd+k cmd+1 cmd+2 cmd+3" });
+  expect(recorder()).toBeNull();
+
+  // Refused keys were never saved: Close closes the recorder, and the row keeps its keys.
+  const close = () => recorder()?.querySelector(".keys-recorder-actions .keys-recorder-button");
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await keys("cmd+q");
+  expect(title()).toContain("Quit");
+  await click(close());
+  await settle();
+  expect(recorder()).toBeNull();
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘Y");
+
+  // Overwrite of keys the app then refuses to save for this action (only keybindings.json could
+  // hold them) takes nothing from the other actions: the recorder says why.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await keys("cmd+shift+p");
+  expect(choices()).toBeTruthy();
+  provider.unsupported = true;
+  const removes = provider.calls.filter(({ op }) => op === KeybindingOps.remove).length;
+  await act(async () => {
+    provider.press("return");
+    await Promise.resolve();
+  });
+  await settle();
+  provider.unsupported = false;
+  expect(provider.calls.filter(({ op }) => op === KeybindingOps.remove)).toHaveLength(removes);
+  expect(row("Open Command Palette")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
+  expect(title()).toContain("not supported");
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+  await settle();
+
+  // Return right after the release, while the keys' check is still on the way: they save, then
+  // the recorder closes.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    provider.press("cmd+shift+o");
+    provider.release();
+    provider.press("return");
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+o" });
   expect(recorder()).toBeNull();
 });
