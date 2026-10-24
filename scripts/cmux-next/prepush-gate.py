@@ -761,6 +761,39 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     return found
 
 
+COMPILE_REMOTE = re.compile(r"github\.com[:/]+manaflow-ai/cmux(\.git)?/?$")
+COMPILE_REF = "refs/heads/feat-cmux-next"
+
+
+def compile_ranges(repo: Path, pushed_lines: list[str]) -> list[tuple[str, str]]:
+    """The pushed ranges the compile trailer rule applies to: those that update manaflow-ai/cmux's feat-cmux-next (the
+    hook passes the remote's URL in CMUX_PREPUSH_REMOTE_URL). A side branch is where an agent pushes a commit to
+    compile it (cmux-ci compile-check needs it pushed), so a side-branch push needs no trailer."""
+    if not COMPILE_REMOTE.search(os.environ.get("CMUX_PREPUSH_REMOTE_URL", "")):
+        return []
+    return pushed_ranges(repo, [line for line in pushed_lines if len(line.split()) == 4 and line.split()[2] == COMPILE_REF])
+
+
+def compile_trailer(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
+    """The compile trailer rule (compile_trailer.py, lead 2026-10-24): a push that changes Swift names a passing compile
+    job (`Compiled: <cmux-ci job id>`) of its Swift. Local only (like the guardrails), from the installed copy for the
+    hook; any error or a controller that does not answer in 2 s lets the push through with a warning. True: refused."""
+    script = (trusted_scripts / "compile_trailer.py") if trusted_scripts else (repo / SCRIPTS / "compile_trailer.py")
+    if not ranges or not script.is_file():
+        return False
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_next_compile_trailer", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        refused, lines = module.check(repo, ranges)
+    except Exception as error:  # noqa: BLE001 - fail open: a bug here must not block every push
+        log(f"prepush-gate: WARNING: compile_trailer.py failed ({type(error).__name__}: {error}); not applied.")
+        return False
+    for line in lines:
+        log(line)
+    return bool(refused)
+
+
 def load_guardrails(repo: Path, trusted_scripts: Path | None):
     """The guardrails module: the installed reviewed copy for the hook, else this checkout's."""
     script = (trusted_scripts / "guardrails.py") if trusted_scripts else (repo / SCRIPTS / "guardrails.py")
@@ -1009,8 +1042,10 @@ def main(argv: list[str] | None = None) -> int:
               f"({time.monotonic() - started:.1f}s)")
         return 1 if bad else 0
 
+    pushed_lines: list[str] = []
     if args.pre_push:
-        ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
+        pushed_lines = sys.stdin.read().splitlines()
+        ranges = pushed_ranges(repo, pushed_lines)
     else:
         ranges = [(args.base or default_base(repo, args.head), args.head)]
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
@@ -1035,10 +1070,14 @@ def main(argv: list[str] | None = None) -> int:
         guarded = perf_cron_tests(repo, ranges) or guarded
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
+        t0 = time.monotonic()
+        guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines), trusted_scripts) or guarded
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails or the perf cron tests ({elapsed:.1f}s)")
+            print(f"prepush-gate: push refused by the guardrails, the perf cron tests or the compile trailer ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
