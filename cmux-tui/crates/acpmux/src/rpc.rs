@@ -338,6 +338,10 @@ pub mod method {
     /// A file the person dropped into a chat, saved on the machine that runs it
     /// (`hub/file_uploads.rs`).
     pub const MUX_FILE_PUT: &str = "_acpmux/file_put";
+    pub const MUX_FILE_PUT_BEGIN: &str = "_acpmux/file_put_begin";
+    pub const MUX_FILE_PUT_CHUNK: &str = "_acpmux/file_put_chunk";
+    pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
+    pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
     pub const MUX_DISPATCH: &str = "_acpmux/dispatch";
     pub const MUX_STEER: &str = "_acpmux/steer";
     pub const MUX_BRIEFS: &str = "_acpmux/briefs";
