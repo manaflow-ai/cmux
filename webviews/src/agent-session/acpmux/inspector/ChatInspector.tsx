@@ -82,6 +82,8 @@ import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./p
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
+import { WorkflowTasks } from "./WorkflowTasks";
+import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import "./inspector.css";
@@ -195,6 +197,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  workflows,
   onOpenFolder,
   onSaveEnvironment,
   onShowCall,
@@ -243,6 +246,8 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
+  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -352,6 +357,7 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
@@ -396,6 +402,7 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  workflows,
   revealed,
   onRevealed,
   onStopProcess,
@@ -430,6 +437,8 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
+  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
@@ -556,6 +565,8 @@ function InspectorPresence({
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
         sessions={scope ? undefined : sessions?.list}
+        workflows={scope ? undefined : workflows?.list}
+        onStopWorkflow={workflows?.onStop}
         onOpenSession={sessions?.onOpen}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -728,6 +739,8 @@ export function ChatInspector({
   listed = false,
   transcriptTasks = [],
   sessions = [],
+  workflows = [],
+  onStopWorkflow,
   onOpenSession,
   revealed,
   onRevealed,
@@ -776,6 +789,9 @@ export function ChatInspector({
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
+  workflows?: readonly WorkflowSummary[];
+  onStopWorkflow?: (id: string) => Promise<unknown>;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
@@ -965,16 +981,19 @@ export function ChatInspector({
       />
     </InspectorSection>
   );
-  const subagentsSection = agents.length + sessions.length > 0 && (
+  // A workflow Background tasks lists (Labs) is not a Subagents row too.
+  const workflowIds = new Set(workflows.map((workflow) => workflow.id));
+  const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
+  const subagentsSection = listedAgents.length + sessions.length > 0 && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, agents, waiting, sessions))}
+      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
     >
       <SubagentsSection
-        agents={agents}
+        agents={listedAgents}
         waiting={waiting}
         onOpen={onOpenSubagent}
         sessions={sessions}
@@ -984,8 +1003,8 @@ export function ChatInspector({
   );
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
-  const running = runningTasks + servers.length;
-  const tasks = servers.length + commands.length + scheduled.length > 0 && (
+  const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
     <InspectorSection
       id="tasks"
       title={t("summary.backgroundTasks")}
@@ -993,6 +1012,7 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
+      {workflows.length > 0 && <WorkflowTasks workflows={workflows} onStop={onStopWorkflow} />}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
       {commands.length + scheduled.length > 0 && (
         <TasksSection
