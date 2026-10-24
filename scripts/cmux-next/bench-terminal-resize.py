@@ -7,6 +7,10 @@
 Launches the tagged app (no activation, automation socket, scratch config), then per layout drags a
 vertical divider left and right, one `debug.mouse` move per display frame:
 
+  split-resize  Cmd-D, Cmd-W, Cmd-Shift-D, Cmd-W on a terminal showing less (`debug.terminal_final_grid`):
+           per resized terminal, ms from the action to the first and the final grid sent to the daemon, to
+           the owner's final grid and to the first frame drawn at it. split-resize-stress: the same in the
+           STRESS session.
   idle-cursor  a focused terminal at rest with a hidden cursor: Ghostty frames drawn in --idle-s
            seconds (0 expected: a blink tick of a hidden cursor changes no pixel).
 
@@ -245,6 +249,68 @@ def stress():
     return result
 
 
+def final_grid_round(action):
+    """Runs `action` (splitRight, splitDown, closeTab: Cmd-D, Cmd-Shift-D, Cmd-W) inside a
+    `debug.terminal_final_grid` window. Per terminal shown before it whose grid changed: grids sent to the
+    daemon, ms from the action to the first one and to the final one, to the owner's final grid (the PTY
+    has it, the program got SIGWINCH), and to the first frame drawn at it."""
+    def first(entries, grid, skip_first=True):
+        return next((e["ms"] for e in entries[1 if skip_first else 0:] if e["grid"] == grid), None)
+    shown = set(((rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}).keys())
+    rpc("debug.frames", {"action": "start"})
+    rpc("debug.terminal_final_grid", {"action": "start"})
+    rpc("action.run", {"action": action, "focus": True})
+    time.sleep(1.5)  # bench script: the spring lands and the last echo comes
+    report = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
+    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    rows = []
+    for key in sorted(shown & set(report)):
+        t = report[key]
+        final, sends, owner, drawn = t.get("fitted"), t.get("sends") or [], t.get("owner") or [], t.get("drawn") or []
+        if not sends and not (owner and owner[0]["grid"] != final):
+            continue
+        rows.append({"final": final, "sends": len(sends), "send_grids": [e["grid"] for e in sends],
+                     "first_send_ms": sends[0]["ms"] if sends else None, "final_send_ms": first(sends, final, False),
+                     "owner_final_ms": first(owner, final), "drawn_final_ms": first(drawn, final)})
+    def worst(field):
+        values = [r[field] for r in rows if r[field] is not None]
+        return max(values) if values else None
+    return {"action": action, "resized_terminals": len(rows), "max_first_send_ms": worst("first_send_ms"),
+            "max_final_send_ms": worst("final_send_ms"), "max_owner_final_ms": worst("owner_final_ms"),
+            "max_drawn_final_ms": worst("drawn_final_ms"), "sends_total": sum(r["sends"] for r in rows),
+            "frames": {k: frames.get(k) for k in ("frames", "p95_ms", "max_ms", "missed", "main_p95_ms", "main_max_ms")},
+            "terminals": rows}
+
+
+def split_resize(stress_session=False):
+    """Cmd-D, Cmd-W, Cmd-Shift-D, Cmd-W on a terminal that shows a full-screen program (less), light or in
+    the STRESS session: when the resized terminals' final grids reach the PTY and the screen (Lawrence
+    2026-10-23: before the animation ends, not after it)."""
+    name = "split-resize-stress" if stress_session else "split-resize"
+    summary = None
+    if stress_session:
+        path = os.path.join(HERE, "perf-stress-session.py")
+        spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        summary = module.Stress(rpc).build()
+        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    else:
+        rpc("action.run", {"action": "newTab", "focus": True})
+        wait(lambda: surfaces(), 30)
+    write("clear; seq 1 5000 | less\r")
+    time.sleep(1.5)  # bench script: less draws its first page
+    rounds = []
+    for _ in range(opts.rounds):
+        for action in ("splitRight", "closeTab", "splitDown", "closeTab"):
+            rounds.append(final_grid_round(action))
+            time.sleep(0.5)  # bench script: the next press starts at rest
+    result = {"layout": name, "rounds": rounds}
+    if isinstance(summary, dict):
+        result["session"] = {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals")}
+    return result
+
+
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 scratch = tempfile.mkdtemp(prefix=f"bench-terminal-resize-{TAG}-")
@@ -268,7 +334,8 @@ try:
         tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
         sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
     for name in [n for n in opts.layouts.split(",") if n]:
-        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress}[name]()
+        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
+                  "split-resize-stress": lambda: split_resize(stress_session=True)}[name]()
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
