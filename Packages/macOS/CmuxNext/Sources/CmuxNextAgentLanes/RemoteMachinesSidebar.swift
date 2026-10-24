@@ -172,7 +172,7 @@ public final class RemoteMachinesSidebar {
 
     /// The groups: every peer the daemon lists (none listed yet: every peer a lane names), each
     /// with its live chats newest first. A peer the daemon cannot reach has no chats.
-    nonisolated static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
+    static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
         var byPeer: [String: [AgentActivityLane]] = [:]
         for lane in lanes {
             guard let peer = lane.peer else { continue }
@@ -188,18 +188,18 @@ public final class RemoteMachinesSidebar {
     }
 
     /// Newest first by when it last changed state (a step leaves the order alone), then by name.
-    nonisolated static func newer(_ a: AgentActivityLane, _ b: AgentActivityLane) -> Bool {
+    static func newer(_ a: AgentActivityLane, _ b: AgentActivityLane) -> Bool {
         let (x, y) = (a.since ?? a.createdAt ?? .distantPast, b.since ?? b.createdAt ?? .distantPast)
         return x != y ? x > y : a.name < b.name
     }
 
-    nonisolated static func chat(_ lane: AgentActivityLane) -> Chat {
+    static func chat(_ lane: AgentActivityLane) -> Chat {
         let title = lane.title == lane.name ? String(lane.name.split(separator: "/").last ?? Substring(lane.name)) : lane.title
         return Chat(id: lane.id, title: title, harness: lane.harness, activity: SidebarTransientItem.activity(of: lane.state))
     }
 
     /// The group's indicator: waiting on you over working over idle.
-    nonisolated static func activity(_ chats: [Chat]) -> StatusIndicatorState {
+    static func activity(_ chats: [Chat]) -> StatusIndicatorState {
         if chats.contains(where: { $0.activity == .waiting }) { return .waiting }
         if chats.contains(where: { $0.activity == .working }) { return .working }
         return .idle
@@ -239,7 +239,7 @@ public final class RemoteMachinesSidebar {
         return items
     }
 
-    private nonisolated static func suffix(_ raw: String, _ prefix: String) -> String? {
+    private static func suffix(_ raw: String, _ prefix: String) -> String? {
         raw.hasPrefix(prefix) ? String(raw.dropFirst(prefix.count)) : nil
     }
 }
