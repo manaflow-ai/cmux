@@ -243,7 +243,8 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
     let path =
         part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
-    let meta = meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let meta =
+        meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
     let metadata = crate::config::private_state_file(&meta)
         .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
     let declared: Value = serde_json::from_reader(metadata)
@@ -351,23 +352,18 @@ pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> 
     let answer = tokio::task::spawn_blocking(move || put(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))??;
-    // A purge while the file was written may have deleted the folder before it: the file goes too,
-    // unless the chat came back under this id and keeps its folder.
-    use std::sync::atomic::Ordering::SeqCst;
-    if session.purged.load(SeqCst) && !session.replaced.load(SeqCst) {
-        let id = session.id.clone();
-        let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
-        return Err(RpcError::invalid_params("no such chat"));
-    }
+    reject_purged(&session).await?;
     Ok(answer)
 }
 
 pub async fn handle_begin(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    tokio::task::spawn_blocking(move || begin(&id, &params))
+    let answer = tokio::task::spawn_blocking(move || begin(&id, &params))
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
 }
 
 pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
@@ -375,17 +371,60 @@ pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcE
     if params.get("sessionId").and_then(Value::as_str) != Some(session.id.as_str()) {
         return Err(RpcError::invalid_params("sessionId is required"));
     }
-    tokio::task::spawn_blocking(move || chunk(&params))
+    let answer = tokio::task::spawn_blocking(move || chunk(&params))
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
 }
 
 pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    tokio::task::spawn_blocking(move || finish(&id, &params))
+    let answer = tokio::task::spawn_blocking(move || finish(&id, &params))
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
+}
+
+pub async fn handle_cancel(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || cancel(&id, &params))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
+}
+
+/// A purge can race any blocking upload operation. Remove files created after the purge and
+/// reject the late event, while keeping uploads for a chat that was brought back in place.
+async fn reject_purged(session: &std::sync::Arc<super::Session>) -> Result<(), RpcError> {
+    use std::sync::atomic::Ordering::SeqCst;
+    if !session.purged.load(SeqCst) || session.replaced.load(SeqCst) {
+        return Ok(());
+    }
+    let id = session.id.clone();
+    let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
+    Err(RpcError::invalid_params("no such chat"))
+}
+
+/// Removes an unfinished resumable upload. The operation is idempotent so a failed client can
+/// retry cleanup without learning whether the daemon already removed its partial files.
+pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
+    let upload = params
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .and_then(upload_id)
+        .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    if let Some(part) = part_path(id, &upload) {
+        let _ = std::fs::remove_file(part);
+    }
+    if let Some(meta) = meta_path(id, &upload) {
+        let _ = std::fs::remove_file(meta);
+    }
+    Ok(json!({}))
 }
 
 /// Writes the file of `params` for session `id` (this daemon's own) and answers `{path}`.

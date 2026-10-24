@@ -42,7 +42,9 @@ struct AgentPeerUploads {
             case .begin(let name, let size, let batchToken, let manifest):
                 if let batchToken {
                     guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                    batches[batchToken] = Batch(session: target.session, remaining: Array(batch.remaining.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
+                    let remaining = Array(batch.remaining.dropFirst())
+                    if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
+                    else { batches[batchToken] = Batch(session: target.session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
                 }
                 guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
                 if let manifest {
@@ -61,6 +63,10 @@ struct AgentPeerUploads {
                 if let manifest, batchToken == nil, manifest.count > 1 {
                     let id = UUID().uuidString.lowercased()
                     batches[id] = Batch(session: target.session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(10 * 60))
+                        if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
+                    }
                     reply["batchToken"] = id
                 }
                 return AgentPaneReply.success(reply)

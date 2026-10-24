@@ -36,6 +36,7 @@ extension AcpmuxStatusClient {
     static let filePutBeginMethod = "_acpmux/file_put_begin"
     static let filePutChunkMethod = "_acpmux/file_put_chunk"
     static let filePutFinishMethod = "_acpmux/file_put_finish"
+    static let filePutCancelMethod = "_acpmux/file_put_cancel"
     static let legacyFilePutBytes = 10 * 1024 * 1024
     static let filePutChunkBytes = 512 * 1024
 
@@ -76,10 +77,12 @@ extension AcpmuxStatusClient {
     static func putFileChunked(sessionId: String, name: String, data: Data,
                                send: @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
         guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
+        var upload: String?
         let started: [String: Any]
         do {
             started = try await send(filePutBeginMethod, ["sessionId": sessionId, "fileName": name, "size": data.count])
-            guard let upload = started["uploadId"] as? String, !upload.isEmpty else { throw AgentPaneFilePutFailure.failed }
+            guard let id = started["uploadId"] as? String, !id.isEmpty else { throw AgentPaneFilePutFailure.failed }
+            upload = id
             var offset = 0
             while offset < data.count {
                 let end = min(offset + filePutChunkBytes, data.count)
@@ -94,6 +97,9 @@ extension AcpmuxStatusClient {
             guard let path = finished["path"] as? String, !path.isEmpty else { throw AgentPaneFilePutFailure.failed }
             return path
         } catch {
+            if let upload {
+                try? await send(filePutCancelMethod, ["sessionId": sessionId, "uploadId": upload])
+            }
             if let failure = error as? AgentPaneFilePutFailure { throw failure }
             throw AgentPaneFilePutFailure(error)
         }

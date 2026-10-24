@@ -331,6 +331,7 @@ pub(super) async fn check(
             | method::MUX_FILE_PUT_BEGIN
             | method::MUX_FILE_PUT_CHUNK
             | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
     {
         return Err(RpcError::invalid_params(
