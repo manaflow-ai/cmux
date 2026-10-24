@@ -61,6 +61,11 @@ struct AgentChatUploads {
                     batches[batchToken] = (session, Array(batch.remaining.dropFirst()))
                 }
                 guard size <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                if let manifest {
+                    guard manifest.first?.name == name, manifest.first?.size == size,
+                          manifest.allSatisfy({ $0.size >= 0 && $0.size <= 1 * 1024 * 1024 * 1024 }),
+                          manifest.reduce(0) { $0 + $1.size } <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                }
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, session: session)
@@ -76,7 +81,8 @@ struct AgentChatUploads {
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stages[token] = stage; return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
-                guard let stage = stages.removeValue(forKey: token), stage.session == session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard let stage = stages[token], stage.session == session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                stages.removeValue(forKey: token)
                 let base = session == "new" ? root : chatFolder(session, in: root)
                 let destination = base.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory).appending(path: "0", directoryHint: .isDirectory).appending(path: stage.name)
                 do {
