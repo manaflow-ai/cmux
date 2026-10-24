@@ -86,18 +86,42 @@ pub struct Conn {
 // slots so a burst of requests cannot keep a cancel from being admitted.
 const REQUEST_WORK_LIMIT: usize = 64;
 const NOTIFICATION_WORK_LIMIT: usize = 16;
+// A transport reader can itself be stuck forwarding into a full inbound
+// channel, so its close signal alone cannot end an admission wait. Close the
+// overloaded connection if it makes no progress within this bound.
+const WORK_BACKPRESSURE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+struct WorkAdmission {
+    notification_slots: Arc<Semaphore>,
+    max_wait: std::time::Duration,
+}
+
+impl Default for WorkAdmission {
+    fn default() -> Self {
+        Self {
+            notification_slots: Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT)),
+            max_wait: WORK_BACKPRESSURE_WAIT,
+        }
+    }
+}
 
 async fn notification_slot(
     slots: Arc<Semaphore>,
     reader_done: &mut Option<oneshot::Receiver<()>>,
+    max_wait: std::time::Duration,
 ) -> Option<OwnedSemaphorePermit> {
-    match reader_done {
-        Some(done) => tokio::select! {
-            slot = slots.acquire_owned() => slot.ok(),
-            _ = done => None,
-        },
-        None => slots.acquire_owned().await.ok(),
-    }
+    tokio::time::timeout(max_wait, async {
+        match reader_done {
+            Some(done) => tokio::select! {
+                slot = slots.acquire_owned() => slot.ok(),
+                _ = done => None,
+            },
+            None => slots.acquire_owned().await.ok(),
+        }
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 impl Conn {
@@ -601,23 +625,24 @@ pub async fn serve_ws_with(
             // other tasks may still hold a clone of `out_tx`.
             let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
             tokio::spawn(async move {
-                loop {
-                    let line = tokio::select! {
-                        line = out_rx.recv() => line,
-                        _ = &mut stopped => None,
-                    };
-                    let Some(line) = line else { break };
-                    let text = line.trim_end_matches('\n').to_owned();
-                    if sink
-                        .send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
-                        .await
-                        .is_err()
-                    {
-                        break;
+                let write = async {
+                    while let Some(line) = out_rx.recv().await {
+                        let text = line.trim_end_matches('\n').to_owned();
+                        if sink
+                            .send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
                     }
+                };
+                tokio::select! {
+                    _ = write => {},
+                    _ = &mut stopped => {},
                 }
                 // Say so with a Close frame.
-                let _ = sink.close().await;
+                let _ = tokio::time::timeout(WORK_BACKPRESSURE_WAIT, sink.close()).await;
             });
             // A rotation ends a Web or Peer connection, which presented the
             // dashboard token; a revocation ends a paired machine's, which
@@ -639,8 +664,17 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, Some(reader_done_rx))
-                .await;
+            serve_connection_from(
+                hub,
+                in_rx,
+                out_tx,
+                origin,
+                proof,
+                None,
+                Some(reader_done_rx),
+                WorkAdmission::default(),
+            )
+            .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -816,7 +850,8 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None, WorkAdmission::default())
+        .await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -828,6 +863,7 @@ async fn serve_connection_from(
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
     mut reader_done: Option<oneshot::Receiver<()>>,
+    admission: WorkAdmission,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -861,7 +897,6 @@ async fn serve_connection_from(
 
     let fan = fanout::start(hub.clone(), conn.clone());
     let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
-    let notification_slots = Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT));
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -883,14 +918,19 @@ async fn serve_connection_from(
                     // full; a rejected request must receive a reply while
                     // its transport remains connected.
                     let send = conn.out.send(Message::err(id, error).to_line());
-                    let delivered = match reader_done.as_mut() {
-                        Some(done) => tokio::select! {
-                            sent = send => sent.is_ok(),
-                            _ = done => false,
-                        },
-                        None => send.await.is_ok(),
-                    };
+                    let delivered = tokio::time::timeout(admission.max_wait, async {
+                        match reader_done.as_mut() {
+                            Some(done) => tokio::select! {
+                                sent = send => sent.is_ok(),
+                                _ = done => false,
+                            },
+                            None => send.await.is_ok(),
+                        }
+                    })
+                    .await
+                    .unwrap_or(false);
                     if !delivered {
+                        tracing::warn!(conn = %conn.id, "closing a connection blocked on a busy reply");
                         break;
                     }
                     continue;
@@ -917,9 +957,14 @@ async fn serve_connection_from(
                 // bounded inbound channel apply backpressure instead. If the
                 // transport reader ends while handlers are stuck, continue to
                 // connection cleanup without waiting for one of their slots.
-                let Some(slot) =
-                    notification_slot(notification_slots.clone(), &mut reader_done).await
+                let Some(slot) = notification_slot(
+                    admission.notification_slots.clone(),
+                    &mut reader_done,
+                    admission.max_wait,
+                )
+                .await
                 else {
+                    tracing::warn!(conn = %conn.id, "closing a connection blocked on notification work");
                     break;
                 };
                 let hub = hub.clone();
@@ -1177,7 +1222,7 @@ mod notification_limit_tests {
         let (reader, done) = oneshot::channel();
         let waiting = tokio::spawn(async move {
             let mut done = Some(done);
-            notification_slot(slots, &mut done).await
+            notification_slot(slots, &mut done, Duration::from_secs(1)).await
         });
         tokio::task::yield_now().await;
         assert!(!waiting.is_finished(), "all notification slots are held");
@@ -1186,5 +1231,26 @@ mod notification_limit_tests {
             tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap().unwrap().is_none()
         );
         drop(held);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_full_notification_limit_has_a_bounded_wait_even_if_reader_is_blocked() {
+        let slots = Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT));
+        let _held: Vec<_> = (0..NOTIFICATION_WORK_LIMIT)
+            .map(|_| slots.clone().try_acquire_owned().unwrap())
+            .collect();
+        // Keep the reader signal alive: it may be unable to observe EOF while
+        // the transport's bounded input channel is full.
+        let (_reader, done) = oneshot::channel();
+        let mut done = Some(done);
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                notification_slot(slots, &mut done, Duration::from_millis(10)),
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
     }
 }
