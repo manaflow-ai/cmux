@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Notify, broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -54,6 +54,7 @@ pub struct Conn {
     outbound_dropped: Arc<AtomicU64>,
     /// A gap marker is already queued (or waiting for one queue slot).
     outbound_gap_pending: Arc<AtomicBool>,
+    outbound_closed: Arc<Notify>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
@@ -172,6 +173,7 @@ impl Conn {
                     &self.outbound_dropped,
                     &self.outbound_gap_pending,
                     &self.outbound_lock,
+                    &self.outbound_closed,
                 );
             }
             Err(bytes) => {
@@ -187,6 +189,7 @@ impl Conn {
                     &self.outbound_dropped,
                     &self.outbound_gap_pending,
                     &self.outbound_lock,
+                    &self.outbound_closed,
                 );
             }
         }
@@ -242,13 +245,14 @@ fn enqueue_outbound(
     dropped: &Arc<AtomicU64>,
     gap_pending: &Arc<AtomicBool>,
     outbound_lock: &Arc<StdMutex<()>>,
+    outbound_closed: &Arc<Notify>,
 ) {
     let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     // Notifications are lossy by design when the reader is too slow, but the
     // final two permits are reserved for the response/control path and its
     // recovery marker.
     if !control && out.capacity() <= OUTBOUND_CONTROL_RESERVE {
-        report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock);
+        report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock, outbound_closed);
         return;
     }
     match out.try_send(line) {
@@ -260,8 +264,18 @@ fn enqueue_outbound(
                 gap_pending.store(false, Ordering::Release);
             }
         }
+        Err(mpsc::error::TrySendError::Full(line)) if control => {
+            let out = out.clone();
+            let outbound_closed = Arc::clone(outbound_closed);
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = outbound_closed.notified() => {}
+                    _ = out.send(line) => {}
+                }
+            });
+        }
         Err(mpsc::error::TrySendError::Full(_)) => {
-            report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock)
+            report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock, outbound_closed)
         }
         Err(mpsc::error::TrySendError::Closed(_)) => {}
     }
@@ -272,9 +286,10 @@ fn report_outbound_loss(
     dropped: &Arc<AtomicU64>,
     gap_pending: &Arc<AtomicBool>,
     outbound_lock: &Arc<StdMutex<()>>,
+    outbound_closed: &Arc<Notify>,
 ) {
     let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-    report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock);
+    report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock, outbound_closed);
 }
 
 fn report_outbound_loss_locked(
@@ -282,6 +297,7 @@ fn report_outbound_loss_locked(
     dropped: &Arc<AtomicU64>,
     gap_pending: &Arc<AtomicBool>,
     outbound_lock: &Arc<StdMutex<()>>,
+    outbound_closed: &Arc<Notify>,
 ) {
     let total = dropped.fetch_add(1, Ordering::Relaxed) + 1;
     if gap_pending.swap(true, Ordering::AcqRel) {
@@ -300,9 +316,16 @@ fn report_outbound_loss_locked(
         let dropped = Arc::clone(dropped);
         let gap_pending = Arc::clone(gap_pending);
         let outbound_lock = Arc::clone(outbound_lock);
+        let outbound_closed = Arc::clone(outbound_closed);
         tokio::spawn(async move {
-            let Ok(permit) = out.reserve().await else {
-                // The connection closed; no reader can consume a marker.
+            let permit = tokio::select! {
+                _ = outbound_closed.notified() => {
+                    gap_pending.store(false, Ordering::Release);
+                    return;
+                }
+                permit = out.reserve() => permit,
+            };
+            let Ok(permit) = permit else {
                 gap_pending.store(false, Ordering::Release);
                 return;
             };
@@ -930,6 +953,7 @@ async fn serve_connection_from(
         outbound_lock: Arc::new(StdMutex::new(())),
         outbound_dropped: Arc::new(AtomicU64::new(0)),
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
+        outbound_closed: Arc::new(Notify::new()),
         subs: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
@@ -991,6 +1015,7 @@ async fn serve_connection_from(
             }
         }
     }
+    conn.outbound_closed.notify_waiters();
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
@@ -1240,6 +1265,7 @@ mod outbound_queue_tests {
             &dropped,
             &gap_pending,
             &lock,
+            &Arc::new(Notify::new()),
         );
         enqueue_outbound(
             &out,
@@ -1248,6 +1274,7 @@ mod outbound_queue_tests {
             &dropped,
             &gap_pending,
             &lock,
+            &Arc::new(Notify::new()),
         );
 
         assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
@@ -1276,6 +1303,7 @@ mod outbound_queue_tests {
             &dropped,
             &gap_pending,
             &lock,
+            &Arc::new(Notify::new()),
         );
         assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
         let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
