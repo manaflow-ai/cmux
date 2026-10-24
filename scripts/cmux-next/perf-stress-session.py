@@ -287,6 +287,15 @@ class Stress:
         reply = self.rpc("debug.window_frame", {"frame": WINDOW})
         if isinstance(reply, dict) and reply.get("error"):
             self.refusals.append(f"debug.window_frame: {str(reply['error'])[:160]}")
+        # The window must really be WINDOW's size: a display smaller than it (a 1024 x 768 fleet screen, a
+        # window the screen clamped to 675 pt) cannot hold 4 x 3 panes, and the app then places splits
+        # elsewhere. Fail before building anything; on the fleet run under split-spring.sh --vdisplay=120
+        # (a 1920 x 1080 virtual main display), or launch here with --vdisplay.
+        frame = reply.get("frame") if isinstance(reply, dict) else None
+        if not frame or frame[2] < WINDOW[2] - 1 or frame[3] < WINDOW[3] - 1:
+            raise StressShapeError(f"the window is {frame and frame[2:]} pt, not {WINDOW[2:]}: the display "
+                                   f"({reply.get('screen') if isinstance(reply, dict) else '?'}) is too small for STRESS; "
+                                   "run with a 1920 x 1080 display (split-spring.sh --vdisplay=120, or --vdisplay here)")
         return reply
 
     def build_measured(self):
@@ -332,6 +341,7 @@ class Stress:
     def build(self, check=True):
         start = time.monotonic()
         # 60 in all: the ones the app already has, the background, and the measured one.
+        self.size_window()  # a display too small for the grid fails here, before 59 workspaces are built
         existing = len(self.workspaces())
         if existing > WORKSPACES - 1:
             raise StressShapeError(f"the app already has {existing} workspaces; STRESS has {WORKSPACES} in all")
@@ -425,6 +435,32 @@ class StressShapeError(RuntimeError):
     """The session built is not the STRESS shape."""
 
 
+def start_vdisplay(hz, out):
+    """A 1920 x 1080 virtual main display at `hz` (vdisplay.m, compiled here); returns its process once it is
+    ready, or raises StressShapeError with the helper's line."""
+    import subprocess
+    root = os.path.dirname(os.path.dirname(HERE))
+    folder = os.path.join(out, "vdisplay", "VDisplay.app", "Contents", "MacOS")
+    os.makedirs(folder, exist_ok=True)
+    binary = os.path.join(folder, "VDisplay")
+    build = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wno-deprecated-declarations", "-framework", "AppKit",
+                            "-framework", "CoreVideo", os.path.join(root, "scripts/ci/frame-pacing/vdisplay.m"), "-o", binary],
+                           capture_output=True, text=True)
+    if build.returncode:
+        raise StressShapeError(f"the virtual display helper did not compile: {build.stderr[:300]}")
+    import shutil
+    shutil.copy(os.path.join(root, "scripts/ci/frame-pacing/VDisplay-Info.plist"),
+                os.path.join(out, "vdisplay", "VDisplay.app", "Contents", "Info.plist"))
+    log = open(os.path.join(out, "vdisplay", "out"), "w")
+    process = subprocess.Popen([binary, str(hz), "7200", "main"], stdout=log, stderr=subprocess.STDOUT)
+    line = wait(lambda: next((l for l in open(log.name) if l.startswith(("ready", "error"))), None), 30, step=0.5)
+    if not line or not line.startswith("ready"):
+        process.terminate()
+        raise StressShapeError(f"the virtual display did not come up: {line}")
+    print(f"stress: virtual display {line.strip()}", flush=True)
+    return process
+
+
 def load_activation_app():
     import importlib.util
     spec = importlib.util.spec_from_file_location("activation_perf", os.path.join(HERE, "activation-perf.py"))
@@ -443,9 +479,13 @@ def main():
     parser.add_argument("--selected", choices=["terminal", "chromium"], default="terminal")
     parser.add_argument("--busy-where", choices=["measured", "elsewhere"], default="measured")
     parser.add_argument("--keep", action="store_true", help="leave the launched app running")
+    parser.add_argument("--vdisplay", type=float, default=0,
+                        help="with --app: first make a 1920 x 1080 virtual main display at this refresh (Hz), as "
+                             "split-spring.sh --vdisplay does (scripts/ci/frame-pacing/vdisplay.m)")
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     app = None
+    display = start_vdisplay(opts.vdisplay, opts.out) if opts.app and opts.vdisplay else None
     if opts.app:
         app = load_activation_app()(os.path.abspath(opts.app), opts.out, 50)
         app.launch()
@@ -464,6 +504,8 @@ def main():
     finally:
         if app and not opts.keep:
             app.stop()
+        if display and not opts.keep:
+            display.terminate()  # the helper this script started, by its process
 
 
 if __name__ == "__main__":
