@@ -177,7 +177,7 @@ export function WorkflowSummaryRow({
             </div>
           )}
           {controlsUnavailable && (
-            <div className="acpmux-workflow__actions" aria-label={t("summary.subagents.noneActive")}>
+            <div className="acpmux-workflow__actions" aria-label={t("summary.subagents")}>
               <button type="button" disabled aria-disabled="true">
                 {t("replay.pause")}
               </button>
