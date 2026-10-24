@@ -11,6 +11,7 @@
 // Times are CLOCK_UPTIME_RAW nanoseconds, one clock for both processes.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -23,6 +24,21 @@ inline constexpr uint32_t kMaxPayload = 64 * 1024;
 // Seconds a host may take to end after kQuit or EOF before it ends by force
 // (it _exits itself; cmux SIGKILLs it): ChromiumHostFrame.quitLimit.
 inline constexpr int kQuitLimitSeconds = 15;
+// The oldest fork API the host runs on: layer hosting (26) and the resize
+// sync (27), so its Chromium never holds a commit for a resize on its own.
+// cmux starts it with the switch set of this API (ChromiumHostConfiguration,
+// CEFSwitches.resizeSyncForkAPI: no AsyncLiveResize).
+inline constexpr int kMinForkAPI = 27;
+// Frames the reader may hand to the UI thread that it has not run yet (and
+// frames held before the UI thread exists): ChromiumHostConnection.frameBacklog.
+inline constexpr size_t kFrameBacklog = 4096;
+
+// Exit statuses of a host that could not start. cmux does not restart such a
+// host (ChromiumHostExit.startFailures): a new one would fail the same way.
+inline constexpr int kExitNoWire = 64;          // fds 3 and 4 are not open
+inline constexpr int kExitFrameworkLoad = 65;   // cef_load_library failed
+inline constexpr int kExitForkAPI = 66;         // fork API below kMinForkAPI
+inline constexpr int kExitInitialize = 67;      // CefInitialize failed
 
 enum Kind : uint32_t {
   // cmux -> host
@@ -104,5 +120,25 @@ inline bool Decode(const uint8_t in[kHeaderSize], Header* h) {
   h->seq = Get<uint32_t>(in, 60);
   return h->payload <= kMaxPayload;
 }
+
+// Counts the frames the reader has posted to the UI thread that have not run
+// yet. Only the reader thread calls TryTake (one producer), the UI thread
+// calls Done once per frame it runs.
+class InFlightFrames {
+ public:
+  explicit constexpr InFlightFrames(size_t limit) : limit_(limit) {}
+  // False when `limit` frames wait already: the UI thread has stopped running them.
+  bool TryTake() {
+    if (count_.load(std::memory_order_acquire) >= limit_) return false;
+    count_.fetch_add(1, std::memory_order_acq_rel);
+    return true;
+  }
+  void Done() { count_.fetch_sub(1, std::memory_order_acq_rel); }
+  size_t count() const { return count_.load(std::memory_order_acquire); }
+
+ private:
+  const size_t limit_;
+  std::atomic<size_t> count_{0};
+};
 
 }  // namespace cmux_host
