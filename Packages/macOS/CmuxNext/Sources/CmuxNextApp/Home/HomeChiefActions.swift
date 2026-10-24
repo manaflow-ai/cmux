@@ -15,19 +15,32 @@ enum HomeChiefActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("home.toggleChiefSettings", run: { _ in toggleSettings(context) })
         registry.bind(HomeChiefControl.stopAction, run: { _ in stop(context) })
-        registry.bind(HomeChiefControl.stopAllAction, unavailable: { stopAllTarget() == nil ? HomeStopAllStrings.unavailable : nil },
-                      run: { _ in stopAllTarget()?.stopAllAgents() })
+        registry.bind(HomeChiefControl.stopAllAction, unavailable: { stopAllTarget(context) == nil ? HomeStopAllStrings.unavailable : nil },
+                      run: { _ in stopAllTarget(context)?.stopAllAgents() })
     }
 
     /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
-    private static func stopAllTarget() -> HomeHostView? {
-        frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 }
+    private static func stopAllTarget(_ context: AppActionContext) -> HomeHostView? {
+        frontHome(context).flatMap { $0.chiefControl.isHosted ? nil : $0 }
     }
 
-    /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
-    private static func frontHome() -> HomeHostView? {
-        guard let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView else { return nil }
+    /// The Home in the front window (``frontWindow(_:)``) that shows a Chief.
+    private static func frontHome(_ context: AppActionContext) -> HomeHostView? {
+        guard let root = frontWindow(context)?.contentView else { return nil }
         return firstChiefHome(in: root)
+    }
+
+    /// The window whose Home answers: the key window, where a child panel with the keys (the Chief
+    /// Settings popover, a feed or composer popup) stands for the window it belongs to, so a second
+    /// toggle closes the popover it opened; else the frontmost visible cmux window by the window
+    /// registry's recency (a CLI run while another app is in front). Never `NSApp.orderedWindows`:
+    /// a synchronous window server query that waits for Core Animation commits, and
+    /// `home.stopAllAgents`' reason runs on every action catalog refresh (sweep 2026-10-23: 16
+    /// main-thread stalls, up to 263 ms).
+    private static func frontWindow(_ context: AppActionContext) -> NSWindow? {
+        if let key = NSApp.keyWindow { return HomeChiefSettingsPopover.toggleTarget(key: key, ordered: []) }
+        let windows = context.services.windows
+        return windows.registry.value.recency.lazy.compactMap { windows.controller(for: $0)?.window }.first { $0.isVisible }
     }
 
     private static func firstChiefHome(in view: NSView) -> HomeHostView? {
@@ -48,7 +61,7 @@ enum HomeChiefActions {
     }
 
     private static func stop(_ context: AppActionContext) {
-        let front = frontHome()
+        let front = frontHome(context)
         let control: HomeChiefControl
         switch plan(context, front: front).stop {
         case .front:
@@ -75,7 +88,7 @@ enum HomeChiefActions {
     }
 
     private static func toggleSettings(_ context: AppActionContext) {
-        let front = frontHome()
+        let front = frontHome(context)
         switch plan(context, front: front).settings {
         case .front:
             front?.toggleChiefSettings()

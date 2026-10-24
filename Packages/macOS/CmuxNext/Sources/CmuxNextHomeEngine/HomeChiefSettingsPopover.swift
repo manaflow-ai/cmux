@@ -38,9 +38,6 @@ public final class HomeChiefSettingsPopover {
     /// The popover is on screen and not closing.
     public var isShown: Bool { popup.isShown }
 
-    /// The window whose Home answers `home.toggleChiefSettings` now: see ``toggleTarget(key:ordered:)``.
-    public static var frontToggleTarget: NSWindow? { toggleTarget(key: NSApp.keyWindow, ordered: NSApp.orderedWindows) }
-
     /// The window whose Home answers `home.toggleChiefSettings`: the key window, else the frontmost
     /// visible one (`ordered` front to back; a CLI run while another app is in front), else none.
     /// A child panel with the keys (this popover itself, a feed or composer popup) stands for the
