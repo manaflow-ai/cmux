@@ -1,17 +1,15 @@
-import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
 import Testing
 
-/// The service side of read-your-writes (`DaemonService.appliedThroughReply(on:after:)` and
+/// The service side of read-your-writes without a daemon (`DaemonService.appliedThroughReply(on:after:)` and
 /// `appliedThroughSyncBarrier()`): a wait on a connection that is not the service's proves nothing about the
-/// command, so it is not held, at once, and never waits on another connection's sequences; a barrier that
-/// cannot read its writes throws. A command that went through but cannot be shown answers `unavailable` and
-/// may have applied, never success.
+/// command, and with no current connection to take a barrier on it is not held, at once; a barrier that
+/// cannot read its writes throws. The cases with a daemon are ``AppliedThroughRecoveryTests``.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct AppliedThroughReplyTests {
-    @Test func aConnectionThatIsNotTheServicesIsNotHeldAtOnce() async {
+    @Test func aConnectionThatIsNotTheServicesIsNotHeldWithoutACurrentOne() async {
         let daemon = DaemonService()
         let other = DaemonConnection(endpoint: DaemonEndpoint(socketPath: "/tmp/cna-reply-\(UUID().uuidString.prefix(8)).sock"))
         #expect(await daemon.appliedThroughReply(on: other, after: "test") == .connectionChanged)
@@ -20,13 +18,5 @@ struct AppliedThroughReplyTests {
     @Test func theSyncBarrierWithoutAConnectionThrows() async {
         let daemon = DaemonService()
         await #expect(throws: DaemonError.self) { try await daemon.appliedThroughSyncBarrier() }
-    }
-
-    @Test func aResultTheStoreCannotShowIsAnUnavailableFailureThatMayHaveApplied() {
-        let failure = ActionWorkFailure.resultNotShown
-        #expect(failure.refusal == .unavailable)
-        #expect(failure.mayHaveApplied)
-        #expect(failure.message == RefusalStrings.resultNotShown)
-        #expect(!failure.message.isEmpty)
     }
 }
