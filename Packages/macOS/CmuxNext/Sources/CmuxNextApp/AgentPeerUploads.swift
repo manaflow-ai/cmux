@@ -14,6 +14,7 @@ import Foundation
 struct AgentPeerUploads {
     private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int }
     private static var stages: [String: Stage] = [:]
+    private static var batches: [String: (session: String, remaining: [(String, Int)])] = [:]
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
     struct Target {
         var session: String
@@ -36,12 +37,18 @@ struct AgentPeerUploads {
         return { request, session in
             guard session == target.session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
             switch request {
-            case .begin(let name, let size, _, _):
+            case .begin(let name, let size, let batchToken, let manifest):
+                if let batchToken {
+                    guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                    batches[batchToken] = (target.session, Array(batch.remaining.dropFirst()))
+                }
                 guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
                 let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0)
-                return AgentPaneReply.success(["token": token, "size": size, "chunkSize": 512 * 1024])
+                var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
+                if let manifest, batchToken == nil, manifest.count > 1 { let id = UUID().uuidString.lowercased(); batches[id] = (target.session, Array(manifest.dropFirst())); reply["batchToken"] = id }
+                return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.target.session == target.session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
