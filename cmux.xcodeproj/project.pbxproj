@@ -311,6 +311,7 @@
 				"$(SRCROOT)/cmux-tui/Cargo.lock",
 				"$(SRCROOT)/cmux-tui/crates/cmux-git",
 				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(CODE_SIGNING_ALLOWED)",
 			);
 			name = "Build Diff Sidecar";
 			outputFileListPaths = (
@@ -517,6 +518,9 @@
 				"$(EXPANDED_CODE_SIGN_IDENTITY)",
 				"$(PRODUCT_NAME)",
 				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
@@ -557,6 +561,9 @@
 				"$(CMUX_NEXT_REQUIRE_RB_HOST)",
 				"$(EXPANDED_CODE_SIGN_IDENTITY)",
 				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
 			);
 			name = "Embed remote browser host";
 			outputFileListPaths = (
@@ -585,6 +592,9 @@
 				"$(CMUX_NEXT_CUA_HELPER_PIN)",
 				"$(CMUX_NEXT_SKIP_CUA_HELPER)",
 				"$(CMUX_NEXT_REQUIRE_CUA_HELPER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
 			);
 			name = "Embed Computer Use helper (dev)";
 			outputFileListPaths = (
@@ -650,6 +660,7 @@
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
+				"$(CODE_SIGNING_ALLOWED)",
 			);
 			name = "Bundle server helper";
 			outputFileListPaths = (

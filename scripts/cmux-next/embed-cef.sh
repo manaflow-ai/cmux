@@ -20,11 +20,10 @@
 # stamp (artifact, layout, shim, product name, identity) matches and the
 # framework signature still verifies. When the artifact is unavailable (no
 # network, no access to the private manaflow-ai/cef release) or
-# CMUX_NEXT_SKIP_CEF=1, it embeds nothing and exits 0: the app then reports
-# the Chromium engine as unavailable. A CEF embedded by an earlier build is
-# kept when its layout is valid and removed when it is the old flat layout,
-# which would fail validation. CMUX_NEXT_REQUIRE_CEF=1 turns a missing
-# artifact into a build failure (release and CEF verification builds).
+# CMUX_NEXT_SKIP_CEF=1, it removes any prior CEF payload before exiting 0: the
+# app then reports the Chromium engine as unavailable. CMUX_NEXT_REQUIRE_CEF=1
+# turns a missing artifact into a build failure (release and CEF verification
+# builds).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,23 +52,19 @@ rm -f "$stamp"
 # unless CMUX_NEXT_REQUIRE_UBLOCK=1.
 "$SCRIPT_DIR/bundle-ublock.sh"
 
-# Removes a framework left by a build that used the flat layout, with the
-# shim and helpers that belong to it. Used when nothing will replace it.
-remove_invalid_embed() {
-  local fw="$frameworks/$FW_NAME"
-  [[ -e "$fw" ]] || return 0
-  [[ -L "$fw/Versions/Current" ]] && return 0
-  echo "note: removing a flat-layout CEF framework left by an earlier build"
-  rm -rf "$fw" "$frameworks/libcmux_cef_shim.dylib"
-  for helper in "$frameworks"/*" Helper"*.app; do
+# Remove the complete CEF payload when this build explicitly has no CEF. A
+# valid prior payload must not survive a skip, or a dependency-analysis stamp
+# would make the app claim CEF is unavailable while still shipping stale code.
+remove_embed() {
+  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
+  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
     [[ -e "$helper" ]] && rm -rf "$helper"
   done
-  return 0
 }
 
 if [[ "${CMUX_NEXT_SKIP_CEF:-0}" == "1" ]]; then
   echo "note: CMUX_NEXT_SKIP_CEF=1, not embedding CEF"
-  remove_invalid_embed
+  remove_embed
   exit 0
 fi
 # Which artifacts this build needs. A universal build (ARCHS has both) embeds
@@ -107,7 +102,7 @@ else
 fi
 if [[ -z "$cef_dir" ]]; then
   echo "warning: no CEF artifact for ARCHS=${ARCHS:-}; not embedding CEF"
-  remove_invalid_embed
+  remove_embed
   exit 0
 fi
 
