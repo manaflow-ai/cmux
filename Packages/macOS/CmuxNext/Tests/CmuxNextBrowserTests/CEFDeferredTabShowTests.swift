@@ -1,62 +1,54 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Testing
 
-/// NIGHTLY 1.0.0-nightly.4010547037301 (2026-10-24): a link clicked into a pane that already shows
-/// a Chromium tab opened an empty pane. Since PL-cef-tab the new tab's browser joins the pane's
-/// live Chromium window after the frame commits (`CEFPaneHost.createDeferred`, `tab_add`), and that
-/// path skipped what `present` does for a tab with a browser: activate it in Chromium, tell layer
-/// hosting which page shows, and post the geometry change that puts the page window over the view.
+/// NIGHTLY 1.0.0-nightly.4010547037301 (2026-10-24): a link clicked in an agent chat opened the
+/// right pane's Chromium page empty, or drawn over only part of the pane until a divider drag.
+/// Since PL-cef-tab a tab's browser is made after the frame commits (`CEFPaneHost.createDeferred`):
+/// it joins the pane's live window (`tab_add`) or the window still being built (`windowCreated`).
+/// Neither path did what `present` does for a tab with a browser: tell layer hosting which page
+/// shows and post the geometry change that makes the fork's tracker place and clip the page window
+/// over the host view now. A pane's split spring that lands without moving the host view's own
+/// frame (its content is held at its rest size) must also leave the page at the landed frame.
+///
+/// `PageTracker` stands in for the fork's `CmuxParentViewTracker`: it reads the host view's geometry
+/// on each `CmuxParentViewGeometryDidChange` post and each frame change of the host view itself, as
+/// the tracker does while it follows a superview chain it no longer has (a same-window reparent).
 @MainActor @Suite(.serialized) struct CEFDeferredTabShowTests {
-    @Test func aTabJoiningALiveWindowAfterTheFrameIsActivatedAndPlaced() throws {
-        TabSpyShim.reset()
-        let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
+    /// A link opens a tab in a pane whose Chromium window is live: it joins as the active tab in the
+    /// one `tab_add` (no second activation), layer hosting shows its browser, and the page is placed.
+    @Test func aTabJoiningALiveWindowAfterTheFrameIsActivatedOnceAndPlaced() throws {
+        let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let runtime = try Self.keptRuntime(root)
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let (host, first, container) = try Self.liveHost(runtime)
+        let tracker = PageTracker(host.hostView)
 
-        // The pane shows a Chromium page: its window is live.
-        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-        host.add(first)
-        host.present(first, in: container)
-        host.createDeferred()
-        let request = try #require(runtime.pendingWindows.keys.first)
-        runtime.handle(.afterCreated(browser: 10, request: request, window: 1))
-        #expect(host.isLive)
-        #expect(first.browserID == 10)
-
-        // A link opens a new tab in that pane.
         let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(link)
         host.present(link, in: container)
         #expect(TabSpyShim.added.isEmpty, "the turn that shows the tab joins no window")
         TabSpyShim.activated = []
-        let posts = CEFHostView.trackerStats.geometryPosts
+        tracker.reads = []
         host.createDeferred()
 
-        #expect(TabSpyShim.added == [10], "joined the pane's window after the frame")
+        #expect(TabSpyShim.added.map(\.anchor) == [10], "joined the pane's window after the frame")
+        #expect(TabSpyShim.added.map(\.activate) == [1], "Chromium shows the new tab")
         #expect(link.browserID == TabSpyShim.addedBrowser)
-        #expect(TabSpyShim.activated == [TabSpyShim.addedBrowser], "Chromium shows the new tab")
-        #expect(host.lastActivated == TabSpyShim.addedBrowser)
-        #expect(CEFHostView.trackerStats.geometryPosts > posts, "the page window is placed over the pane's view")
+        #expect(TabSpyShim.activated.isEmpty, "one activation source: tab_add's")
+        #expect(host.lastActivated == TabSpyShim.addedBrowser, "its echo is this host's own")
+        #expect(host.hostView.layerHosting.browser == TabSpyShim.addedBrowser, "layer hosting follows the shown page")
+        #expect(tracker.reads.last == CEFHostGeometry(of: host.hostView), "the page window is placed over the pane's view")
+        _ = first
     }
 
     /// A tab the pane switched away from before its frame committed joins in the background:
     /// nothing activates it over the tab now shown.
     @Test func aTabNoLongerShownWhenItJoinsIsNotActivated() throws {
-        TabSpyShim.reset()
-        let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let runtime = try Self.keptRuntime(root)
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-        host.add(first)
-        host.present(first, in: container)
-        host.createDeferred()
-        runtime.handle(.afterCreated(browser: 10, request: try #require(runtime.pendingWindows.keys.first), window: 1))
+        let (host, first, container) = try Self.liveHost(runtime)
 
         let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(link)
@@ -66,49 +58,196 @@ import Testing
         TabSpyShim.activated = []
         host.createDeferred()
 
-        #expect(TabSpyShim.added == [10])
+        #expect(TabSpyShim.added.map(\.anchor) == [10])
+        #expect(TabSpyShim.added.map(\.activate) == [0])
         #expect(TabSpyShim.activated.isEmpty)
         #expect(host.lastActivated == 10)
+        #expect(host.hostView.layerHosting.browser == 10)
     }
+
+    /// The Codex review's P1: a second tab shown while the pane's first Chromium window is still
+    /// being built joins when the window comes up; it is the page shown, placed over the view.
+    @Test func aTabQueuedWhileTheWindowIsBuiltIsShownWhenItComesUp() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.host(runtime)
+        var endOfTurn: [@MainActor @Sendable () -> Void] = []
+        host.endOfTurn = { endOfTurn.append($0) }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(first)
+        host.present(first, in: container)
+        host.createDeferred()
+        #expect(host.isCreatingWindow)
+
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+        #expect(link.browserID == nil && link.isCreationPending, "waits for the window")
+        let tracker = PageTracker(host.hostView)
+        runtime.handle(.afterCreated(browser: 10, request: try #require(runtime.pendingWindows.keys.first), window: 1))
+        for block in endOfTurn { block() }
+
+        #expect(link.browserID == TabSpyShim.addedBrowser)
+        #expect(TabSpyShim.added.map(\.activate) == [1], "joined as Chromium's active tab")
+        #expect(TabSpyShim.activated.isEmpty, "one activation source: tab_add's")
+        #expect(host.lastActivated == TabSpyShim.addedBrowser)
+        #expect(host.hostView.layerHosting.browser == TabSpyShim.addedBrowser, "layer hosting shows the shown tab, not the window's first")
+        #expect(tracker.reads.last == CEFHostGeometry(of: host.hostView), "the shown page is placed over the pane's view")
+    }
+
+    /// A link opened from an agent chat into a new right pane: the pane grows in on its split spring
+    /// while the window is built, its content held at the rest size, so only its ancestors move. When
+    /// the window comes up, and again when the spring lands, the page is placed at the pane's frame.
+    @Test func aPageOpenedIntoAPaneGrowingInIsPlacedAtThePaneWhenTheWindowComesUpAndWhenItLands() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.host(runtime)
+        var endOfTurn: [@MainActor @Sendable () -> Void] = []
+        host.endOfTurn = { endOfTurn.append($0) }
+        // The pane (its clip) on the screen's content, and the tab's content held at the pane's rest width.
+        let screen = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        let pane = NSView(frame: NSRect(x: 900, y: 0, width: 0, height: 600))
+        screen.addSubview(pane)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        tab.container.frame = NSRect(x: -640, y: 0, width: 640, height: 600)
+        pane.addSubview(tab.container)
+        host.add(tab)
+        host.present(tab, in: tab.container)
+        host.createDeferred()
+        let tracker = PageTracker(host.hostView)
+
+        // A spring frame: the pane grew to half its width; the held content rides its trailing edge.
+        pane.frame = NSRect(x: 580, y: 0, width: 320, height: 600)
+        tab.container.setFrameOrigin(NSPoint(x: -320, y: 0))
+        runtime.handle(.afterCreated(browser: 10, request: try #require(runtime.pendingWindows.keys.first), window: 1))
+        for block in endOfTurn { block() }
+        #expect(tracker.reads.last == CEFHostGeometry(of: host.hostView), "placed where the pane is when the window comes up")
+
+        // The spring lands: the pane is at its rest frame; the content's size never changed.
+        tracker.reads = []
+        pane.frame = NSRect(x: 260, y: 0, width: 640, height: 600)
+        tab.container.setFrameOrigin(.zero)
+        #expect(tracker.reads.isEmpty, "the host view's own frame did not change")
+        tab.container.notifyPaneMotionSettled()
+        let landed = try #require(tracker.reads.last)
+        #expect(landed == CEFHostGeometry(of: host.hostView))
+        #expect(landed.screenRect == NSRect(x: 260, y: 0, width: 640, height: 600), "the page fills the pane, not a mid-motion part of it")
+    }
+
+    /// A divider drag resizes the pane: the page follows the host view's new frame.
+    @Test func aDividerDragKeepsThePageAtTheHostBounds() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.host(runtime)
+        host.endOfTurn = { $0() }
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        tab.container.frame = NSRect(x: 0, y: 0, width: 640, height: 600)
+        host.add(tab)
+        host.present(tab, in: tab.container)
+        host.createDeferred()
+        runtime.handle(.afterCreated(browser: 10, request: try #require(runtime.pendingWindows.keys.first), window: 1))
+        let tracker = PageTracker(host.hostView)
+
+        tab.container.setFrameSize(NSSize(width: 420, height: 600))
+        #expect(host.hostView.frame == tab.container.bounds)
+        #expect(tracker.reads.last == CEFHostGeometry(of: host.hostView))
+        #expect(tracker.reads.last?.screenRect.size == NSSize(width: 420, height: 600))
+    }
+
+    // MARK: Fixtures
 
     /// A runtime that outlives the test: a shown tab schedules work (its side panel refresh) that
     /// reads its runtime through an unowned reference after the test returned.
-    private static func keptRuntime(_ root: URL) throws -> CEFRuntime {
+    private static func runtime() throws -> (CEFRuntime, URL) {
+        TabSpyShim.reset()
+        let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
-        return runtime
+        TabSpyShim.runtime = runtime
+        return (runtime, root)
+    }
+
+    private static func host(_ runtime: CEFRuntime) -> CEFPaneHost {
+        CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+    }
+
+    /// A pane showing a Chromium page in its live window (browser 10).
+    private static func liveHost(_ runtime: CEFRuntime) throws -> (CEFPaneHost, CEFTab, NSView) {
+        let host = host(runtime)
+        host.endOfTurn = { $0() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(first)
+        host.present(first, in: container)
+        host.createDeferred()
+        runtime.handle(.afterCreated(browser: 10, request: try #require(runtime.pendingWindows.keys.first), window: 1))
+        #expect(host.isLive)
+        #expect(first.browserID == 10)
+        #expect(host.hostView.layerHosting.browser == 10)
+        return (host, first, container)
+    }
+}
+
+/// The fork tracker's reads of one host view (see the suite's comment).
+@MainActor private final class PageTracker {
+    var reads: [CEFHostGeometry] = []
+    private var observers: [any NSObjectProtocol] = []
+
+    init(_ view: CEFHostView) {
+        view.postsFrameChangedNotifications = true
+        let center = NotificationCenter.default
+        for name in [CEFHostView.geometryDidChange, NSView.frameDidChangeNotification] {
+            observers.append(center.addObserver(forName: name, object: view, queue: nil) { [weak self, weak view] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let view else { return }
+                    self.reads.append(CEFHostGeometry(of: view))
+                }
+            })
+        }
     }
 }
 
 /// Stand-in shim functions: `cmux_shim_create_window` reports the browser started,
-/// `cmux_shim_tab_add` records the window's browser it joins and returns `addedBrowser`,
-/// `cmux_shim_tab_activate` records the browser; every other function does nothing and returns 0.
+/// `cmux_shim_tab_add` records the window's browser it joins and its activate flag and, as
+/// production's shim does, runs the new tab's OnAfterCreated before it returns `addedBrowser`;
+/// `cmux_shim_tab_activate` records the browser; `cmux_shim_fork_api_version` reports layer hosting
+/// (API 27, so a host's `CEFLayerHosting` follows the shown browser); every other function does
+/// nothing and returns 0.
 private nonisolated enum TabSpyShim {
     static let addedBrowser: Int32 = 11
-    nonisolated(unsafe) static var added: [Int32] = []
+    nonisolated(unsafe) static var added: [(anchor: Int32, activate: Int32)] = []
     nonisolated(unsafe) static var activated: [Int32] = []
+    nonisolated(unsafe) static weak var runtime: CEFRuntime?
 
     static func reset() {
         added = []
         activated = []
+        runtime = nil
     }
 
     static func library() throws -> CEFShimLibrary {
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
-        let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { anchor, _, _, _ in
-            TabSpyShim.added.append(anchor)
+        let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { anchor, _, _, activate in
+            TabSpyShim.added.append((anchor, activate))
+            MainActor.assumeIsolated {
+                TabSpyShim.runtime?.handle(.afterCreated(browser: TabSpyShim.addedBrowser, request: 0, window: 1))
+            }
             return TabSpyShim.addedBrowser
         }
         let tabActivate: @convention(c) (Int32) -> Int32 = { browser in
             TabSpyShim.activated.append(browser)
             return 1
         }
+        let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
             case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_tab_add": unsafeBitCast(tabAdd, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_tab_activate": unsafeBitCast(tabActivate, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

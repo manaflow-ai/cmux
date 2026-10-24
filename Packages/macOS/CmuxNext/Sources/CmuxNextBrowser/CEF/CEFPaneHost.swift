@@ -95,6 +95,8 @@ final class CEFPaneHost {
     /// popup still in its opener's window is not one.
     var anchorBrowser: Int32? { tabs.lazy.filter { !$0.awaitsWindowMove }.compactMap(\.browserID).first }
 
+    /// Runs a block at the end of this run-loop turn (`CEFLayerHosting.atEndOfTurn`); tests run it when they choose.
+    var endOfTurn: CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) }
     /// Whether a host visibility pass is queued for this run-loop turn.
     private var hostVisibilityPending = false
     /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
