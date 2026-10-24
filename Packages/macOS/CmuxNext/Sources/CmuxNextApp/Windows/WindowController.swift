@@ -26,6 +26,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
+    /// It showed final content once: a workspace, a top page or a Cloud creation (not the
+    /// connecting state). Set by ``didShowContent()``, the one path every kind of content takes.
+    private(set) var hasShownContent = false
     /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
     /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
     /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
@@ -281,8 +284,19 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
+        didShowContent()
         services.windows.contentDidAppear(self)
         DebugWorkspaceSwitch.shown(self, in: window)
+    }
+
+    /// The window shows final content: a workspace (`show(_:on:)`), a top page (`showTopPage`, the
+    /// classic Home dock too) or a Cloud creation (`showCreation`). The first time, its manager hears
+    /// of it: the launch's frame release waits for each restored window's first content of any kind,
+    /// and a window restored on a page never installs a workspace.
+    func didShowContent() {
+        guard !hasShownContent else { return }
+        hasShownContent = true
+        services.windows.firstContentDidShow(self)
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
