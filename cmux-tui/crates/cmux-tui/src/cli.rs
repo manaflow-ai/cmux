@@ -285,41 +285,11 @@ pub(crate) fn removed_route_requested(args: &[String]) -> bool {
         .unwrap_or(false)
 }
 
+/// Startup options that take a value: the one list in main.rs
+/// (`STARTUP_VALUE_OPTIONS`), so a new option is skipped here too, plus the
+/// provider command, whose payload this scanner must not read as words.
 fn startup_value_option(value: &str) -> bool {
-    matches!(
-        value,
-        "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--ws-allow-origin"
-            | "--ws-allow-host"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--terminal-reap-grace-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
-            | "--advertise"
-            | "--term"
-            | "--owner-host-fg"
-            | "--owner-host-bg"
-            | "--owner-ready-fd"
-            | "--owner-install-key-fd"
-            | "--machine-provider-command"
-    )
+    value == "--machine-provider-command" || crate::STARTUP_VALUE_OPTIONS.contains(&value)
 }
 
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
