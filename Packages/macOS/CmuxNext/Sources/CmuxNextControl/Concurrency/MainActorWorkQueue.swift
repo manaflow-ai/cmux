@@ -125,6 +125,13 @@ public final class MainActorWorkQueue: Sendable {
 
     public var stats: Stats { state.withLock { $0.stats } }
 
+    /// `method` interned on the app's board (nil without one): the router calls it once per method
+    /// when it registers the method, so a request reaches ``run(connection:method:owner:workClass:deadline:countingFrom:_:)``
+    /// with its owner and takes neither the board's owners lock nor a string hash.
+    public func owner(of method: String) -> MainTaskOwner? {
+        frameSource.mainTaskBoard?.owner(method)
+    }
+
     public func resetStats() {
         state.withLock { state in
             let pending = state.stats.pending
@@ -145,6 +152,7 @@ public final class MainActorWorkQueue: Sendable {
     public func run<T: Sendable>(
         connection: ControlConnectionID = .inProcess,
         method: String,
+        owner: MainTaskOwner? = nil,
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         countingFrom mark: Duration? = nil,
@@ -156,8 +164,9 @@ public final class MainActorWorkQueue: Sendable {
         // (MainThreadEngineStart): an item queued behind CefInitialize runs when it ends.
         let engineStart = MainThreadEngineStart.shared
         let mark = mark ?? engineStart.total
-        // Interned here, off the main thread: the drain starts the task without a lock.
-        let owner = frameSource.mainTaskBoard?.owner(method)
+        // Interned when the method was registered; otherwise here, off the main thread. Either way
+        // the drain starts the task without a lock.
+        let owner = owner ?? frameSource.mainTaskBoard?.owner(method)
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
             let item = MainActorWorkItem(
                 connection: connection,
@@ -270,8 +279,11 @@ public final class MainActorWorkQueue: Sendable {
         }
     }
 
+    /// Re-arms the drain for the next frame from inside this one (main actor: no run loop hop, so
+    /// the app's budgeted frame queue keeps its link; see ``ControlFrameSource/scheduleFrameFromMain(_:)``).
+    @MainActor
     private func scheduleDrain() {
-        frameSource.scheduleFrame { [self] in drainFrame() }
+        frameSource.scheduleFrameFromMain { [self] in drainFrame() }
     }
 
     private func popNext() -> MainActorWorkItem? {

@@ -160,8 +160,12 @@ public final class MainThreadWatchdog: Sendable {
     /// log, so a flood of them never pushes stalls out of ``log``.
     public let overBudget = HangLog(capacity: 128)
     private let sampler = Mutex<ThreadStackSampler?>(nil)
-    /// Samples scheduled tasks past their budget (``attach(board:recordTaskBudgets:)``).
+    /// Samples scheduled tasks past their budget: made only in the task diagnostics mode
+    /// (``attach(board:recordTaskBudgets:)``), nil in every other launch.
     let taskSampler = Mutex<ThreadStackSampler?>(nil)
+    /// Set once the task diagnostics mode is on (sampler and board installed): the watchdog loop
+    /// reads this one atomic and takes no lock in every other launch.
+    let taskDiagnostics = Atomic<Bool>(false)
     private let observer = Mutex<ObserverBox?>(nil)
     #if DEBUG
     /// Tests: runs on the watchdog thread right after a sample, to hold that
@@ -241,9 +245,6 @@ public final class MainThreadWatchdog: Sendable {
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         self.sampler.withLock { $0 = sampler }
-        // Its own buffer: a stall's sample stays in `sampler` until the main thread copies it.
-        let taskSampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
-        self.taskSampler.withLock { $0 = taskSampler }
         let thread = Thread { [self] in watch(sampler: sampler) }
         thread.name = "cmux-next main-thread watchdog"
         thread.qualityOfService = .userInteractive
