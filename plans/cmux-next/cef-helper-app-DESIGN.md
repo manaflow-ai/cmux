@@ -207,17 +207,30 @@ it gets covered and in which slice (section 7).
 | 12 | Agent CDP and the shared cmux-page renderer keep working | partly: 3.4 (the host serves CDP; the daemon reaches it through `--remote-debugging-pipe` proxied by cmux with today's auth). Missing, slice 3: the proxy and the shared cmux-page renderer, which is browser-process state and moves with the host |
 | 13 | Signing, sandbox, notarization, Sparkle, keychain | partly: 3.1. Missing, slice 5: the prototype turns off Chromium's code-sign clone for the host (it copies the main bundle, which here is only the small host app); an update must therefore end and restart the host before the bundle is replaced, or the clone must copy the outer app. Keychain: the host must use the fork API 25 keychain service of the app (an access group, decision 2) |
 
-## 7. Slices from here
+## 7. Slices from here (compressed, lead 2026-10-24: default on in DEV/NIGHTLY in about 3 weeks)
 
-| Slice | What | Done when |
-|---|---|---|
-| 0 | Design + prototype behind `browserHost.helperPrototype` (landed 6ed76900e56) | done 2026-10-24 |
-| 1 | Numbers: pump-share baseline, prototype latency and pacing, stall test 9a, typing across a kill 9e | about 2026-10-27 (fleet measure queue) |
-| 2 | Input channel (ring, coalescing, phase, user-input queue), IME (rp path), cursor; proof 9b, 9d | about 2026-11-07 |
-| 3 | Shim behind the wire (132 calls), supervisor for every tab, crash page, CDP proxy, launch and spare page | about 2026-11-21 |
-| 4 | Native UI from data, AX token, drag and drop, DevTools and popups hosted (fork: off-screen page window, any-widget hosting) | about 2026-12-05 |
-| 5 | Resize fence, signing, notarization, Sparkle, keychain, TCC on 14/15/26/27, STRESS benches; default on in DEV and NIGHTLY | about 2026-12-19 |
-| 6 | Default on in Release after parity | about 2027-01-15 |
+After slice 1, three agents work at the same time in their own worktrees (PL-cef-helper plus two helper agents),
+and PL-cef-layer builds the fork list (sent 2026-10-24: user-input queue, wheel phase, windowed IME through the rp
+path, embedder active state, off-screen hosted window, any-widget hosting, resize fence, native UI from data, AX
+token, drag source, WebAuthn delegate, capture) as one CEF release.
+
+| Slice | Who | What | Done when |
+|---|---|---|---|
+| 0 | PL-cef-helper | Design + prototype behind `browserHost.helperPrototype` (landed 6ed76900e56, cc7bc02aef0) | done 2026-10-24 |
+| 1 | PL-cef-helper | Numbers: pump-share baseline (cmux20-bench, cmuxs-Mac-mini-3), prototype latency and pacing, stall test 9a, typing across a kill 9e | about 2026-10-26 (measure queue) |
+| 2 | PL-cef-helper | Input ring, coalescing per frame, wheel phase, user-input queue, IME, cursor; proof 9b, 9d; then the resize fence and 9c | about 2026-11-07 (needs fork items 1-3) |
+| 3 | helper agent A | The shim behind the wire (132 calls: host side over the shim sources, cmux side in Swift), supervisor for every tab, crash page, CDP proxy, launch and spare page | about 2026-11-07 |
+| 4 | helper agent B | Native UI from data, AX token, drag and drop, DevTools and popups hosted | about 2026-11-10 (needs fork items 7, 9-11) |
+| 5 | PL-cef-helper | Signing, notarization, Sparkle, keychain, TCC on 14/15/26/27, STRESS benches; default on in DEV and NIGHTLY | about 2026-11-14 |
+| 6 | PL-cef-helper | Default on in Release after parity | after 2 NIGHTLY weeks with no host regression, about 2026-11-28 |
+
+Slice 5 exit criteria include the update path: Sparkle (or the app's own update step) ends the host and starts it
+again before it replaces the bundle, or the host keeps Chromium's code-sign clone with a clone of the outer app; an
+update while a Chromium page is open is tested.
+
+What limits the dates: the fork release (one packaged CEF with items 1-3, 6, 7, 9-11 by about 2026-11-07; a cold fork
+build is about 1.6 h, packaging and the pin about a day); the fleet measure queue for the proof tests (steps waited
+4 h and more on 2026-10-24); the size of the shim move (132 calls); reviews of each landing.
 
 ## 8. Decisions for Lawrence
 
