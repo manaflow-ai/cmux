@@ -119,16 +119,14 @@ export function insertResolvedAttachments(
   if (fallbackIndex === undefined || !inlineIndex) return appendAttachmentsAt(current, added, fallbackIndex);
   const ordered = added
     .map((attachment, order) => ({ attachment, order, mark: inlineIndex(attachment.id) }))
-    .sort(
-      (left, right) =>
-        (left.mark ?? Number.MAX_SAFE_INTEGER) - (right.mark ?? Number.MAX_SAFE_INTEGER) || left.order - right.order,
-    );
+    // A pending mark can be removed before its decoder resolves. Do not resurrect that payload as
+    // an unmarked trailing chip when the user explicitly deleted it.
+    .filter(
+      (entry): entry is { attachment: ComposerAttachment; order: number; mark: number } => entry.mark !== undefined,
+    )
+    .sort((left, right) => left.mark - right.mark || left.order - right.order);
   const next = [...current];
   for (const { attachment, mark } of ordered) {
-    if (mark === undefined) {
-      next.push(attachment);
-      continue;
-    }
     const at = next.findIndex((existing) => {
       const existingMark = inlineIndex(existing.id);
       return existingMark !== undefined && existingMark > mark;
