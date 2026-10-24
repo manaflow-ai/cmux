@@ -20,6 +20,8 @@ public final class CmuxToastAvoidance {
     private let hosts = NSHashTable<CmuxToastOverlayHost>.weakObjects()
 
     private static var key: UInt8 = 0
+    // RED MUTATION: one app-wide host set, as the old broadcast reached every host.
+    private static let allHosts = NSHashTable<CmuxToastOverlayHost>.weakObjects()
 
     private init() {}
 
@@ -30,6 +32,7 @@ public final class CmuxToastAvoidance {
 
     /// Adds `host` to the hosts that move `window`'s toasts when an avoided view there changes.
     static func register(_ host: CmuxToastOverlayHost, in window: NSWindow) {
+        allHosts.add(host)
         if let link = existing(in: window) {
             link.hosts.add(host)
             return
@@ -49,11 +52,10 @@ public final class CmuxToastAvoidance {
     ///   shows toasts in `window`.
     @discardableResult
     public static func avoidanceChanged(in window: NSWindow) -> Task<Void, Never>? {
-        guard let link = existing(in: window), link.hosts.anyObject != nil else { return nil }
-        // task-owner: one hop past the caller's layout pass; moves this window's toasts once
-        return Task { [weak link, weak window] in
-            guard let window, let link else { return }
-            for host in link.hosts.allObjects { host.reanchor(in: window) }
+        // RED MUTATION: every host, every window, for any window's change.
+        return Task { [weak window] in
+            guard let window else { return }
+            for host in allHosts.allObjects { host.reanchor(in: window) }
         }
     }
 }
