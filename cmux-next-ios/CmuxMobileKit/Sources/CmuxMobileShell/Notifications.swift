@@ -122,6 +122,10 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         PushReplies.shared.registerCategories()
+        #if DEBUG && targetEnvironment(simulator)
+        SimulatedServiceExtension.deliverIfAsked()
+        SimulatedServiceExtension.registerStandInTokenIfAsked()
+        #endif
         Task {
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
             if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }

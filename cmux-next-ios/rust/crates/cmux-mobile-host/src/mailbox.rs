@@ -497,7 +497,17 @@ impl Mailbox {
                     handled.later.push(item);
                     continue;
                 }
-                Err(Rejection::Repeat(first)) => (first.is_none(), first.clone()),
+                Err(Rejection::Repeat(first)) => {
+                    // A copy of a settled reply: nothing is applied again; its first outcome is
+                    // answered (signed) so a lost ack never reads as a failure.
+                    tracing::info!(id = item.id, first = ?first, "mailbox reply repeated: not applied again");
+                    let identity = self.identity.borrow().clone();
+                    let (applied, reason) = (first.is_none(), first.clone());
+                    let sig = identity
+                        .and_then(|i| i.sign(&ack_message(&self.mac, &item.id, applied, reason.as_deref())));
+                    handled.results.push(MailboxResult { id: item.id, applied, reason, sig });
+                    continue;
+                }
                 Err(rejection) => (false, Some(rejection.code().to_owned())),
             };
             if applied {
