@@ -88,7 +88,7 @@ final class KeybindingsPageProvider: PageProvider {
             return PageSubscription { [weak self] in
                 guard let self else { return }
                 recordedListeners[id] = nil
-                if recordedListeners.isEmpty { stopRecording() }
+                if recordedListeners.isEmpty { stopRecording() }  // only a capture this page owns
             }
         case "cmux.keybindings.changed":
             // Fires after a keymap import, an edit (the page's or the socket's) and whenever keybindings.json loads.
@@ -165,7 +165,10 @@ final class KeybindingsPageProvider: PageProvider {
         }
     }
 
+    /// Ends this provider's capture. The key router's slot is one for every window's page: a
+    /// provider that is not recording leaves another page's capture alone.
     private func stopRecording() {
+        guard recorder != nil else { return }
         recorder = nil
         awaitingRelease = false
         services.keyRouter.keyRecorder = nil

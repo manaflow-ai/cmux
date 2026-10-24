@@ -442,7 +442,10 @@ test("keys another action has: the recorder says who has them and offers Overwri
   // Keys the app refuses (an action that always runs holds them): "Already used by" it, the
   // app's reason under it, no Overwrite; nothing is saved and the page's notice stays empty; the
   // next shortcut clears it.
+  // Quit holds ⌘Q in the table too: the refusal wins over the question, so no Overwrite.
   provider.refused.set("cmd+q", "Quit");
+  provider.layers.base.push({ command: "app.quit", key: "cmd+q", when: null, source: "default" });
+  await act(async () => store.reload());
   const before = sets().length;
   await click(row("Go to File")?.querySelector(".keys-key-button"));
   await keys("cmd+q");
@@ -500,4 +503,18 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(row("Close Tab")?.querySelector(".keys-key-button")?.textContent).toBe(strings.t("keybindings.page.notSet"));
   expect(provider.recording).toBe(true);
   expect(choices()).toBeFalsy();
+
+  // The fourth stroke ends the recording (the app's limit): the chord saves and the recorder closes.
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+  await click(row("Show History")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    for (const stroke of ["cmd+k", "cmd+1", "cmd+2", "cmd+3"]) provider.press(stroke);
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets().at(-1)?.params).toMatchObject({ command: "history.open", key: "cmd+k cmd+1 cmd+2 cmd+3" });
+  expect(recorder()).toBeNull();
 });

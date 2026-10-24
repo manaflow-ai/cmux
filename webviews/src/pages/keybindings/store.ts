@@ -457,8 +457,12 @@ export class KeybindingsStore {
       this.set({ recording: { ...recording, key: event.key, display: event.display, held: event.held ?? "" } });
       return;
     }
-    if (event.done && event.key) void this.commit({ ...recording, key: event.key, display: event.display }, "close");
-    else this.endRecording();
+    if (event.done && event.key) {
+      // The last stroke (Return, or the fourth): the keys shown are these, then the commit.
+      const done = { ...recording, key: event.key, display: event.display, held: "" };
+      this.set({ recording: done });
+      void this.commit(done, "close");
+    } else this.endRecording();
   }
 
   /** New keys for the recording row: saved at once, unless they take another action's keys
@@ -473,15 +477,15 @@ export class KeybindingsStore {
     // Newer keys went down (or another row records) while the app answered: they decide.
     if (current?.target !== "row" || current.row !== recording.row || current.key !== key || current.prompt) return;
     const warned = current.warned + 1;
-    if (conflicts.length) {
-      // Taken: the recorder asks (Overwrite, or record a new shortcut); Overwrite also frees a
-      // key the other action always runs.
-      await this.recapture({ ...current, key, display, held: "", warned, prompt: { key, display, conflicts, after } });
-      return;
-    }
+    // A refusal first: keys an action always runs never offer Overwrite (the app never takes them).
     if (refusal) {
       // Never saved: the recorder says why and records the next shortcut.
       await this.recapture({ ...current, key, display, held: "", warned, refusal, refusalOwner: owner });
+      return;
+    }
+    if (conflicts.length) {
+      // Taken: the recorder asks (Overwrite, or record a new shortcut).
+      await this.recapture({ ...current, key, display, held: "", warned, prompt: { key, display, conflicts, after } });
       return;
     }
     const saved = await this.save({ ...current, key, display });
