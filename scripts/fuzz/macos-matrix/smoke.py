@@ -56,6 +56,7 @@ ECHO_COMMAND = "echo cmux-matrix-$((6*7)); touch /tmp/cmux-matrix-typed"
 ECHO_OUTPUT = "cmux-matrix-42"
 EXIT_FILE = "/tmp/cmux-matrix-app-exit"
 REPORT_DEADLINE = 30  # s: ReportCrash writes a report up to ~20 s after a death; it sends no signal over SSH
+REPORT_MINIMUM = 15  # s: after a clean quit too, a helper (Chromium, cmux-tui) can have crashed at teardown
 # Every step a PASS needs: a run that stopped early (a death, a refused call) is never a PASS.
 REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit", "settings", "alive", "quit")
 
@@ -221,9 +222,10 @@ class Smoke:
         if pid is not None:
             reply = self.call("action.run", {"action": "quitEndEverything"}, timeout=20)
             end = time.time() + QUIT_DEADLINE
-            while g.pid() is not None and time.time() < end:  # no exit event reaches the host over SSH
+            # The exit file is the quit signal: the guest shell writes it after the app exited.
+            while self.exit_status() is None and time.time() < end:  # no exit event reaches the host over SSH
                 time.sleep(0.5)
-            gone = g.pid() is None
+            gone = self.exit_status() is not None and g.pid() is None
             if not gone:
                 g.sh(f"sample {pid} 3 -file /tmp/cmux-matrix-quit.sample.txt >/dev/null 2>&1; kill -9 {pid}", timeout=30)
                 open(os.path.join(self.out, "quit-hang.sample.txt"), "w").write(g.sh("cat /tmp/cmux-matrix-quit.sample.txt").stdout)
@@ -239,14 +241,14 @@ class Smoke:
         reports: list[dict] = []
         seen: set[str] = set()
         died = self.exit_status() not in (0, None) or not self.result["steps"].get("quit", {}).get("ok", False)
-        end = time.time() + (REPORT_DEADLINE if died else 0)
+        end = time.time() + (REPORT_DEADLINE if died else REPORT_MINIMUM)
         while True:
             for path in new_reports(g, self.since, seen):
                 seen.add(path)
                 name = os.path.basename(path)
                 open(os.path.join(self.out, name), "w").write(g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout)
                 reports.append({"kind": report_kind(name), "report": name})
-            if reports or time.time() >= end:
+            if (died and reports) or time.time() >= end:
                 break
             time.sleep(2)
         self.result["reports"] = reports

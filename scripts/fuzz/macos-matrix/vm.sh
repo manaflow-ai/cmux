@@ -59,6 +59,8 @@ case "$SUITE" in
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
   *) echo "--suite must be smoke, fuzz or repro" >&2; exit 2 ;;
 esac
+# The results file is created new at the end (O_EXCL): refuse an existing one before the run.
+[[ -z "$RESULTS" || ! -e "$RESULTS" && ! -L "$RESULTS" ]] || { echo "--results $RESULTS exists" >&2; exit 2; }
 export TART_HOME=${TART_HOME:-$WORK/tart-home}
 TART_BIN=${TART_BIN:-$(command -v tart || ls -d "$WORK"/tools/tart-*/tart.app/Contents/MacOS/tart 2>/dev/null | tail -1 || true)}
 [[ -x "$TART_BIN" ]] || { echo "no tart binary (see images.json)" >&2; exit 2; }

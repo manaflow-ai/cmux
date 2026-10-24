@@ -102,7 +102,10 @@ class Guest:
             return None
 
     def pid(self) -> int | None:
-        r = self.sh(f"pgrep -nf {shlex.quote(self.app + '/Contents/MacOS/')}")
+        # The app process itself (argv[0] is the binary), not a shell whose command line names it.
+        target = self.binary or self.app + "/Contents/MacOS/"
+        pattern = "^" + "".join("\\" + c if c in ".[]()*+?{}|^$\\" else c for c in target)
+        r = self.sh(f"pgrep -nf {shlex.quote(pattern)}")
         return int(r.stdout.split()[0]) if r.returncode == 0 and r.stdout.strip() else None
 
     def winfo(self) -> dict | None:

@@ -59,7 +59,7 @@ case "$SUITE" in
 esac
 
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
-ROOT=$(git rev-parse --show-toplevel)
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "run os-matrix.sh from a cmux worktree" >&2; exit 2; }
 if [[ -z "$REF" ]]; then
   git -C "$ROOT" fetch -q origin feat-cmux-next || { echo "os-matrix: git fetch failed" >&2; exit 75; }
   REF=$(git -C "$ROOT" rev-parse FETCH_HEAD)
@@ -71,7 +71,9 @@ images=$(git -C "$ROOT" show "$REF:scripts/fuzz/macos-matrix/images.json") || {
 # itself with the images in its Tart cache; a step never pulls an image).
 labels=$(python3 -I -c 'import json, sys
 pins = {i["major"]: i["digest"] for i in json.loads(sys.argv[1])["images"]}
-for m in sys.argv[2].split(","):
+majors = sys.argv[2].split(",")
+if len(set(majors)) != len(majors): sys.exit("--os names a major twice")
+for m in majors:
     if m not in pins: sys.exit("macOS %s has no pinned image in images.json (have %s)" % (m, ",".join(sorted(pins))))
     print("--label=tart-" + pins[m][len("sha256:"):][:32])' "$images" "$OS") || exit 2
 OUT=${OUT:-$ROOT/artifacts/os-matrix/${BUILD:0:12}-${SUITE//:/-}-$(date -u +%Y%m%dT%H%M%SZ)}
