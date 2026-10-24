@@ -1,35 +1,15 @@
-import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import WebKit
 
 extension AgentPaneView {
-    /// Display information stays native; the page owns adaptive rate policy.
-    func framePacingSettings() -> [String: Any] {
-        let fps = window?.screen?.maximumFramesPerSecond ?? displayFramesPerSecond()
-        return ["adaptive": renderRate == .adaptive && fps > 0,
-                "displayInterval": fps > 0 ? 1000 / Double(fps) : 0]
-    }
-
-    /// Whether the page renders at the display's full rate. Setting it
-    /// changes the live page's preferences and re-shows the page so WebKit
-    /// applies them.
+    /// Whether the page renders at the display's full rate. It is fixed when the page is made
+    /// (``renderRate``), as for every cmux page and browser tab: WebKit does not apply a live write
+    /// of its near-60 preference to a page on screen (perf-lead row 23, cmux20, macOS 27, 120 Hz),
+    /// and in Low Power Mode it halves every page by itself. A Chromium page always renders at the
+    /// display's rate.
     public var rendersAtFullRate: Bool {
-        get { webView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) == false }
-        set {
-            // A Chromium page has no WebKit rate: Chromium renders at the display's rate.
-            guard page?.showsChromium != true, newValue != rendersAtFullRate else { return }
-            // A WebKit without the feature has no rate to re-apply.
-            guard webView.configuration.preferences.setWebKitFeature(WebKitRenderRate.near60FPSFeature, enabled: !newValue) else { return }
-            reapplyRenderRate()
-        }
-    }
-
-    /// WebKit reads the rate only when the page's visibility changes: the
-    /// shared re-show hides the web view for a moment under a snapshot of
-    /// the page. The adaptive rate changes only after a scroll settles, so
-    /// the snapshot matches what is on screen.
-    private func reapplyRenderRate() {
-        rateReapply = WebKitRenderRate.reshow(webView, replacing: rateReapply, snapshot: snapshotPage, clock: clock)
+        if page?.showsChromium == true { return true }
+        return webView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) == false
     }
 }

@@ -100,12 +100,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.framePacing":
-            if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
-                self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
-            } else {
-                self = .unsupported(method)
-            }
         case "pane.saveLog":
             if let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: .log) {
                 self = .saveFile(save)
@@ -142,12 +136,6 @@ extension AgentPaneRequest {
             }
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
-        case "pane.renderRate":
-            if let full = params?["full"] as? Bool {
-                self = .renderRate(full)
-            } else {
-                self = .unsupported(method)
-            }
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
