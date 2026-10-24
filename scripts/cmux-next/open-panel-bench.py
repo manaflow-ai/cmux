@@ -84,7 +84,7 @@ def measure(app, session, report, opts):
             reply = app.rpc("debug.open_panel_bench", {"mode": mode}, timeout=90) or {}
             stuck.cancel()
             frames = reply.get("frames") or {}
-            run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "init_ms", "begin_ms", "sync_ms", "visible_ms", "error")}
+            run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "init_ms", "begin_ms", "sync_ms", "visible_ms", "error", "sheet_class", "resize_time_calls", "behavior")}
             run.update(frame_max_ms=frames.get("max_ms"), missed=frames.get("missed"), refresh_ms=frames.get("refresh_ms"),
                        intervals_ms=frames.get("intervals_ms"), prompt_nil=reply.get("prompt_nil"),
                        session=session, round=index, first_open=first_open)
@@ -98,7 +98,7 @@ def measure(app, session, report, opts):
             runs.append(run)
             print(f"  {session:<6} {mode:<6} #{index}: init {run['init_ms']} begin {run['begin_ms']} sync {run['sync_ms']} "
                   f"visible {run['visible_ms']} ms, longest frame {run['frame_max_ms']} ms (refresh {run['refresh_ms']} ms) "
-                  f"made_before {run['made_ahead_before']} {run['error'] or ''}", flush=True)
+                  f"made_before {run['made_ahead_before']} {run['error'] or ''} class {run.get('sheet_class')} resize_calls {run.get('resize_time_calls')} behavior {run.get('behavior')}", flush=True)
         if sampler is not None:
             sampler.wait()
             print_main_sample(sample_path, session, mode)

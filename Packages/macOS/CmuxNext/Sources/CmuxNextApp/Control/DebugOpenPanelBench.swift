@@ -28,6 +28,8 @@ enum DebugOpenPanelBench {
     //   plain         a plain NSWindow as a sheet (Home group info, Home sheet, update sheet, SwiftUI .sheet)
     //   plain_noanim  a NoAnimWindow (animationResizeTime 0) as a sheet
     //   plain_parent  a plain sheet on a probe parent window whose animationResizeTime is 0 (which window AppKit asks)
+    //   plain_animnone / made_animnone  the sheet's animationBehavior is .none
+    //   plain_child / made_child  no sheet: the window shows as a child window at the sheet's place (made: `begin`)
     //   made_default  the made-ahead panel while NSWindowResizeTime is registered as 0.001 (removed after the open)
     static func run(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .null }
@@ -75,7 +77,7 @@ enum DebugOpenPanelBench {
             a.informativeText = "A sheet the open-panel probe shows and cancels."
             alert = a
             sheet = a.window
-        case "plain", "plain_parent": sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+        case "plain", "plain_parent", "plain_animnone", "plain_child": sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
         case "plain_noanim": sheet = NoAnimWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
         default:
             guard let panel = shared.panel() else {
@@ -84,9 +86,22 @@ enum DebugOpenPanelBench {
             }
             sheet = panel
         }
+        let behavior = sheet.animationBehavior
+        if mode.hasSuffix("_animnone") { sheet.animationBehavior = .none }
+        let child = mode.hasSuffix("_child")
         let made = ContinuousClock.now
-        if mode == "window", let panel = sheet as? NSOpenPanel {
+        if mode == "window" || mode == "made_child", let panel = sheet as? NSOpenPanel {
             panel.begin { _ in }
+        } else if child {
+            sheet.orderFront(nil)
+        }
+        if child {
+            let content = window.contentLayoutRect
+            let top = window.convertPoint(toScreen: NSPoint(x: content.midX - sheet.frame.width / 2, y: content.maxY))
+            sheet.setFrameTopLeftPoint(top)
+            window.addChildWindow(sheet, ordered: .above)
+        } else if mode == "window" {
+            // shown by `begin` above
         } else if let alert {
             alert.beginSheetModal(for: window) { _ in }
         } else if let panel = sheet as? NSSavePanel {
@@ -96,21 +111,25 @@ enum DebugOpenPanelBench {
         }
         let begun = ContinuousClock.now
         let visible = await frames.settled(until: {
-            sheet.isVisible && sheet.occlusionState.contains(.visible) && (mode == "window" || window.attachedSheet === sheet)
+            sheet.isVisible && sheet.occlusionState.contains(.visible) && (mode == "window" || child || window.attachedSheet === sheet)
         }, start: start, window: 300, deadline: 10_000)
         let stats = frames.stop()
         let calls: JSONValue = .object([
             "sheet": .number(Double((sheet as? NoAnimOpenPanel)?.resizeTimeCalls ?? (sheet as? NoAnimWindow)?.resizeTimeCalls ?? -1)),
             "parent": .number(Double(probeParent?.resizeTimeCalls ?? -1)),
         ])
-        if mode == "window", let panel = sheet as? NSOpenPanel {
+        if child { window.removeChildWindow(sheet) }
+        if mode == "window" || mode == "made_child", let panel = sheet as? NSOpenPanel {
             panel.cancel(nil)
+        } else if child {
+            sheet.orderOut(nil)
         } else {
             window.endSheet(sheet, returnCode: .cancel)
         }
         frames.start()
         _ = await frames.settled(until: { !sheet.isVisible && window.attachedSheet == nil }, start: .now, window: 0, deadline: 3_000)
         _ = frames.stop()
+        sheet.animationBehavior = behavior
         probeParent?.close()
         if mode == "made_default" {
             var registered = UserDefaults.standard.volatileDomain(forName: UserDefaults.registrationDomain)
@@ -128,6 +147,7 @@ enum DebugOpenPanelBench {
             "visible_ms": visible.map { .number($0) } ?? .null,
             "frames": stats,
             "resize_time_calls": calls,
+            "behavior": .number(Double(behavior.rawValue)),
         ])
     }
 }
