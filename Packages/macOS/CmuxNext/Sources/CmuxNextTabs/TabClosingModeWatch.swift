@@ -31,6 +31,8 @@ import CmuxNextWakeups
 
     /// The pointer left the strip in closing mode: follow it until it leaves the extended area.
     func pointerLeft() {
+        // main-proof: both monitor closures are inferred main-actor (written in this main-actor method); NSEvent.h: AppKit
+        // calls monitor handlers on the main thread, and Swift checks the main actor on each closure's entry (SE-0423).
         if exitMonitor == nil {
             exitMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
                 self?.pointerEvent(event)
@@ -40,9 +42,7 @@ import CmuxNextWakeups
         // Moves over other apps' windows or the desktop never reach a local monitor.
         if exitGlobalMonitor == nil {
             exitGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
-                MainActor.assumeIsolated { // main-proof: NSEvent.h: monitor handlers are called on the main thread
-                    self?.pointerEvent(event, outsideApp: true)
-                }
+                self?.pointerEvent(event, outsideApp: true)
             }
         }
         installTracking()
