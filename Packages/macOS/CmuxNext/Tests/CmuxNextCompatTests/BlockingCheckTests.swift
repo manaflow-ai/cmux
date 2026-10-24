@@ -229,6 +229,44 @@ struct BlockingCheckTests {
         }
     }
 
+    /// A nested run of the main run loop in the event-tracking mode (as menu tracking, a drag session or a
+    /// modal panel runs it) that runs ANOTHER main-actor job, which itself opens and closes an allowance and
+    /// makes a checked call, while the outer allowance is open: no trap, the nested job's unallowed call is
+    /// recorded, its allowed call is not, and the outer allowance is back after the nested run. One table for
+    /// both jobs, as in the app.
+    @Test func aNestedTrackingRunThatRunsAnotherMainActorJobRecordsItAndDoesNotTrap() async {
+        await #expect(processExitsWith: .exitCode(0)) {
+            let table = BlockingViolationTable(mode: .record)
+            let ranNested = await BlockingViolationTable.$scoped.withValue(table) {
+                await MainActor.run { () -> Bool in
+                    // AppKit adds its event-tracking mode to the common modes; this process has no
+                    // NSApplication, so add it the same way (main-queue work then runs in that mode).
+                    let tracking = CFRunLoopMode(rawValue: "NSEventTrackingRunLoopMode" as CFString)
+                    CFRunLoopAddCommonMode(CFRunLoopGetMain(), tracking)
+                    let ran = MainFlag()
+                    allowBlocking(BlockingAllowance(reviewed: "test")) {
+                        // Another main-actor job, enqueued now and run by the nested tracking run below.
+                        Task { @MainActor in
+                            allowBlocking(BlockingAllowance(reviewed: "test-inner")) {
+                                _ = FileManager.checked.fileExists(atPath: "/")  // allowed by the inner scope
+                            }
+                            _ = FileManager.checked.isReadableFile(atPath: "/")  // not allowed: recorded
+                            ran.value = true
+                        }
+                        // Bounded: the job is already queued; each run returns after handling one source.
+                        for _ in 0..<100 where !ran.value { _ = CFRunLoopRunInMode(tracking, 1, true) }
+                        _ = FileManager.checked.isWritableFile(atPath: "/")  // the outer body again: allowed
+                    }
+                    return ran.value
+                }
+            }
+            await table.flush()
+            let sites = BlockingDetector(table: table).sites
+            let ok = ranNested && sites.count == 1 && sites.first?.kind == .fileIO && sites.first?.count == 1
+            exit(ok ? 0 : 3)
+        }
+    }
+
     @MainActor @Test func offTheMainThreadNothingIsRecorded() async {
         let (table, recorder) = Self.recordingTable()
         await BlockingViolationTable.$scoped.withValue(table) {
@@ -356,6 +394,12 @@ struct BlockingCheckTests {
 }
 
 #if DEBUG || CMUX_BLOCKING_CHECKS
+/// A main-actor flag a nested job sets.
+@MainActor
+private final class MainFlag {
+    var value = false
+}
+
 /// A semaphore made with value 0 and signaled once: one wait returns at once and leaves it at its initial
 /// value. (A semaphore made with value 1 and waited on is below its initial value when it is released, and
 /// libdispatch traps on that: the SIGTRAP of the suite runs at 1b71848e3c4 and ee33c68f2a3.)
