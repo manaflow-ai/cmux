@@ -801,7 +801,7 @@ RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
-         "say why on the declaration: `// crash-allow: <the safety argument>` (crash_ratchet.py honors it too)",
+         "say why on the declaration: `// crash-allow: <the safety argument>` (crash_ratchet.py counts it as a waived hit: record it with crash_ratchet.py --record-waivers)",
          "// crash-allow: <the safety argument>",
          line_rule(r"@unchecked\s+Sendable\b|\bnonisolated\(unsafe\)", "crash-allow:")),
     Rule("sleep-poll", "A sleep inside a loop (polling)",
