@@ -67,6 +67,7 @@ export interface AcpmuxRequests {
   "_acpmux/btw": { params: unknown; result: unknown };
   "_acpmux/tag": { params: unknown; result: unknown };
   "_acpmux/info": { params: unknown; result: unknown };
+  "_acpmux/session_files": { params: unknown; result: unknown };
   "_acpmux/events": { params: EventsParams; result: EventsResult };
   "_acpmux/attachment": { params: unknown; result: unknown };
   "_acpmux/mail/send": { params: MailSendParams; result: MailSendResult };
@@ -290,6 +291,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/btw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tag", kind: "request", acp: false, typed: false },
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/session_files", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attachment", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mail/send", kind: "request", acp: false, typed: true },
