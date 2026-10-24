@@ -23,11 +23,18 @@ final class MainActorWorkItem: Sendable {
     let enqueuedAt: ContinuousClock.Instant
     private let body: @MainActor @Sendable () -> Void
     private let fail: @Sendable (ControlError) -> Void
-    /// The board that counts this item as a person's pending input (an injected key at the head
-    /// of its connection), until run or expire claims it.
-    private let pendingInput = Mutex<MainTaskBoard?>(nil)
-    private let phase = Mutex(Phase.pending)
-    private let timer = Mutex<Task<Void, Never>?>(nil)
+    /// The phase, the deadline timer and the board that counts the item as pending input, under
+    /// one lock: claiming the item (run or expire) takes the board and the timer in the same
+    /// critical section, so running a request takes two lock operations (claim, finish).
+    private let state = Mutex(State())
+
+    private struct State: Sendable {
+        var phase = Phase.pending
+        var timer: Task<Void, Never>?
+        /// The board that counts this item as a person's pending input (an injected key at the
+        /// head of its connection), until run or expire claims it.
+        var pendingInput: MainTaskBoard?
+    }
 
     init(
         connection: ControlConnectionID,
@@ -49,22 +56,28 @@ final class MainActorWorkItem: Sendable {
         self.fail = fail
     }
 
-    var isPending: Bool { phase.withLock { $0 == .pending } }
+    var isPending: Bool { state.withLock { $0.phase == .pending } }
+
+    /// Moves a pending item to `phase` and hands back what it held; nil when something else
+    /// claimed it first.
+    private func claim(_ phase: Phase) -> (timer: Task<Void, Never>?, board: MainTaskBoard?)? {
+        state.withLock { state in
+            guard state.phase == .pending else { return nil }
+            state.phase = phase
+            defer { state.timer = nil; state.pendingInput = nil }
+            return (state.timer, state.pendingInput)
+        }
+    }
 
     /// Runs the body if nothing else claimed the item. Returns false when it
     /// had already expired.
     @MainActor
     func run() -> Bool {
-        let claimed = phase.withLock { phase -> Bool in
-            guard phase == .pending else { return false }
-            phase = .running
-            return true
-        }
-        guard claimed else { return false }
-        releasePendingInput()
-        timer.withLock { $0?.cancel() }
+        guard let claimed = claim(.running) else { return false }
+        claimed.board?.inputDone()
+        claimed.timer?.cancel()
         body()
-        phase.withLock { $0 = .finished }
+        state.withLock { $0.phase = .finished }
         return true
     }
 
@@ -72,24 +85,16 @@ final class MainActorWorkItem: Sendable {
     /// budgeted batch yields while it waits. Call before the item can be claimed (while queuing it).
     func countAsPendingInput(on board: MainTaskBoard) {
         board.inputQueued()
-        pendingInput.withLock { $0 = board }
-    }
-
-    private func releasePendingInput() {
-        let board = pendingInput.withLock { board -> MainTaskBoard? in
-            let counted = board
-            board = nil
-            return counted
-        }
-        board?.inputDone()
+        state.withLock { $0.pendingInput = board }
     }
 
     /// Keeps the deadline timer so running the item cancels it. Cancels it
     /// at once when the item already ran.
     func attachTimer(_ task: Task<Void, Never>) {
-        let done = timer.withLock { stored -> Bool in
-            stored = task
-            return phase.withLock { $0 != .pending }
+        let done = state.withLock { state -> Bool in
+            guard state.phase == .pending else { return true }
+            state.timer = task
+            return false
         }
         if done { task.cancel() }
     }
@@ -98,15 +103,10 @@ final class MainActorWorkItem: Sendable {
     /// it did (the item will never run).
     @discardableResult
     func expire(_ error: ControlError) -> Bool {
-        let claimed = phase.withLock { phase -> Bool in
-            guard phase == .pending else { return false }
-            phase = .finished
-            return true
-        }
-        if claimed {
-            releasePendingInput()
-            fail(error)
-        }
-        return claimed
+        guard let claimed = claim(.finished) else { return false }
+        claimed.board?.inputDone()
+        claimed.timer?.cancel()
+        fail(error)
+        return true
     }
 }

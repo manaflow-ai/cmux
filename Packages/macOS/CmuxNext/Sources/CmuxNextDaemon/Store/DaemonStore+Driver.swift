@@ -249,7 +249,9 @@ extension DaemonStore {
             }
             if !rest.isEmpty, let budget, !budget.mayRun(.visible) {
                 if driver.inbox.putBack(rest) {
-                    driver.scheduler.scheduleFrame { [weak self] in self?.drain() }
+                    // On the main actor, inside the frame: no run loop hop (it would land after the
+                    // tick and let the budgeted link go idle and be rebuilt every frame).
+                    driver.scheduler.scheduleFrameFromMain { [weak self] in self?.drain() }
                 }
                 return
             }

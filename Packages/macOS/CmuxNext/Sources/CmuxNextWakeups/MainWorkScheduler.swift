@@ -27,18 +27,31 @@ public final class MainWorkScheduler {
     /// The display-link scheduler the budgeted clients tick on (the main screen's).
     public let frames: FrameScheduler
 
+    /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
+    private let renderPasses: RenderPassMeter?
+
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
-    public init(budget: MainFrameBudget) {
-        self.budget = budget
-        frames = FrameScheduler(name: "budgeted", host: .screen, budget: budget)
+    ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
+    ///   while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+    public convenience init(budget: MainFrameBudget) {
+        let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
+        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
     }
 
-    private init(budget: MainFrameBudget, frames: FrameScheduler) {
+    private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {
         self.budget = budget
         self.frames = frames
+        self.renderPasses = renderPasses
+        // The link's ticks own the budget's window while it exists; an idle app times no pass.
+        frames.onLinkChange = { [weak self] exists in
+            guard let self else { return }
+            self.budget.tickOwnsWindow = exists
+            if exists { self.renderPasses?.start() } else { self.renderPasses?.stop() }
+        }
     }
 
-    /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``.
+    /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
+    /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``.
     ///
     /// - Parameters:
     ///   - budget: The budget (tests inject its clock and input source).
@@ -48,7 +61,8 @@ public final class MainWorkScheduler {
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
-                                                                 makeLink: makeLink, budget: budget))
+                                                                 makeLink: makeLink, budget: budget),
+                          renderPasses: nil)
     }
 
     /// One display frame (the link's tick; tests call it directly).
