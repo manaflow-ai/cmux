@@ -163,9 +163,13 @@ impl ConnectionSurfaceScheduler {
         self: &Arc<Self>,
         mux: &Arc<Mux>,
         client: u64,
-        pending: PendingSurfaceRequest,
+        mut pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
+        // A create is accepted at its hand-off to the terminal pool, which keeps
+        // creates in order among themselves: a view's later request does not
+        // wait for the whole terminal launch (a connection-wide barrier would).
+        drop(pending.order.take());
         let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
         let label = match (&pending.request.cmd, prelaunch.is_some()) {
             (Command::NewTab { .. }, true) => "new-tab",
