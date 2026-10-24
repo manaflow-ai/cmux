@@ -81,6 +81,12 @@ enum AgentHandlers {
             }
             view.toggleInspector()
         }
+        registry.bind("agentPane.togglePointerInspector", unavailable: {
+            AgentPaneTunables.pointerInspector.value ? nil :
+                "UI pointer inspector is off. Turn it on in Debug Settings."
+        }, run: { _ in
+            context.services.uiInspector.toggle()
+        })
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
