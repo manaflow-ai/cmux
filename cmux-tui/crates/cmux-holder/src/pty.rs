@@ -24,14 +24,16 @@ pub struct Spawned {
 /// `RLIMIT_NOFILE` the child gets back (the one cmux started with, before
 /// the daemon raised its own: programs that use `select(2)` break above
 /// 1024). The holder is single threaded, so `fork` is safe here; the child
-/// only calls async-signal-safe functions before `execve`.
+/// only calls async-signal-safe functions before `execve`. The one entry the
+/// child never gets is [`crate::NOFILE_SOFT_ENV`]: it is the holder's own
+/// input, and a cmux started in the shell would read it as its launch limit.
 pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
     if argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty argv"));
     }
     let program = resolve_program(&request.argv[0], &request.env, &request.cwd)?;
-    let env = c_strings(&request.env)?;
+    let env = c_strings(shell_env(&request.env))?;
     let cwd = CString::new(request.cwd.clone())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cwd has a NUL"))?;
     let mut argv_ptrs: Vec<*const libc::c_char> = argv.iter().map(|s| s.as_ptr()).collect();
@@ -246,9 +248,15 @@ fn is_executable_file(path: &[u8]) -> bool {
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
-fn c_strings(values: &[Vec<u8>]) -> io::Result<Vec<CString>> {
+/// The `KEY=VALUE` entries of a request without [`crate::NOFILE_SOFT_ENV`].
+fn shell_env(env: &[Vec<u8>]) -> impl Iterator<Item = &Vec<u8>> {
+    let key = crate::NOFILE_SOFT_ENV.as_bytes();
+    env.iter().filter(move |entry| !(entry.starts_with(key) && entry.get(key.len()) == Some(&b'=')))
+}
+
+fn c_strings<'a>(values: impl IntoIterator<Item = &'a Vec<u8>>) -> io::Result<Vec<CString>> {
     values
-        .iter()
+        .into_iter()
         .map(|value| {
             CString::new(value.clone())
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "argument has a NUL"))
