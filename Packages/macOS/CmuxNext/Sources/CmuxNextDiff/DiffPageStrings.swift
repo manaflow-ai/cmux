@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The diff viewer host's strings (table `DiffPage`). The page's own labels
@@ -41,8 +42,11 @@ public nonisolated enum DiffPageStrings {
         String(localized: "diff.page.revert.oneTitle", defaultValue: "Revert changes to %@?", table: "DiffPage", bundle: .module)
     }
 
-    static var revertManyTitle: String {
-        String(localized: "diff.page.revert.manyTitle", defaultValue: "Revert changes to %lld files?", table: "DiffPage", bundle: .module)
+    /// The title for reverting `files` files (2 or more).
+    static func revertManyTitle(_ files: Int,
+                                preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "diff.page.revert.manyTitle", value: "Revert changes to %lld files?", table: "DiffPage",
+                                      arguments: [.count(files)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static var revertUnstagedLine: String {

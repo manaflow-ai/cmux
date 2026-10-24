@@ -32,6 +32,13 @@ MULTILINE = r'"""[\s\S]*?"""'
 SWIFT_DEFAULT = re.compile(
     r'defaultValue\s*:\s*(?P<value>' + MULTILINE + r'|"(?:\\.|[^"\\])*")'
 )
+# cmux NEXT's sentences that hold a count or a duration go through
+# Bundle.localizedString(forKey:value:table:arguments:preferredLocalizations:locale:)
+# (CmuxNextCompat): the key is `forKey:` and the English is the `value:` argument.
+SWIFT_BUNDLE_CALL = re.compile(r'\.localizedString\(\s*forKey:\s*(?P<key>"(?:\\.|[^"\\])*")')
+SWIFT_VALUE = re.compile(
+    r'(?<![\w.])value\s*:\s*(?P<value>' + MULTILINE + r'|"(?:\\.|[^"\\])*")'
+)
 SWIFT_COMMENT = re.compile(
     r'comment\s*:\s*(?P<comment>' + MULTILINE + r'|"(?:\\.|[^"\\])*")'
 )
@@ -227,12 +234,15 @@ def parse_swift_messages(path: str, text: str, *,
     if conflicts is None:
         conflicts = set()
     handled = 0
-    for match in SWIFT_CALL.finditer(text):
+    calls = [(match, SWIFT_DEFAULT, True) for match in SWIFT_CALL.finditer(text)]
+    calls += [(match, SWIFT_VALUE, False) for match in SWIFT_BUNDLE_CALL.finditer(text)]
+    for match, source_pattern, counted in sorted(calls, key=lambda call: call[0].start()):
         suffix = swift_call_suffix(text, match.end())
-        default = SWIFT_DEFAULT.search(suffix)
+        default = source_pattern.search(suffix)
         if default is None:
             continue
-        handled += 1
+        if counted:
+            handled += 1
         try:
             key = decode_swift_string(match.group("key"))
             source = decode_swift_string(default.group("value"))

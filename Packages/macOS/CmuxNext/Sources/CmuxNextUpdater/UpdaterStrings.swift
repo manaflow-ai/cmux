@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Localized update strings (Resources/Localizable.xcstrings, en + ja).
@@ -92,8 +93,11 @@ nonisolated enum UpdaterStrings {
     }
     static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
     static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
-    static func moreChanges(_ count: Int) -> String {
-        count == 1 ? text("updater.card.oneMoreChange", "1 more change") : format("updater.card.moreChanges", "%ld more changes", count)
+    static func moreChanges(_ count: Int,
+                            preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        count == 1 ? text("updater.card.oneMoreChange", "1 more change")
+            : Bundle.module.localizedString(forKey: "updater.card.moreChanges", value: "%ld more changes", table: nil,
+                                            arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     // The tips card (BOTTOM-LEFT-CARDS K1)
@@ -128,10 +132,12 @@ nonisolated enum UpdaterStrings {
     static var relaunchingDetail: String {
         text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
     }
-    static func checkingNewVersion(seconds: Int) -> String {
-        format("updater.notice.checkingNewVersion",
-               "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
-               seconds)
+    static func checkingNewVersion(seconds: Int,
+                                   preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "updater.notice.checkingNewVersion",
+                                      value: "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
+                                      table: nil,
+                                      arguments: [.count(seconds)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
     static var waitingToRelaunch: String { text("updater.notice.waitingTitle", "Waiting to Relaunch") }
     static func waitingDetail(agents: Int, commands: Int) -> String {
@@ -139,8 +145,12 @@ nonisolated enum UpdaterStrings {
                agents, commands)
     }
     static var installStalled: String { text("updater.notice.stalledTitle", "Update Did Not Relaunch") }
-    static func installStalledDetail(minutes: Int) -> String {
-        format("updater.notice.stalledDetail", "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.", minutes)
+    static func installStalledDetail(minutes: Int,
+                                     preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "updater.notice.stalledDetail",
+                                      value: "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.",
+                                      table: nil,
+                                      arguments: [.count(minutes)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }

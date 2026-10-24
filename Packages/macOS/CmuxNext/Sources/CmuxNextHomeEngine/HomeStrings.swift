@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Home strings (Resources/Home.xcstrings).
@@ -28,10 +29,12 @@ public nonisolated enum HomeStrings {
     }
     /// The Chief conversation's notice while the person's last message has had no reply
     /// for `minutes` (ChiefReplyWatchdog; at least 2).
-    static func chiefNoReply(minutes: Int) -> String {
-        String(format: String(localized: "home.chief.noReply",
-                              defaultValue: "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer.",
-                              table: "Home", bundle: .module), minutes)
+    static func chiefNoReply(minutes: Int,
+                             preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "home.chief.noReply",
+                                      value: "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer.",
+                                      table: "Home", arguments: [.count(minutes)], preferredLocalizations: preferredLocalizations,
+                                      locale: locale)
     }
     /// The Chief conversation's notice while a turn waits for the compactor.
     static func chiefOrganizing(built: Int, total: Int) -> String {

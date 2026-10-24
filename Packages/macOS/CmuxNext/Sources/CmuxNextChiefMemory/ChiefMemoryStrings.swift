@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Strings of the Memory Inspector (Resources/Localizable.xcstrings).
@@ -7,8 +8,17 @@ nonisolated struct ChiefMemoryStrings {
     }
 
     static var search: String { t("chiefMemory.search", "Search memory") }
-    static var counts: String { t("chiefMemory.counts", "%1$lld messages, %2$lld summary lines") }
-    static var rebuilding: String { t("chiefMemory.rebuilding", "Rebuilding %lld lines") }
+    static func counts(messages: Int, summaryLines: Int,
+                       preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "chiefMemory.counts", value: "%1$lld messages, %2$lld summary lines", table: nil,
+                                      arguments: [.count(messages), .count(summaryLines)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
+    }
+    static func rebuilding(_ lines: Int,
+                           preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "chiefMemory.rebuilding", value: "Rebuilding %lld lines", table: nil,
+                                      arguments: [.count(lines)], preferredLocalizations: preferredLocalizations, locale: locale)
+    }
     static var view: String { t("chiefMemory.view", "What the Chief reads") }
     static var results: String { t("chiefMemory.results", "Search results") }
     static var noResults: String { t("chiefMemory.results.none", "Nothing matches.") }

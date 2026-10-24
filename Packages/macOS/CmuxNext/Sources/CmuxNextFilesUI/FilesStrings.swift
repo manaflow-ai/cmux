@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The Files pane's text (table `Files`, 21 languages).
@@ -101,39 +102,55 @@ nonisolated enum FilesStrings {
         String(format: t("files.info.title", "%@ Info"), name)
     }
 
-    static func infoBytes(_ size: String, _ bytes: Int64) -> String {
-        String(format: t("files.info.bytes", "%1$@ (%2$lld bytes)"), size, bytes)
+    static func infoBytes(_ size: String, _ bytes: Int64,
+                          preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "files.info.bytes", value: "%1$@ (%2$lld bytes)", table: "Files",
+                                      arguments: [.text(size), .count(Int(clamping: bytes))],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
-    static func infoFolderSize(_ size: String, _ items: Int) -> String {
-        String(format: t("files.info.folderSize", "%1$@ for %2$lld items"), size, items)
+    static func infoFolderSize(_ size: String, _ items: Int,
+                               preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "files.info.folderSize", value: "%1$@ for %2$lld items", table: "Files",
+                                      arguments: [.text(size), .count(items)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static func renameExample(_ name: String) -> String {
         String(format: t("files.rename.example", "Example: %@"), name)
     }
 
-    static func renameItemsTitle(_ count: Int) -> String {
-        String(format: t("files.rename.title", "Rename %lld Items"), count)
+    static func renameItemsTitle(_ count: Int,
+                                 preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "files.rename.title", value: "Rename %lld Items", table: "Files",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
-    static func deleteConfirm(_ count: Int) -> String {
-        String(format: t("files.delete.confirm", "Are you sure you want to delete these %lld items immediately?"), count)
+    static func deleteConfirm(_ count: Int,
+                              preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "files.delete.confirm",
+                                      value: "Are you sure you want to delete these %lld items immediately?",
+                                      table: "Files",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static func conflict(_ name: String) -> String {
         String(format: t("files.conflict.message", "An item named “%@” already exists in this location."), name)
     }
 
-    static func items(_ count: Int) -> String {
-        String(format: t("files.status.items", "%lld items"), count)
+    static func items(_ count: Int,
+                      preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "files.status.items", value: "%lld items", table: "Files",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static func selected(_ selected: Int, of total: Int) -> String {
         String(format: t("files.status.selected", "%1$lld of %2$lld selected"), selected, total)
     }
 
-    static func copying(_ count: Int) -> String {
-        String(format: t("files.status.copying", "Copying %lld items…"), count)
+    static func copying(_ count: Int,
+                        preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "files.status.copying", value: "Copying %lld items…", table: "Files",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 }

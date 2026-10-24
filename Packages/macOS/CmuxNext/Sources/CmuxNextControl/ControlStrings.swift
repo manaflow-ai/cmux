@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Localized control-socket error messages and unsupported reasons. Keys live
@@ -15,5 +16,21 @@ enum ControlStrings {
 
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
+    }
+
+    /// The refusal of a request line longer than `limit` bytes.
+    static func requestTooLarge(limit: Int,
+                                preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        bundle.localizedString(forKey: "control.error.requestTooLarge", value: "Request line exceeds %lld bytes", table: nil,
+                               arguments: [.count(limit)], preferredLocalizations: preferredLocalizations, locale: locale)
+    }
+
+    /// The refusal while `pending` requests wait in a queue that holds `limit`.
+    static func busy(pending: Int, limit: Int,
+                     preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        bundle.localizedString(forKey: "control.error.busy",
+                               value: "cmux is busy (%1$lld queued requests, limit %2$lld); retry later",
+                               table: nil,
+                               arguments: [.count(pending), .count(limit)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 }

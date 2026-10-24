@@ -46,10 +46,10 @@ public struct ChiefMemoryInspectorView: View {
     private var header: some View {
         HStack(spacing: 10) {
             if let status = model.status {
-                Text(String(format: ChiefMemoryStrings.counts, Int(status.messages), Int(status.nodesBuilt)))
+                Text(ChiefMemoryStrings.counts(messages: Int(status.messages), summaryLines: Int(status.nodesBuilt)))
                     .font(.callout).foregroundStyle(.secondary)
                 if !status.stale.isEmpty {
-                    Label(String(format: ChiefMemoryStrings.rebuilding, status.stale.count), systemImage: "arrow.triangle.2.circlepath")
+                    Label(ChiefMemoryStrings.rebuilding(status.stale.count), systemImage: "arrow.triangle.2.circlepath")
                         .font(.caption).foregroundStyle(.orange)
                 }
             }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// App strings for history (table History.xcstrings).
@@ -21,14 +22,22 @@ enum HistoryAppStrings {
 
     static var deleteCommandsTitle: String { t("history.commands.deleteTitle", "Delete recorded terminal commands?") }
     static var deleteCommandsButton: String { t("history.commands.deleteButton", "Delete Existing History") }
-    static func deleteCommandsBody(_ days: Int) -> String {
-        String(format: t("history.commands.deleteBody",
-                         "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."),
-               days)
+    /// The body after command recording is turned off, for a retention of `days` (1...3650).
+    static func deleteCommandsBody(_ days: Int,
+                                   preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "history.commands.deleteBody",
+                                      value: "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old.",
+                                      table: "History",
+                                      arguments: [.count(days)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
-    static func undoClosesPanes(_ count: Int) -> String {
-        String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
+    /// The refusal of an Undo that would close `count` panes (1 or more).
+    static func undoClosesPanes(_ count: Int,
+                                preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "history.refusal.undoClosesPanes",
+                                      value: "Undo closes %lld pane(s). Run Undo Layout Change again to confirm.",
+                                      table: "History",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static func screenTitle(_ number: Int) -> String {

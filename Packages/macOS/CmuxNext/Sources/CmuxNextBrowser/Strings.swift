@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Localized strings for the browser module. Keys live in
@@ -123,8 +124,10 @@ nonisolated enum Strings {
     static func findPosition(_ index: Int, of count: Int) -> String {
         String(localized: "browser.find.position", defaultValue: "\(index) of \(count)", bundle: .module)
     }
-    static func findCount(_ count: Int) -> String {
-        String(localized: "browser.find.count", defaultValue: "\(count) matches", bundle: .module)
+    static func findCount(_ count: Int,
+                          preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "browser.find.count", value: "%lld matches", table: nil, arguments: [.count(count)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     // Prompts

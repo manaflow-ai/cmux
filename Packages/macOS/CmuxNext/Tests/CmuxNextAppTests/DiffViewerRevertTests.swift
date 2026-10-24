@@ -84,7 +84,7 @@ struct DiffViewerRevertTests {
         #expect(git.discards.first?.0.cwd == Self.repository)
         #expect(git.discards.first?.0.paths == ["src/upload.ts", "src/old.ts", "README.md"])
         #expect(git.discards.first?.0.scope == .uncommitted)
-        #expect(log.prompts.map(\.title) == [String(format: DiffPageStrings.revertManyTitle, 2)])
+        #expect(log.prompts.map(\.title) == [DiffPageStrings.revertManyTitle(2)])
         #expect(log.prompts.first?.lines == [DiffPageStrings.revertUncommittedLine, DiffPageStrings.revertTrashLine,
                                              "src/upload.ts", "src/old.ts", "README.md"])
 
@@ -119,7 +119,7 @@ struct DiffViewerRevertTests {
         let paths = (1...9).map { "f\($0).txt" }
         let request = try #require(AgentPaneGitDiscard(method: "git.discard", params: ["cwd": "/r", "paths": paths, "scope": "unstaged"]))
         let prompt = DiffRevertPrompt(request)
-        #expect(prompt.title == String(format: DiffPageStrings.revertManyTitle, 9))
+        #expect(prompt.title == DiffPageStrings.revertManyTitle(9))
         #expect(prompt.lines.dropFirst(2) == ArraySlice(Array(paths.prefix(6)) + [String(format: DiffPageStrings.revertAndMore, 3)]))
         let renamed = try #require(AgentPaneGitDiscard(method: "git.discard", params: ["cwd": "/r", "paths": ["new.ts", "old.ts"], "scope": "unstaged"]))
         #expect(DiffRevertPrompt(renamed, sources: ["old.ts"]).title == String(format: DiffPageStrings.revertOneTitle, "new.ts"))
