@@ -138,9 +138,15 @@ enum WorkspaceVerbHandlers {
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
         services.registry.track(result: Task {
             do {
+                // The connection the create runs on, read before it: a later one fails the wait below, never holds it.
+                let connection = daemon.connection
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                // The store lists it (its `ws_` id and name) once it applied the create's events.
-                if let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+                // The store lists it (its `ws_` id and name) once it applied the create's events. Until then
+                // `created` would name only its key: the run answers that it may have applied instead.
+                guard let connection, await daemon.appliedThroughReply(on: connection, after: "new workspace on machine").isHeld else {
+                    services.registry.refuse(RefusalStrings.resultNotShown)
+                    return .failure(.resultNotShown)
+                }
                 return .success(createdFields(id, on: daemon, services: services))
             } catch {
                 daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")

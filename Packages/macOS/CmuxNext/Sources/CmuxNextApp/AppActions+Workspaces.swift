@@ -214,14 +214,20 @@ extension AppActions {
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
                 let close: @MainActor () async -> ActionWorkFailure? = {
-                    let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
+                    let present: @MainActor @Sendable () -> Bool = { services.machines.daemons.contains { $0 === daemon } }
+                    let command: DaemonCommandBody = { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection)
                     }
-                    guard hidden else { return failure }
-                    // A close that went through stays hidden until the store has applied its events (the row is gone there).
-                    if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
-                    ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
+                    guard hidden else { return await daemon.failureOnceConnected("close-workspace", waits: offline, while: present, command) }
+                    // A close that went through stays hidden until the store has applied its events on the
+                    // connection that answered (the row is gone there).
+                    let failure = await daemon.failureOnceApplied("close-workspace", waits: offline, while: present, command)
+                    // It went through, but the connection ended or changed first: not a refusal (the daemon
+                    // closed it); the person is told why the row may still show until the store syncs.
+                    let notShown = failure == .resultNotShown
+                    if notShown { services.registry.refuse(RefusalStrings.resultNotShown) }
+                    ClosingWorkspaces.shared.end(id, refused: failure != nil && !notShown, in: controller?.window)
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }

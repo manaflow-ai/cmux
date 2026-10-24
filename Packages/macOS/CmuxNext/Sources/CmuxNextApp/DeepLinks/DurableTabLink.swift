@@ -64,13 +64,15 @@ enum DurableTabLink {
         let daemons = services.machines.daemons.filter { $0.connection != nil }
         services.registry.track(Task { @MainActor () -> ActionWorkFailure? in
             var failure: String?
+            // Whether the store shows the reopened tab's events (the reveal below reads it).
+            var shown = true
             let outcome = await reopen(on: daemons.indices.map { $0 }) { index in
                 let daemon = daemons[index]
                 guard let connection = daemon.connection else { return .notInHistory }
                 do {
                     let pane = fallback?.daemon === daemon ? fallback?.pane : nil
                     try await connection.state.reopenClosed(tab: id, fallbackPane: pane)
-                    await daemon.appliedThroughReply(on: connection, after: "reopen linked tab")
+                    shown = await daemon.appliedThroughReply(on: connection, after: "reopen linked tab").isHeld
                     return .reopened
                 } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
                     return .notInHistory
@@ -82,6 +84,11 @@ enum DurableTabLink {
             }
             switch outcome {
             case .reopened:
+                // Reopened, but the store cannot show it (the connection ended or changed): no reveal to wait for.
+                guard shown else {
+                    services.registry.refuse(RefusalStrings.resultNotShown)
+                    return .resultNotShown
+                }
                 if await reveal(id, intent: intent, services: services) { return nil }
                 return ActionWorkFailure(RefusalStrings.linkTargetGone, mayHaveApplied: true)
             case .gone:

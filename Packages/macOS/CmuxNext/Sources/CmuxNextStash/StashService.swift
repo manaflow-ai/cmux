@@ -92,27 +92,39 @@ public final class StashService: StashPageSource {
 
     /// Brings every member of stash `id` back where it was (a Save and Close's Undo) and shows
     /// it: whole workspaces as workspaces, pages in their panes. The page lists the stashes again
-    /// even when nothing is left to show the restored pages in.
+    /// even when nothing is left to show the restored pages in. When the store cannot show the restore
+    /// (the connection ended or changed first) it still lists them again, then throws
+    /// ``RefusalStrings/resultNotShown``.
     public func restoreAll(_ id: String, workspaces: Bool) async throws {
+        let connection: DaemonConnection
         let reopened: StateResourceClient.ReopenedItem
         do {
-            reopened = try await state().restoreStash(id, target: .here, pane: host?.stashRestorePane)
+            connection = try stashConnection()
+            reopened = try await connection.state.restoreStash(id, target: .here, pane: host?.stashRestorePane)
         } catch { throw Self.failure(error) }
-        if let host, let connection = host.localDaemon.connection {
-            await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash")
-            host.showRestored(reopened, asWorkspace: workspaces)
+        var shown = true
+        if let host {
+            shown = await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash").isHeld
+            if shown { host.showRestored(reopened, asWorkspace: workspaces) }
         }
         await model.reload()
+        if !shown { throw ActionFailure(message: RefusalStrings.resultNotShown) }
     }
 
     /// This Mac's daemon's state client, when it keeps stashes.
     private func state() throws -> StateResourceClient {
+        try stashConnection().state
+    }
+
+    /// This Mac's daemon's connection, when it keeps stashes: the one a command runs on, so the post-reply
+    /// wait runs on it too.
+    private func stashConnection() throws -> DaemonConnection {
         guard let daemon = host?.localDaemon else { throw ActionFailure(message: RefusalStrings.daemonConnecting) }
         guard let connection = daemon.connection else {
             throw ActionFailure(message: daemon.notConnectedReason ?? RefusalStrings.daemonConnecting)
         }
         guard serves(daemon) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.stash.rawValue)) }
-        return connection.state
+        return connection
     }
 
     /// `error` as the user-facing reason the page shows.
@@ -148,11 +160,15 @@ public final class StashService: StashPageSource {
     /// pages are shown (their workspace in the active window, the first one selected).
     public func restore(_ group: StashedGroup, tabs: [StashedGroup.Tab], inNewWorkspace: Bool) async throws {
         do {
-            let state = try state()
-            let reopened = try await state.restoreStash(group.id, members: tabs.map(\.id), target: inNewWorkspace ? .newWorkspace : .here,
-                                                        pane: host?.stashRestorePane)
-            guard let host, let connection = host.localDaemon.connection else { return }
-            await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash group")
+            let connection = try stashConnection()
+            let reopened = try await connection.state.restoreStash(group.id, members: tabs.map(\.id),
+                                                                   target: inNewWorkspace ? .newWorkspace : .here,
+                                                                   pane: host?.stashRestorePane)
+            guard let host else { return }
+            // Restored, but the store cannot show it (the connection ended or changed first): the page says so.
+            guard await host.localDaemon.appliedThroughReply(on: connection, after: "restore stash group").isHeld else {
+                throw ActionFailure(message: RefusalStrings.resultNotShown)
+            }
             host.showRestored(reopened, asWorkspace: inNewWorkspace)
         } catch { throw Self.failure(error) }
     }

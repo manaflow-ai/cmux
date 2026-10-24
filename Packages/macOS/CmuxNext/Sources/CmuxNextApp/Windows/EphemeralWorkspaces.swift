@@ -39,8 +39,16 @@ enum EphemeralWorkspaces {
             guard let connection = daemon.connection else { return }
             do {
                 let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
-                await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
-                guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return }
+                // The window shows the workspace only once the store lists it: a person is told when it cannot.
+                guard await daemon.appliedThroughReply(on: connection, after: "create incognito workspace").isHeld else {
+                    manager.services.registry.refuse(RefusalStrings.resultNotShown)
+                    return
+                }
+                guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else {
+                    // The store holds the create's events, so it closed again meanwhile (another client).
+                    manager.services.registry.refuse(RefusalStrings.noWorkspace(created.workspaceID.rawValue))
+                    return
+                }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
                 let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
                 guard let tab, let pane = daemon.store.pane(containing: tab.surface) else { return }

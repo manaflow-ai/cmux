@@ -39,7 +39,10 @@ final class BrowserTabOpeners {
 
     /// A page's new tab in `pane`: `create(nil)` (the end) without an
     /// opener; with one, in Chrome's slot, returning once the store shows
-    /// the new tab.
+    /// the new tab. When the store cannot show it (the connection ended or
+    /// changed first) the tab still exists on the daemon, so it stays the
+    /// result (the page adopts its child; failing would close it), and the
+    /// next slot reads the order the store shows then.
     func open(_ opener: SurfaceID?, foreground: Bool, in pane: PaneModel, browserTabs: BrowserTabService,
               create: @escaping @MainActor (_ after: SurfaceID?) async throws -> SurfaceID) async throws -> SurfaceID {
         guard let opener else { return try await create(nil) }
@@ -47,8 +50,10 @@ final class BrowserTabOpeners {
         return try await place(opener: opener, foreground: foreground,
                                order: { [weak pane] in pane?.tabs.map(\.surface) ?? [] },
                                pinned: { [weak pane] in Set(pane?.tabs.filter(\.pinned).map(\.surface) ?? []) }) { after in
+            // The connection the create runs on, read before it: a later one fails the wait, never holds it.
+            let connection = daemon.connection
             let surface = try await create(after)
-            await browserTabs.settled(daemon)
+            _ = await browserTabs.settled(daemon, connection)
             return surface
         }
     }

@@ -114,6 +114,11 @@ public nonisolated enum RefusalStrings {
         text("handlers.refusal.daemonRestoreTimedOut",
              "cmux is still restoring your terminals. This is taking longer than 2 minutes; cmux keeps trying.")
     }
+    /// A command went through, but the connection ended or changed before the store showed its result
+    /// (``AppliedThroughReply`` not held), so what it made or changed may not show yet.
+    public static var resultNotShown: String {
+        text("handlers.refusal.resultNotShown", "That went through, but cmux lost its connection before it could show the result.")
+    }
     /// A daemon error as a user-facing reason: a missing capability goes
     /// through the capability gate's text, never its id.
     public static func describe(_ error: any Error) -> String {
