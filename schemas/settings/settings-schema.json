@@ -12370,7 +12370,6 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
-        "cmux-browser",
         "cmux-next"
       ],
       "default" : null,
@@ -12424,12 +12423,11 @@
       "accepts" : [
         1,
         24,
-        12
+        12.5
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
-        "cmux-browser",
         "cmux-next"
       ],
       "default" : null,
