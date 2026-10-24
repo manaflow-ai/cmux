@@ -7342,7 +7342,7 @@ function AcpmuxPane() {
   // chat view's error card with Retry shows, as before.
   const showNewTab =
     newTab !== undefined &&
-    (sessionSelection !== undefined || !snapshot.sessionId) &&
+    (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
