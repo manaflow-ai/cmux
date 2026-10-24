@@ -186,6 +186,22 @@ struct ChatDraftAttachmentsTests {
         #expect(restored.attachments.map(\.id) == ["replacement"])
     }
 
+    @Test func aChipWithoutRetainedBytesRemovesItsMarkBeforeSaving() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let absent = Chip(id: "absent", kind: "image", name: "absent.png", mimeType: "image/png", size: 3)
+        let image = Chip(id: "last", kind: "image", name: "last.png", mimeType: "image/png", size: 3,
+                         data: Data([1, 2, 3]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "one\u{FFFC}caption\u{FFFC}tail", attachments: [absent, image])
+        #expect(try await Self.keep(draft, for: "unretained") == ["last"])
+        let restored = try await Self.ordered("unretained")
+        #expect(restored.pieces == [.text("onecaption"), .attachment(image), .text("tail")])
+    }
+
     @Test func aMalformedOrderedDraftIsRejectedWithoutFallingBackAndErasingIt() async throws {
         let directory = try Self.directory()
         defer {
