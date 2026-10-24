@@ -295,6 +295,12 @@ pub(crate) fn validated_display_parts(
         if !kind_matches {
             continue;
         }
+        if kind == "file"
+            && block_type == "resource_link"
+            && !matches!(block.get("uri").and_then(Value::as_str), Some(uri) if !uri.is_empty())
+        {
+            continue;
+        }
         let mut out =
             serde_json::Map::from_iter([(String::from("kind"), Value::String(kind.into()))]);
         if let Some(name) = object.get("name").and_then(Value::as_str) {
