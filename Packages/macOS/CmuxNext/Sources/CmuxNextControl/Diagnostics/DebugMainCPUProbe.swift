@@ -1,7 +1,6 @@
-import AppKit
-import CmuxNextControl
-import CmuxNextSettings
+package import CmuxNextSettings
 import CmuxNextWakeups
+import Foundation
 
 /// `debug.main_cpu` {action: start | stop | read}: per display frame, the main
 /// thread's CPU time (user + system, `thread_info`) since the previous frame and
@@ -10,7 +9,7 @@ import CmuxNextWakeups
 /// frame is a dropped ProMotion frame whatever the runner's own display does.
 /// Runs only between `start` and `stop`, at most `maximumRun`.
 @MainActor
-final class DebugMainCPUProbe {
+package final class DebugMainCPUProbe {
     static let maximumRun: Duration = .seconds(600)
     static let capacity = 100_000
     static let frame120Ms = 1_000.0 / 120.0
@@ -24,7 +23,9 @@ final class DebugMainCPUProbe {
     private var intervals: [Double] = []
     private var work: [Double] = []
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
+    package init() {}
+
+    package func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
         case "start":
             intervals.removeAll(keepingCapacity: true)
@@ -78,8 +79,8 @@ final class DebugMainCPUProbe {
 }
 
 private func percentile(_ sorted: [Double], _ p: Double) -> Double {
-    guard !sorted.isEmpty else { return 0 }
-    return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
+    guard !sorted.isEmpty, let index = (Double(sorted.count - 1) * p).rounded().saturatedInteger(Int.self) else { return 0 }
+    return sorted[checked: min(sorted.count - 1, index)] ?? 0
 }
 
 /// The calling thread's CPU time (user + system), ns; nil when `thread_info` fails.

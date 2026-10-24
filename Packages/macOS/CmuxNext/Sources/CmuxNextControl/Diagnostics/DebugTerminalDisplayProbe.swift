@@ -1,5 +1,4 @@
-import CmuxNextControl
-import CmuxNextSettings
+package import CmuxNextSettings
 import Foundation
 import ObjectiveC
 import QuartzCore
@@ -13,14 +12,16 @@ import QuartzCore
 /// clears the record; `stop` returns it: calls, their total and max ms, and passes (calls of one Core
 /// Animation commit, consecutive within 1 ms) with their p50/p95/max ms.
 @MainActor
-final class DebugTerminalDisplayProbe {
+package final class DebugTerminalDisplayProbe {
     private var armed = false
     private var installed = false
     /// Per call: start (CACurrentMediaTime) and duration, seconds.
     private var calls: [(start: CFTimeInterval, duration: CFTimeInterval)] = []
     static let capacity = 200_000
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
+    package init() {}
+
+    package func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
         case "start":
             calls.removeAll(keepingCapacity: true)
@@ -72,13 +73,13 @@ final class DebugTerminalDisplayProbe {
             if passes.isEmpty || call.start - passEnd > 0.001 {
                 passes.append(0)
             }
-            passes[passes.count - 1] += call.duration * 1000
+            passes.modify(checked: passes.count - 1) { $0 += call.duration * 1000 }
             passEnd = call.start + call.duration
         }
         let sorted = passes.sorted()
         func percentile(_ p: Double) -> Double {
-            guard !sorted.isEmpty else { return 0 }
-            return sorted[min(sorted.count - 1, Int((p * Double(sorted.count - 1)).rounded()))]
+            guard !sorted.isEmpty, let index = (p * Double(sorted.count - 1)).rounded().saturatedInteger(Int.self) else { return 0 }
+            return sorted[checked: min(sorted.count - 1, index)] ?? 0
         }
         let durations: [Double] = calls.map { $0.duration * 1000 }
         let total: Double = durations.reduce(0, +)
