@@ -251,9 +251,20 @@ class FirecrackerLifecycle:
             return False, {"http_status": status, "response": response}
         return True, response
 
+    def _kvm_available(self, recorder: _Recorder) -> bool:
+        # An injected request function is a test or remote transport and owns
+        # its capability checks. The local Unix-socket transport must not turn
+        # a missing KVM device into a misleading socket timing.
+        if self.request_fn is None and not Path("/dev/kvm").exists():
+            recorder.emit("capability_blocked", capability="/dev/kvm")
+            return False
+        return True
+
     def _action(self, operation: str, action: str) -> LifecycleResult:
         recorder = _Recorder(self.backend, operation)
         recorder.emit("operation_started", action=action, socket=self.socket_path)
+        if not self._kvm_available(recorder):
+            return recorder.result(STATUS_BLOCKED, "/dev/kvm is absent")
         ok, response = self._call(
             recorder,
             "PUT",
@@ -309,6 +320,8 @@ class FirecrackerLifecycle:
             pause_before=pause_before,
             resume_after=resume_after,
         )
+        if not self._kvm_available(recorder):
+            return recorder.result(STATUS_BLOCKED, "/dev/kvm is absent")
         if pause_before:
             ok, response = self._call(
                 recorder, "PUT", "/actions", {"action_type": "Pause"}
@@ -355,6 +368,8 @@ class FirecrackerLifecycle:
             memory_path=memory_path,
             resume_vm=resume_vm,
         )
+        if not self._kvm_available(recorder):
+            return recorder.result(STATUS_BLOCKED, "/dev/kvm is absent")
         ok, response = self._call(
             recorder,
             "PUT",
