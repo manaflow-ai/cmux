@@ -94,6 +94,10 @@ CASES = {
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
     "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
                              "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "hover-window-move": ("import AppKit\nfinal class Chip: NSView {\n    private lazy var hover = PointerHover(self)\n}\n",
+                          "import AppKit\nfinal class Chip: NSView {\n    private lazy var hover = PointerHover(self)\n"
+                          "    override func viewDidMoveToWindow() {\n        super.viewDidMoveToWindow()\n"
+                          "        hover.ownerDidMoveToWindow()\n    }\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -185,6 +189,26 @@ class RuleTests(Fixture):
                 self.commit(f"right pattern for {rule}")
                 refusals, _ = self.check()
                 self.assertEqual([r.id for r, _ in refusals], [], f"{rule}: the right pattern was refused")
+
+    def test_a_hover_owner_passes_with_a_chrome_hover_forward_or_its_escape_and_super_alone_is_refused(self):
+        owner = "import AppKit\nfinal class Chip: NSView {\n    let hover = ChromeHover()\n    func setUp() {\n"
+        cases = {
+            # super's own viewDidMoveToWindow does not move the hover target.
+            owner + "        hover.followPointer()\n    }\n    override func viewDidMoveToWindow() {\n"
+                    "        super.viewDidMoveToWindow()\n    }\n}\n": True,
+            owner + "        hover.followPointer()\n    }\n    override func viewDidMoveToWindow() {\n"
+                    "        super.viewDidMoveToWindow()\n        hover.viewDidMoveToWindow()\n    }\n}\n": False,
+            # A comment that names the forward is no forward.
+            owner + "        hover.followPointer() // calls hover.ownerDidMoveToWindow() later\n    }\n}\n": True,
+            owner + "        // hover-move-allow: the chip lives in one panel window for its whole life\n"
+                    "        hover.followPointer()\n    }\n}\n": False,
+        }
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("hover owner")
+                self.assertEqual("hover-window-move" in [r.id for r, _ in self.check()[0]], refused)
 
     def test_base_debt_and_moved_lines_never_count(self):
         self.git("mv", f"{KIT}/Old.swift", f"{KIT}/Moved.swift")
