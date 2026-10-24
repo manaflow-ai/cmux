@@ -410,7 +410,7 @@
     "entry": {
       "actionID": "agentChat.copySessionDetails",
       "title": "Copy Session Details",
-      "keywords": ["agent", "chat", "session", "details", "files", "config", "transcript", "cwd", "host", "copy"],
+      "keywords": ["agent", "chat", "session", "details", "metadata", "cwd", "host", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copySessionDetails",
       "hasShortcut": false,
