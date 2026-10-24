@@ -34,10 +34,9 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 /// the first; the stack draws up to `stackLimit` (`SidebarRowBadgeStackCap`) and leaves the rest to
 /// the tooltip and hover card.
 ///
-/// Unless `detailed` (`sidebar.detailedStatusIcons`, off by default), a row says one of two things
-/// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): Ready, the
-/// blue done dot, for anything that waits for the user (unread, done, a question, a permission, an
-/// error), else Working, the one spinner. `items` then holds at most one state; `unreadCount` and
+/// Unless `detailed` (`sidebar.detailedStatusIcons`, off by default), a row says one of four things:
+/// Working, the one spinner; Needs you, the yellow dot; Error, the red mark; or Ready, the blue
+/// done dot for unread or finished work. `items` then holds at most one state; `unreadCount` and
 /// `pending` keep what the tooltip lists.
 nonisolated struct WorkspaceRowBadges: Equatable {
     var items: [StatusIndicatorState]
@@ -62,16 +61,18 @@ nonisolated struct WorkspaceRowBadges: Equatable {
     }
 
     /// The one state a row shows without detailed icons: needs you (`waiting`, one yellow dot
-    /// whatever it waits for) in place of the blue dot, else Ready (`success`, the blue dot) for an
-    /// error or something unread, else the work in progress (its progress kept), else nothing.
-    /// Never both dots (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS JUST A
-    /// YELLOW DOT!?").
+    /// whatever it waits for) first, then an error (the red mark), then Ready (`success`, the blue
+    /// dot) for something unread or finished, else the work in progress (its spinner), else
+    /// nothing. Never both dots (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS
+    /// JUST A YELLOW DOT!?").
     static func simple(_ items: [StatusIndicatorState]) -> StatusIndicatorState? {
         if items.contains(where: { if case .waiting = $0 { true } else { false } }) { return .waiting }
+        if items.contains(where: { if case .error = $0 { true } else { false } }) { return .error }
         let ready = items.contains { state in
             switch state {
-            case .error, .success: true
+            case .success: true
             case .idle, .busy, .paused, .working, .waiting: false
+            case .error: false
             }
         }
         return ready ? .success : items.first { $0.isWorking || $0.isLoading }
