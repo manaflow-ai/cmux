@@ -2,12 +2,6 @@ import { useContext, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
-
-/// Under a steer the agent has not read yet: Send now stops the current step so the agent reads the
-/// message at once. The turn goes on; only Stop ends it (Leo, 2026-10-20). An agent that cannot
-/// stop one step reads it when the step ends, as before. `send` is `_acpmux/queue_edit` `send_now`
-/// with the steer's own promptId; it answers false once the steer was read. The control sits in the
-/// prompt's action row, before its receipt, age and message buttons (Leo, 2026-10-24).
 import { Close } from "./icons";
 import { TurnActionsContext } from "./turnActions";
 
@@ -72,6 +66,14 @@ export function PendingSteer({
       )}
     </div>
   );
+}
+
+/// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only Claude Code does.
+export function takesSteersBack(
+  summary: { family?: string; steering?: boolean } | undefined,
+  connected: boolean,
+): boolean {
+  return connected && summary?.family === "claude";
 }
 
 /// Takes back steer `row` while the agent has not read it: acpmux drops it (`withdraw`), and its
