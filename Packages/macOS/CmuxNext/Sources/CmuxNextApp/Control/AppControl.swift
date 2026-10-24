@@ -52,7 +52,8 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
-                                          stalls: watchdog.log, threshold: watchdog.configuration.threshold, logsRuns: ControlService.isDebugBuild)
+                                          overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets,
+                                          logsRuns: ControlService.isDebugBuild)
         actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)

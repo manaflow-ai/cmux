@@ -104,6 +104,14 @@ Swift/Rust builds and tests stay on the fleet.
   it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
   Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
+- A new or rewritten action handler is `registry.bindEffect(id, effect:)` and returns an `ActionEffect`:
+  `.done`, `daemon.intentEffect(...)` (a store intent shows in the input's turn; the registry sends,
+  rolls back and reports), `.applied(...)` with a rollback, or `.waiting(reason, work)` only when nothing
+  can show first. Never await in a handler, never start its remote work yourself, no disk I/O, waiting
+  lock or whole-session walk on its turn. The guardrail `action-wait` refuses new untyped binds and
+  waits; the budget is < 10 ms to the commit, watched by `ActionBudgetMonitor` and the Debug menu's
+  latency HUD ([zero-latency.md](plans/cmux-next/zero-latency.md), "Native actions: the budget contract").
+
 ## Before you touch hot paths
 
 - Use the patterns in [PATTERNS.md](plans/cmux-next/PATTERNS.md) (composition root, seam adapters, targeted

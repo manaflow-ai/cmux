@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 @testable import CmuxNextActions
 import Testing
@@ -50,6 +51,20 @@ struct ActionBudgetMonitorBench {
         let batchCount = Double(Self.runs / batched.batchSize)
         let perBatch = (withBatches - perRun) * Double(Self.runs) / batchCount
         drain.cancel()
+
+        // With the app's board attached: the span's begin and end (atomics) on every run, as in the app.
+        let board = MainTaskBoard()
+        let spanned = ActionBudgetMonitor(board: board)
+        let spannedIndices = ids.map(spanned.intern)
+        let spanStart = ActionBudgetMonitor.now()
+        for index in 0..<Self.runs {
+            let start = UInt64(index)
+            let span = spanned.beginSpan(spannedIndices[index & 3], start: start)
+            spanned.record(spannedIndices[index & 3], .key, start: start, end: start &+ 1_000, inputAgeMilliseconds: 1.5,
+                           outcome: .committed, span: span)
+        }
+        let withSpan = Double(ActionBudgetMonitor.now() - spanStart) / Double(Self.runs)
+        print(String(format: "action-budget bench: with the board span: %.1f ns/run (record + span begin and end)", withSpan))
 
         let line = String(format: "action-budget bench: macOS %@, %d runs: record %.1f ns/run, clock read %.1f ns, always-on %.1f ns/run; "
                           + "batch hand-off %.0f ns per %d runs (%.1f ns/run amortized, %llu runs dropped) (sink %llu)",

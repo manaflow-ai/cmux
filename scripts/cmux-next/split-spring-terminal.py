@@ -48,7 +48,7 @@ if "--suite=launch-check" in sys.argv:
 # Every other suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
 # without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout (the
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
-if "--suite=pane-bench" not in sys.argv:
+if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
@@ -128,6 +128,15 @@ if "--suite=pane-bench" in sys.argv:
     env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
     sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
                              "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
+# `--suite=action-budget-bench`: the per-action budget monitor's always-on cost in ns per run and per batch
+# (ActionBudgetMonitorBench, CmuxNextActionsTests), no app window; --config=release|debug (default release). Run
+# it on each macOS major (perf lead, not a CI gate) and quote its `action-budget bench:` lines.
+if "--suite=action-budget-bench" in sys.argv:
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
+    config = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--config=")), "release")
+    env = dict(os.environ, CMUX_ACTION_BUDGET_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
+    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+                             "ActionBudgetMonitorBench"], cwd=root, env=env).returncode)
 # `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
 # light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
 if "--suite=every-action" in sys.argv:

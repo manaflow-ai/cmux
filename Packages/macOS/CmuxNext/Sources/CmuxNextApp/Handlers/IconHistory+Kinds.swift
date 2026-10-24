@@ -38,7 +38,7 @@ extension IconHistory {
                 guard daemon.supports(DaemonCapabilities.screenMetadata) else {
                     throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.screenMetadata))
                 }
-                ScreenCommands.setIcon(screen, update.icon, daemon: daemon)
+                ctx.services.registry.settle(ScreenCommands.setIcon(screen, update.icon, daemon: daemon), of: "screen.setIcon", ActionInvocation())
                 return true
             }
             return false
