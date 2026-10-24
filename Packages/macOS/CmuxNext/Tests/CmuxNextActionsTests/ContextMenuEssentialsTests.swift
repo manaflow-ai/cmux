@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextActions
 import Testing
 
-/// The workspace, tab and pane menus show the few rows people use, their group rows, then one
-/// More submenu with everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
+/// The workspace, tab and pane menus show the few rows people use, then one More submenu with
+/// everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
 @MainActor
 struct ContextMenuEssentialsTests {
     /// Each top-level row as the action it runs (a choices row: its submenu's action), "More"
@@ -24,6 +24,14 @@ struct ContextMenuEssentialsTests {
         }
     }
 
+    private func item(_ id: ActionID, in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if ActionRegistry.menuRun(of: item)?.id == id { return item }
+            if let found = item.submenu.flatMap({ self.item(id, in: $0) }) { return found }
+        }
+        return nil
+    }
+
     private func registry() -> ActionRegistry {
         let registry = ActionRegistry.standard()
         // A picker row shows only for a bound action (the app binds both).
@@ -34,20 +42,37 @@ struct ContextMenuEssentialsTests {
         return registry
     }
 
+    private static let sidebarTrimmedActions: [ActionID] = [
+        "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
+        "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
+        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceID",
+        "palette.copyWorkspaceLink", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
+        "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
+        "palette.openWorkspacePullRequests", "workspace.setRemoteLocalhost",
+    ]
+
     @Test func theWorkspaceMenuShowsTheFrequentRowsThenMore() {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
-        // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
-                               "home.messageAbout", "palette.moveWorkspaceToTop", "—",
-                               "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
+                               "palette.moveWorkspaceToTop", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
-        let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
+        let groups = item("moveWorkspaceToGroup", in: menu)
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
         #expect(frontend?.arguments["group"] == .target(ActionTargetRef(kind: .workspaceGroup, id: "g1")))
+        // Messaging and group organization stay reachable in More's Organize section.
+        #expect(allActions(menu).contains("home.messageAbout"))
+        #expect(allActions(menu).contains("groupSelectedWorkspaces"))
+        #expect(allActions(menu).contains("removeWorkspaceFromGroup"))
         // The rest moved, not gone.
         #expect(allActions(menu).contains("palette.copyWorkspaceID"))
         #expect(allActions(menu).contains("workspace.duplicate"))
+    }
+
+    @Test func theWorkspacePointerMenuDropsGlobalAndDiagnosticDuplicates() {
+        let ids = Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .workspaceRow)))
+        #expect(Self.sidebarTrimmedActions.allSatisfy { !ids.contains($0) })
+        #expect(ids.count == 57, "trimmed workspace row has \(ids.count) action leaves")
     }
 
     /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
