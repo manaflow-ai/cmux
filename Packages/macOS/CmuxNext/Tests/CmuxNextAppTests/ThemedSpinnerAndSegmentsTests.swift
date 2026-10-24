@@ -64,6 +64,9 @@ import Testing
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
+        // The spinner hears its window through the window's occlusion family; this one posts to the test's center.
+        let center = NotificationCenter()
+        _ = WindowOcclusionFamily.of(window, center: center)
         let bar = PaletteSearchBar(frame: NSRect(x: 0, y: 0, width: 600, height: 44))
         let content = try #require(window.contentView)
         scope.root(content)
@@ -71,8 +74,6 @@ import Testing
         bar.update(query: "", placeholder: "Search", chips: [], rootTitle: "Commands", style: .token, keywordHint: nil,
                    isLoading: true)
         let spinner = try #require(Self.all(StatusIndicatorView.self, in: bar).first { !$0.isHidden })
-        let center = NotificationCenter()
-        spinner.notificationCenter = center
 
         window.orderFrontRegardless()
         let visible = window.occlusionState.contains(.visible)
