@@ -24,7 +24,9 @@ extension PageWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
-        if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
+        // Every page host at the display's full rate unless it asks otherwise (PageEngineOptions):
+        // a pooled spare too, so every page claimed from it.
+        WebKitRenderRate.apply(fullRate: options.fullFrameRate, to: configuration.preferences)
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
         let inputReadiness = PageInputReadiness(configuration: configuration)
         installPageScripts(configuration.userContentController, documentAttributes: documentAttributes)

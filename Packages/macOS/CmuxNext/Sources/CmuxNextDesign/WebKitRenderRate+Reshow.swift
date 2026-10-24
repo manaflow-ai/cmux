@@ -1,14 +1,20 @@
 public import AppKit
 public import WebKit
 
-/// Applying a changed render rate to a live page (one path for the agent
-/// pane and browser tabs).
+/// Applying a changed render rate to a live page: the agent pane's own rate
+/// changes (adaptive, debug `capped`). Browser tabs and cmux pages never
+/// change their rate live (``WebKitRenderRate``).
 public extension WebKitRenderRate {
-    /// WebKit reads the rate only when the page's visibility changes, so the
-    /// web view is hidden for 33 ms and shown again, and a snapshot of the
-    /// page covers it until 50 ms later, while the shown page paints its
-    /// first frame. Without a snapshot (or a superview) the rate waits for
-    /// the next visibility change instead of blinking the page.
+    /// WebKit re-reads the preference when the page's visual-idle state
+    /// changes (Page::setIsVisuallyIdleInternal), so the web view is hidden
+    /// for 33 ms and shown again, and a snapshot of the page covers it until
+    /// 50 ms later, while the shown page paints its first frame. Without a
+    /// snapshot (or a superview) the rate waits for the next visibility
+    /// change instead of blinking the page. Not proven on screen: on cmux20
+    /// (macOS 27, 120 Hz) a page re-shown this way after a switch to near60
+    /// kept rendering at 120 fps (perf-lead row 23), so the agent pane's live
+    /// rate change needs its own cadence check (`debug.page {page: "cmux.agent",
+    /// action: "frames"}` before and after the change).
     ///
     /// The owner keeps the returned task and cancels it when it goes away.
     /// A new re-show cancels `previous` and starts when it has ended; a

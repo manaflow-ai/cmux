@@ -41,8 +41,11 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
 /// Engine options a page asks for. Each engine maps them (WebKit today, CEF later); an engine
 /// without the option ignores it.
 public nonisolated struct PageEngineOptions: Sendable, Equatable {
-    /// Render at the display's full rate instead of the rate nearest 60 fps (the agent pane's
-    /// render rate). Off by default.
+    /// Render at the display's full rate (120 fps on a 120 Hz display), the default for every
+    /// page. False keeps WebKit's own default, the display-rate divisor nearest 60 fps: only the
+    /// agent pane's debug `capped` rate asks for it. Set once, when the page is made: in Low Power
+    /// Mode WebKit halves every page's rate by itself (its LowPowerMode throttling, live, in both
+    /// directions), so no page follows Low Power Mode here (perf-lead row 23).
     public var fullFrameRate: Bool
     /// Keeps this page on WebKit whatever `browser.defaultEngine` says, for this reason (the update
     /// island floats over the window: ``PageWebKitReason/transparentOverlay``). Nil lets
@@ -57,7 +60,7 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// the sidebar's Updated card, while a Chromium page's own window holds the key. Off by default.
     public var acceptsFirstMouse: Bool
 
-    public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false,
+    public init(fullFrameRate: Bool = true, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false,
                 acceptsFirstMouse: Bool = false) {
         self.fullFrameRate = fullFrameRate
         self.requiresWebKit = requiresWebKit

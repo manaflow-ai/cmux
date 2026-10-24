@@ -63,8 +63,6 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
-    /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
-    @ObservationIgnored var rateReshow: Task<Void, Never>?
     /// Bounds how long the theme color stands in for a committed document
     /// (`pageDidCommit`). Replaceable, so a test can give it a clock that
     /// does not wait.
@@ -116,7 +114,6 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             faviconTask?.cancel()
-            rateReshow?.cancel()
             pageBaseHold.cancel()
         }
     }
@@ -257,7 +254,6 @@ public final class WebKitTab: NSObject, BrowserTab {
         isClosed = true
         faviconTask?.cancel()
         titleTimer.cancel()
-        rateReshow?.cancel()
         pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
