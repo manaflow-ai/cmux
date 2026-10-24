@@ -29,11 +29,11 @@ enum HomeConversationStrings {
     /// The bundle of this module's catalog, so a test can read one language's table (`fr.lproj`).
     static var bundle: Bundle { .module }
 
-    /// "3 unread" in the row's VoiceOver label. `bundle` and `locale` default to this module's
-    /// catalog in the user's language; a test passes one language's table and its locale.
+    /// "3 unread" in the row's VoiceOver label; a plural string, so each locale picks its form for
+    /// `count`. `bundle` and `locale` default to this module's catalog in the user's language; a
+    /// test passes one language's table and its locale.
     static func unread(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
-        String(format: String(localized: "home.list.unread", defaultValue: "%lld unread", bundle: bundle, locale: locale),
-               locale: locale, count)
+        String(localized: "home.list.unread", defaultValue: "\(count) unread", bundle: bundle, locale: locale)
     }
 
     static var mentioned: String { String(localized: "home.list.mentioned", defaultValue: "Mentions you", bundle: .module) }
@@ -258,11 +258,11 @@ enum HomeConversationStrings {
     static var infoRoleOwner: String { String(localized: "home.info.role.owner", defaultValue: "Owner", bundle: .module) }
     static var infoRoleAdmin: String { String(localized: "home.info.role.admin", defaultValue: "Admin", bundle: .module) }
     static var infoRoleReadOnly: String { String(localized: "home.info.role.readOnly", defaultValue: "Read-only", bundle: .module) }
-    /// A large group's header; the count is already formatted for the locale ("5,000"). `bundle`
-    /// and `locale` as for ``unread(_:bundle:locale:)``.
+    /// A large group's header ("5,000 members"); a plural string, so each locale picks its form for
+    /// `count`, and the interpolated count is formatted for `locale`. `bundle` and `locale` as for
+    /// ``unread(_:bundle:locale:)``.
     static func infoMemberCount(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
-        String(format: String(localized: "home.info.memberCount", defaultValue: "%@ members", bundle: bundle, locale: locale),
-               locale: locale, count.formatted(.number.locale(locale)))
+        String(localized: "home.info.memberCount", defaultValue: "\(count) members", bundle: bundle, locale: locale)
     }
     static var infoAddPeople: String { String(localized: "home.info.addPeople", defaultValue: "Add People…", bundle: .module) }
     static var infoAdd: String { String(localized: "home.info.add", defaultValue: "Add", bundle: .module) }
