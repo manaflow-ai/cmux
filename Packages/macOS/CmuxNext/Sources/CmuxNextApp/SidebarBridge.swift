@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCloud
