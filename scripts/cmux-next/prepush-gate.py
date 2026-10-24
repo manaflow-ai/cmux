@@ -510,9 +510,10 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     stopped compiling; no scanner reads a test file. A file counts only when the push adds both an
     opening and a closing marker to it, so a fixture that mentions one marker never matches.
     """
-    # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing.
-    diff = git(repo, "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/",
-               base, head).decode("utf-8", "replace")
+    # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing. No
+    # inter-hunk context: a user's diff.interHunkContext would put unchanged lines between the added ones.
+    diff = git(repo, "diff", "-U0", "--inter-hunk-context=0", "--no-color", "--no-renames", "--no-ext-diff",
+               "--src-prefix=a/", "--dst-prefix=b/", base, head).decode("utf-8", "replace")
     found: dict[str, list[tuple[int, str]]] = collections.defaultdict(list)
     name, number = "", 0
     for line in diff.splitlines():
@@ -525,6 +526,8 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             text = line[1:]
             if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
                 found[name].append((number, text))
+            number += 1
+        elif line.startswith(" ") and name:  # a context line, should one come, is a head line too
             number += 1
     return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
             if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
