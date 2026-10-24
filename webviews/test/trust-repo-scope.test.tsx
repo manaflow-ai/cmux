@@ -155,15 +155,20 @@ const render = (ask: Parameters<typeof TrustAsk>[0]["ask"], onTrustRepo: () => v
   );
 const buttons = () => [...host.querySelectorAll("button")].map((button) => button.textContent);
 
-test("the question names the repo, says what trusting allows and what Not now means", async () => {
+// Leo, 2026-10-21: say plainly WHAT is trusted (the repo and its worktrees, or this folder), its path,
+// where the chat is ("this worktree of atlas-web"), and what trusting allows in one short line.
+test("the question names the repo, its path, the chat's worktree and what trusting allows", async () => {
   let trustedRepo = 0;
   await render({ cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "ask" }, () => (trustedRepo += 1));
-  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust the atlas-web repo?");
+  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust atlas-web and its worktrees?");
+  const path = host.querySelector("code.acpmux-trust-ask-path")!;
+  expect(path.textContent).toBe("~/Projects/atlas-web");
+  expect(path.getAttribute("title")).toBe(repoRoot);
+  expect(host.querySelector(".acpmux-trust-ask-where")!.textContent).toBe("This chat is in a worktree of atlas-web.");
   const detail = host.querySelector(".acpmux-trust-ask-detail")!.textContent!;
-  expect(detail).toContain("run commands and edit files");
-  expect(detail).toContain("all its worktrees");
-  expect(detail).toContain("hooks, MCP servers and settings");
-  expect(detail).toContain("Not now: Claude Code won't run here");
+  expect(detail).toBe(
+    "Claude Code can run commands and edit files in it, and its hooks, MCP servers and settings load.",
+  );
   // The common case first and marked primary.
   expect(buttons()).toEqual(["Trust repo", "Only this folder", "Not now"]);
   expect(host.querySelector("button.acpmux-trust-ask-primary")!.textContent).toBe("Trust repo");
@@ -174,8 +179,17 @@ test("the question names the repo, says what trusting allows and what Not now me
 test("the repository's own folder has no separate Only this folder; a plain folder has Trust folder", async () => {
   await render({ cwd: repoRoot, repo: { root: repoRoot, worktree: false }, state: "ask" });
   expect(buttons()).toEqual(["Trust repo", "Not now"]);
+  // At the repository's root the chat is where the repo is: no line says where it is.
+  expect(host.querySelector(".acpmux-trust-ask-where")).toBeNull();
+  // A folder inside the repository (not a worktree) says which folder.
+  await render({ cwd: `${repoRoot}/packages/fetch`, repo: { root: repoRoot, worktree: false }, state: "ask" });
+  expect(host.querySelector(".acpmux-trust-ask-where")!.textContent).toBe("This chat is in fetch, inside atlas-web.");
   await render({ cwd: "/Users/you/Downloads/thing", state: "ask" });
-  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust thing?");
+  expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust this folder?");
+  expect(host.querySelector(".acpmux-trust-ask-path")!.textContent).toBe("~/Downloads/thing");
+  expect(host.querySelector(".acpmux-trust-ask-detail")!.textContent).toBe(
+    "Claude Code can run commands and edit files here, and the folder's hooks, MCP servers and settings load.",
+  );
   expect(buttons()).toEqual(["Trust folder", "Not now"]);
 });
 

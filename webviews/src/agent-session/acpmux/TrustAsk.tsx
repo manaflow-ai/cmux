@@ -1,7 +1,7 @@
 import React from "react";
 import { projectName } from "./EmptyState";
 import { type Translate, useT } from "./i18n";
-import { isAgentHome } from "./sessionList";
+import { homePath, isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 
 /// What the trust question is about, in words: the repository (`repo`, when the folder is in one
@@ -18,6 +18,15 @@ export function trustSubject(ask: Pick<FolderTrustAsk, "cwd" | "repo" | "via">) 
     /// The folder is the repository's main working tree: trusting it and the repository are one.
     atRoot: Boolean(ask.repo && ask.repo.root === ask.cwd),
   };
+}
+
+/// The open question's subject by name, for the turn's "Waiting for you to trust …" line
+/// (conversation/WaitingLabel.tsx): the repository when the folder is in one, else the folder.
+/// None for a chat's private folder, which has no name worth showing.
+export function trustAskName(ask: Pick<FolderTrustAsk, "cwd" | "repo" | "via">): string | undefined {
+  if (isAgentHome(ask.cwd)) return undefined;
+  const { folder, repo } = trustSubject(ask);
+  return repo ?? folder;
 }
 
 /// What a trusted folder's answer says: through its repository, its worktree's root, the
@@ -60,6 +69,8 @@ export function TrustAsk({
   const asking = ask.state === "ask" || ask.state === "failed";
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);
+  // What Trust answers for, by path: the repository's root or the folder.
+  const trusted = offersRepo && ask.repo ? ask.repo.root : ask.cwd;
   return (
     // An open question reads as one (full text, the accent's edge, the primary answer first), not
     // as the quiet receipt it becomes once answered: a dim line was easy to miss while the agent
@@ -98,20 +109,27 @@ export function TrustAsk({
         </>
       ) : (
         <>
+          {/* What is trusted in words ("Trust atlas-web and its worktrees?", "Trust this folder?"),
+              then by path, where the chat is when that is not the repository's root ("this
+              worktree of atlas-web"), and what trusting allows in one line (Leo, 2026-10-21). */}
           <span className="acpmux-trust-ask-body">
             <span className="acpmux-trust-ask-text">
               {ask.state === "failed"
                 ? t("trust.failed")
                 : offersRepo && repo
                   ? t("trust.askRepo", { repo })
-                  : t("trust.askFolder", { folder })}
+                  : t("trust.askFolder")}
             </span>
+            <code className="acpmux-trust-ask-path" title={trusted}>
+              {homePath(trusted)}
+            </code>
+            {offersRepo && repo && !subject.atRoot && (
+              <span className="acpmux-trust-ask-where">
+                {ask.repo?.worktree ? t("trust.inWorktree", { repo }) : t("trust.inRepo", { folder, repo })}
+              </span>
+            )}
             <span className="acpmux-trust-ask-detail">
-              {offersRepo
-                ? subject.atRoot
-                  ? t("trust.allowsRepo", { agent })
-                  : t("trust.allowsRepoFrom", { agent, folder })
-                : t("trust.allowsFolder", { agent })}
+              {offersRepo ? t("trust.allowsRepo", { agent }) : t("trust.allowsFolder", { agent })}
             </span>
           </span>
           <span className="acpmux-trust-ask-actions">

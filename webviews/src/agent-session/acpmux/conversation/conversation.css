@@ -3947,3 +3947,44 @@ article.acpmux-row:empty {
 .cv-waiting {
   color: var(--cv-text);
 }
+/* In "Working for" (WorkingFor.tsx) the label holds its width (`flex: none`); a waiting line shrinks
+   instead, so a long name ends in its ellipsis (.cv-waiting__words) inside the line. */
+.cv-worked__label.cv-waiting {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+/* The trust question's wait points down at the question (WaitingLabel.tsx): a click brings it into
+   view. It reads as the line's words, with the arrow after them. */
+.cv-waiting__show {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cv-waiting__show:hover {
+  text-decoration: underline;
+}
+/* A long name ends in an ellipsis, the arrow stays. */
+.cv-waiting__words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-waiting__show > svg {
+  flex: none;
+}
+/* Inside the line, which clips what overflows it. */
+.cv-waiting__show:focus-visible {
+  outline: 1.5px solid var(--cv-text);
+  outline-offset: -1px;
+  border-radius: 3px;
+}

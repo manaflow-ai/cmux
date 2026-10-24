@@ -1,9 +1,10 @@
 // What the chat waits on the person for, when it waits on them (App.tsx): the folder's trust
 // question, a permission ask, a secret or a question card above the composer. The running turn's
-// line says so ("Waiting for you: trust this folder?") instead of "Thinking" or a ticking clock,
-// so nobody waits on an agent that waits on them (Leo, 2026-10-21: "Thinking" that never ends while
-// the trust question sat out of sight). With no ask open, a turn whose model has said nothing
-// since its prompt past acpmux's `silentTurnMs` (direct.ts `silentTurn`) says "No response from the
+// line says so ("Waiting for you to trust atlas-web", pointing at the question: WaitingLabel.tsx)
+// instead of "Thinking" or a ticking clock, so nobody waits on an agent that waits on them (Leo,
+// 2026-10-21: "Thinking" that never ends while the trust question sat out of sight). With no ask
+// open, a turn whose model has said nothing since its prompt past acpmux's `silentTurnMs`
+// (direct.ts `silentTurn`) says "No response from the
 // model yet", so a stalled model is not "Thinking" forever.
 import { createContext } from "react";
 import type { FolderTrustAsk } from "../useFolderTrustAsk";
@@ -13,6 +14,10 @@ import type { PermissionGroupState } from "../permissions/protocol";
 export type WaitingOn = "trust" | "trustRemote" | "permission" | "secret" | "question" | "model";
 
 export const WaitingOnContext = createContext<WaitingOn | undefined>(undefined);
+
+/// What the open trust question trusts, by name (TrustAsk.tsx `trustAskName`): the repository or
+/// the folder. Unset for a chat's private folder, whose line says "this folder".
+export const WaitingTrustContext = createContext<string | undefined>(undefined);
 
 /// The line's words for each wait.
 export const WAITING_LABEL: Record<WaitingOn, StringKey> = {

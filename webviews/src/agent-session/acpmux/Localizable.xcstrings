@@ -205124,133 +205124,265 @@
       }
     },
     "turn.waiting.trust": {
-      "comment": "Agent pane: the running turn's line while the chat waits on the person (an ask above the composer)",
+      "comment": "Agent pane: the running turn's line while the chat waits on the person (an ask above the composer). The folder's trust question, for a chat's private folder",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بانتظارك: هل تثق بهذا المجلد؟"
+            "value": "بانتظار أن تثق بهذا المجلد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Čeka se na vas: vjerujete li ovoj fascikli?"
+            "value": "Čeka se da vjerujete ovoj fascikli"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter på dig: stoler du på denne mappe?"
+            "value": "Venter på, at du stoler på denne mappe"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wartet auf dich: Diesem Ordner vertrauen?"
+            "value": "Wartet darauf, dass du diesem Ordner vertraust"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for you: trust this folder?"
+            "value": "Waiting for you to trust this folder"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esperando tu respuesta: ¿confías en esta carpeta?"
+            "value": "Esperando a que confíes en esta carpeta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En attente de votre réponse : faire confiance à ce dossier ?"
+            "value": "En attente de votre confiance pour ce dossier"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In attesa di te: ti fidi di questa cartella?"
+            "value": "In attesa che ti fidi di questa cartella"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "あなたの回答待ち: このフォルダを信頼しますか?"
+            "value": "このフォルダの信頼を待っています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងរង់ចាំអ្នក៖ ទុកចិត្តថតនេះទេ?"
+            "value": "កំពុងរង់ចាំអ្នកទុកចិត្តថតនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "응답 대기 중: 이 폴더를 신뢰하시겠습니까?"
+            "value": "이 폴더를 신뢰하기를 기다리는 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter på deg: stoler du på denne mappen?"
+            "value": "Venter på at du stoler på denne mappen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Czeka na ciebie: ufasz temu folderowi?"
+            "value": "Czeka, aż zaufasz temu folderowi"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aguardando você: confiar nesta pasta?"
+            "value": "Aguardando você confiar nesta pasta"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ждёт вашего ответа: доверять этой папке?"
+            "value": "Ждёт, пока вы доверитесь этой папке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รอคุณอยู่: เชื่อถือโฟลเดอร์นี้หรือไม่?"
+            "value": "กำลังรอให้คุณเชื่อถือโฟลเดอร์นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sizi bekliyor: bu klasöre güveniyor musunuz?"
+            "value": "Bu klasöre güvenmeniz bekleniyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Чекає на вас: довіряти цій папці?"
+            "value": "Чекає, поки ви довіритеся цій теці"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang chờ bạn: tin cậy thư mục này?"
+            "value": "Đang chờ bạn tin cậy thư mục này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待你回答：信任此文件夹吗？"
+            "value": "正在等你信任此文件夹"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待你回答：信任此資料夾嗎？"
+            "value": "正在等你信任此資料夾"
+          }
+        }
+      }
+    },
+    "turn.waiting.trustNamed": {
+      "comment": "Agent pane: the running turn's line while the chat waits on the person (an ask above the composer). The folder's trust question; a click shows it. {name}: the repository's or folder's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بانتظار أن تثق بـ {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka se da vjerujete {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at du stoler på {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet darauf, dass du {name} vertraust"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for you to trust {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a que confíes en {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente de votre confiance pour {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa che ti fidi di {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} の信頼を待っています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំអ្នកទុកចិត្ត {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name}을(를) 신뢰하기를 기다리는 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på at du stoler på {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka, aż zaufasz {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando você confiar em {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ждёт, пока вы доверитесь {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้คุณเชื่อถือ {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} için güvenmeniz bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чекає, поки ви довіритеся {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ bạn tin cậy {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等你信任 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等你信任 {name}"
           }
         }
       }
@@ -206444,661 +206576,793 @@
       }
     },
     "trust.allowsFolder": {
-      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
+      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now). {agent}: the agent's name",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يمكن لـ {agent} تشغيل الأوامر وتعديل الملفات هنا، وتُحمَّل خطافات المجلد وخوادم MCP والإعدادات. ليس الآن: لن يعمل {agent} هنا حتى تثق به."
+            "value": "يمكن لـ {agent} تشغيل الأوامر وتحرير الملفات هنا، ويتم تحميل خطافاته وخوادم MCP وإعداداته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} može ovdje pokretati naredbe i uređivati fajlove, a učitavaju se hookovi, MCP serveri i postavke fascikle. Ne sada: {agent} se neće pokretati ovdje dok mu ne vjerujete."
+            "value": "{agent} ovdje može pokretati naredbe i uređivati datoteke, a njene kuke, MCP serveri i postavke se učitavaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan køre kommandoer og redigere filer her, og mappens hooks, MCP-servere og indstillinger indlæses. Ikke nu: {agent} kører ikke her, før du stoler på det."
+            "value": "{agent} kan køre kommandoer og redigere filer her, og mappens hooks, MCP-servere og indstillinger indlæses."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kann hier Befehle ausführen und Dateien bearbeiten, und die Hooks, MCP-Server und Einstellungen des Ordners werden geladen. Nicht jetzt: {agent} läuft hier erst, wenn du vertraust."
+            "value": "{agent} kann hier Befehle ausführen und Dateien bearbeiten, und die Hooks, MCP-Server und Einstellungen des Ordners werden geladen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} can run commands and edit files here, and the folder's hooks, MCP servers and settings load. Not now: {agent} won't run here until you trust it."
+            "value": "{agent} can run commands and edit files here, and the folder's hooks, MCP servers and settings load."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} puede ejecutar comandos y editar archivos aquí, y se cargan los hooks, servidores MCP y ajustes de la carpeta. Ahora no: {agent} no se ejecutará aquí hasta que confíes en él."
+            "value": "{agent} puede ejecutar comandos y editar archivos aquí, y se cargan los hooks, servidores MCP y ajustes de la carpeta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} peut exécuter des commandes et modifier des fichiers ici, et les hooks, serveurs MCP et réglages du dossier sont chargés. Pas maintenant : {agent} ne s'exécutera pas ici tant que vous ne lui ferez pas confiance."
+            "value": "{agent} peut exécuter des commandes et modifier des fichiers ici, et les hooks, serveurs MCP et réglages du dossier se chargent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} può eseguire comandi e modificare file qui, e vengono caricati hook, server MCP e impostazioni della cartella. Non ora: {agent} non verrà eseguito qui finché non ti fidi."
+            "value": "{agent} può eseguire comandi e modificare file qui, e vengono caricati gli hook, i server MCP e le impostazioni della cartella."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} はここでコマンドを実行し、ファイルを編集できます。フォルダのフック、MCP サーバー、設定も読み込まれます。後で: 信頼するまで {agent} はここで実行されません。"
+            "value": "{agent} はここでコマンドを実行しファイルを編集でき、フォルダのフック、MCP サーバー、設定が読み込まれます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} អាចដំណើរការពាក្យបញ្ជា និងកែឯកសារនៅទីនេះ ហើយ hooks, ម៉ាស៊ីនមេ MCP និងការកំណត់របស់ថតនឹងត្រូវផ្ទុក។ មិនមែនឥឡូវ៖ {agent} នឹងមិនដំណើរការនៅទីនេះទេ រហូតដល់អ្នកទុកចិត្ត។"
+            "value": "{agent} អាចដំណើរការពាក្យបញ្ជា និងកែឯកសារនៅទីនេះ ហើយ hook ម៉ាស៊ីនមេ MCP និងការកំណត់របស់ថតត្រូវបានផ្ទុក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent}이(가) 여기서 명령을 실행하고 파일을 편집할 수 있으며, 폴더의 훅, MCP 서버, 설정이 로드됩니다. 나중에: 신뢰하기 전까지 {agent}은(는) 여기서 실행되지 않습니다."
+            "value": "{agent}이(가) 여기에서 명령을 실행하고 파일을 편집할 수 있으며, 폴더의 훅, MCP 서버, 설정이 로드됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan kjøre kommandoer og redigere filer her, og mappens hooks, MCP-servere og innstillinger lastes inn. Ikke nå: {agent} kjører ikke her før du stoler på det."
+            "value": "{agent} kan kjøre kommandoer og redigere filer her, og mappens hooks, MCP-servere og innstillinger lastes inn."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} może tu uruchamiać polecenia i edytować pliki, a hooki, serwery MCP i ustawienia folderu zostaną wczytane. Nie teraz: {agent} nie uruchomi się tu, dopóki mu nie zaufasz."
+            "value": "{agent} może tu uruchamiać polecenia i edytować pliki, a hooki, serwery MCP i ustawienia folderu zostaną wczytane."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} pode executar comandos e editar arquivos aqui, e os hooks, servidores MCP e configurações da pasta são carregados. Agora não: {agent} não será executado aqui até você confiar."
+            "value": "{agent} pode executar comandos e editar arquivos aqui, e os hooks, servidores MCP e ajustes da pasta são carregados."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} сможет выполнять здесь команды и редактировать файлы, и загрузятся хуки, MCP-серверы и настройки папки. Не сейчас: {agent} не будет запускаться здесь, пока вы не доверитесь."
+            "value": "{agent} сможет выполнять здесь команды и редактировать файлы, а хуки, серверы MCP и настройки папки загрузятся."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} สามารถเรียกใช้คำสั่งและแก้ไขไฟล์ที่นี่ และจะโหลด hooks, เซิร์ฟเวอร์ MCP และการตั้งค่าของโฟลเดอร์ ไม่ใช่ตอนนี้: {agent} จะไม่ทำงานที่นี่จนกว่าคุณจะเชื่อถือ"
+            "value": "{agent} สามารถรันคำสั่งและแก้ไขไฟล์ที่นี่ได้ และจะโหลด hook เซิร์ฟเวอร์ MCP และการตั้งค่าของโฟลเดอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} burada komut çalıştırabilir ve dosya düzenleyebilir; klasörün hook'ları, MCP sunucuları ve ayarları yüklenir. Şimdi değil: güvenene kadar {agent} burada çalışmaz."
+            "value": "{agent} burada komut çalıştırabilir ve dosya düzenleyebilir; klasörün kancaları, MCP sunucuları ve ayarları yüklenir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} зможе виконувати тут команди й редагувати файли, і завантажаться хуки, MCP-сервери й налаштування папки. Не зараз: {agent} не запускатиметься тут, доки ви не довіритеся."
+            "value": "{agent} зможе виконувати тут команди й редагувати файли, а хуки, сервери MCP і налаштування теки завантажаться."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} có thể chạy lệnh và chỉnh sửa tệp tại đây, đồng thời hooks, máy chủ MCP và cài đặt của thư mục sẽ được tải. Để sau: {agent} sẽ không chạy ở đây cho đến khi bạn tin cậy."
+            "value": "{agent} có thể chạy lệnh và sửa tệp ở đây, và các hook, máy chủ MCP và cài đặt của thư mục sẽ được tải."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 可以在此运行命令和编辑文件，并会加载文件夹的钩子、MCP 服务器和设置。以后再说：在你信任之前，{agent} 不会在此运行。"
+            "value": "{agent} 可以在这里运行命令和编辑文件，并会加载此文件夹的钩子、MCP 服务器和设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 可以在此執行指令和編輯檔案，並會載入資料夾的掛鉤、MCP 伺服器和設定。稍後再說：在你信任之前，{agent} 不會在此執行。"
+            "value": "{agent} 可以在這裡執行指令和編輯檔案，並會載入此資料夾的掛鉤、MCP 伺服器和設定。"
           }
         }
       }
     },
     "trust.allowsRepo": {
-      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
+      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now). {agent}: the agent's name",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يمكن لـ {agent} تشغيل الأوامر وتعديل الملفات فيه وفي كل أشجار العمل التابعة له، وتُحمَّل خطافات المستودع وخوادم MCP والإعدادات. ليس الآن: لن يعمل {agent} هنا حتى تثق به."
+            "value": "يمكن لـ {agent} تشغيل الأوامر وتحرير الملفات فيه، ويتم تحميل خطافاته وخوادم MCP وإعداداته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} može pokretati naredbe i uređivati fajlove u njemu i svim njegovim radnim stablima, a učitavaju se hookovi, MCP serveri i postavke repozitorija. Ne sada: {agent} se neće pokretati ovdje dok mu ne vjerujete."
+            "value": "{agent} može pokretati naredbe i uređivati datoteke u njemu, a njegove kuke, MCP serveri i postavke se učitavaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan køre kommandoer og redigere filer i det og alle dets worktrees, og repoets hooks, MCP-servere og indstillinger indlæses. Ikke nu: {agent} kører ikke her, før du stoler på det."
+            "value": "{agent} kan køre kommandoer og redigere filer i det, og dets hooks, MCP-servere og indstillinger indlæses."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kann darin und in allen seinen Worktrees Befehle ausführen und Dateien bearbeiten, und die Hooks, MCP-Server und Einstellungen des Repos werden geladen. Nicht jetzt: {agent} läuft hier erst, wenn du vertraust."
+            "value": "{agent} kann darin Befehle ausführen und Dateien bearbeiten, und seine Hooks, MCP-Server und Einstellungen werden geladen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} can run commands and edit files in it and all its worktrees, and the repo's hooks, MCP servers and settings load. Not now: {agent} won't run here until you trust it."
+            "value": "{agent} can run commands and edit files in it, and its hooks, MCP servers and settings load."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} puede ejecutar comandos y editar archivos en él y en todos sus worktrees, y se cargan los hooks, servidores MCP y ajustes del repositorio. Ahora no: {agent} no se ejecutará aquí hasta que confíes en él."
+            "value": "{agent} puede ejecutar comandos y editar archivos en él, y se cargan sus hooks, servidores MCP y ajustes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} peut exécuter des commandes et modifier des fichiers dans ce dépôt et tous ses worktrees, et les hooks, serveurs MCP et réglages du dépôt sont chargés. Pas maintenant : {agent} ne s'exécutera pas ici tant que vous ne lui ferez pas confiance."
+            "value": "{agent} peut y exécuter des commandes et modifier des fichiers, et ses hooks, serveurs MCP et réglages se chargent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} può eseguire comandi e modificare file al suo interno e in tutti i suoi worktree, e vengono caricati hook, server MCP e impostazioni del repository. Non ora: {agent} non verrà eseguito qui finché non ti fidi."
+            "value": "{agent} può eseguire comandi e modificare file al suo interno, e vengono caricati i suoi hook, server MCP e impostazioni."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} はこのリポジトリとそのすべてのワークツリーでコマンドを実行し、ファイルを編集できます。リポジトリのフック、MCP サーバー、設定も読み込まれます。後で: 信頼するまで {agent} はここで実行されません。"
+            "value": "{agent} はその中でコマンドを実行しファイルを編集でき、フック、MCP サーバー、設定が読み込まれます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} អាចដំណើរការពាក្យបញ្ជា និងកែឯកសារក្នុងវា និង worktree ទាំងអស់របស់វា ហើយ hooks, ម៉ាស៊ីនមេ MCP និងការកំណត់របស់ឃ្លាំងនឹងត្រូវផ្ទុក។ មិនមែនឥឡូវ៖ {agent} នឹងមិនដំណើរការនៅទីនេះទេ រហូតដល់អ្នកទុកចិត្ត។"
+            "value": "{agent} អាចដំណើរការពាក្យបញ្ជា និងកែឯកសារនៅក្នុងវា ហើយ hook ម៉ាស៊ីនមេ MCP និងការកំណត់របស់វាត្រូវបានផ្ទុក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent}이(가) 이 저장소와 모든 워크트리에서 명령을 실행하고 파일을 편집할 수 있으며, 저장소의 훅, MCP 서버, 설정이 로드됩니다. 나중에: 신뢰하기 전까지 {agent}은(는) 여기서 실행되지 않습니다."
+            "value": "{agent}이(가) 그 안에서 명령을 실행하고 파일을 편집할 수 있으며, 훅, MCP 서버, 설정이 로드됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan kjøre kommandoer og redigere filer i det og alle dets worktrees, og repoets hooks, MCP-servere og innstillinger lastes inn. Ikke nå: {agent} kjører ikke her før du stoler på det."
+            "value": "{agent} kan kjøre kommandoer og redigere filer i det, og dets hooks, MCP-servere og innstillinger lastes inn."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} może uruchamiać polecenia i edytować pliki w nim i we wszystkich jego worktree, a hooki, serwery MCP i ustawienia repozytorium zostaną wczytane. Nie teraz: {agent} nie uruchomi się tu, dopóki mu nie zaufasz."
+            "value": "{agent} może uruchamiać w nim polecenia i edytować pliki, a jego hooki, serwery MCP i ustawienia zostaną wczytane."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} pode executar comandos e editar arquivos nele e em todos os seus worktrees, e os hooks, servidores MCP e configurações do repositório são carregados. Agora não: {agent} não será executado aqui até você confiar."
+            "value": "{agent} pode executar comandos e editar arquivos nele, e seus hooks, servidores MCP e ajustes são carregados."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} сможет выполнять команды и редактировать файлы в нём и во всех его рабочих деревьях, и загрузятся хуки, MCP-серверы и настройки репозитория. Не сейчас: {agent} не будет запускаться здесь, пока вы не доверитесь."
+            "value": "{agent} сможет выполнять в нём команды и редактировать файлы, а его хуки, серверы MCP и настройки загрузятся."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} สามารถเรียกใช้คำสั่งและแก้ไขไฟล์ในรีโพนี้และ worktree ทั้งหมด และจะโหลด hooks, เซิร์ฟเวอร์ MCP และการตั้งค่าของรีโพ ไม่ใช่ตอนนี้: {agent} จะไม่ทำงานที่นี่จนกว่าคุณจะเชื่อถือ"
+            "value": "{agent} สามารถรันคำสั่งและแก้ไขไฟล์ในนั้นได้ และจะโหลด hook เซิร์ฟเวอร์ MCP และการตั้งค่าของมัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} bu depoda ve tüm worktree'lerinde komut çalıştırabilir ve dosya düzenleyebilir; deponun hook'ları, MCP sunucuları ve ayarları yüklenir. Şimdi değil: güvenene kadar {agent} burada çalışmaz."
+            "value": "{agent} içinde komut çalıştırabilir ve dosya düzenleyebilir; kancaları, MCP sunucuları ve ayarları yüklenir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} зможе виконувати команди й редагувати файли в ньому та в усіх його робочих деревах, і завантажаться хуки, MCP-сервери й налаштування репозиторію. Не зараз: {agent} не запускатиметься тут, доки ви не довіритеся."
+            "value": "{agent} зможе виконувати в ньому команди й редагувати файли, а його хуки, сервери MCP і налаштування завантажаться."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} có thể chạy lệnh và chỉnh sửa tệp trong kho này và mọi worktree của nó, đồng thời hooks, máy chủ MCP và cài đặt của kho sẽ được tải. Để sau: {agent} sẽ không chạy ở đây cho đến khi bạn tin cậy."
+            "value": "{agent} có thể chạy lệnh và sửa tệp trong đó, và các hook, máy chủ MCP và cài đặt của nó sẽ được tải."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 可以在此仓库及其所有工作树中运行命令和编辑文件，并会加载仓库的钩子、MCP 服务器和设置。以后再说：在你信任之前，{agent} 不会在此运行。"
+            "value": "{agent} 可以在其中运行命令和编辑文件，并会加载它的钩子、MCP 服务器和设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 可以在此儲存庫及其所有工作樹中執行指令和編輯檔案，並會載入儲存庫的掛鉤、MCP 伺服器和設定。稍後再說：在你信任之前，{agent} 不會在此執行。"
-          }
-        }
-      }
-    },
-    "trust.allowsRepoFrom": {
-      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعمل هذه المحادثة في {folder}. الثقة بالمستودع تتيح لـ {agent} تشغيل الأوامر وتعديل الملفات فيه وفي كل أشجار العمل التابعة له، وتحمّل خطافاته وخوادم MCP وإعداداته. ليس الآن: لن يعمل {agent} هنا حتى تثق به."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ovaj chat radi u {folder}. Povjerenje u repozitorij omogućava agentu {agent} da pokreće naredbe i uređuje fajlove u njemu i svim njegovim radnim stablima, i učitava njegove hookove, MCP servere i postavke. Ne sada: {agent} se neće pokretati ovdje dok mu ne vjerujete."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne chat arbejder i {folder}. Når du stoler på repoet, kan {agent} køre kommandoer og redigere filer i det og alle dets worktrees, og dets hooks, MCP-servere og indstillinger indlæses. Ikke nu: {agent} kører ikke her, før du stoler på det."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dieser Chat arbeitet in {folder}. Vertraust du dem Repo, kann {agent} darin und in allen seinen Worktrees Befehle ausführen und Dateien bearbeiten, und seine Hooks, MCP-Server und Einstellungen werden geladen. Nicht jetzt: {agent} läuft hier erst, wenn du vertraust."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat works in {folder}. Trusting the repo lets {agent} run commands and edit files across it and all its worktrees, and loads its hooks, MCP servers and settings. Not now: {agent} won't run here until you trust it."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este chat trabaja en {folder}. Confiar en el repositorio permite a {agent} ejecutar comandos y editar archivos en él y en todos sus worktrees, y carga sus hooks, servidores MCP y ajustes. Ahora no: {agent} no se ejecutará aquí hasta que confíes en él."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cette discussion travaille dans {folder}. Faire confiance au dépôt permet à {agent} d'exécuter des commandes et de modifier des fichiers dans ce dépôt et tous ses worktrees, et charge ses hooks, serveurs MCP et réglages. Pas maintenant : {agent} ne s'exécutera pas ici tant que vous ne lui ferez pas confiance."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questa chat lavora in {folder}. Fidarti del repository permette a {agent} di eseguire comandi e modificare file al suo interno e in tutti i suoi worktree, e carica i suoi hook, server MCP e impostazioni. Non ora: {agent} non verrà eseguito qui finché non ti fidi."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットは {folder} で作業します。リポジトリを信頼すると、{agent} はリポジトリとそのすべてのワークツリーでコマンドを実行し、ファイルを編集でき、フック、MCP サーバー、設定も読み込まれます。後で: 信頼するまで {agent} はここで実行されません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែកនេះធ្វើការក្នុង {folder}។ ការទុកចិត្តឃ្លាំងអនុញ្ញាតឱ្យ {agent} ដំណើរការពាក្យបញ្ជា និងកែឯកសារក្នុងវា និង worktree ទាំងអស់ ហើយផ្ទុក hooks, ម៉ាស៊ីនមេ MCP និងការកំណត់របស់វា។ មិនមែនឥឡូវ៖ {agent} នឹងមិនដំណើរការនៅទីនេះទេ រហូតដល់អ្នកទុកចិត្ត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 채팅은 {folder}에서 작업합니다. 저장소를 신뢰하면 {agent}이(가) 저장소와 모든 워크트리에서 명령을 실행하고 파일을 편집할 수 있으며, 훅, MCP 서버, 설정이 로드됩니다. 나중에: 신뢰하기 전까지 {agent}은(는) 여기서 실행되지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne chatten jobber i {folder}. Stoler du på repoet, kan {agent} kjøre kommandoer og redigere filer i det og alle dets worktrees, og dets hooks, MCP-servere og innstillinger lastes inn. Ikke nå: {agent} kjører ikke her før du stoler på det."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ten czat pracuje w {folder}. Zaufanie repozytorium pozwala agentowi {agent} uruchamiać polecenia i edytować pliki w nim i we wszystkich jego worktree oraz wczytuje jego hooki, serwery MCP i ustawienia. Nie teraz: {agent} nie uruchomi się tu, dopóki mu nie zaufasz."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este chat trabalha em {folder}. Confiar no repositório permite que {agent} execute comandos e edite arquivos nele e em todos os seus worktrees, e carrega seus hooks, servidores MCP e configurações. Agora não: {agent} não será executado aqui até você confiar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Этот чат работает в {folder}. Доверие к репозиторию позволяет {agent} выполнять команды и редактировать файлы в нём и во всех его рабочих деревьях, а также загружает его хуки, MCP-серверы и настройки. Не сейчас: {agent} не будет запускаться здесь, пока вы не доверитесь."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชตนี้ทำงานใน {folder} การเชื่อถือรีโพทำให้ {agent} เรียกใช้คำสั่งและแก้ไขไฟล์ในรีโพและ worktree ทั้งหมดได้ และโหลด hooks, เซิร์ฟเวอร์ MCP และการตั้งค่าของรีโพ ไม่ใช่ตอนนี้: {agent} จะไม่ทำงานที่นี่จนกว่าคุณจะเชื่อถือ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sohbet {folder} içinde çalışıyor. Depoya güvenmek, {agent} için depoda ve tüm worktree'lerinde komut çalıştırmayı ve dosya düzenlemeyi açar; hook'ları, MCP sunucuları ve ayarları yüklenir. Şimdi değil: güvenene kadar {agent} burada çalışmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Цей чат працює в {folder}. Довіра до репозиторію дозволяє {agent} виконувати команди й редагувати файли в ньому та в усіх його робочих деревах і завантажує його хуки, MCP-сервери й налаштування. Не зараз: {agent} не запускатиметься тут, доки ви не довіритеся."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện này làm việc trong {folder}. Tin cậy kho cho phép {agent} chạy lệnh và chỉnh sửa tệp trong kho và mọi worktree của nó, đồng thời tải hooks, máy chủ MCP và cài đặt của kho. Để sau: {agent} sẽ không chạy ở đây cho đến khi bạn tin cậy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此聊天在 {folder} 中工作。信任该仓库后，{agent} 可以在仓库及其所有工作树中运行命令和编辑文件，并加载其钩子、MCP 服务器和设置。以后再说：在你信任之前，{agent} 不会在此运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此聊天在 {folder} 中工作。信任該儲存庫後，{agent} 可以在儲存庫及其所有工作樹中執行指令和編輯檔案，並載入其掛鉤、MCP 伺服器和設定。稍後再說：在你信任之前，{agent} 不會在此執行。"
+            "value": "{agent} 可以在其中執行指令和編輯檔案，並會載入它的掛鉤、MCP 伺服器和設定。"
           }
         }
       }
     },
     "trust.askFolder": {
-      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
+      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now). The folder's path shows under it",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تثق بـ {folder}؟"
+            "value": "هل تثق بهذا المجلد؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vjerujete li fascikli {folder}?"
+            "value": "Vjerujete li ovoj fascikli?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stoler du på {folder}?"
+            "value": "Stol på denne mappe?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{folder} vertrauen?"
+            "value": "Diesem Ordner vertrauen?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trust {folder}?"
+            "value": "Trust this folder?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Confías en {folder}?"
+            "value": "¿Confiar en esta carpeta?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Faire confiance à {folder} ?"
+            "value": "Faire confiance à ce dossier ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ti fidi di {folder}?"
+            "value": "Fidarsi di questa cartella?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{folder} を信頼しますか?"
+            "value": "このフォルダを信頼しますか?"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទុកចិត្ត {folder} ទេ?"
+            "value": "ទុកចិត្តថតនេះទេ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{folder}을(를) 신뢰하시겠습니까?"
+            "value": "이 폴더를 신뢰하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stoler du på {folder}?"
+            "value": "Stole på denne mappen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ufasz folderowi {folder}?"
+            "value": "Ufać temu folderowi?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Confiar em {folder}?"
+            "value": "Confiar nesta pasta?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Доверять папке {folder}?"
+            "value": "Доверять этой папке?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เชื่อถือ {folder} หรือไม่?"
+            "value": "เชื่อถือโฟลเดอร์นี้หรือไม่?"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{folder} klasörüne güveniyor musunuz?"
+            "value": "Bu klasöre güvenilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Довіряти папці {folder}?"
+            "value": "Довіряти цій теці?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tin cậy {folder}?"
+            "value": "Tin cậy thư mục này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "信任 {folder} 吗？"
+            "value": "信任此文件夹吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "信任 {folder} 嗎？"
+            "value": "信任此資料夾嗎？"
           }
         }
       }
     },
     "trust.askRepo": {
-      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
+      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now). {repo}: the repository's name",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تثق بمستودع {repo}؟"
+            "value": "هل تثق بـ {repo} ومساحات العمل الخاصة به؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vjerujete li repozitoriju {repo}?"
+            "value": "Vjerujete li {repo} i njegovim radnim stablima?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stoler du på repoet {repo}?"
+            "value": "Stol på {repo} og dets worktrees?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dem Repo {repo} vertrauen?"
+            "value": "{repo} und seinen Worktrees vertrauen?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trust the {repo} repo?"
+            "value": "Trust {repo} and its worktrees?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Confías en el repositorio {repo}?"
+            "value": "¿Confiar en {repo} y sus worktrees?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Faire confiance au dépôt {repo} ?"
+            "value": "Faire confiance à {repo} et à ses worktrees ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ti fidi del repository {repo}?"
+            "value": "Fidarsi di {repo} e dei suoi worktree?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{repo} リポジトリを信頼しますか?"
+            "value": "{repo} とそのワークツリーを信頼しますか?"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទុកចិត្តឃ្លាំង {repo} ទេ?"
+            "value": "ទុកចិត្ត {repo} និង worktree របស់វាទេ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{repo} 저장소를 신뢰하시겠습니까?"
+            "value": "{repo} 및 해당 작업 트리를 신뢰하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stoler du på repoet {repo}?"
+            "value": "Stole på {repo} og dets worktrees?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ufasz repozytorium {repo}?"
+            "value": "Ufać {repo} i jego drzewom roboczym?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Confiar no repositório {repo}?"
+            "value": "Confiar em {repo} e seus worktrees?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Доверять репозиторию {repo}?"
+            "value": "Доверять {repo} и его рабочим деревьям?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เชื่อถือรีโพ {repo} หรือไม่?"
+            "value": "เชื่อถือ {repo} และ worktree ของมันหรือไม่?"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{repo} deposuna güveniyor musunuz?"
+            "value": "{repo} ve çalışma ağaçlarına güvenilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Довіряти репозиторію {repo}?"
+            "value": "Довіряти {repo} і його робочим деревам?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tin cậy kho {repo}?"
+            "value": "Tin cậy {repo} và các worktree của nó?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "信任 {repo} 仓库吗？"
+            "value": "信任 {repo} 及其工作树吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "信任 {repo} 儲存庫嗎？"
+            "value": "信任 {repo} 及其工作樹嗎？"
+          }
+        }
+      }
+    },
+    "trust.inWorktree": {
+      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now). Where the chat is when it is a worktree of the repository. {repo}: the repository's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الدردشة في مساحة عمل من {repo}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat je u radnom stablu od {repo}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat er i en worktree af {repo}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat liegt in einem Worktree von {repo}."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is in a worktree of {repo}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat está en un worktree de {repo}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce chat est dans un worktree de {repo}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in un worktree di {repo}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは {repo} のワークツリーにあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះស្ថិតក្នុង worktree មួយរបស់ {repo}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 {repo}의 작업 트리에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten er i en worktree av {repo}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat jest w drzewie roboczym {repo}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat está em um worktree de {repo}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат в рабочем дереве {repo}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้อยู่ใน worktree ของ {repo}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet {repo} deposunun bir çalışma ağacında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат у робочому дереві {repo}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này ở trong một worktree của {repo}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话位于 {repo} 的一个工作树中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話位於 {repo} 的一個工作樹中。"
+          }
+        }
+      }
+    },
+    "trust.inRepo": {
+      "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now). Where the chat is when it is a folder inside the repository. {folder}: the folder's name; {repo}: the repository's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الدردشة في {folder} داخل {repo}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat je u {folder}, unutar {repo}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat er i {folder} i {repo}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat liegt in {folder}, innerhalb von {repo}."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is in {folder}, inside {repo}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat está en {folder}, dentro de {repo}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce chat est dans {folder}, à l'intérieur de {repo}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in {folder}, all'interno di {repo}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは {repo} 内の {folder} にあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះស្ថិតក្នុង {folder} នៅខាងក្នុង {repo}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 {repo} 안의 {folder}에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten er i {folder}, inne i {repo}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat jest w {folder}, wewnątrz {repo}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat está em {folder}, dentro de {repo}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат в {folder}, внутри {repo}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้อยู่ใน {folder} ภายใน {repo}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet {repo} içindeki {folder} klasöründe."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат у {folder}, всередині {repo}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này ở {folder}, bên trong {repo}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话位于 {repo} 中的 {folder}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話位於 {repo} 中的 {folder}。"
           }
         }
       }
