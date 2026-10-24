@@ -320,6 +320,8 @@ impl Surface {
                             if !wait_for_pty_readable(fd) {
                                 break;
                             }
+                            #[cfg(test)]
+                            pty.run_geometry_test_hook(PtyGeometryTestStep::LocalReaderReady);
                         }
                         // A readiness result makes the following read a
                         // short source-order critical section rather than a
@@ -327,7 +329,11 @@ impl Surface {
                         // ensuring bytes that were ready first are parsed on
                         // the old grid before TIOCSWINSZ can commit a new one.
                         #[cfg(unix)]
-                        let _source_order = read_fd.map(|_| pty.source_order_lock.lock().unwrap());
+                        let _source_order = read_fd.map(|_| {
+                            pty.source_order_lock
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        });
                         // Reserve the capture epoch before read(2). Shutdown
                         // can revoke a blocked reservation, but it cannot place
                         // its final barrier in the read-to-parser gap.

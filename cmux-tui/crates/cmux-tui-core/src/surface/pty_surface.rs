@@ -525,7 +525,8 @@ impl PtySurface {
         // marker, so mirrors observe bytes and geometry in server order. The
         // source gate also drains any direct PTY read that became ready before
         // this resize, so its bytes are parsed on the old grid.
-        let _source_order = self.source_order_lock.lock().unwrap();
+        let _source_order =
+            self.source_order_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut term = self.term.lock().unwrap();
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
         let master = match runtime.as_deref() {
