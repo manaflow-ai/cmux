@@ -145,19 +145,19 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
             let track = Self.factory.videoTrack(with: video.source, trackId: "screen")
             guard let sender = connection.add(track, streamIds: ["screen"]) else { throw VNCWebRTCError.peer("could not add the screen track") }
             lock.withLock { videoSender = sender }
-            applyVideo(.auto, sourceHeight: 0)
+            applyVideo(.auto, source: .zero)
         }
         let answer = try await describe { self.connection.answer(for: Self.constraints, completionHandler: $0) }
         try await apply { self.connection.setLocalDescription(RTCSessionDescription(type: .answer, sdp: answer), completionHandler: $0) }
         return answer
     }
 
-    /// Host: the screen sender's encoding for `quality` at `frameRate`
-    /// (60 unless both displays agreed on more). These are WebRTC's own
-    /// sender parameters; its congestion control keeps running.
-    func applyVideo(_ quality: ScreenQuality, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) {
+    /// Host: the screen sender's encoding for `quality` of a `source`-sized
+    /// display at `frameRate` (60 unless both displays agreed on more).
+    /// These are WebRTC's own sender parameters; its congestion control keeps running.
+    func applyVideo(_ quality: ScreenQuality, source: CGSize, frameRate: Int = ScreenQuality.baselineFrameRate) {
         guard let sender = lock.withLock({ videoSender }) else { return }
-        let settings = quality.settings(sourceHeight: sourceHeight, frameRate: frameRate)
+        let settings = quality.settings(sourceWidth: Int(source.width), sourceHeight: Int(source.height), frameRate: frameRate)
         let parameters = sender.parameters
         parameters.degradationPreference = NSNumber(value: settings.degradation.rawValue)
         for encoding in parameters.encodings {

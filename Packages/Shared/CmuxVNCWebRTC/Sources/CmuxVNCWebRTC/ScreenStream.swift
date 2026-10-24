@@ -69,7 +69,10 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     /// Auto and Smooth Motion's bitrate ceiling at 60 fps: 200 kbit a frame.
     static let adaptiveBitrateAtBaseline = 12_000_000
     /// The most pixels a second Auto and Smooth Motion ask the hardware
-    /// H.264 encoder for above 60 fps (2160×1396 at 120).
+    /// H.264 encoder for above 60 fps (2160×1396 at 120). VideoToolbox's
+    /// H.264 encoder is bound by pixels a second, not by its level or
+    /// settings: an M1 Max sustains about 400 Mpixel/s (3456×2234 at 55 fps,
+    /// 2160×1396 at 120 with 28 ms latency), an M4 Pro about 500.
     static let maximumEncodedPixelRate = 360_000_000
 
     /// The frames per second to capture and encode at. Auto and Smooth
@@ -88,20 +91,27 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
         }
     }
 
-    /// The sender's encoding for a display `sourceHeight` pixels tall (0:
-    /// unknown) at `frameRate` (from ``frameRate(hostMaximum:viewerMaximum:)``).
+    /// The sender's encoding for a display `sourceWidth`×`sourceHeight`
+    /// pixels (0: unknown) at `frameRate` (from
+    /// ``frameRate(hostMaximum:viewerMaximum:)``).
     /// Auto and Smooth Motion's bitrate ceiling grows with the frame rate so
     /// each frame keeps its 200 kbit (24 Mbps at 120): at a fixed ceiling
     /// every frame would get half the bits and text would blur in motion.
     /// It is a ceiling, not a target: WebRTC's congestion control still sets
     /// the rate from the network, and a still screen sends next to nothing.
+    /// Above 60 fps they also scale the picture down just enough to stay
+    /// within ``maximumEncodedPixelRate``: a 16" MacBook Pro's 3456×2234 goes
+    /// out at about 2154×1392 at 120 fps (60 fps keeps the full size).
     func settings(sourceWidth: Int = 0, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
         func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
         let fps = min(max(frameRate, Self.baselineFrameRate), Self.maximumFrameRate)
         let adaptiveBitrate = Self.adaptiveBitrateAtBaseline / Self.baselineFrameRate * fps
+        let pixelRate = Double(sourceWidth) * Double(sourceHeight) * Double(fps)
+        let fitEncoder = fps > Self.baselineFrameRate && pixelRate > Double(Self.maximumEncodedPixelRate)
+            ? (pixelRate / Double(Self.maximumEncodedPixelRate)).squareRoot() : 1
         switch self {
-        case .auto: return Settings(degradation: .maintainResolution, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: 1)
-        case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: 1)
+        case .auto: return Settings(degradation: .maintainResolution, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
+        case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
         case .low: return Settings(degradation: .disabled, maxBitrate: 1_500_000, minBitrate: 1_500_000, maxFramerate: 30, scaleDown: scale(to: 720))
         case .medium: return Settings(degradation: .disabled, maxBitrate: 4_000_000, minBitrate: 4_000_000, maxFramerate: 30, scaleDown: scale(to: 1080))
         case .high: return Settings(degradation: .disabled, maxBitrate: 10_000_000, minBitrate: 10_000_000, maxFramerate: 60, scaleDown: 1)
@@ -481,13 +491,13 @@ public final class ScreenStreamHost: @unchecked Sendable {
     @discardableResult
     private func applyQuality(_ session: Session) -> Bool {
         let hostRate = session.backend.maximumFrameRate
-        let (quality, height, fps, changed) = session.lock.withLock { () -> (ScreenQuality, Int, Int, Bool) in
+        let (quality, size, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int, Bool) in
             let size = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
             let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
             defer { session.frameRate = fps }
-            return (session.quality, Int(size.height), fps, session.frameRate != fps)
+            return (session.quality, size, fps, session.frameRate != fps)
         }
-        session.link.applyVideo(quality, sourceHeight: height, frameRate: fps)
+        session.link.applyVideo(quality, source: size, frameRate: fps)
         session.backend.setFrameRate(fps)
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed

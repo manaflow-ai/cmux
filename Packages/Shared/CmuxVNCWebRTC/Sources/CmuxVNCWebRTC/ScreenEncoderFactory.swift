@@ -7,10 +7,11 @@ import WebRTC
 /// level allows for the frame size: the level's most samples a second over
 /// the frame's (16-aligned) pixels. Level 5.2 allows 530,841,600, so 68 fps
 /// at 3456×2234 (a 16" MacBook Pro's built-in display) and 89 fps at
-/// 3024×1964 (14"). The encoder tells VideoToolbox to expect that rate, and
-/// VideoToolbox's rate control then spends each frame's bits as if it came
-/// at 68 fps, so libwebrtc's frame dropper drops the rest. libwebrtc knows
-/// no level above 5.2, so declaring a higher one is not possible.
+/// 3024×1964 (14"), and it sets that as VideoToolbox's expected frame rate.
+/// Measured at 3456×2234 with 120 fps input: an M1 Max's hardware encoder
+/// put out 44 fps with that hint and 55 without; a stream end to end on an
+/// M4 Pro decoded 39 fps with it and 67 without. libwebrtc knows no level
+/// above 5.2, so declaring a higher one is not possible.
 ///
 /// Given a level below 3, the same encoder opens VideoToolbox at AutoLevel
 /// (VideoToolbox writes the level the size and rate need) and sets no rate
