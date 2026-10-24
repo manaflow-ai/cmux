@@ -18,7 +18,7 @@ import Foundation
 final class HomeClientViewCache {
     /// The client's durable copy, nil for none.
     let cache: HomeCache?
-    /// How long writes are coalesced (zero writes at once: tests).
+    /// How long writes are coalesced (zero hands each change to the cache actor at once: tests).
     let writeDelay: Duration
     private let clock: any Clock<Duration>
     /// The owner's state as the mirror has it, without the client's own state.
@@ -28,6 +28,8 @@ final class HomeClientViewCache {
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
+    /// The newest state handed to the cache actor (``writeNow()``), awaited by ``flush()``.
+    private var lastWrite: Task<Void, Never>?
     private var writesSuppressed = false
     /// Something changed since the last successful write (or the restore).
     private var dirty = false
@@ -83,29 +85,41 @@ final class HomeClientViewCache {
     func scheduleWrite() {
         guard cache != nil, !writesSuppressed else { return }
         dirty = true
-        guard writeDelay > .zero else { return flush() }
         guard pendingWrite == nil else { return }
+        guard writeDelay > .zero else { return writeNow() }
         let clock = clock
         let delay = writeDelay
-        // task-owner: one coalesced cache write; cancelled by flush, which writes at once
+        // task-owner: one coalesced cache write; cancelled by writeNow, which writes at once
         pendingWrite = Task { [weak self] in
             do { try await clock.sleep(for: delay) } catch { return }
             guard let self else { return }
             self.pendingWrite = nil
-            let writer = self.writer
-            guard let cache = self.cache, let taken = self.takeState() else { return }
-            // Encoded and written on the cache's actor; this actor only made the copies.
-            let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
-            if !wrote { self.dirty = true }
+            self.writeNow()
         }
     }
 
-    /// Writes the coalesced batch now and waits for it (app quit, stop); nothing when nothing changed.
-    func flush() {
+    /// Hands what changed to the cache actor now, without waiting for the disk (sign-out, a zero
+    /// coalescing delay); nothing when nothing changed. The actor encodes and writes it.
+    func writeNow() {
         pendingWrite?.cancel()
         pendingWrite = nil
         guard let cache, let taken = takeState() else { return }
-        if !cache.writeAndWait(taken.state, sequence: taken.sequence, writer: writer) { dirty = true }
+        let writer = writer
+        // task-owner: one write on the cache actor; ``flush()`` waits for the newest one
+        lastWrite = Task { [weak self] in
+            let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
+            if !wrote { self?.dirty = true }
+        }
+    }
+
+    /// Writes the coalesced batch now and waits until the cache actor has it on disk (the quit's
+    /// save step, tests); returns at once when nothing changed and no write is in flight.
+    ///
+    /// Waiting for the newest write is enough: every state holds all the earlier ones, and the
+    /// actor drops an older state of this writer that reaches it later.
+    func flush() async {
+        writeNow()
+        await lastWrite?.value
     }
 
     /// The state to write and its number, nil when nothing changed; clears `dirty` (a failed
