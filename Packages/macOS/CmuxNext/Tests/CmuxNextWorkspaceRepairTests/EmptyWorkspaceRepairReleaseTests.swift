@@ -8,9 +8,11 @@ import Testing
 /// Thread.isMainThread else { return }`), so a repair released off main left its loops waiting.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct EmptyWorkspaceRepairReleaseTests {
-    // crash-allow: the other thread writes `repair` once while the test awaits that thread's resume, so no two threads touch it at once.
+    // crash-allow: the other thread writes `repair` and `releasedThere` once while the main thread waits on the semaphore, so no two threads touch them at once.
     nonisolated final class Handoff: @unchecked Sendable {
         var repair: EmptyWorkspaceRepair?
+        /// Whether the repair was deallocated on the releasing thread (its deinit ran there).
+        var releasedThere = false
     }
 
     @Test(arguments: [false, true])
@@ -24,7 +26,8 @@ struct EmptyWorkspaceRepairReleaseTests {
         let tasks = try #require(handoff.repair?.observationTasksForTests)
         #expect(tasks.count == 4, "expected the store observation and one watcher per workspace")
         if offMain {
-            await Self.releaseOnAnotherThread(handoff)
+            Self.releaseOnAnotherThread(handoff)
+            #expect(handoff.releasedThere, "the repair outlived its release on the other thread, so its deinit did not run there")
         } else {
             handoff.repair = nil
         }
@@ -32,14 +35,19 @@ struct EmptyWorkspaceRepairReleaseTests {
         #expect(allCancelled, "releasing the repair left an observation running")
     }
 
-    /// Drops the handoff's repair, its last reference, on a new thread and resumes once it is gone.
-    /// The test awaits instead of blocking, so the main actor stays free while the other thread runs the deinit.
-    nonisolated static func releaseOnAnotherThread(_ handoff: Handoff) async {
-        await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
-            Thread.detachNewThread {
-                handoff.repair = nil
-                released.resume()
-            }
+    /// Drops the handoff's repair, its last reference, on a new thread, records in `releasedThere`
+    /// whether it was deallocated there, and returns once that thread is done. The main thread waits
+    /// meanwhile, so no queued watcher iteration on the main actor can hold the repair (`guard let self`)
+    /// and run the deinit on main instead.
+    nonisolated static func releaseOnAnotherThread(_ handoff: Handoff) {
+        // Test-only thread join, not a lock: blocking main is what keeps the main actor's queued iterations out.
+        let released = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            weak var probe = handoff.repair
+            handoff.repair = nil
+            handoff.releasedThere = probe == nil
+            released.signal()
         }
+        released.wait()
     }
 }

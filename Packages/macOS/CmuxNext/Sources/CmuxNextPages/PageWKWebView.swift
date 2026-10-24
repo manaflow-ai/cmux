@@ -36,6 +36,8 @@ final class PageWKWebView: WKWebView {
         self.init(frame: frame, configuration: configuration, menuActions: .default)
     }
 
+    /// Makes the page view; it observes this view's context-menu choices on `menuActions`.
+    ///
     /// - Parameter menuActions: The center `NSMenu.willSendActionNotification` is observed on
     ///   (AppKit posts it on `.default`; tests pass their own so parallel suites do not cross).
     init(frame: CGRect, configuration: WKWebViewConfiguration, menuActions: NotificationCenter) {

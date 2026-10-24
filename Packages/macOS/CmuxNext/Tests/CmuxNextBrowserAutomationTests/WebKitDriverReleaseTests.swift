@@ -8,9 +8,11 @@ import Testing
 /// (`guard Thread.isMainThread else { return }`), which left that loop waiting for good.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct WebKitDriverReleaseTests {
-    // crash-allow: the other thread writes `driver` once while the test awaits that thread's resume, so no two threads touch it at once.
+    // crash-allow: the other thread writes `driver` and `releasedThere` once while the test awaits that thread's resume, so no two threads touch them at once.
     nonisolated final class Handoff: @unchecked Sendable {
         var driver: WebKitDriver?
+        /// Whether the driver was deallocated on the releasing thread (its deinit ran there).
+        var releasedThere = false
     }
 
     /// An App with no tabs.
@@ -31,6 +33,7 @@ struct WebKitDriverReleaseTests {
         let events = try #require(handoff.driver?.events)
         if offMain {
             await Self.releaseOnAnotherThread(handoff)
+            #expect(handoff.releasedThere, "the driver outlived its release on the other thread, so its deinit did not run there")
         } else {
             handoff.driver = nil
         }
@@ -39,12 +42,15 @@ struct WebKitDriverReleaseTests {
         #expect(received == 0)
     }
 
-    /// Drops the handoff's driver, its last reference, on a new thread and resumes once it is gone.
-    /// The test awaits instead of blocking, so the main actor stays free while the other thread runs the deinit.
+    /// Drops the handoff's driver, its last reference, on a new thread, records in `releasedThere`
+    /// whether it was deallocated there, and resumes once that thread is done. The driver runs no
+    /// task that could hold it, so the test can await instead of blocking the main actor.
     nonisolated static func releaseOnAnotherThread(_ handoff: Handoff) async {
         await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
             Thread.detachNewThread {
+                weak var probe = handoff.driver
                 handoff.driver = nil
+                handoff.releasedThere = probe == nil
                 released.resume()
             }
         }

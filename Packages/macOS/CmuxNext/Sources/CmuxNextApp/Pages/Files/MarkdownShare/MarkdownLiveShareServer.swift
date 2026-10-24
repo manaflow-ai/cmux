@@ -227,6 +227,9 @@ final class MarkdownLiveShareServer {
 
 /// The main-queue proof of ``MarkdownLiveShareServer``'s Network callbacks: it starts the listener and
 /// every connection on the main queue itself, so each handler it installs runs on the main actor.
+// Follow-up (debt, not a fix): move this adapter and MainQueueConnection to a lower package (CmuxNextWakeups or a
+// Network seam package, with an internal init that keeps the proof local) when Package.swift is free of collisions;
+// until then they keep about 34 lines in the App, which should be the composition root only.
 // app-type-allow: this server's private main-queue seam; MainQueueConnection's fileprivate init keeps the proof in this file
 private struct MainQueueNetworkEvents {
     /// Installs the listener's state and new-connection handlers, then starts it on the main queue.
