@@ -137,6 +137,7 @@ impl HolderService {
                 listed.iter().map(|entry| (entry.chan, entry.id)).collect();
             drop(listed);
             self.readopt(&link, &still_held);
+            self.end_unowned(&link, &still_held);
         } else {
             let mut known = self.listed.lock().recover_poison();
             for entry in listed {
@@ -145,6 +146,27 @@ impl HolderService {
         }
         self.publish(&link);
         Ok(link)
+    }
+
+    /// After a reconnect to the same holder: end every terminal it lists
+    /// that no surface of this daemon runs and none may still claim (the
+    /// startup pass's [`Self::reattach`]). Such a terminal is a SPAWN whose
+    /// answer never reached this daemon (the link broke, or the CLOSE its
+    /// timeout sent was lost with it): without this the holder would keep
+    /// its shell, PTY and ring for the life of the link, the shell blocked
+    /// behind output nobody acknowledges.
+    fn end_unowned(&self, link: &HolderLink, listed: &HashMap<u32, [u8; 16]>) {
+        let owned: Vec<u32> = self.live.lock().recover_poison().keys().copied().collect();
+        let claimable: Vec<[u8; 16]> =
+            self.listed.lock().recover_poison().keys().copied().collect();
+        for (chan, id) in listed {
+            if owned.contains(chan) || claimable.contains(id) {
+                continue;
+            }
+            if let Err(error) = link.close(*chan, 2000) {
+                eprintln!("cmux-tui: end unowned holder terminal {chan}: {error}");
+            }
+        }
     }
 
     /// Make `link` the current link and send the CLOSEs that waited for it.
