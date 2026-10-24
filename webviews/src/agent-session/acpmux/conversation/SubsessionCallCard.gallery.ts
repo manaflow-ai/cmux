@@ -44,7 +44,14 @@ const startedResult = (id: string, shortName: string, harness: string) => ({
   mode: "bypassPermissions",
   name: `claude-sr2/${shortName}`,
   // The started session's row, its other fields left out.
-  session: { children: 0, depth: 1, doing: `Working on: You are ${shortName}…`, harness, sessionId: id, state: "working" },
+  session: {
+    children: 0,
+    depth: 1,
+    doing: `Working on: You are ${shortName}…`,
+    harness,
+    sessionId: id,
+    state: "working",
+  },
   sessionId: id,
   shortName,
   turnId: `${id}-turn`,
