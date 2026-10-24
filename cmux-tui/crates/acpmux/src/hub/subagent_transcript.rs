@@ -43,6 +43,8 @@ const FILE_BYTES: u64 = 32 << 20;
 const PAGE_BYTES: usize = 4 << 20;
 /// The most of a transcript parsed for one page, the page and the lines replayed before it.
 const PARSE_BYTES: usize = 16 << 20;
+/// The most lines indexed: a transcript of more is read from its last ones (`truncated`).
+const INDEXED_LINES: usize = 1 << 20;
 
 /// Lines before a page replayed with it, so a call there pairs with its result on the page.
 const REPLAY_BEFORE: usize = 1000;
@@ -104,17 +106,26 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     let total = text.lines.len();
     let (start, end) = window(total, limit, before, after);
     let (start, end, from) = text.bounded(start, end, after.is_some());
-    let replayed: Vec<Value> = (from..end).map(|at| text.message(at)).collect();
-    // Replayed off the runtime: a page and the lines before it are CPU work.
+    // Parsed and replayed off the runtime: a page and the lines before it are CPU work. A line
+    // over `PAGE_BYTES` is never parsed: it goes as an `omitted` stub (`fit`).
     let per_line = tokio::task::spawn_blocking(move || {
+        let replayed: Vec<Value> = (from..end).map(|at| text.message(at)).collect();
+        let huge: Vec<Option<usize>> =
+            (start..end).map(|at| Some(text.len_of(at)).filter(|n| *n > PAGE_BYTES)).collect();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        Ok::<_, RpcError>(runtime.block_on(crate::claude_stdio::agent_transcript::replay(
+        let mut per_line = runtime.block_on(crate::claude_stdio::agent_transcript::replay(
             &replayed,
             start - from,
             from == 0 && !truncated,
-        )))
+        ));
+        for (updates, bytes) in per_line.iter_mut().zip(huge) {
+            if let Some(bytes) = bytes {
+                *updates = vec![omitted(bytes)];
+            }
+        }
+        Ok::<_, RpcError>(per_line)
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))??;
@@ -134,18 +145,23 @@ fn plain_id(id: &str) -> bool {
 /// page needs are ever parsed.
 struct Text {
     bytes: Vec<u8>,
-    lines: Vec<(usize, usize)>,
+    /// Each line's start and length in `bytes`: a 32 MiB read fits `u32`.
+    lines: Vec<(u32, u32)>,
 }
 
 impl Text {
     fn len_of(&self, at: usize) -> usize {
-        self.lines.get(at).map_or(0, |(start, end)| end - start)
+        self.lines.get(at).map_or(0, |(_, len)| *len as usize)
     }
 
     /// Line `at` as the replay reads it: a `user` or `assistant` message, else null (the replay
-    /// passes over it).
+    /// passes over it). A line over `PAGE_BYTES` is never parsed.
     fn message(&self, at: usize) -> Value {
-        let line = self.lines.get(at).and_then(|(start, end)| self.bytes.get(*start..*end));
+        let line = self
+            .lines
+            .get(at)
+            .filter(|(_, len)| *len as usize <= PAGE_BYTES)
+            .and_then(|(start, len)| self.bytes.get(*start as usize..(*start + *len) as usize));
         line.and_then(|line| serde_json::from_slice::<Value>(line).ok())
             .filter(|line| {
                 matches!(line.get("type").and_then(Value::as_str), Some("user" | "assistant"))
@@ -235,16 +251,31 @@ fn lines_of(mut file: File) -> Result<(Text, bool), RpcError> {
             _ => bytes.iter().position(|b| *b == b'\n').map_or(bytes.len(), |end| end + 1),
         };
     }
-    let mut lines = Vec::new();
+    // The last `INDEXED_LINES` lines at most: a file of millions of short lines keeps a bounded index.
+    let mut lines = std::collections::VecDeque::new();
+    let mut dropped = false;
     while at < bytes.len() {
         let end = bytes.get(at..).and_then(|rest| rest.iter().position(|b| *b == b'\n'));
         let end = end.map_or(bytes.len(), |n| at + n);
         if end > at {
-            lines.push((at, end));
+            let (start, len) = (u32::try_from(at), u32::try_from(end - at));
+            if let (Ok(start), Ok(len)) = (start, len) {
+                lines.push_back((start, len));
+            }
+            if lines.len() > INDEXED_LINES {
+                lines.pop_front();
+                dropped = true;
+            }
         }
         at = end + 1;
     }
-    Ok((Text { bytes, lines }, truncated))
+    Ok((Text { bytes, lines: lines.into() }, truncated || dropped))
+}
+
+/// The stub a line goes as when no reply could carry it: what it left out, and how much.
+fn omitted(bytes: usize) -> Value {
+    json!({"sessionUpdate": "omitted",
+        "_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}})
 }
 
 /// The lines a page holds of `total`: `limit` from `after` on, else `limit` before `before`.
@@ -277,11 +308,7 @@ fn fit(
         .into_iter()
         .map(|updates| {
             let bytes: usize = updates.iter().map(|u| u.to_string().len()).sum();
-            if bytes <= PAGE_BYTES {
-                return updates;
-            }
-            vec![json!({"sessionUpdate": "omitted",
-                "_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}})]
+            if bytes <= PAGE_BYTES { updates } else { vec![omitted(bytes)] }
         })
         .collect();
     let sizes: Vec<usize> =
@@ -448,18 +475,42 @@ mod tests {
     /// The source parsed for a page is bounded: the page itself, then the lines replayed before it.
     #[test]
     fn a_page_parses_a_bounded_amount_of_the_transcript() {
-        let mb = 1 << 20;
+        let mb: u32 = 1 << 20;
         let text = Text {
             bytes: Vec::new(),
-            lines: (0..40).map(|n| (n * 6 * mb, n * 6 * mb + 6 * mb - 1)).collect(),
+            lines: (0..40u32).map(|n| (n * 6 * mb, 6 * mb - 1)).collect(),
         };
         // Back from the end: three 6 MiB lines fit 16 MiB, so the page keeps its last two and
         // nothing more is replayed.
         let (start, end, from) = text.bounded(30, 40, false);
         assert_eq!((start, end, from), (38, 40, 38));
-        let small =
-            Text { bytes: Vec::new(), lines: (0..2000).map(|n| (n * 10, n * 10 + 9)).collect() };
+        let small = Text { bytes: Vec::new(), lines: (0..2000u32).map(|n| (n * 10, 9)).collect() };
         let (start, end, from) = small.bounded(1500, 1700, false);
         assert_eq!((start, end, from), (1500, 1700, 1500 - REPLAY_BEFORE));
+    }
+
+    /// One line bigger than a page is never parsed: it reads as nothing, and goes as a stub.
+    #[test]
+    fn a_huge_line_is_never_parsed() {
+        let line = format!(
+            r#"{{"type":"assistant","message":{{"content":[{{"type":"text","text":"{}"}}]}}}}"#,
+            "x".repeat(PAGE_BYTES)
+        );
+        let text =
+            Text { lines: vec![(0, u32::try_from(line.len()).unwrap())], bytes: line.into_bytes() };
+        assert_eq!(text.message(0), Value::Null);
+    }
+
+    /// A file of very many short lines keeps only its last `INDEXED_LINES` lines, and says it.
+    #[test]
+    fn the_line_index_is_bounded() {
+        let home = store("many");
+        let dir = home.join("projects/-work/s1/subagents");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("agent-b11.jsonl"), "{}\n".repeat(INDEXED_LINES + 5)).unwrap();
+        let (text, truncated) = read(&home, "s1", None, "b11").unwrap();
+        assert!(truncated);
+        assert_eq!(text.lines.len(), INDEXED_LINES);
+        let _ = std::fs::remove_dir_all(home);
     }
 }
