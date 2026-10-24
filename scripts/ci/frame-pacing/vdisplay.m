@@ -96,19 +96,26 @@ int main(int argc, char **argv) {
     double hz = argc > 1 ? atof(argv[1]) : 120;
     double hold = argc > 2 ? atof(argv[2]) : 1800;
     BOOL wantMain = argc > 3 && strcmp(argv[3], "main") == 0;
+    // argv[4] WIDTHxHEIGHT (default 1920x1080). The measure scripts ask for 1920x1200: under the Dock and the
+    // menu bar a 1080-pixel display leaves about 965 pt, and AppKit clamps a 1600 x 1000 STRESS window to it.
+    unsigned int width = 1920, height = 1080;
+    if (argc > 4 && (sscanf(argv[4], "%ux%u", &width, &height) != 2 || width < 640 || height < 480 || width > 3840 || height > 2400)) {
+      printf("error: size %s is not WIDTHxHEIGHT within 640x480..3840x2400\n", argv[4]);
+      return 2;
+    }
     [NSApplication sharedApplication];
     CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
     descriptor.queue = dispatch_get_main_queue();
     descriptor.name = [NSString stringWithFormat:@"mini-ops %.0f Hz", hz];
-    descriptor.maxPixelsWide = 1920;
-    descriptor.maxPixelsHigh = 1080;
-    descriptor.sizeInMillimeters = CGSizeMake(600, 340);
+    descriptor.maxPixelsWide = width;
+    descriptor.maxPixelsHigh = height;
+    descriptor.sizeInMillimeters = CGSizeMake(600, 600.0 * height / width);  // about 81 dpi, as 1920x1080 at 600 x 340
     descriptor.productID = 0x6d6f; descriptor.vendorID = 0x6d6f; descriptor.serialNum = 1;
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
     if (!display) { printf("error: CGVirtualDisplay unavailable\n"); return 1; }
     CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
     settings.hiDPI = 0;
-    settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:1920 height:1080 refreshRate:hz]];
+    settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
     [NSThread sleepForTimeInterval:1.0];
     if (wantMain && CGMainDisplayID() != display.displayID) {
@@ -116,7 +123,13 @@ int main(int argc, char **argv) {
       if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not make display %u main (CGError %d)\n", display.displayID, error);
       [NSThread sleepForTimeInterval:1.0];
     }
-    printf("ready %u %.2f main=%u\n", display.displayID, medianInterval(display.displayID), CGMainDisplayID());
+    // The visible frame (points, under the menu bar and the Dock) of the virtual display: what a window may fill.
+    NSRect visible = NSZeroRect;
+    for (NSScreen *screen in [NSScreen screens]) {
+      if ([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == display.displayID) visible = screen.visibleFrame;
+    }
+    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f\n", display.displayID, medianInterval(display.displayID),
+           CGMainDisplayID(), width, height, visible.size.width, visible.size.height);
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
   }
   return 0;
