@@ -183,6 +183,21 @@ pub enum Command {
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
     },
+    /// Append a report to a human basket without waking any agent session.
+    /// The target must be `reports:<person>`; the sender is the attached local
+    /// ACP session (or `--from` when the daemon can bind that session).
+    Deliver {
+        #[arg(long, value_name = "TARGET")]
+        target: String,
+        /// Report text. Reads stdin when omitted or "-".
+        prompt: Vec<String>,
+        /// Stable id for retries; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        /// Audience metadata (`leo`, `coordinator`, or `silent`).
+        #[arg(long, default_value = "leo")]
+        audience: String,
+    },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
@@ -278,10 +293,6 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
-    /// How harnesses reach their model provider: list, add, edit, test and
-    /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
-    #[command(subcommand)]
-    Route(crate::cli::route::RouteCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),

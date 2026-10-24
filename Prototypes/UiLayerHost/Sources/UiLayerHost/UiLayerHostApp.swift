@@ -20,17 +20,39 @@ struct UiLayerHostApp: App {
 final class ProjectionModel {
     private(set) var snapshot = ProjectionSnapshot.placeholder
     private(set) var error: String?
-    private let source: URL
+    private let source: UiLayerSource
     @ObservationIgnored private var watcher: ProjectionFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    @ObservationIgnored private var attachTask: Task<Void, Never>?
     @ObservationIgnored private var reloadGeneration: UInt64 = 0
 
     init(arguments: [String]) {
-        source = ProjectionModel.sourceURL(arguments: arguments)
-        reload()
-        // DispatchSource is the platform primitive for reload-on-save.
-        watcher = ProjectionFileWatcher(url: source) { [weak self] in
-            Task { @MainActor in self?.reload() }
+        source = UiLayerSource.parse(arguments: arguments)
+        switch source {
+        case .snapshot(let url):
+            reload()
+            // DispatchSource is the platform primitive for reload-on-save.
+            watcher = ProjectionFileWatcher(url: url) { [weak self] in
+                Task { @MainActor in self?.reload() }
+            }
+        case .attach(let path):
+            attachTask = Task { [weak self] in
+                guard let self else { return }
+                for await update in LiveProjectionClient(socketPath: path).updates() {
+                    guard !Task.isCancelled else { return }
+                    switch update {
+                    case .snapshot(let snapshot):
+                        self.snapshot = snapshot
+                        self.error = nil
+                    case .failure(let message):
+                        // A live projection never falls back to a stale fixture.
+                        self.snapshot = .placeholder
+                        self.error = "Live projection unavailable: \(message)"
+                    }
+                }
+            }
+        case .invalid(let message):
+            error = message
         }
     }
 
@@ -38,7 +60,7 @@ final class ProjectionModel {
         reloadTask?.cancel()
         reloadGeneration &+= 1
         let generation = reloadGeneration
-        let source = source
+        guard case .snapshot(let source) = source else { return }
         reloadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let result = readProjection(source)
             guard !Task.isCancelled else { return }
@@ -55,31 +77,64 @@ final class ProjectionModel {
             }
         }
     }
+}
 
-    private static func sourceURL(arguments: [String]) -> URL {
-        if let index = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(index + 1) {
-            return URL(fileURLWithPath: arguments[index + 1])
+enum UiLayerSource: Sendable {
+    case snapshot(URL)
+    case attach(String)
+    case invalid(String)
+
+    static func parse(arguments: [String]) -> Self {
+        var snapshot: String?
+        var attach: String?
+        var index = 1
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--snapshot" where index + 1 < arguments.count:
+                snapshot = arguments[index + 1]
+                index += 2
+            case "--snapshot":
+                return .invalid("--snapshot needs a path")
+            case "--attach" where index + 1 < arguments.count:
+                attach = arguments[index + 1]
+                index += 2
+            case "--attach":
+                return .invalid("--attach needs a socket path")
+            default:
+                index += 1
+            }
         }
+        if let attach, snapshot == nil { return .attach(attach) }
+        if attach != nil, snapshot != nil { return .invalid("use exactly one of --attach or --snapshot") }
+        if let snapshot { return .snapshot(URL(fileURLWithPath: snapshot)) }
         if let environment = ProcessInfo.processInfo.environment["CMUX_UI_LAYER_SNAPSHOT"], !environment.isEmpty {
-            return URL(fileURLWithPath: environment)
+            return .snapshot(URL(fileURLWithPath: environment))
         }
-        return URL(fileURLWithPath: FileManager.default.temporaryDirectory.path)
-            .appendingPathComponent("cmux-ui-layer.json")
+        return .snapshot(FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ui-layer.json"))
     }
 }
 
 
 private let maxProjectionBytes = 8 * 1024 * 1024
 
-private func readProjection(_ source: URL) -> Result<ProjectionSnapshot, String> {
+private enum ProjectionReadError: LocalizedError, Sendable {
+    case message(String)
+
+    var errorDescription: String? {
+        if case .message(let message) = self { return message }
+        return nil
+    }
+}
+
+private func readProjection(_ source: URL) -> Result<ProjectionSnapshot, ProjectionReadError> {
     do {
         let handle = try FileHandle(forReadingFrom: source)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: maxProjectionBytes + 1) ?? Data()
-        guard data.count <= maxProjectionBytes else { return .failure("snapshot exceeds 8 MiB") }
+        guard data.count <= maxProjectionBytes else { return .failure(.message("snapshot exceeds 8 MiB")) }
         return .success(try JSONDecoder().decode(ProjectionSnapshot.self, from: data))
     } catch {
-        return .failure(error.localizedDescription)
+        return .failure(.message(error.localizedDescription))
     }
 }
 

@@ -314,7 +314,9 @@ test("with no routes, Account offers the CLI login and says how to add one", asy
   await mount({ routes: [] });
   await open();
   const account = await openSub("Account");
-  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts with cmux route add"]);
+  // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
+  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
+  expect(account.textContent).not.toContain("cmux route");
 });
 
 test("the rail lists Starred, then each harness; a harness's tab lists its models in place", async () => {
