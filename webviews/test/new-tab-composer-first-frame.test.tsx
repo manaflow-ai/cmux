@@ -5,7 +5,7 @@
 // startMode.ts) paint at once, and the session's report keeps the same chips in the same order
 // with the same labels. The effort is the model button's detail ("Opus 5.5  High"; Leo 2026-10-20:
 // one model button, no separate effort chip), the access chip follows it.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -67,6 +67,15 @@ beforeAll(() => {
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   });
   host = dom.window.document.getElementById("root")!;
+});
+
+// Another test file in the same bun process can leave a start-mode source or kept answers behind
+// (classic-new-tab-trust): every test here starts with neither.
+beforeEach(async () => {
+  const { setStartModeSource, resetStartModesForTests } = await import("../src/agent-session/acpmux/startMode");
+  setStartModeSource(undefined);
+  dom.window.localStorage.clear();
+  resetStartModesForTests();
 });
 
 afterEach(async () => {
