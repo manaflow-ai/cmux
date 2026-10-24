@@ -77,6 +77,10 @@ public struct BrowserDeviceMenu {
     public var fit: String?
     public var fits: [String]
     public var toggleFit: @MainActor (String) -> Void
+    /// The row icons of this menu, one image per symbol: All Devices lists every built-in device,
+    /// and each row made its symbol from its SVG (sweep 2026-10-23: 114 to 169 ms of main thread
+    /// per opening, in CoreSVG). A row shows its image only, so rows of one class share it.
+    private let icons = MenuIcons()
 
     public init(devices: [Device], current: Current?, fit: String? = nil, fits: [String] = [],
                 toggleFit: @escaping @MainActor (String) -> Void = { _ in }, choose: @escaping @MainActor (String?, String?) -> Void) {
@@ -159,7 +163,7 @@ public struct BrowserDeviceMenu {
         }
         menu.addItem(.separator())
         let allItem = NSMenuItem(title: Strings.allDevices, action: nil, keyEquivalent: "")
-        allItem.image = NSImage.menuSymbol("list.bullet")
+        allItem.image = icons.image("list.bullet")
         allItem.submenu = allDevices(builtIn)
         menu.addItem(allItem)
         return menu
@@ -184,7 +188,7 @@ public struct BrowserDeviceMenu {
                 let sub = NSMenu()
                 addDevices(listed.filter { $0.brand == brand }, to: sub)
                 let item = NSMenuItem(title: brand == "Other" ? Strings.otherBrand : brand, action: nil, keyEquivalent: "")
-                item.image = NSImage.menuSymbol(Self.symbol(group: group))
+                item.image = icons.image(Self.symbol(group: group))
                 item.submenu = sub
                 all.addItem(item)
             }
@@ -214,8 +218,20 @@ public struct BrowserDeviceMenu {
         item.representedObject = target // the item keeps its target
         item.state = checked ? .on : .off
         item.toolTip = toolTip
-        item.image = NSImage.menuSymbol(symbol)
+        item.image = icons.image(symbol)
         menu.addItem(item)
+    }
+
+    /// One menu's symbol images by name (``NSImage/menuSymbol(_:)``), made on first use.
+    @MainActor private final class MenuIcons {
+        private var images: [String: NSImage?] = [:]
+
+        func image(_ symbol: String) -> NSImage? {
+            if let made = images[symbol] { return made }
+            let made = NSImage.menuSymbol(symbol)
+            images[symbol] = .some(made)
+            return made
+        }
     }
 
     @MainActor private final class Row: NSObject {
