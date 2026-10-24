@@ -70,7 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.services?.crashRecovery.applicationWillTerminate()
             AppProcessRoot.shared.hangReports?.applicationWillTerminate()
             self?.services?.home.applicationWillTerminate()
-            exit(0)
+            // The Home cache's last batch (drafts) gets 160 ms off the main thread, then the process ends:
+            // 3x the measured p99 of a first write after launch with a large Home (52 ms, HomeCacheQuitWriteTimeTests).
+            BoundedCompletion().run(limit: .milliseconds(160), owner: "quit.forceExit") { [home = self?.services?.home] in
+                await home?.flushCacheForQuit()
+            } then: { _ in exit(0) }
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
