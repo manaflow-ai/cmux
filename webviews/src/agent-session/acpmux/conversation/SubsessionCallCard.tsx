@@ -21,6 +21,7 @@ import type { SessionWaiting } from "../sessionList";
 import { Envelope, Spinner } from "./icons";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
+import { ToolText } from "./ToolText";
 
 export function SubsessionCallCard({ call }: { call: SubsessionCall }) {
   switch (call.tool) {
@@ -88,9 +89,7 @@ function StartedLine({ call }: { call: Extract<SubsessionCall, { tool: "start" }
         <span className="cv-tool__icon">
           <Spinner size={16} />
         </span>
-        <span className="cv-tool__text">
-          {name ? t("subsession.starting", { name }) : t("subsession.startingBare")}
-        </span>
+        <ToolText working>{name ? t("subsession.starting", { name }) : t("subsession.startingBare")}</ToolText>
       </div>
     );
   return (
@@ -99,13 +98,13 @@ function StartedLine({ call }: { call: Extract<SubsessionCall, { tool: "start" }
         <span className="cv-tool__icon">
           {live?.state === "working" ? <Spinner size={16} /> : <Icon name="agent.session" size={16} />}
         </span>
-        <span className="cv-tool__text">
+        <ToolText working={live?.state === "working"}>
           {withName(
             t("subsession.started", { name: NAME }),
             <SessionName sessionId={call.sessionId} name={name ?? call.sessionId!} />,
           )}
           {live && <StateDetail state={live.state} queued={live.queued} />}
-        </span>
+        </ToolText>
       </div>
       <UnderLine doing={live?.doing} waiting={live?.waiting} />
     </>
@@ -147,13 +146,13 @@ function SentLine({ call }: { call: Extract<SubsessionCall, { tool: "send" }> })
   return (
     <div className={`cv-tool cv-subsession${call.running ? " is-live" : " is-strong"}`}>
       <span className="cv-tool__icon">{call.running ? <Spinner size={16} /> : <Envelope />}</span>
-      <span className="cv-tool__text">
+      <ToolText working={call.running}>
         {withName(
           t(call.running ? "subsession.sending" : "subsession.sent", { name: NAME, text: first }),
           <SessionName sessionId={call.sessionId} name={name} />,
         )}
         {call.delivery && <span className="cv-tool__detail">{` · ${deliveryText(t, call.delivery)}`}</span>}
-      </span>
+      </ToolText>
     </div>
   );
 }
@@ -166,7 +165,7 @@ function WaitLines({ call }: { call: Extract<SubsessionCall, { tool: "wait" }> }
         <span className="cv-tool__icon">
           <Spinner size={16} />
         </span>
-        <span className="cv-tool__text">{t("subsession.waiting")}</span>
+        <ToolText working>{t("subsession.waiting")}</ToolText>
       </div>
     );
   if (call.sessions.length === 0)

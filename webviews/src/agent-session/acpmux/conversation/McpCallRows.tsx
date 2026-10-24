@@ -17,6 +17,7 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { ToolText } from "./ToolText";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -49,10 +50,10 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         <span className="cv-tool__icon">
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
-        <span className="cv-tool__text" data-find-skip>
+        <ToolText working={running} findSkip>
           {mcpLabel(t, calls, names)}
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
-        </span>
+        </ToolText>
         <ChevronRight
           size={14}
           strokeWidth={1.2}
@@ -108,11 +109,11 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         <span className="cv-tool__icon">
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
-        <span className="cv-tool__text" data-find-skip>
+        <ToolText working={running} findSkip>
           {mcpLabel(t, [call], names)}
           {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
           <InlineFailureCause failure={failure} />
-        </span>
+        </ToolText>
         <ChevronRight
           size={14}
           strokeWidth={1.2}

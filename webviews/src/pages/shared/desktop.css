@@ -526,8 +526,9 @@ input[type="submit"] {
     opacity: 0.3;
   }
 }
-/* SPINNERS-OFF-MAIN: the Thinking line's shimmer (ShimmerText.tsx) as two transform loops the
-   compositor runs: the masked band crosses the line, its lit words move back by as much. */
+/* SPINNERS-OFF-MAIN: every shimmer (the Thinking line's, ShimmerText.tsx, and the "shimmer" working
+   look's running rows, ToolText.tsx) as two transform loops the compositor runs: the masked band
+   crosses the line, its lit words move back by as much. */
 @keyframes cmux-shimmer-band {
   from {
     transform: translateX(-100%);
@@ -542,14 +543,5 @@ input[type="submit"] {
   }
   to {
     transform: translateX(-100%);
-  }
-}
-/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */
-@keyframes cmux-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -50% 0;
   }
 }
