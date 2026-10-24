@@ -830,7 +830,8 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests",
       "targets": [
         "CmuxNextDesign",
-        "CmuxNextDesignTokens"
+        "CmuxNextDesignTokens",
+        "CmuxNextWakeups"
       ],
       "packages": [
         "CMUXMobileCore",
@@ -1734,6 +1735,15 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextWakeupsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests",
+      "targets": [
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextWebUpdates": {
       "kind": "regular",
