@@ -139,6 +139,36 @@ test("a latest history turn without a summary keeps the turn gap at the composer
   expect(heights.at(-1)).toBeGreaterThanOrEqual(44);
 });
 
+test("specialized latest rows reserve the same no-summary turn gap before mounting", () => {
+  const sources = [
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Run it" },
+      {
+        id: "tool",
+        version: 1,
+        at: 2_000,
+        kind: "activity",
+        items: [{ kind: "execute", text: "Running", tool: { id: "call", title: "Run", status: "completed" } }],
+      },
+    ],
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Wait" },
+      { id: "notice", version: 1, at: 2_000, kind: "notice" },
+    ],
+  ];
+  for (const source of sources) {
+    const rows = turnView(source as never, new Set(), { now: 3_000 });
+    const final = rows.at(-1)!;
+    expect(final.lastTurn).toBe(true);
+    const withGap = layoutConversation(rows, 720).heights.at(-1)!;
+    const withoutMarker = layoutConversation(
+      rows.map(({ lastTurn: _lastTurn, ...row }) => row),
+      720,
+    ).heights.at(-1)!;
+    expect(withGap - withoutMarker).toBe(16);
+  }
+});
+
 test("a hidden row after the chat's last footer leaves it the last one", () => {
   const hidden = { id: "h", version: 1, at: 0, kind: "user", text: "", incoming: { kind: "hidden" } };
   const heights = heightsOf([reply("a", "Done."), footer("f"), hidden]);
