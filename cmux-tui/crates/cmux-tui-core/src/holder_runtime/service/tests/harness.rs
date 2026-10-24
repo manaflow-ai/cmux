@@ -84,6 +84,14 @@ impl Holders {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
+        // Each holder's descriptors are only its own, so a test that sets
+        // a holder's limit from another holder's count gets the free
+        // descriptors it set. An inherited one counts in that count, but
+        // takes no slot under the lowered limit when its number is above
+        // it; and one another thread here had not marked close-on-exec yet
+        // (macOS marks a new socket only after making it) would stay open
+        // in the holder, a proxy connection with it.
+        cmux_holder::client::inherit_only_stdio(&mut command);
         if let Some(limit) = *self.limit.lock().unwrap() {
             let mut current = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
             // SAFETY: getrlimit fills one rlimit.
