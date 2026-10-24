@@ -36,23 +36,27 @@ struct ChromiumPageFrameBudgetTests {
         var started: [Int] = []
     }
 
-    private func settle(until done: () -> Bool) async {
-        for _ in 0..<1_000 where !done() { await Task.yield() }
+    /// A page start that waits for its frame. Returns once the start waits: the task signals right
+    /// before it calls `nextFrame()`, whose enqueue runs in that same main-actor job, so the test
+    /// resumes only after the start is queued (no polling).
+    private func start(_ id: Int, budget: ChromiumPageFrameBudget, starts: Starts) async -> Task<Void, Never> {
+        let (entered, signal) = AsyncStream<Void>.makeStream()
+        let task = Task { @MainActor in
+            signal.yield()
+            signal.finish()
+            await budget.nextFrame()
+            starts.started.append(id)
+        }
+        for await _ in entered {}
+        return task
     }
 
     @Test func eachPageStartTakesItsOwnLaterFrame() async {
         let frames = SteppedFrames()
         let budget = ChromiumPageFrameBudget(frames: frames)
         let starts = Starts()
-        let first = Task { @MainActor in
-            await budget.nextFrame()
-            starts.started.append(1)
-        }
-        let second = Task { @MainActor in
-            await budget.nextFrame()
-            starts.started.append(2)
-        }
-        await settle { budget.waitingCount == 2 }
+        let first = await start(1, budget: budget, starts: starts)
+        let second = await start(2, budget: budget, starts: starts)
         // The turn that showed the pages makes none of them.
         #expect(budget.waitingCount == 2)
         #expect(starts.started.isEmpty)
