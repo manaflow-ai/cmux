@@ -206,6 +206,8 @@ sys.stdin.read()
         self.start_forwarder()
         sequence = [('prompt-submit', {'prompt': 'hi'}),
                     ('pre-tool-use', {'tool_name': 'Read', 'tool_input': {'file_path': '/tmp/日本語'}}),
+                    ('post-tool-use', {'tool_name': 'AskUserQuestion'}),
+                    ('post-tool-use', {'tool_name': 'ExitPlanMode'}),
                     ('pre-tool-use', {'tool_name': 'Bash', 'tool_input': {'command': "echo 'a\nb'"}}),
                     ('stop', {'stop_hook_active': False})]
         for index, (subcommand, payload) in enumerate(sequence):
@@ -215,6 +217,8 @@ sys.stdin.read()
         self.assertEqual([p['subcommand'] for p in enqueued], [s for s, _ in sequence])
         self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], list(range(len(sequence))))
         self.assertEqual(json.loads(enqueued[1]['payload'])['tool_input']['file_path'], '/tmp/日本語')
+        self.assertEqual([json.loads(p['payload'])['tool_name'] for p in enqueued[2:4]],
+                         ['AskUserQuestion', 'ExitPlanMode'])
         for params in enqueued:
             self.assertEqual(params['agent'], 'claude')
             self.assertEqual(params['environment']['CMUX_SURFACE_ID'], SURFACE)

@@ -38,7 +38,7 @@ class HookSocketServer:
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
-        self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-")
+        self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-", dir="/tmp")
         self.socket_path = os.path.join(self.root.name, "cmux.sock")
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.server: socket.socket | None = None

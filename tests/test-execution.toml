@@ -478,6 +478,11 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_claude_hook_answer_resumes.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_claude_hook_reports_session_cwd.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
