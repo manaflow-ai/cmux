@@ -43,6 +43,7 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
                 wake: RetryWake, clock: any Clock<Duration> = ContinuousClock()) {
         // A first connect's pacing: 250 ms growing to 30 s, 10 timed attempts, then events only.
         self.init(socketPath: socketPath, wake: wake, clock: clock, policy: .firstConnect) { after in
+            // concurrency-allow: an async acpmux mailbox request (awaits the socket reply), not a semaphore/group wait; run() is @concurrent, off main
             try await client.wait(socketPath: socketPath, recipient: recipient, after: after)
         }
     }

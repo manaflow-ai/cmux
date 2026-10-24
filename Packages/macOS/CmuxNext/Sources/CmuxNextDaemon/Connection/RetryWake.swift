@@ -293,9 +293,8 @@ public final class RetryWake: Sendable {
     /// Opens, for events only, the deepest folder on `file`'s path that exists
     /// and opens (`/` at worst); nil when none opens (no descriptor left).
     private static func openNearestFolder(of file: String) -> (folder: WatchedFolder, descriptor: Int32)? {
-        var directory = (file as NSString).deletingLastPathComponent
         var blocked: Identity?
-        while true {
+        for directory in folders(above: file) {
             if let identity = directoryIdentity(of: directory) {
                 let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
                 if descriptor >= 0 {
@@ -305,8 +304,15 @@ public final class RetryWake: Sendable {
             } else {
                 blocked = nil
             }
-            guard directory != "/", !directory.isEmpty else { return nil }
-            directory = (directory as NSString).deletingLastPathComponent
+        }
+        return nil
+    }
+
+    /// `file`'s folder, then each folder above it, deepest first (up to `/` for an absolute path).
+    private static func folders(above file: String) -> [String] {
+        let components = ((file as NSString).deletingLastPathComponent as NSString).pathComponents
+        return stride(from: components.count, through: 1, by: -1).map {
+            NSString.path(withComponents: Array(components.prefix($0)))
         }
     }
 
