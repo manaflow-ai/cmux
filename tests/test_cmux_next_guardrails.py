@@ -917,10 +917,13 @@ class AppSizeTests(Fixture):
         thing = swift_type("NewThingView", 40, head="@MainActor\n")
         self.append(view, "\n" + thing)
         self.commit("a new 40-line type appended to an existing App file")
-        found = self.assertRefused("new type NewThingView in an existing App file", "its own file",
-                                   "// app-type-allow:")
+        found = self.assertRefused("new type NewThingView in an existing App file",
+                                   "a new App file for new code is refused too",
+                                   "keep it a private helper of <= 15 source lines", "// app-type-allow:")
         self.assertEqual([h.bucket for h in found], [f"new:{view}:NewThingView"])
         self.assertEqual(found[0].number, 122, "points at the declaration line")
+        # Review 2 of app-size-b: "its own file" sent new code into the new-file refusal (ClassicMigrationRunState).
+        self.assertNotIn("its own file", found[0].text)
         for name, text in (("an actor", swift_type("Loader", 20, kind="actor")),
                            ("a public final class", swift_type("Store", 20, kind="class", head="public final ")),
                            ("an enum", swift_type("Mode", 20, kind="enum")),
@@ -1066,6 +1069,9 @@ class AppSizeTests(Fixture):
                 found = self.type_hits(view)
                 self.assertEqual([h.bucket for h in found], [f"new:{view}:Foo"], name)
                 self.assertIn("is no longer a small private or nested helper", found[0].text)
+                # Its lines from the base are a move into its own file, so that advice stays for a whole type.
+                self.assertIn("its own file" + (" (make it internal)" if "still private" in name else ""),
+                              found[0].text)
         self.reset()
         self.write(view, lines + helper.replace("fooScaled0 = value * 2", "fooScaled0 = value * 3"))
         self.commit("control: an edit inside the helper that keeps it small and private")
@@ -1106,7 +1112,8 @@ class AppSizeTests(Fixture):
         self.commit("a new fileprivate type over 15 lines")
         found = self.type_hits(f"{APP}/TextBox/TextBoxView.swift")
         self.assertEqual(len(found), 1)
-        self.assertIn("its own file (make it internal)", found[0].text)
+        self.assertIn("keep it a private helper of <= 15 source lines", found[0].text)
+        self.assertNotIn("its own file", found[0].text, "new code in a new App file is refused too")
 
     def test_the_type_scan_reads_interpolations_raw_strings_and_regex_literals(self):
         # Review 1 of app-size-b: a brace in a raw string or a regex literal moved the old scan's depth, so every
@@ -1180,6 +1187,133 @@ class AppSizeTests(Fixture):
         self.assertEqual(len(scanned), 2, "the base and head of the one file that adds a type")
         self.assertEqual([h.bucket for h in found if h.bucket.startswith("new:")],
                          [f"new:{APP}/TextBox/TextBoxView.swift:Late"])
+
+    def test_a_type_moved_between_existing_files_is_a_move_while_another_file_adds_code(self):
+        # Review 2 of app-size-b: app_type's pool subtracted every re-added line, braces too, so the `}` and
+        # `return 0` another file's new functions add took the moved type's generic lines out of the pool; only
+        # its specific lines were credited (about 45 % < MOVE_SHARE) and a pure move was refused.
+        view, zoom = f"{APP}/TextBox/TextBoxView.swift", f"{APP}/Zoom/ZoomModel.swift"
+        steps = swift_type("QuitSteps", 40)
+        self.rebase_on({f"{APP}/Quit/QuitCoordinator.swift": "".join(self.quit) + steps,
+                        zoom: swift_body(40, "zoom")}, "a type in an existing file")
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit))
+        self.append(view, steps)
+        self.append(zoom, swift_body(40, "zoomMore"))  # 5 new functions: 10 `}` and 5 `return 0`
+        self.commit("a type moved between two existing files; a third file grows")
+        self.assertEqual([h.text for h in self.hits() if h.bucket.startswith("new:")], [])
+        self.assertEqual(self.type_warnings(), [], "the type was scanned and judged")
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit))
+        self.append(view, steps.replace("quitSteps", "quitStepsNew"))
+        self.append(zoom, swift_body(40, "zoomMore"))
+        self.commit("control: a new type (not the removed one) appended in the same push")
+        self.assertEqual([h.bucket for h in self.type_hits(view)], [f"new:{view}:QuitSteps"])
+
+    def test_a_new_type_in_a_file_the_push_moves_is_judged(self):
+        # Review 2 of app-size-b: a new file that passes as a move (a git mv that `--no-renames` shows as a delete
+        # and an add, or a split) had no type check, so up to 20 % of a large moved file could be new types.
+        old, new = f"{APP}/Quit/QuitCoordinator.swift", f"{APP}/Shutdown/QuitCoordinator.swift"
+        quit = "".join(self.quit[:296])  # 37 whole functions: braces that balance, as the type scan needs
+        self.rebase_on({old: quit}, "a QuitCoordinator whose braces balance")
+        (self.repo / old).unlink()
+        self.write(new, quit + swift_type("ShutdownPlan", 40))
+        self.commit("git mv QuitCoordinator.swift to Shutdown/ with a new 40-line type appended")
+        found = [h for h in self.hits() if h.bucket.startswith("new:")]
+        self.assertEqual([h.bucket for h in found], [f"new:{new}:ShutdownPlan"], "the file is a move, its new type is not")
+        self.assertIn("new type ShutdownPlan in a new App file that is a move", found[0].text)
+        self.reset()
+        steps = swift_type("QuitSteps", 40)
+        self.rebase_on({old: quit + steps}, "a type to split out")
+        self.write(old, quit)
+        self.write(f"{APP}/Quit/QuitSteps.swift", steps)
+        self.commit("control: a type split out of its file into a new file")
+        self.assertEqual([h.text for h in self.hits()], [], "a split that moves a type whole passes")
+        self.assertEqual(self.type_warnings(), [])
+
+    def test_a_new_type_inside_a_type_moved_into_an_existing_file_is_judged(self):
+        # A judged (moved) outer type covered every type inside it, so a new nested type rode on its move credit.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        steps = swift_type("QuitSteps", 200)
+        self.rebase_on({f"{APP}/Quit/QuitCoordinator.swift": "".join(self.quit) + steps}, "a large type")
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit))
+        lines = steps.splitlines(keepends=True)
+        self.append(view, "".join(lines[:-1]) + self.indent(swift_type("Extra", 40)) + lines[-1])
+        self.commit("a type moved into an existing file with a new 40-line type inside it")
+        self.assertEqual([h.bucket for h in self.type_hits(view)], [f"new:{view}:QuitSteps.Extra"])
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit))
+        self.append(view, steps)
+        self.commit("control: the type moved alone")
+        self.assertEqual([h.text for h in self.hits() if h.bucket.startswith("new:")], [])
+        self.assertEqual(self.type_warnings(), [])
+
+    def test_a_small_private_type_with_a_large_extension_in_its_file_is_judged_on_both(self):
+        # Review 2 of app-size-b: a 3-line private view is a small helper, and its body in `extension NewThingView`
+        # did not count, so a 300-line view went into a god file with only a growth warning.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        self.append(view, "private struct NewThingView: View {\n    var body: some View { content }\n}\n"
+                    "extension NewThingView {\n" + swift_body(296, "content") + "}\n")
+        self.commit("a 3-line private view with a 296-line extension")
+        found = self.type_hits(view)
+        self.assertEqual([h.bucket for h in found], [f"new:{view}:NewThingView"])
+        self.assertIn("with its `extension` blocks in this file", found[0].text)
+        self.assertEqual(self.type_warnings(), [])
+        self.reset()
+        tiny = "private struct Tiny {\n    let a = 1\n}\nextension Tiny {\n" + swift_body(8, "tiny") + "}\n"
+        self.assertLessEqual(code(tiny), guardrails.PRIVATE_TYPE_MAX)
+        self.append(view, tiny)
+        self.commit("control: a private helper and its extension, 15 source lines or fewer together")
+        self.assertEqual([h.text for h in self.hits() if h.bucket.startswith("new:")], [])
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.append(view, "extension Tiny {\n" + swift_body(40, "tinyMore") + "}\n")
+        self.commit("push 2: the helper grows through a new extension")
+        found = self.type_hits(view)
+        self.assertEqual([h.bucket for h in found], [f"new:{view}:Tiny"])
+        self.assertIn("is no longer a small private or nested helper", found[0].text)
+
+    def test_a_type_declared_after_a_comment_a_statement_or_a_nested_attribute_is_seen(self):
+        # Review 2 of app-size-b: TYPE_DECL matched only at the start of the stripped line, with no nested
+        # parentheses in an attribute, so these forms passed with no refusal and no warning.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        late = swift_type("Late", 40)
+        for name, prefix in (("a block comment", "/* x */ "), ("an earlier statement", "let lateLead = 1; "),
+                             ("an attribute with parentheses in a string",
+                              '@available(*, deprecated, message: "use X (new)") '),
+                             ("an attribute with nested parentheses", "@LateMacro(.init(x)) ")):
+            with self.subTest(form=name):
+                self.reset()
+                self.append(view, prefix + late)
+                self.commit(name)
+                self.assertEqual([h.bucket for h in self.type_hits(view)], [f"new:{view}:Late"], name)
+                self.assertEqual(self.type_warnings(), [], name)
+
+    def test_one_root_block_pasted_into_a_feature_file_and_as_a_type_is_one_placement(self):
+        # Review 2 of app-size-b: app_type's pool did not subtract what the other side adds back, so a root block
+        # moved into feature file A (neutral for the root) also made a new type in feature file B a move.
+        services = swift_body(200, "services").splitlines(keepends=True)
+        block = "".join(services[40:80])
+        zoom = f"{APP}/Zoom/ZoomModel.swift"
+        self.rebase_on({zoom: swift_body(40, "zoom")}, "a Zoom file")
+        self.write(f"{APP}/AppServices.swift", "".join(services[:40] + services[80:]))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", block)
+        self.append(zoom, "struct Stolen {\n" + block + "}\n")
+        self.commit("a root block pasted as plain lines into one feature file and as a type into another")
+        self.assertEqual([h.bucket for h in self.type_hits(zoom)], [f"new:{zoom}:Stolen"])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", "".join(services[:40] + services[80:]))
+        self.append(zoom, "struct Stolen {\n" + block + "}\n")
+        self.commit("control: the root block moved only into the type")
+        self.assertEqual([h.text for h in self.hits() if h.bucket.startswith("new:")], [])
+        self.assertEqual(self.type_warnings(), [])
+
+    def test_an_escape_on_an_outer_type_does_not_cover_the_types_inside_it(self):
+        # Review 2 of app-size-b: one `// app-type-allow:` on `enum Namespace { }` let any number of nested types
+        # of any size into a god file.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        self.append(view, "// app-type-allow: the view's names stay with the view\nenum TextBoxNames {\n"
+                    + self.indent(swift_type("Big", 40)) + "}\n")
+        self.commit("an escaped namespace with a 40-line type inside")
+        self.assertEqual([h.bucket for h in self.type_hits(view)], [f"new:{view}:TextBoxNames.Big"])
 
     def test_code_moved_from_a_package_into_the_app_is_new_app_code(self):
         # The App-size rule moves code out of the App; a package's code moved into the App is the wrong direction,
