@@ -51,7 +51,7 @@
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxIrohTransport": 4,
-   "CmuxNextApp": 5,
+   "CmuxNextApp": 4,
    "CmuxNextBrowserHost": 1,
    "CmuxNextDaemon": 1,
    "CmuxNextPalette": 1
@@ -137,7 +137,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 8,
+    "CmuxNextBrowser": 9,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 1,
     "CmuxNextPages": 1,
@@ -156,10 +156,10 @@
     "CmuxAppAttest": 1,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentPane": 5,
-    "CmuxNextApp": 6,
+    "CmuxNextApp": 5,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 3,
+    "CmuxNextCompat": 4,
     "CmuxNextCrashReporting": 10,
     "CmuxNextDesign": 2,
     "CmuxNextFiles": 2,

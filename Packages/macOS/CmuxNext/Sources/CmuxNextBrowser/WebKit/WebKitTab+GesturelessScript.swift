@@ -8,6 +8,7 @@ import WebKit
 extension WebKitTab: BrowserGesturelessScripting {
     public func evaluateWithoutUserGesture(_ script: String) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
+        // crash-allow: a string selector traps only when sent unanswered; responds(to:) below gates the send, and a WebKit without the SPI throws .unsupported.
         let selector = NSSelectorFromString("_evaluateJavaScriptWithoutUserGesture:completionHandler:")
         guard webView.responds(to: selector) else { throw BrowserTabError.unsupported("evaluate without a user gesture") }
         typealias Evaluate = @convention(c) (AnyObject, Selector, NSString, @escaping @convention(block) (Any?, (any Error)?) -> Void) -> Void
