@@ -35,10 +35,17 @@ struct LinkSlot {
     pending_close: HashMap<u32, u32>,
 }
 
+/// Starts a holder that serves the socket with the owner token and returns
+/// once it listens. The service's own is [`launch_holder`] (the holder
+/// executable); a test starts its holder its own way.
+type Launcher = Box<dyn Fn(&Path, &[u8; 32]) -> io::Result<()> + Send + Sync>;
+
 /// The holder of one terminal host root (one daemon session).
 pub(crate) struct HolderService {
     socket: PathBuf,
     token: [u8; 32],
+    /// Starts a holder when none runs ([`Reach::Launch`]).
+    launcher: Launcher,
     link: Mutex<LinkSlot>,
     /// Serializes connecting, launching and re-adopting. Its holder may
     /// take a surface's terminal lock (a re-adoption's prologue), so no
@@ -79,9 +86,23 @@ impl HolderService {
         if let Some(service) = services.get(host_root) {
             return Ok(service.clone());
         }
-        let service = Arc::new(Self {
-            socket: socket_path(host_root)?,
-            token: load_or_create_token(host_root)?,
+        let service = Self::new(
+            socket_path(host_root)?,
+            load_or_create_token(host_root)?,
+            Box::new(launch_holder),
+        );
+        services.insert(host_root.to_path_buf(), service.clone());
+        Ok(service)
+    }
+
+    /// A service for the holder at `socket` with owner `token`, starting a
+    /// holder with `launcher` when none runs. Not shared: [`Self::for_root`]
+    /// keeps the one service of a host root.
+    fn new(socket: PathBuf, token: [u8; 32], launcher: Launcher) -> Arc<Self> {
+        Arc::new(Self {
+            socket,
+            token,
+            launcher,
             link: Mutex::default(),
             connecting: Mutex::new(()),
             next_chan: AtomicU32::new(1),
@@ -90,9 +111,7 @@ impl HolderService {
             claims: RwLock::new(()),
             superseded: AtomicBool::new(false),
             leaving: AtomicBool::new(false),
-        });
-        services.insert(host_root.to_path_buf(), service.clone());
-        Ok(service)
+        })
     }
 
     /// Whether a holder of `host_root` may run: its socket exists. Asking
@@ -158,7 +177,7 @@ impl HolderService {
         let (link, listed) = match self.connect() {
             Ok(connected) => connected,
             Err(_) if reach == Reach::Launch => {
-                self.launch()?;
+                (self.launcher)(&self.socket, &self.token)?;
                 self.connect()?
             }
             Err(error) => return Err(error),
@@ -493,68 +512,68 @@ impl HolderService {
             }),
         )
     }
+}
 
-    /// Start a holder and wait until it listens: the standalone
-    /// `cmux-holder` (std and libc only, its own content-addressed copy on
-    /// macOS, `crate::host_exe::holder_executable`) when the daemon has one
-    /// that speaks its wire, else the holder built into the host executable
-    /// (`cmux-tui-host __holder`).
-    fn launch(&self) -> io::Result<()> {
-        let configure =
-            |command: &mut std::process::Command| {
-                command
-                    .arg("--socket")
-                    .arg(&self.socket)
-                    // Every shell gets back the open-file limit cmux started
-                    // with; the holder keeps the daemon's raised one.
-                    .envs(
-                        cmux_pty::original_open_file_limit()
-                            .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
-                    )
-                    // A DEV build's, debug build's or test's grace, as its hosts
-                    // get: the holder ends its terminals once no daemon came back.
-                    .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
-                        (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
-                    }))
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null());
-            };
-        let standalone = standalone_holder().and_then(|path| {
-            use std::os::unix::process::CommandExt;
-            let mut command = std::process::Command::new(&path);
-            command.arg0(crate::host_exe::HOLDER_NAME);
-            configure(&mut command);
-            command
-                .spawn()
-                .inspect_err(|error| {
-                    eprintln!("cmux-tui: start the terminal holder {}: {error}", path.display());
-                })
-                .ok()
-        });
-        let mut child = match standalone {
-            Some(child) => child,
-            None => crate::host_exe::spawn_host(|command| {
-                command.arg("__holder");
-                configure(command);
-            })?,
-        };
-        let hex: String = self.token.iter().map(|byte| format!("{byte:02x}")).collect();
-        let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
-        stdin.write_all(format!("{hex}\n").as_bytes())?;
-        drop(stdin);
-        let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-        let mut line = String::new();
-        BufReader::new(stdout).read_line(&mut line)?;
-        // Reap the holder if it ever exits while this daemon runs.
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
-        if line.trim() != "ready" {
-            return Err(io::Error::other(format!("the terminal holder did not start: {line:?}")));
-        }
-        Ok(())
+/// Start a holder and wait until it listens: the standalone
+/// `cmux-holder` (std and libc only, its own content-addressed copy on
+/// macOS, `crate::host_exe::holder_executable`) when the daemon has one
+/// that speaks its wire, else the holder built into the host executable
+/// (`cmux-tui-host __holder`).
+fn launch_holder(socket: &Path, token: &[u8; 32]) -> io::Result<()> {
+    let configure = |command: &mut std::process::Command| {
+        command
+            .arg("--socket")
+            .arg(socket)
+            // Every shell gets back the open-file limit cmux started
+            // with; the holder keeps the daemon's raised one.
+            .envs(
+                cmux_pty::original_open_file_limit()
+                    .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
+            )
+            // A DEV build's, debug build's or test's grace, as its hosts
+            // get: the holder ends its terminals once no daemon came back.
+            .envs(
+                crate::terminal_host_runtime::spawned_orphan_grace()
+                    .map(|grace| (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())),
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+    };
+    let standalone = standalone_holder().and_then(|path| {
+        use std::os::unix::process::CommandExt;
+        let mut command = std::process::Command::new(&path);
+        command.arg0(crate::host_exe::HOLDER_NAME);
+        configure(&mut command);
+        command
+            .spawn()
+            .inspect_err(|error| {
+                eprintln!("cmux-tui: start the terminal holder {}: {error}", path.display());
+            })
+            .ok()
+    });
+    let mut child = match standalone {
+        Some(child) => child,
+        None => crate::host_exe::spawn_host(|command| {
+            command.arg("__holder");
+            configure(command);
+        })?,
+    };
+    let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
+    stdin.write_all(format!("{hex}\n").as_bytes())?;
+    drop(stdin);
+    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
+    let mut line = String::new();
+    BufReader::new(stdout).read_line(&mut line)?;
+    // Reap the holder if it ever exits while this daemon runs.
+    let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
+        let _ = child.wait();
+    });
+    if line.trim() != "ready" {
+        return Err(io::Error::other(format!("the terminal holder did not start: {line:?}")));
     }
+    Ok(())
 }
 
 /// Why a link is wanted ([`HolderService::link_or_launch`]).
@@ -760,56 +779,4 @@ fn parse_hex(hex: &str) -> Option<[u8; 32]> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const A: [u8; 16] = [1; 16];
-    const B: [u8; 16] = [2; 16];
-    const C: [u8; 16] = [3; 16];
-
-    fn by_chan(mut claims: Vec<(u32, Claim)>) -> Vec<(u32, Claim)> {
-        claims.sort_by_key(|(chan, _)| *chan);
-        claims
-    }
-
-    /// Holder-core review: on a reconnect, a terminal the holder still runs
-    /// that no live terminal claims (a spawn whose SPAWNED the dropped link
-    /// lost, a terminal whose last CLOSE found no link) is ended, not left
-    /// running unseen, with its ring, for ever.
-    #[test]
-    fn a_reconnect_ends_what_the_holder_runs_that_nobody_claims() {
-        let claims = ownership(&[(1, A), (2, B)], &[(1, A)], &[], false);
-        assert_eq!(by_chan(claims), [(1, Claim::Resume), (2, Claim::Close)]);
-    }
-
-    /// Holder-core review: a startup-pass entry stays claimed across a
-    /// reconnect. The same holder keeps it (with its new listing); a new
-    /// holder, after the one that listed it died, gets its custody master
-    /// handed over, so the later re-attach does not ATTACH a channel only
-    /// the dead holder knew.
-    #[test]
-    fn a_reconnect_keeps_the_startup_pass_entries_and_hands_a_dead_holders_over() {
-        let same = ownership(&[(3, C)], &[], &[(3, C)], false);
-        assert_eq!(by_chan(same), [(3, Claim::Refresh)]);
-        let new = ownership(&[], &[(1, A)], &[(3, C)], false);
-        assert_eq!(by_chan(new), [(1, Claim::Adopt), (3, Claim::HandOver)]);
-    }
-
-    /// Holder-core review: only the startup pass keeps what nobody claims
-    /// yet (for it to re-attach); any other link ends it.
-    #[test]
-    fn only_the_startup_pass_keeps_what_nobody_claims() {
-        let startup = ownership(&[(1, A), (2, B)], &[], &[], true);
-        assert_eq!(by_chan(startup), [(1, Claim::Reserve), (2, Claim::Reserve)]);
-        let other = ownership(&[(1, A), (2, B)], &[], &[], false);
-        assert_eq!(by_chan(other), [(1, Claim::Close), (2, Claim::Close)]);
-    }
-
-    /// A live terminal resumes on the same holder and is adopted by a new
-    /// one; neither is ended.
-    #[test]
-    fn live_terminals_resume_on_the_same_holder_and_are_adopted_by_a_new_one() {
-        let claims = ownership(&[(1, A)], &[(1, A), (2, B)], &[], false);
-        assert_eq!(by_chan(claims), [(1, Claim::Resume), (2, Claim::Adopt)]);
-    }
-}
+mod tests;
