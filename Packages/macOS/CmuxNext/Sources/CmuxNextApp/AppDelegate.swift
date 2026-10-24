@@ -14,6 +14,7 @@ import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -61,7 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.services?.crashRecovery.applicationWillTerminate()
             AppProcessRoot.shared.hangReports?.applicationWillTerminate()
             self?.services?.home.applicationWillTerminate()
-            exit(0)
+            // The Home cache's last batch (drafts) gets 100 ms off the main thread; then the process ends.
+            BoundedCompletion().run(limit: .milliseconds(100), owner: "quit.forceExit") { [home = self?.services?.home] in
+                await home?.flushCacheForQuit()
+            } then: { _ in exit(0) }
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
