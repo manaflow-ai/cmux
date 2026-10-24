@@ -23,8 +23,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     // crash-allow: a `let` made once (lazy static init is atomic); libwebrtc's factory is thread-safe.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
-        // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software.
-        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: ScreenDecoderFactory())
+        // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software; H.264 without a level frame rate cap.
+        return RTCPeerConnectionFactory(encoderFactory: ScreenEncoderFactory(), decoderFactory: ScreenDecoderFactory())
     }()
 
     /// Largest data channel message (SCTP fragments larger ones less well).
