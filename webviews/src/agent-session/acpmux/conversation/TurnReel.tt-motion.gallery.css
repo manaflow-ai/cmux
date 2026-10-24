@@ -1,0 +1,55 @@
+/* Round 1 entries. Each treatment is one finite compositor animation; the reel remains the real
+   TurnReel component and the surrounding transcript never reflows. */
+.cv-reel[data-look="tt-motion-crossfade"] .cv-reel__img.cv-img--enter {
+  animation: tt-motion-reel-crossfade var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out) both;
+}
+.cv-reel[data-look="tt-motion-crossfade"] .cv-reel__thumb[aria-current="step"] {
+  background: color-mix(in srgb, var(--agent-accent) 14%, var(--cv-card-fill));
+  box-shadow: 0 0 0 1.5px var(--agent-accent), inset 0 0 0 1px var(--cv-card-ring);
+}
+
+.cv-reel[data-look="tt-motion-slide"] .cv-reel__img.cv-img--enter {
+  animation: tt-motion-reel-slide var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out) both;
+}
+.cv-reel[data-look="tt-motion-slide"] .cv-reel__thumb:hover {
+  background: color-mix(in srgb, var(--agent-accent) 10%, var(--cv-card-fill));
+}
+
+.cv-reel[data-look="tt-motion-trace"] .cv-reel__mark {
+  animation: tt-motion-reel-trace var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out) both;
+}
+.cv-reel[data-look="tt-motion-trace"] .cv-reel__thumb[aria-current="step"] {
+  box-shadow:
+    0 0 0 1.5px var(--agent-accent),
+    0 0 0 4px color-mix(in srgb, var(--agent-accent) 14%, transparent),
+    inset 0 0 0 1px var(--cv-card-ring);
+}
+
+@keyframes tt-motion-reel-crossfade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes tt-motion-reel-slide {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes tt-motion-reel-trace {
+  from { opacity: 0.4; transform: scale(0.72); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-reel[data-look^="tt-motion-"] .cv-reel__img,
+  .cv-reel[data-look^="tt-motion-"] .cv-reel__mark {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+:root[data-agent-motion="off"] .cv-reel[data-look^="tt-motion-"] .cv-reel__img,
+:root[data-agent-motion="off"] .cv-reel[data-look^="tt-motion-"] .cv-reel__mark {
+  animation: none !important;
+  transform: none !important;
+}
