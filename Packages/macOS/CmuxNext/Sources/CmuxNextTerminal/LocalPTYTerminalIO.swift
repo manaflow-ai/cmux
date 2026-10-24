@@ -104,6 +104,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
         environment.merge(Self.terminalEnvironment()) { _, new in new }
         environment.merge(extra) { _, new in new }
+        environment.removeValue(forKey: "TERM_PROGRAM_VERSION")
         return environment
     }
 

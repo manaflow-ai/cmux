@@ -308,6 +308,7 @@ fn holder_environment(
             env.insert(key.into(), value.into());
         }
     }
+    env.remove("TERM_PROGRAM_VERSION");
     env
 }
 
