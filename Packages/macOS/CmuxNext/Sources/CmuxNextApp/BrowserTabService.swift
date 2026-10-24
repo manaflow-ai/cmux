@@ -213,7 +213,7 @@ final class BrowserTabService {
     func takeNotice(forKey key: String) -> String? { pendingTabNotices.removeValue(forKey: key) }
 
     /// Whether `tab` was created in this process (`open`), not restored.
-    /// A stand-in tab (`BrowserTabStandIn`) is opened here by definition.
+    /// A stand-in tab (`PaneBrowserTabOpener.openStandIn`) is opened here by definition.
     func wasOpenedHere(_ tab: TabModel) -> Bool {
         ProvisionalTab.isProvisional(surface: tab.surface) || openedSurfaces.contains(key(daemonForTab(tab), tab.surface))
     }

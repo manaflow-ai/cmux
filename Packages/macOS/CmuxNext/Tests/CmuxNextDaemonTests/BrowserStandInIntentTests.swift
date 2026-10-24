@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// A new browser tab's stand-in (PL-cef-tab, `BrowserTabStandIn`): `new-frontend-browser-tab`
+/// A new browser tab's stand-in (PL-cef-tab, `PaneBrowserTabOpener.openStandIn`): `new-frontend-browser-tab`
 /// takes no transaction, so the daemon's raw `tab-added` can arrive before the reply with nothing
 /// naming its create. Shown as it came, the pane listed the daemon's tab BESIDE the stand-in until
 /// the reply (two new tabs for one key). It stays hidden, the stand-in showing, until the reply
