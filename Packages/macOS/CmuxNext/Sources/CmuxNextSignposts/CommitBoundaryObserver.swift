@@ -32,10 +32,16 @@ public nonisolated struct CommitBoundaryObserver: Sendable, Hashable, Comparable
         dumpText.isEmpty ? "order \(order), callout \(callout)" : dumpText
     }
 
-    /// The autorelease pool pop AppKit and Foundation run at the very end of every turn (order INT_MAX):
-    /// it drains objects, it lays out, displays or commits nothing.
-    public var isAutoreleasePoolPop: Bool {
-        callout.contains("AutoreleasePool") && order == Int(Int32.max)
+    /// Observers after the boundary that are known to lay out, display and commit nothing, by symbol
+    /// (reviewed per macOS major from real dumps; plans/cmux-next/architecture-refactor-DESIGN.md
+    /// section 7): the autorelease pool pop at INT_MAX (`_wrapRunLoopWithAutoreleasePoolHandler`), and
+    /// the run loop's idle tracking, which records when the loop goes to sleep (`idle_before_waiting`
+    /// at Int.max, paired with `idle_after_waiting` at Int.min; seen on macOS 26).
+    static let reviewedAfterBoundary: Set<String> = ["_wrapRunLoopWithAutoreleasePoolHandler", "idle_before_waiting"]
+
+    /// Whether this observer is on ``reviewedAfterBoundary``.
+    public var isReviewedAfterBoundary: Bool {
+        Self.reviewedAfterBoundary.contains(callout)
     }
 
     /// Whether this is Core Animation's transaction (commit) observer.
