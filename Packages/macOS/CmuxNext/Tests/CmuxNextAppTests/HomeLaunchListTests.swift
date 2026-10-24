@@ -209,6 +209,16 @@ import UniformTypeIdentifiers
         #expect(adopted.model() == loaded.model())
     }
 
+    /// #17587 review: a services graph built outside the launch (these tests) starts no read of the
+    /// Home files. Before, `LaunchFiles` always read the Chief home resolved from the process's real
+    /// environment and home directory, so every `AppServices` a test built read the developer's or
+    /// the CI runner's Home cache and Home list. Only the real app process names the launch's Chief
+    /// home (`AppEnvironment.launchChiefHome`, set in `main`); then the reads are that home's.
+    @Test func aServicesGraphBuiltOutsideTheLaunchReadsNoHomeFile() {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        #expect(services.launchFiles.home == nil, "a graph built outside the launch read the real Chief home's Home files")
+    }
+
     @Test func noRowMovesOrPopsInWhileTheLiveAnswersLand() throws {
         let cache = try Self.lastSession()
         let launch = Launch()
