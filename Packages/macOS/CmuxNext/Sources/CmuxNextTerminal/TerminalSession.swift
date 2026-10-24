@@ -211,6 +211,7 @@ public final class TerminalSession {
     public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
         guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
         surfaceView.linkPointer.testPointer = surfaceView.convert(event.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
         surfaceView.mouseMoved(with: event)
     }
 
@@ -220,6 +221,7 @@ public final class TerminalSession {
         guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
               let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
         surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
         surfaceView.mouseDown(with: down)
         surfaceView.mouseUp(with: up)
     }
@@ -231,6 +233,7 @@ public final class TerminalSession {
               let drag = surfaceView.linkTestEvent(.leftMouseDragged, column: to.column, row: to.row, flags: flags),
               let up = surfaceView.linkTestEvent(.leftMouseUp, column: to.column, row: to.row, flags: flags) else { return }
         surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
         surfaceView.mouseDown(with: down)
         surfaceView.linkPointer.testPointer = surfaceView.convert(drag.locationInWindow, from: nil)
         surfaceView.mouseDragged(with: drag)
@@ -240,6 +243,7 @@ public final class TerminalSession {
     /// Modifier keys went down or up with the pointer still (live checks): the key path
     /// when this terminal has focus, the app-wide watcher's either way.
     public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
+        surfaceView.linkPointer.testFlags = flags
         // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
         let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
         key?.type = .flagsChanged

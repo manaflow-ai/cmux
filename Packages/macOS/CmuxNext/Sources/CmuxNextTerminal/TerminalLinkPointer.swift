@@ -30,8 +30,10 @@ import GhosttyNextKit
     /// hardware state, which reads up while the release is handled).
     private(set) var isPressing = false
     #if DEBUG
-    /// Where a live check's synthetic pointer is; the real pointer is elsewhere.
+    /// Where a live check's synthetic pointer is, and the keys it holds; the real pointer and
+    /// keyboard are elsewhere.
     var testPointer: NSPoint?
+    var testFlags: NSEvent.ModifierFlags?
     #endif
 
     /// Installed while the pointer is over the view.
@@ -51,7 +53,8 @@ import GhosttyNextKit
     /// Sends the pointer's position again so Ghostty matches links at it now, even in
     /// the cell it last checked. Never while a button is down (Ghostty would report the
     /// off-grid move as a drag), except for the press Ghostty has not seen yet.
-    func refresh(_ flags: NSEvent.ModifierFlags = NSEvent.modifierFlags, at pressPoint: NSPoint? = nil) {
+    func refresh(_ flags: NSEvent.ModifierFlags? = nil, at pressPoint: NSPoint? = nil) {
+        let flags = flags ?? heldFlags
         guard pressPoint != nil || !buttonsDown, NSEvent.pressedMouseButtons & ~1 == 0 else { return }
         guard let view, let surface = view.surface, let point = pressPoint ?? pointerLocation, view.bounds.contains(point) else { return }
         let mods = GhosttyInput.mods(view.pointerFlags(flags))
@@ -69,6 +72,14 @@ import GhosttyNextKit
     /// Command, without Control (Control-click is the context menu).
     static func isLinkChord(_ flags: NSEvent.ModifierFlags) -> Bool {
         flags.contains(.command) && !flags.contains(.control)
+    }
+
+    /// The keys held now.
+    private var heldFlags: NSEvent.ModifierFlags {
+        #if DEBUG
+        if let testFlags { return testFlags }
+        #endif
+        return NSEvent.modifierFlags
     }
 
     /// The pointer in view coordinates, where it is now.
