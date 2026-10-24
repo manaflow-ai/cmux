@@ -250,10 +250,13 @@ public final class PointerHover: NSObject {
     /// A key-window change: every target is filed under its window again (a view that moved
     /// straight from one window to another is found), then `window` refreshes. O(all targets),
     /// once per key change.
-    fileprivate static func keyChanged(_ window: NSWindow?) {
+    static func keyChanged(_ window: NSWindow?) {
         index.placeAll()
         refreshNow(in: window)
     }
+
+    /// How many times the index filed this target (tests).
+    fileprivate(set) var placements = 0
 
     /// Becoming or resigning key changes whether key-window targets hover.
     private static func installKeyObserversIfNeeded() {
@@ -372,6 +375,7 @@ private final class TargetIndex {
     /// moved into it.
     @discardableResult
     func place(_ target: PointerHover) -> NSWindow? {
+        target.placements += 1
         let key = ObjectIdentifier(target)
         let window = target.viewWindow
         let now = window.map(ObjectIdentifier.init)
