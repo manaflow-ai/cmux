@@ -8,8 +8,9 @@ import CmuxNextDesign
 /// the moment it happens.
 ///
 /// It reads ``ActionBudgetMonitor/samples(everyRun:)`` only while shown; hidden, it holds no reader,
-/// so the monitor's always-on path stays a ring write. The panel never takes the keys or activates
-/// the app.
+/// so the monitor's always-on path stays a ring write. Its title bar's close button hides it the
+/// same way as the action does (the panel is kept, the reader ends). The panel never takes the
+/// keys or activates the app.
 @MainActor
 package final class ActionLatencyHUD {
     /// Rows shown, newest first.
@@ -19,6 +20,8 @@ package final class ActionLatencyHUD {
     private var panel: NSPanel?
     private var label: NSTextField?
     private var watch: Task<Void, Never>?
+    /// Routes the title bar's close button to ``hide()`` (held: a window's delegate is weak).
+    private var closer: CloseButtonHides?
     /// The runs shown, newest first (at most ``rowCount``).
     package private(set) var rows: [ActionTimingSample] = []
 
@@ -29,6 +32,12 @@ package final class ActionLatencyHUD {
 
     /// Whether the panel is on screen.
     package var isShown: Bool { panel?.isVisible == true }
+
+    /// Whether it reads the monitor's runs (true exactly while shown).
+    package var isReading: Bool { watch != nil }
+
+    /// The panel once it was first shown (its owner and tests: the close button's path).
+    package var window: NSPanel? { panel }
 
     /// Shows the panel over `window`'s top-right corner, or hides it.
     package func toggle(over window: NSWindow?) {
@@ -102,11 +111,29 @@ package final class ActionLatencyHUD {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
+        let closer = CloseButtonHides { [weak self] in self?.hide() }
+        panel.delegate = closer
+        self.closer = closer
         let label = NSTextField(labelWithAttributedString: NSAttributedString())
         label.maximumNumberOfLines = 0
         panel.contentView?.addSubview(label)
         self.label = label
         return panel
+    }
+
+    /// The panel's delegate: a close (the title bar's button, `performClose`) hides the HUD
+    /// through ``hide()`` instead, so its reader always ends with the panel.
+    private final class CloseButtonHides: NSObject, NSWindowDelegate {
+        let hide: @MainActor () -> Void
+
+        init(hide: @escaping @MainActor () -> Void) {
+            self.hide = hide
+        }
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            hide()
+            return false
+        }
     }
 
     // MARK: Strings (ActionLatencyHUD.xcstrings)

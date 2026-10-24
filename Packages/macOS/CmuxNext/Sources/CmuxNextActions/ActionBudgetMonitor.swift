@@ -200,7 +200,9 @@ public final class ActionBudgetMonitor {
     }
 
     /// The runs a reader hears, as they are recorded: only over-budget runs, or every run when
-    /// `everyRun` (the HUD). Ends, and the monitor forgets it, when the iterating task is cancelled.
+    /// `everyRun` (the HUD). Ends, and the monitor forgets it, when the iterating task is cancelled:
+    /// at once when the cancel runs on the main thread (the HUD's hide), else on the next main-actor
+    /// turn, and in any case at the next run delivered to it after its stream ended.
     /// Runs the reader has not taken yet are kept up to its buffer (`bufferingNewest`); a run that
     /// does not fit is counted in ``droppedSampleCount``.
     ///
@@ -211,7 +213,13 @@ public final class ActionBudgetMonitor {
         nextReader &+= 1
         let (stream, continuation) = AsyncStream<ActionTimingSample>.makeStream(bufferingPolicy: .bufferingNewest(capacity))
         continuation.onTermination = { [weak self] _ in
-            Task { @MainActor in self?.removeReader(id) }
+            // A cancel on the main thread (the usual reader, the HUD, cancels there) forgets the
+            // reader in that turn, so no run after it builds a sample for a reader that is gone.
+            if pthread_main_np() != 0 {
+                MainActor.assumeIsolated { self?.removeReader(id) }
+            } else {
+                Task { @MainActor in self?.removeReader(id) }
+            }
         }
         readers[id] = Reader(continuation: continuation, everyRun: everyRun)
         if everyRun { everyRunReaders += 1 }
@@ -219,7 +227,7 @@ public final class ActionBudgetMonitor {
     }
 
     /// Readers still registered (tests: an ended stream is forgotten).
-    var readerCount: Int { readers.count }
+    package var readerCount: Int { readers.count }
 
     /// Hands the half of the ring that just filled to the batch reader (one copy, one yield).
     private func handBatch() {
@@ -234,9 +242,16 @@ public final class ActionBudgetMonitor {
     }
 
     private func deliver(_ sample: ActionTimingSample, over: Bool) {
-        for reader in readers.values where over || reader.everyRun {
-            if case .dropped = reader.continuation.yield(sample) { droppedSampleCount &+= 1 }
+        var ended: [UInt64] = []
+        for (id, reader) in readers where over || reader.everyRun {
+            switch reader.continuation.yield(sample) {
+            case .dropped: droppedSampleCount &+= 1
+            case .terminated: ended.append(id)
+            case .enqueued: break
+            @unknown default: break
+            }
         }
+        for id in ended { removeReader(id) }
     }
 
     private func removeReader(_ id: UInt64) {
