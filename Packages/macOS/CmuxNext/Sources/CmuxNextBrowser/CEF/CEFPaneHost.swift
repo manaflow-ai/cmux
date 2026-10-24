@@ -250,7 +250,7 @@ final class CEFPaneHost {
                                       max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
                 }
             }
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             let started = runtime.benchMarks.span("cef.create_window", create)
             #else
             let started = create()
@@ -276,7 +276,7 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
         let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, self.visibleTab === tab ? 1 : 0) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         let browser = runtime.benchMarks.span("cef.tab_add", add)
         #else
         let browser = add()
