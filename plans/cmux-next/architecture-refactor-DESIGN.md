@@ -205,6 +205,14 @@ routed to session cmux-b6.
    (the PL-guardrails ratchet counts `.shared` reads so none come back); (c) `shared` is deleted.
    Engine runtimes (CEFRuntime, GhosttyRuntime) are owned by PL-cef-* / PL-ghostty: they get the
    injected instance from us, they migrate their readers.
+   Open debt (2026-10-24, arch-broadcasts-inspect-lab review 2; not counted as done):
+   `HomeReduceMotion.shared` (CmuxNextHome). The slice that removed the two MessagesLab
+   `reduceMotionDidChange` broadcasts gave this existing singleton a list of live Home views
+   (`follow(_:)`), so the global fan-out moved, it did not go. Fix: AppServices constructs one
+   `HomeReduceMotion`, `HomeNativeTranscriptView` and `HomeSidebarView` take it through `init`
+   (makers: TopHomePageView, HomeHostView, HomeNewMessageView, HomeNativeFixture, the tests), then
+   `static shared`, `install()` and the static `follow(_:)` are deleted. Waited on
+   TopHomePageView's collision window (d721b4b9163, 13:49Z).
 3. **Debug-only state** (DebugCrashes, DebugWindowTransition, UpdateHarnessProbe, LaunchMarkSink):
    owned by the debug control object that registers the `debug.*` methods.
 

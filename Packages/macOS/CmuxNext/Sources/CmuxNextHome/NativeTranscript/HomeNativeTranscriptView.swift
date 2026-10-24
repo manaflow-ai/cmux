@@ -144,6 +144,8 @@ public final class HomeNativeTranscriptView: NSView {
         binding = HomeStoreBinding(store: store, conversation: conversation)
         attachmentPreparer = store
         super.init(frame: .zero)
+        // Reduce Motion changes re-apply to the transcript's running loops (it observes nothing itself).
+        HomeReduceMotion.follow(transcript)
         wantsLayer = true
         addSubview(transcript)
         addSubview(firstRun)
