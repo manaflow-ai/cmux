@@ -20,8 +20,8 @@ export function needsYouLink(permissionId: string, scheme = "cmux"): string | un
 }
 
 /// Whether the header's list is off (data-needs-you="off" on <html>: the Debug choice, or the App
-/// Store's Needs You item not installed); a link then draws as its text. NeedsYou.tsx `needsYouMode`
-/// reads the same attribute; this one stays here so a reply's Markdown does not load the list.
+/// Store's Needs You item not installed). mode.ts `needsYouMode` reads the same attribute, which its
+/// host pushes keep current; a reply's links follow it there (Markdown.tsx `NeedsYouLink`).
 export function needsYouListOff(
   root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
 ): boolean {

@@ -310,7 +310,7 @@ public nonisolated struct AgentPaneTunables {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
-                   needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
+                   needsYou: AgentPaneNeedsYou.shared.style,
                    needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
                    streamWords: streamWords.value, iconFamily: IconFamily.tunable.value)
     }

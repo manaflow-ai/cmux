@@ -312,6 +312,7 @@ import {
 import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
+import { setNeedsYouMode } from "./needsYou/mode";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
@@ -487,6 +488,9 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Needs you's mode in the header (`pinned`, `compact` or `off`): `off` while the App Store
+      /// item `agentPane.needsYou.enabled` is not installed, else the Debug choice (needsYou/mode.ts).
+      applyNeedsYou?(mode: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -6009,6 +6013,9 @@ function AcpmuxPane() {
       },
       applySessionStatus(on) {
         setSessionStatus(on === true);
+      },
+      applyNeedsYou(mode) {
+        setNeedsYouMode(mode);
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();

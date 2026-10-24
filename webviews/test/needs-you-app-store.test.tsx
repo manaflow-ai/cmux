@@ -3,6 +3,8 @@
 // data-needs-you="off" on <html> (AgentPaneTunables documentAttributes): the header draws no inbox and
 // leaves no slot (the remaining tools keep their order on the row's own gap), nothing can open the hidden
 // list, and a reply's needs-you link draws as its text. Installed, the inbox leads the tools as before.
+// Installing it, or uninstalling it, reaches an open chat at once (Leo 2026-10-22: "the needs you
+// thingy doesnt even work yet ofc"): the host pushes the `needsYou` event, with no reload.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -127,4 +129,68 @@ test("a reply's needs-you link is a chip while installed and its plain text whil
   expect(off).not.toContain("is-needs-you");
   expect(off).not.toContain("<button");
   expect(off).toContain("the deploy ask");
+});
+
+test("the host's needsYou event shows the inbox in an open chat and takes it away, with no reload", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { memo } = await import("react");
+  const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const { NeedsYouButton } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
+  const { useNeedsYou } = await import("../src/agent-session/acpmux/needsYou/useNeedsYou");
+  const { needsYouListOff, openNeedsYou } = await import("../src/agent-session/acpmux/needsYou/links");
+  const document = scope.document as Document;
+  // The page as made while the item is not installed.
+  document.documentElement.dataset.needsYou = "off";
+  const snapshot = { sessions: [], asks: [], rows: [] };
+  // As App.tsx draws the header's inbox: the mode comes from useNeedsYou.
+  function Header() {
+    const needsYou = useNeedsYou({
+      snapshot,
+      callNative: async <T,>() => undefined as T,
+      sideSession: async () => undefined,
+    });
+    return (
+      <header className="acpmux-header">
+        <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
+      </header>
+    );
+  }
+  // A reply drawn once, memoized as the transcript's blocks are: its link follows the mode too.
+  const Reply = memo(() => <p>{renderInline("see [the deploy ask](cmux://needs-you/abc)")}</p>);
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <>
+        <Header />
+        <Reply />
+      </>,
+    ),
+  );
+  const inbox = () => host.querySelector(".acpmux-needs-you-button");
+  const chip = () => host.querySelector(".is-needs-you");
+  expect(inbox()).toBeNull();
+  expect(chip()).toBeNull();
+  expect(host.textContent).toContain("the deploy ask");
+
+  // Installed in the App Store: the host pushes the Debug choice.
+  await act(async () => applyHostEvent({ kind: "needsYou", value: "pinned" }));
+  expect(inbox()).not.toBeNull();
+  expect(inbox()?.getAttribute("aria-label")).toBe("Needs you");
+  expect(chip()).not.toBeNull();
+  // The attribute follows, so a reply's links and the header agree.
+  expect(document.documentElement.dataset.needsYou).toBe("pinned");
+  expect(needsYouListOff()).toBe(false);
+
+  // Uninstalled: the inbox goes, and nothing can open the hidden list.
+  await act(async () => applyHostEvent({ kind: "needsYou", value: "off" }));
+  expect(inbox()).toBeNull();
+  expect(chip()).toBeNull();
+  expect(host.textContent).toContain("the deploy ask");
+  expect(needsYouListOff()).toBe(true);
+  expect(openNeedsYou("acpmux:abc")).toBe(false);
+
+  // A value the page does not know reads as the default, as the attribute does.
+  await act(async () => applyHostEvent({ kind: "needsYou", value: "bogus" }));
+  expect(inbox()).not.toBeNull();
 });

@@ -7,7 +7,7 @@ public import Foundation
 /// ``AgentPageProvider/hostEvents``. Each kind replaces a script the old host evaluated; the
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
-    /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
+    /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `needsYou`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
     /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
@@ -41,6 +41,8 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether the in-session status cards show (the `agent.sessionStatus` tunable).
     public static func sessionStatus(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "sessionStatus", value: .bool(on)) }
+    /// Needs you's mode in the chat header (``AgentPaneNeedsYou``): `pinned`, `compact` or `off`.
+    public static func needsYou(_ style: AgentPaneNeedsYouStyle) -> AgentPageEvent { AgentPageEvent(kind: "needsYou", value: .string(style.rawValue)) }
 
     /// `{themeCSS, layout}`. A missing theme sends `""`, which clears the style a deleted `theme.css`
     /// left; a bad layout sends `{}`. The user's `registry.js` is not an event: the view evaluates it

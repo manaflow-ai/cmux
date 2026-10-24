@@ -8,7 +8,8 @@
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
-import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
+import { needsYouTarget, openNeedsYou } from "../needsYou/links";
+import { useNeedsYouMode } from "../needsYou/mode";
 import { CodeBlock } from "./CodeBlock";
 import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
@@ -542,14 +543,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // a chip that opens the header's Needs you list on it, so the ask is never restated. With the
       // list off (not installed from the App Store) it draws as its text, like a link the pane will not open.
       const ask = href ? undefined : needsYouTarget(lm[2]);
-      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
-      else if (ask)
-        out.push(
-          <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
-            <span className="acpmux-needs-you-dot" aria-hidden="true" />
-            {renderInline(lm[1], labelOpts)}
-          </button>,
-        );
+      if (ask) out.push(<NeedsYouLink key={k++} ask={ask} label={renderInline(lm[1], labelOpts)} />);
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
@@ -610,6 +604,20 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
 /// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
 /// recursion into bold, italic, strikethrough and link text (so code never counts), the same
 /// stand-ins for long data URLs, and none of the reply's images past its budget (`overBudget`).
+/// A reply's link to an open ask: a chip that opens the header's Needs you list on it, or its text
+/// while the list is off. It reads the live mode (needsYou/mode.ts), so a reply drawn before the App
+/// Store item was installed or removed follows it, memoized block or not.
+function NeedsYouLink({ ask, label }: { ask: string; label: ReactNode[] }) {
+  const mode = useNeedsYouMode();
+  if (mode === "off") return <>{label}</>;
+  return (
+    <button type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
+      <span className="acpmux-needs-you-dot" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
 export function inlineImages(
   source: string,
   overBudget: ReadonlySet<string> = new Set(),
