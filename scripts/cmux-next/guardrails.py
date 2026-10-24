@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 import importlib.util
 import itertools
 import json
@@ -431,19 +432,20 @@ TOKEN = re.compile(r"@?\w+|\S")
 DESIGN = "plans/cmux-next/architecture-refactor-DESIGN.md section 4, \"Destination map\""
 
 
-def _load_source_line_flags() -> Callable[[str], list[bool]]:
-    """CI's lexer, count-swift-code-lines.py's `source_line_flags`, from next to this file.
+@functools.cache
+def swift_lexer() -> Callable[[str], list[bool]]:
+    """CI's lexer, count-swift-code-lines.py's `source_line_flags`, from next to this file, loaded on first use.
 
-    One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files.
+    One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files. Only
+    app-size reads it, so it loads inside that rule: a lexer that does not load (CI owns that file) turns off
+    app-size alone through check()'s per-rule fail open, never this module and every rule with it. A failed load
+    is not cached; the next push tries again.
     """
     spec = importlib.util.spec_from_file_location("cmux_next_count_swift_code_lines",
                                                   Path(__file__).with_name("count-swift-code-lines.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.source_line_flags
-
-
-source_line_flags = _load_source_line_flags()
 
 
 @dataclass
@@ -500,7 +502,7 @@ def app_file(change: FileChange) -> AppFile:
     block comment or a multi-line string is what it is there)."""
 
     def source(lines: list[str], changed: list[Added]) -> list[SourceLine]:
-        flags = source_line_flags("\n".join(lines))
+        flags = swift_lexer()("\n".join(lines))
         ordinals = list(itertools.accumulate(map(int, flags)))
         return [SourceLine(line.path, line.number, line.text, ordinals[line.number - 1]) for line in changed
                 if 0 < line.number <= len(flags) and flags[line.number - 1]]
