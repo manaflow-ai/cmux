@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDiff
 
 /// Opens a diff tab for a folder: the seam to the diff host (diff-host.md
 /// S4), which `DiffPageService` fills (`DiffPageService+Viewers.swift`).
@@ -8,8 +9,9 @@ import CmuxNextDaemon
 protocol DiffViewerOpening: AnyObject {
     /// Throws when nothing opens (no repository there, no diff host).
     /// `created` gets the new tab's surface when it is a store tab (one the
-    /// daemon holds, so it can move between panes).
-    func openDiff(directory: String, in pane: PaneController, focus: Bool,
+    /// daemon holds, so it can move between panes). `turn`: the chat turn the tab offers as Last
+    /// turn; `showTurn` opens the tab on it (an edited-files card).
+    func openDiff(directory: String, turn: DiffTurn?, showTurn: Bool, in pane: PaneController, focus: Bool,
                   created: (@MainActor (SurfaceID) -> Void)?) async throws
 }
 

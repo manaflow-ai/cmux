@@ -130,13 +130,25 @@ extension LayoutRootView {
         screenViews[active]?.refreshDividerHover()
     }
 
-    private func reportInteractiveRects() {
+    /// Whether a layout motion runs (a split, close, zoom, New Column, column scroll): its springs
+    /// move panes and dividers on every display frame until they land, including the frame they
+    /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
+    /// stepped yet. A divider drag moves them under the pointer, not on a spring. The window keeps
+    /// what follows the dividers only at rest (`WindowOverlayLayer`: divider catcher panels over
+    /// pages), and hears the end once, after the landing frame's last sync (`setLayoutInMotion`).
+    public var isInLayoutMotion: Bool {
+        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && $0.hasMotion }
+    }
+
+    func reportInteractiveRects() {
         guard let planeHost else { return }
         let rects = interactiveOverlayRects
         let areas = dividerMouseAreas
-        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas else { return }
+        let moving = isInLayoutMotion
+        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas || moving != reportedLayoutMotion else { return }
         reportedInteractiveRects = rects
         reportedDividerMouseAreas = areas
+        reportedLayoutMotion = moving
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 

@@ -5,7 +5,9 @@ The JSON is exported by DaemonCapabilityExportTests (a Swift test, so it needs a
 build) and read by check-daemon-capabilities.sh, which runs only inside an app
 build. A Swift-only change to the lists (67b13e24e84d moved sidebar-layout-v1
 to `optional`) then breaks every tagged build. This check reads the lists from
-the Swift source, with no build, in the Linux checks job and in safe-push.
+the Swift source, with no build, in the Linux checks job and in safe-push. Its
+`--write` mode uses the same renderer to repair the committed export in the
+base-autofix job.
 
 It reads `DaemonCapabilities`: the string constants (`public static let name = "..."`),
 the literal `required` list and the identifier lists `optional` and
@@ -19,8 +21,9 @@ list sorted, plus a trailing newline) and compares bytes, as exportIsFresh
 does: 7558f956c3475 hand-edited an empty list to `[]`, which matched as a set
 and failed on the Mac.
 
-Usage: check-daemon-capabilities-fresh.py [--repo ROOT] [--rev REV]
+Usage: check-daemon-capabilities-fresh.py [--repo ROOT] [--rev REV] [--write]
   --rev reads both files from a commit instead of the working tree.
+  --write writes the source-derived export after validating the Swift lists.
 """
 from __future__ import annotations
 
@@ -147,10 +150,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--rev")
+    parser.add_argument("--write", action="store_true", help="write the source-derived JSON export")
     args = parser.parse_args()
+    if args.write and args.rev:
+        parser.error("--write cannot be combined with --rev")
     swift = swift_lists(read(args.repo, args.rev, SWIFT))
-    stored_text = read(args.repo, args.rev, JSON)
-    stored = json.loads(stored_text)
     problems = []
     # A capability in required/optional must be served by the bundled daemon;
     # one in the unserved list must not. In both, every build fails (#21445).
@@ -162,15 +166,28 @@ def main() -> int:
         problems.append("named in DaemonCapabilities but in no list (required, optional, unservedByBundledDaemon): "
                         + ", ".join(swift["unlisted"]))
     for name in LISTS:
-        want, have = swift[name], stored.get(name, [])
+        want = swift[name]
         if len(set(want)) != len(want):
             problems.append(f"{name}: listed twice in Swift: {sorted({c for c in want if want.count(c) > 1})}")
+    expected = render(swift)
+    if args.write and problems:
+        print(f"check-daemon-capabilities-fresh: refusing to write an invalid export at {args.repo}", file=sys.stderr)
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
+    if args.write:
+        (args.repo / JSON).write_text(expected, encoding="utf-8")
+        print(f"check-daemon-capabilities-fresh: wrote {JSON} from DaemonEndpoint.swift")
+        return 0
+    stored_text = read(args.repo, args.rev, JSON)
+    stored = json.loads(stored_text)
+    for name in LISTS:
+        want, have = swift[name], stored.get(name, [])
         missing, extra = sorted(set(want) - set(have)), sorted(set(have) - set(want))
         if missing:
             problems.append(f"{name}: in DaemonEndpoint.swift, not in the JSON: {', '.join(missing)}")
         if extra:
             problems.append(f"{name}: in the JSON, not in DaemonEndpoint.swift: {', '.join(extra)}")
-    expected = render(swift)
     diff = [] if stored_text == expected else list(difflib.unified_diff(
         expected.splitlines(keepends=True), stored_text.splitlines(keepends=True),
         f"{JSON} (as DaemonCapabilityExportTests writes it)", JSON, n=1))

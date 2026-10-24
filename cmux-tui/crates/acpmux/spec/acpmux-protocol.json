@@ -632,6 +632,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/media_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_range",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/permission_respond",
       "params": {
         "$ref": "#/types/PermissionRespondParams"
@@ -1918,16 +1930,26 @@
           ]
         },
         "recipient": {
-          "type": "string"
+          "description": "Session recipient for ordinary mail. Omit when target is supplied.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sender": {
           "type": "string"
+        },
+        "target": {
+          "description": "Quiet reports alias (reports:<person>). Omit for session mail.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "id",
         "sender",
-        "recipient",
         "body"
       ],
       "type": "object"

@@ -32,7 +32,7 @@ public final class UpdateWindowHandoff {
     private var hidden: [Hidden] = []
     private let unsaved: QuitUnsavedRegistry
 
-    public init(unsaved: QuitUnsavedRegistry = .shared) {
+    public init(unsaved: QuitUnsavedRegistry) {
         self.unsaved = unsaved
     }
 

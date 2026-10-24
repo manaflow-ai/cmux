@@ -2,10 +2,11 @@
 // localized (`cmux.settings.accounts.state`, live through `cmux.settings.accounts.changed`) and
 // runs each gesture (`cmux.settings.accounts.run`); the page only draws and forwards. A pasted key
 // lives in this component's state until it is sent, never in the store, and is cleared after.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
-import type { AccountsButton, AccountsCmux, AccountsRow } from "../ops";
+import { Select } from "../editors/Select";
+import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
 import { t } from "../strings";
 
 export function AccountsSection() {
@@ -65,6 +66,7 @@ function AccountsBody() {
           </output>
         )}
       </section>
+      {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>
@@ -76,6 +78,51 @@ function AccountsBody() {
         </section>
       ))}
     </>
+  );
+}
+
+// The team switcher: one settings row, "Active Team" and a pop-up menu of the teams (the settings
+// Select, the same control as every menu setting), the active one checked. A choice runs
+// selectTeam; the host's next state moves the check (and everything else that follows the team).
+// With one team there is nothing to choose, so the menu shows it disabled.
+function ActiveTeam({ teams }: { teams: AccountsTeams }) {
+  const store = useStore();
+  const labelId = useId();
+  const active = teams.options.find((team) => team.active);
+  return (
+    <section className="group" data-accounts-teams="">
+      <div className="rows">
+        <div className="row accounts-teams">
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title" id={labelId}>
+                {teams.title}
+              </div>
+              <div className="row-help">{teams.note ?? teams.help}</div>
+              {teams.error && (
+                <div className="row-error" role="alert">
+                  {teams.error}
+                </div>
+              )}
+            </div>
+            <div className="row-control">
+              <Select
+                value={active?.id ?? ""}
+                disabled={teams.disabled || teams.options.length < 2}
+                labelId={labelId}
+                onChange={(team) => void store.runAccounts({ action: "selectTeam", team })}
+              >
+                {teams.options.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -36,7 +36,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-CHECKS = ("check:browser-lanes", "check:fixed-waits", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
+CHECKS = ("check:browser-lanes", "check:fixed-waits", "check:design-tokens", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -209,6 +209,13 @@ def main(argv: list[str] | None = None) -> int:
             base_webviews = base.webviews() if base else None
             if base_webviews is None:  # a push, or no base to compare with: the red is charged here
                 failed.append(check)
+                continue
+            # A new ratchet is intentionally introduced in the same PR as its baseline and
+            # package script. Until that PR lands, the merge parent cannot run this check; do not
+            # charge the transition PR for the base's missing command. Later PRs see the script on
+            # the base and are compared normally.
+            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
+                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
