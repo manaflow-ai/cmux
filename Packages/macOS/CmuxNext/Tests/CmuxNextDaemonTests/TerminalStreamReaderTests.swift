@@ -166,6 +166,31 @@ import Testing
         }
     }
 
+    /// A span lapped while it waits in the view's queue is caught right
+    /// before the parse: ``TerminalStreamReader/isIntact(_:)`` is false, so
+    /// the view never parses bytes the writer is overwriting (review of
+    /// 0ade7bf4318, minor 1). Before the lap the same span is intact.
+    @Test func aSpanLappedWhileQueuedIsNotIntactBeforeItsParse() async throws {
+        let fixture = try Fixture()
+        let ring = try TestRing(base: 0)
+        defer { fixture.transport.close(); close(fixture.daemon); ring.remove() }
+        let ringHeader = AttachFrameHeader(kind: .ring, stream: 9, length: 2, offset: 0)
+        fixture.reader.receive(.ring(ringHeader, Data("{}".utf8), descriptor: ring.readerDescriptor()))
+        fixture.reader.receive(fixture.ready(at: 0))
+        ring.write(String(repeating: "q", count: 40), at: 0)
+        fixture.reader.receive(advance(to: 40))
+        var spans: [Data] = []
+        for event in await fixture.drain() {
+            if case .output(let data, _) = event { spans.append(data) }
+        }
+        let span = try #require(spans.first)
+        #expect(fixture.reader.isIntact(span), "a span the writer has not reached is intact")
+        // The writer runs a whole ring ahead while the span still waits for the parse.
+        ring.write(String(repeating: "w", count: 20), at: 120, reserve: 140)
+        #expect(!fixture.reader.isIntact(span), "a lapped span was handed to the parser")
+        #expect(fixture.reader.isIntact(Data("not a ring span, a copy".utf8)))
+    }
+
     @Test func aViewHoldingHalfTheRingResyncsInsteadOfTakingMoreSpans() async throws {
         let fixture = try Fixture()
         let ring = try TestRing(base: 0)

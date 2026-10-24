@@ -61,6 +61,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// The view's client stream on a shared connection; nil on its own connection.
     nonisolated let stream: UInt16?
     private nonisolated let queue: TerminalEventQueue
+    /// The stream's reader on a shared connection (nil on a connection of its own).
+    private nonisolated let reader: TerminalStreamReader?
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
 
     /// Written by the attach handshake, then read by every command. Guarded
@@ -132,6 +134,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     private init(transport: LineTransport, surface: SurfaceID) {
         self.transport = transport
         stream = nil
+        reader = nil
         resolvedSurface = SurfaceBox(surface)
         control = ControlBox()
         let queue = TerminalEventQueue()
@@ -214,7 +217,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         reader.stream = stream
         let attachment = TerminalAttachment(transport: carrier.transport, surface: target.surface, stream: stream,
-                                            queue: queue, resolvedSurface: resolvedSurface, control: control)
+                                            queue: queue, reader: reader, resolvedSurface: resolvedSurface, control: control)
         do {
             try await attachment.openStream(target: target, identity: carrier.identity, size: size,
                                             claimGeometry: claimGeometry, snapshotVersion: snapshotVersion,
@@ -227,9 +230,10 @@ public actor TerminalAttachment: TerminalByteChannel {
     }
 
     private init(transport: LineTransport, surface: SurfaceID, stream: UInt16, queue: TerminalEventQueue,
-                 resolvedSurface: SurfaceBox, control: ControlBox) {
+                 reader: TerminalStreamReader, resolvedSurface: SurfaceBox, control: ControlBox) {
         self.transport = transport
         self.stream = stream
+        self.reader = reader
         self.resolvedSurface = resolvedSurface
         self.queue = queue
         self.control = control
@@ -305,6 +309,17 @@ public actor TerminalAttachment: TerminalByteChannel {
             control.sizeGeneration = newest.generation
             queue.pushWithoutWaiting(.sizeState(newest, participant: participant))
         }
+    }
+
+    /// Whether an `.output` event's bytes may be parsed now. False only for a
+    /// shared-memory ring span the daemon has started to overwrite since it was
+    /// queued: the view skips it, and the stream resyncs from a snapshot when
+    /// the span is released. Call right before the parse.
+    ///
+    /// - Parameter data: The bytes of an `.output` event of ``events``.
+    /// - Returns: False when the bytes are being overwritten.
+    public nonisolated func outputIsIntact(_ data: Data) -> Bool {
+        reader?.isIntact(data) ?? true
     }
 
     /// Output bytes waiting for the consumer (diagnostics, tests).

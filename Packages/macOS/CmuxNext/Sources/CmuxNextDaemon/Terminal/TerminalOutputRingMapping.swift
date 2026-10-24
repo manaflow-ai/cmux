@@ -117,6 +117,11 @@ final class TerminalOutputRingMapping: Sendable {
         return spans
     }
 
+    /// The address where a span starting at stream offset `offset` begins in the mapping.
+    func spanAddress(at offset: UInt64) -> UInt {
+        address &+ UInt(truncatingIfNeeded: Self.headerBytes &+ offset % capacity)
+    }
+
     /// Whether `pointer` lies inside the mapping (the zero-copy guard's check).
     func contains(_ candidate: UnsafeRawPointer) -> Bool {
         let at = UInt(bitPattern: candidate)

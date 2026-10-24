@@ -31,6 +31,10 @@ final class TerminalStreamReader: Sendable {
         /// Ring span bytes handed to the view and not released yet (queued
         /// or being parsed); at most the mapping's `outstandingBudget`.
         var outstandingRingBytes: UInt64 = 0
+        /// The stream offset of each ring span handed out and not released,
+        /// by its address in the mapping (``isIntact(_:)``). Unique: the spans
+        /// held at once cover at most half the ring.
+        var spanStarts: [UInt: UInt64] = [:]
     }
 
     private let transport: LineTransport
@@ -130,8 +134,32 @@ final class TerminalStreamReader: Sendable {
                 requestResync()
                 return
             }
+            // Spans Foundation copied inline are released already and are not in the mapping.
+            var at = start
+            var held: [(UInt, UInt64)] = []
+            for span in spans {
+                if let address = span.withUnsafeBytes({ $0.baseAddress }), ring.contains(address) {
+                    held.append((UInt(bitPattern: address), at))
+                }
+                at += UInt64(truncatingIfNeeded: span.count)
+            }
+            state.withLock { stream in
+                for (address, start) in held { stream.spanStarts[address] = start }
+            }
             for span in spans { admit(DecodedAttachLine(event: .output(span, colors: nil))) }
         }
+    }
+
+    /// Whether `data` may be parsed: false for a ring span the writer has
+    /// started to overwrite since it was cut (it waited in the queue or for
+    /// the output lane). The view skips such a span; its release resyncs the
+    /// stream. Any other data (a frame's bytes, an inline copy) is intact.
+    /// Call right before the parse (review of 0ade7bf4318, minor 1).
+    func isIntact(_ data: Data) -> Bool {
+        guard let address = data.withUnsafeBytes({ $0.baseAddress }) else { return true }
+        let (ring, start) = state.withLock { ($0.ring, $0.spanStarts[UInt(bitPattern: address)]) }
+        guard let ring, let start else { return true }
+        return ring.unlapped(from: start)
     }
 
     /// A span was parsed and released. One the writer lapped during the parse
@@ -140,6 +168,7 @@ final class TerminalStreamReader: Sendable {
     private func released(start: UInt64, count: Int, lapped: Bool) {
         let resync = state.withLock { stream -> Bool in
             stream.outstandingRingBytes -= UInt64(truncatingIfNeeded: count)
+            if let ring = stream.ring { stream.spanStarts[ring.spanAddress(at: start)] = nil }
             guard lapped, start >= stream.readyOffset, !stream.resyncing else { return false }
             stream.resyncing = true
             return true
