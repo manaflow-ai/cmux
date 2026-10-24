@@ -31,6 +31,8 @@ extension ControlRouter {
                     "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
                     "frames_over_8_3ms": JSONValue(gaps.over120HzFrame),
                     "max_gap_ms": .number(gaps.max.fractionalMilliseconds),
+                    // Main run-loop wakes since launch (scripts/cmux-next/bench_idle.py diffs two reads).
+                    "main_wakes": JSONValue(Int(clamping: watchdog.mainRunLoopWakes)),
                     "records": .array(records.map(\.json)),
                 ]
             },

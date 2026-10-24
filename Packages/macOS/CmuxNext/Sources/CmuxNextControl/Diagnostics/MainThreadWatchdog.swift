@@ -283,6 +283,7 @@ public final class MainThreadWatchdog: Sendable {
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
         if wasAsleep, !asleep {
+            mainWakes.add(1, ordering: .relaxed)
             busy.noteAwake()
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
