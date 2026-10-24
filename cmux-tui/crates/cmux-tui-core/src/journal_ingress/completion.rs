@@ -9,10 +9,6 @@ pub(crate) enum JournalBatchReceipt {
     None,
     /// A producer append receipt.
     Append(crate::JournalAppendCommit),
-    /// A registry commit intent: its receipt, or the error of an intent the
-    /// writer rolled back to its savepoint while the rest of the batch
-    /// committed.
-    Effect(Result<crate::workspace_registry::RegistryReceipt, String>),
 }
 
 pub(super) fn complete_batch_success(
@@ -35,13 +31,6 @@ pub(super) fn complete_batch_success(
                 };
                 let _ = sender.send(result);
             }
-            Some(JournalIngressCompletion::Effect { sender, .. }) => {
-                let result = match commit {
-                    JournalBatchReceipt::Effect(result) => result,
-                    _ => Err("session journal omitted an effect commit receipt".into()),
-                };
-                let _ = sender.send(result);
-            }
             None => {}
         }
     }
@@ -54,9 +43,6 @@ pub(super) fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) 
                 let _ = sender.send(Err(error.clone()));
             }
             Some(JournalIngressCompletion::Producer { sender, .. }) => {
-                let _ = sender.send(Err(error.clone()));
-            }
-            Some(JournalIngressCompletion::Effect { sender, .. }) => {
                 let _ = sender.send(Err(error.clone()));
             }
             None => {}

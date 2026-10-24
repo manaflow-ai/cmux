@@ -322,16 +322,12 @@ impl Mux {
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
         let connection = Some(registry.connection.pin());
-        let (mut pinned, poisoned) = match self.state.lock() {
+        let (pinned, poisoned) = match self.state.lock() {
             Ok(state) => (PinnedState { state, _connection: connection }, false),
             Err(poison) => {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
-        // Non-blocking: with the pin held the writer cannot commit, so an
-        // unanswered one stays for a later holder; the prepare paths wait
-        // for it (drain_unsettled) before they build on it.
-        self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }

@@ -40,7 +40,6 @@ impl WorkspaceRegistry {
         terminal: &RegistryTerminal,
         result: &Value,
     ) -> anyhow::Result<TerminalCommitIntent> {
-        self.connection.drain_unsettled()?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("terminal event kind", event_kind)?;
@@ -93,16 +92,6 @@ impl WorkspaceRegistry {
 }
 
 impl TerminalCommitIntent {
-    /// Resident size for the writer's durable batch byte cap.
-    pub(crate) fn estimated_bytes(&self) -> usize {
-        self.fingerprint
-            .len()
-            .saturating_add(self.result_json.len().saturating_mul(2))
-            .saturating_add(self.launch_spec_json.len().saturating_mul(2))
-            .saturating_add(self.exit_json.as_ref().map_or(0, String::len))
-            .saturating_add(1024)
-    }
-
     /// The body of `commit_terminal` inside the caller's transaction.
     pub(super) fn apply(&self, tx: &Transaction<'_>) -> anyhow::Result<TerminalRegistryCommit> {
         let (mutation, terminal) = (&self.mutation, &self.terminal);
