@@ -9,11 +9,11 @@ import Testing
 /// path skipped what `present` does for a tab with a browser: activate it in Chromium, tell layer
 /// hosting which page shows, and post the geometry change that puts the page window over the view.
 @MainActor @Suite(.serialized) struct CEFDeferredTabShowTests {
-    @Test func aTabJoiningALiveWindowAfterTheFrameIsActivatedAndPlaced() async throws {
+    @Test func aTabJoiningALiveWindowAfterTheFrameIsActivatedAndPlaced() throws {
         TabSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
-        let runtime = CEFRuntime(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = try Self.keptRuntime(root)
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
 
@@ -41,18 +41,15 @@ import Testing
         #expect(TabSpyShim.activated == [TabSpyShim.addedBrowser], "Chromium shows the new tab")
         #expect(host.lastActivated == TabSpyShim.addedBrowser)
         #expect(CEFHostView.trackerStats.geometryPosts > posts, "the page window is placed over the pane's view")
-        // The side panel refresh a shown tab schedules reads the runtime (unowned): let it run first.
-        for _ in 0..<5 { await Task.yield() }
-        withExtendedLifetime((runtime, host)) {}
     }
 
     /// A tab the pane switched away from before its frame committed joins in the background:
     /// nothing activates it over the tab now shown.
-    @Test func aTabNoLongerShownWhenItJoinsIsNotActivated() async throws {
+    @Test func aTabNoLongerShownWhenItJoinsIsNotActivated() throws {
         TabSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
-        let runtime = CEFRuntime(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = try Self.keptRuntime(root)
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
@@ -72,8 +69,14 @@ import Testing
         #expect(TabSpyShim.added == [10])
         #expect(TabSpyShim.activated.isEmpty)
         #expect(host.lastActivated == 10)
-        for _ in 0..<5 { await Task.yield() }
-        withExtendedLifetime((runtime, host)) {}
+    }
+
+    /// A runtime that outlives the test: a shown tab schedules work (its side panel refresh) that
+    /// reads its runtime through an unowned reference after the test returned.
+    private static func keptRuntime(_ root: URL) throws -> CEFRuntime {
+        let runtime = CEFRuntime(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
+        _ = Unmanaged.passRetained(runtime)
+        return runtime
     }
 }
 
