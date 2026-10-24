@@ -9,6 +9,7 @@
 /// `Tests/CmuxNextAppTests/SidebarCmdNumberTwiceTests.swift`) belong to the sidebar owner, who has
 /// not yet agreed to the rename. The sidebar owner's follow-up moves those reads to
 /// `DaemonCapability.<name>.rawValue` and deletes this file; add no member and no new read.
+// lint:allow namespace-type: interim static forwards to DaemonCapability for the held sidebar reads; deleted with the sidebar rename.
 @available(*, deprecated, message: "Read DaemonCapability.<name>.rawValue; this interim forwarding type goes with the sidebar rename.")
 public struct DaemonCapabilities: Sendable {
     /// No instances: each member is a static forward.
