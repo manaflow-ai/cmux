@@ -79,7 +79,7 @@ mid-session rebuild or tab restore) is such a failure: another layout is never m
 does not come back after a crash (bench_launch's LaunchError at a relaunch): the session is recorded with its rows and
 the next session runs on a fresh launch.
 """
-import argparse, base64, csv, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time
+import argparse, base64, csv, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -231,6 +231,13 @@ def load(name, file):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def harness_frames(error, count=4):
+    """The innermost `count` frames of a harness failure as `file:line function` (a row said only
+    `IndexError('list index out of range')`, with no place to start)."""
+    frames = traceback.extract_tb(error.__traceback__)[-count:]
+    return [f"{os.path.basename(f.filename)}:{f.lineno} {f.name}" for f in frames]
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -1392,7 +1399,7 @@ class Sweep:
                 raise  # a restore rebuilt another layout: the session fails, it is never measured as STRESS
             except Exception as error:  # a harness failure (a builder step's timeout too) is this action's row; the session goes on
                 row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
-                       "frames": {"missed": None}, "check": "n/a"}
+                       "frames": {"missed": None}, "check": "n/a", "harness_at": harness_frames(error)}
             self.rows.append(row)
             note(f"every-action: {self.session} {index + 1}/{len(actions)} {action['id']}: "
                  + (f"skipped ({row['skipped']})" if row.get("skipped") else

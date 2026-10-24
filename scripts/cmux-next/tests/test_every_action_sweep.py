@@ -393,6 +393,18 @@ class UnresponsiveAppTests(unittest.TestCase):
         process.kill.assert_not_called()
 
 
+class HarnessFrameTests(unittest.TestCase):
+    def test_a_harness_failure_names_where_it_happened(self):
+        def builder_step():
+            return [][0]
+        try:
+            builder_step()
+        except IndexError as error:
+            frames = sweep_mod.harness_frames(error)
+        self.assertTrue(frames[-1].startswith("test_every_action_sweep.py:"), frames)
+        self.assertTrue(frames[-1].endswith(" builder_step"), frames)
+
+
 class FailedSessionTests(unittest.TestCase):
     def test_a_session_that_fails_fails_the_run_and_the_report_says_so(self):
         class App:
