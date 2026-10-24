@@ -106,7 +106,7 @@ enum AgentChatCopyHandlers {
     private static func infoReader(_ target: Target) -> () async -> [String: Any]? {
         guard let socket = target.socket else { return { nil } }
         let session = target.sessionID
-        return { try? await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/info", params: ["sessionId": session], deadline: .seconds(5)) }
+        return { await AgentPaneModel.sessionCopyInfo(socketPath: socket, sessionID: session) }
     }
 
     @MainActor
