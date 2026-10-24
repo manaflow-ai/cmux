@@ -1,27 +1,28 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextApps
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserImport
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
-import CmuxNextDesign
-import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeed
+import CmuxNextFocusUI
 import CmuxNextHomeEngine
 import CmuxNextIcons
-import CmuxNextPalette
+import CmuxNextMobileHost
 import CmuxNextPages
-import CmuxNextPopups
-import CmuxNextBrowserImport
+import CmuxNextPalette
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -33,8 +34,6 @@ import CmuxNextWakeups
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
-import CmuxNextFocusUI
-import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -130,7 +129,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, work: work, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {

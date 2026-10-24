@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextWakeups
 @testable import CmuxNextDaemon
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 @MainActor struct BrowserSharedStoresTests {
     @Test func anIncognitoProfileBegunOnTheAppsStoresIsOffTheRecordInBothEngines() {
         let stores = BrowserSharedStores.inMemory()
-        let cache = TabContentCache(daemon: DaemonService(),
+        let cache = TabContentCache(daemon: DaemonService(), work: BackgroundWork(),
                                     cef: CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks()),
                                     fileInput: NoFileInput())
         let profile = stores.offTheRecord.begin()

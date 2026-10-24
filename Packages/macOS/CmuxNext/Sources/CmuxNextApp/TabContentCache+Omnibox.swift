@@ -8,7 +8,7 @@ extension TabContentCache {
     func makeSuggestionEngine(history: InMemoryBrowserHistory, profile: BrowserProfileID) -> OmniboxSuggestionEngine {
         let engine = OmniboxSuggestionEngine(history: history)
         engine.remote.fetcher = URLSessionSuggestFetcher()
-        engine.intranetProbe = Self.makeIntranetProbe()
+        engine.intranetProbe = makeIntranetProbe()
         engine.apply(omniboxConfiguration)
         engine.openTabs = { [weak self] in self?.openTabRows(incognito: false, profile: profile) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
@@ -22,7 +22,7 @@ extension TabContentCache {
         // A private profile follows the remote setting, over an ephemeral session.
         engine.remote.fetcher = URLSessionSuggestFetcher()
         engine.remote.isPrivate = true
-        if engine.intranetProbe == nil { engine.intranetProbe = Self.makeIntranetProbe() }
+        if engine.intranetProbe == nil { engine.intranetProbe = makeIntranetProbe() }
         engine.apply(omniboxConfiguration)
         engine.openTabs = { [weak self] in self?.openTabRows(incognito: true, profile: .default) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
@@ -31,8 +31,8 @@ extension TabContentCache {
 
     /// The bare-word intranet check (`wiki` loads `http://wiki/` when the
     /// company's DNS resolves it), under Chrome's IntranetRedirectBehavior policy.
-    static func makeIntranetProbe() -> IntranetHostProbe {
-        IntranetHostProbe(lookup: SystemHostLookup(), behavior: ChromeIntranetPolicy().behavior())
+    func makeIntranetProbe() -> IntranetHostProbe {
+        IntranetHostProbe(lookup: SystemHostLookup(work: work), behavior: ChromeIntranetPolicy().behavior())
     }
 
     /// The omnibar engine of `page`'s profile: the incognito one for an
