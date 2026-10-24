@@ -116,9 +116,9 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 2).isEmpty, "a prompt acpmux answered went again at the next launch")
     }
 
-    /// A daemon restart while the person is composing keeps the prompt in the host journal. The
-    /// replacement daemon receives it once, without making the page ask the person to retype it.
-    @Test func aDaemonRestartMidComposeKeepsThePromptAndRecovers() async throws {
+    /// An app relaunch while the daemon is still holding a compose keeps the prompt in the host
+    /// journal. The replacement pane receives it once, without making the person retype it.
+    @Test func anAppRelaunchMidComposeKeepsThePromptAndRecovers() async throws {
         let url = Self.journalURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
