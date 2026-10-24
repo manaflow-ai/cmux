@@ -14,6 +14,8 @@ set -euo pipefail
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/cmux-mobile-host"
+stamp="${TARGET_TEMP_DIR:?}/bundle-mobile-host.stamp"
+trap 'mkdir -p "$(dirname "$stamp")"; printf "completed\n" > "$stamp"' EXIT
 rm -f "$dest" "$dest.version"
 
 src="${CMUX_NEXT_MOBILE_HOST_BIN:-}"

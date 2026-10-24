@@ -18,7 +18,9 @@ dest="$app/Contents/Library/$name"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cua-helper-dev.stamp"
 skip() {
   echo "note: not embedding the Computer Use helper (dev): $1"
-  rm -rf "$dest" "$stamp"
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$stamp")"
+  printf 'skipped:%s\n' "$1" > "$stamp"
   rmdir "$app/Contents/Library" 2>/dev/null || true
   exit 0
 }

@@ -47,7 +47,9 @@ rm -f "$opt_out"
 
 skip() { # <reason>
   echo "note: not embedding the remote browser host: $1"
-  rm -rf "$dest" "$stamp"
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$stamp")"
+  printf 'skipped:%s\n' "$1" > "$stamp"
   rmdir "$app/Contents/Helpers" 2>/dev/null || true
   exit 0
 }
