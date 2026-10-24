@@ -52,6 +52,11 @@ impl ManualClock {
     pub fn advance(&self, by: Duration) {
         self.now.send_modify(|now| *now += by);
     }
+
+    /// How many sleeps on this clock are armed now: each one is a wake to come.
+    pub fn armed(&self) -> usize {
+        self.now.receiver_count()
+    }
 }
 
 impl Clock for ManualClock {

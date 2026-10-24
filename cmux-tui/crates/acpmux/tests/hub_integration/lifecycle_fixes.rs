@@ -525,3 +525,42 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     assert!(answered["stopReason"].is_string(), "{answered}");
     let _ = std::fs::remove_file(&gate);
 }
+
+/// A harness every client still holds can never be stopped for idleness, so the idle reaper arms
+/// no timer for it: an app that keeps its chats attached all day wakes the daemon for none of
+/// them (D6; it re-armed 300 s for each, acpmux-audit.md finding 14). Its idle period starts
+/// when the last client lets go.
+#[tokio::test]
+async fn the_idle_reaper_arms_no_timer_while_every_harness_is_attached() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(Some(Duration::from_secs(300)));
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "held"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // Several idle periods pass while the client holds the chat.
+    for _ in 0..3 {
+        clock.advance(Duration::from_secs(301));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(clock.armed(), 0, "the reaper keeps a timer for a harness it may not stop");
+    // Let go: the idle period starts, and the harness exits at its end.
+    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    let status = || hub.session_summary(&hub.resolve(&id).unwrap())["status"].clone();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while clock.armed() == 0 {
+        assert!(std::time::Instant::now() < deadline, "the reaper never armed after the detach");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    clock.advance(Duration::from_secs(301));
+    while status() != "idle" {
+        assert!(std::time::Instant::now() < deadline, "the detached harness never exited");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
