@@ -63,6 +63,11 @@ enum AgentPaneHandshakeReply {
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
             if request == .ready {
+                // A relaunched chat's chips: their contents are read now, off the main thread, not at launch (#17587).
+                if let pending = model.pendingWake, pending.kept != nil {
+                    let read = await pending.readingBack()
+                    if model.pendingWake == pending { model.pendingWake = read }
+                }
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }

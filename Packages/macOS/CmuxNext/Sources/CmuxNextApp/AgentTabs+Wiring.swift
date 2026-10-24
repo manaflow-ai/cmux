@@ -119,7 +119,9 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
-        tabs.wakeStates = launch?.wakeStates.take() ?? tabs.relaunchWake.take()
+        // Taken where first used (a chat page made after the first window frame, or the quit), not here.
+        tabs.launchWakes = launch?.wakeStates
+        if launch == nil { tabs.wakeStates = tabs.relaunchWake.take() }
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
