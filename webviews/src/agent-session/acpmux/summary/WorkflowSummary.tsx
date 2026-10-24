@@ -11,7 +11,7 @@ import {
   type WorkflowDetailRequest,
   type WorkflowCapacitySignal,
 } from "./foldWorkflows";
-import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
+import type { WorkflowAgent, WorkflowSummary } from "./workflow";
 
 export type WorkflowActions = {
   onPause?: () => void;
@@ -37,11 +37,7 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
   const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
   return (
     <>
-      {ticking && signals.capacity && (
-        <p className="acpmux-workflow__warning" role="status">
-          {t("workflow.capacity")}
-        </p>
-      )}
+      {ticking && signals.capacity && <output className="acpmux-workflow__warning">{t("workflow.capacity")}</output>}
       {workflows.map((workflow) => (
         <WorkflowSummaryRow
           key={workflow.id}
@@ -57,7 +53,8 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
 
 const localizedState = (
   t: ReturnType<typeof useT>,
-  state: WorkflowAgent["state"] | WorkflowPhase["state"] | WorkflowSummary["state"],
+  // Every phase and workflow state is an agent state too.
+  state: WorkflowAgent["state"],
 ): string => {
   switch (state) {
     case "running":
@@ -172,9 +169,7 @@ export function WorkflowSummaryRow({
             <p className="acpmux-summary-meta">{t("workflow.projectedTokens", { tokens: workflow.projectedTokens })}</p>
           )}
           {workflow.runId && !actions.onPullAgent && (
-            <p className="acpmux-summary-meta" role="status">
-              {t("workflow.detailUnavailable")}
-            </p>
+            <output className="acpmux-summary-meta">{t("workflow.detailUnavailable")}</output>
           )}
           {workflow.large && (
             <p className="acpmux-workflow__warning" role="alert">
@@ -200,15 +195,14 @@ export function WorkflowSummaryRow({
             </div>
             <div className="acpmux-workflow__agents">
               <h4>{phase?.name ?? t("summary.subagents.active", { n: workflow.agents.length })}</h4>
-              <div role="list" aria-label={phase?.name || t("workflow.unassigned")}>
+              <ul className="acpmux-workflow__agent-list" aria-label={phase?.name || t("workflow.unassigned")}>
                 {(phase ? workflow.agents.filter((agent) => phase.agentIds.includes(agent.id)) : workflow.agents).map(
                   (agent) => (
-                    <div
+                    <li
                       className="acpmux-workflow__agent"
                       key={agent.id}
                       data-state={agent.state}
                       data-selected={agent.id === selected?.id || undefined}
-                      role="listitem"
                       aria-current={agent.id === selected?.id ? "true" : undefined}
                     >
                       <span className="acpmux-workflow__agent-icon">
@@ -222,9 +216,9 @@ export function WorkflowSummaryRow({
                         <span>{agent.name}</span>
                         {agent.doing && <span className="acpmux-workflow__doing">{agent.doing}</span>}
                         {idle?.has(agent.id) && (
-                          <span role="status">
+                          <output>
                             {t("workflow.idle", { action: agent.doing ?? workflow.action ?? t("inspector.unknown") })}
-                          </span>
+                          </output>
                         )}
                       </span>
                       <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
@@ -263,10 +257,10 @@ export function WorkflowSummaryRow({
                           <Icon name="disclosure.collapsed" size={11} />
                         </button>
                       )}
-                    </div>
+                    </li>
                   ),
                 )}
-              </div>
+              </ul>
               {selected && <span className="acpmux-workflow__selected">{selected.name}</span>}
             </div>
           </div>
@@ -282,7 +276,7 @@ export function WorkflowSummaryRow({
                     {t("composer.queueResume")}
                   </button>
                 )}
-                {resumeRefused && <span role="status">{t("workflow.cannotResume")}</span>}
+                {resumeRefused && <output>{t("workflow.cannotResume")}</output>}
                 <button type="button" onClick={() => actions.onDraftWorkflow!(false)}>
                   {t("workflow.runAgain")}
                 </button>
