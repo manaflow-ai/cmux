@@ -186,7 +186,7 @@ impl Mux {
         });
         self.notification_posts
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(public_id.clone(), NotificationPost { notification: id, poster });
         {
             const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
@@ -212,7 +212,7 @@ impl Mux {
                 }
             }
             if !evicted.is_empty() {
-                let mut posts = self.notification_posts.lock().unwrap();
+                let mut posts = self.notification_posts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 for id in &evicted {
                     posts.remove(id);
                 }
@@ -258,7 +258,7 @@ impl Mux {
         &self,
         notification: &NotificationPublicId,
     ) -> Option<NotificationPost> {
-        self.notification_posts.lock().unwrap().get(notification).cloned()
+        self.notification_posts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(notification).cloned()
     }
 
     /// Client ids that acknowledged `notification`, sorted and unique.

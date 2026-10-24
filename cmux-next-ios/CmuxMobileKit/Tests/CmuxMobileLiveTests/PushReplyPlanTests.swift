@@ -111,7 +111,9 @@ import Testing
     }
 }
 
+#if os(iOS)
 /// PR B: what the mailbox carries for an Allow (the acpmux approval, as numbers acpmux reads).
+/// `LiveCoordinator` is iOS-only, so the macOS `swift test` run skips this suite.
 @Suite struct MailboxApprovalTests {
     @Test func theApprovalMetaBecomesCanonicalJSON() {
         let payload = ApprovalPayload(instance: "pi", macDevice: "m", approver: "p", session: "s", permission: "q", option: "o",
@@ -120,6 +122,7 @@ import Testing
         #expect(meta.canonical == #"{"acpmux":{"approverDecision":{"approver":"p","expiresAt":1800000120,"signature":"ab"},"decisionNonce":"dn"}}"#)
     }
 }
+#endif
 
 @MainActor @Suite struct PushSnapshotsTests {
     @Test func promptsThenRepliesNewestLast() {

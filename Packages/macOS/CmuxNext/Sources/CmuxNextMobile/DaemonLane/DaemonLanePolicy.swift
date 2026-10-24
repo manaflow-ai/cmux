@@ -65,10 +65,6 @@ public struct DaemonLanePolicy: Sendable {
         "move-tab-group-to-split", "move-tab-group-to-column", "move-tab-group-to-new-workspace",
         "ungroup-tab-group", "close-tab-group", "save-tab-group", "unsave-tab-group", "delete-saved-tab-group",
         "reopen-saved-tab-group", "ack-tab-notifications", "notify",
-        // A reply to a terminal notification: listed to mirror cmux-mobile-host, which answers it
-        // itself (its `notification-reply`). The daemon has no such command and this lane lists no
-        // fields for it, so here every such line is refused.
-        "notification-reply",
         // Restart Shell: the dead tab's own shell again on this Mac; the surface only (creationFields).
         "restart-tab",
         // Browser tabs the phone can already drive over SSH (CmuxTUIBrowser).
