@@ -47,10 +47,12 @@ public struct RemoteTmuxCommandBuilder: Sendable {
     ///
     /// Their ssh session is gone, so nothing will ever read their output again;
     /// `detach-client` does not end them, SIGTERM does. Skipped where sshd itself
-    /// is PID 1 (a container), since every live client has that parent there. Any
-    /// failure (no server, no `ps`, no permission) leaves every client alone.
+    /// is PID 1 (a container), since every live client has that parent there, and
+    /// wherever PID 1 cannot be identified (restricted `/proc`). Any failure (no
+    /// server, no `ps`, no permission) leaves every client alone.
     static let pruneOrphanedControlClientsScript =
-        "if [ \"$(ps -o comm= -p 1 2>/dev/null)\" != sshd ]; then " +
+        "if cmux_init_comm=$(ps -o comm= -p 1 2>/dev/null) && " +
+        "[ -n \"$cmux_init_comm\" ] && [ \"$cmux_init_comm\" != sshd ]; then " +
         "for cmux_client in $(\"$cmux_executable_path\" list-clients -F '#{client_pid}:#{client_control_mode}' 2>/dev/null); do " +
         "case \"$cmux_client\" in *:1) cmux_client_pid=${cmux_client%%:*}; " +
         "cmux_client_ppid=$(ps -o ppid= -p \"$cmux_client_pid\" 2>/dev/null); " +
