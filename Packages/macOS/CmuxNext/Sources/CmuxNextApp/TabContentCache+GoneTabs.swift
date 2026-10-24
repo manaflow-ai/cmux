@@ -12,15 +12,14 @@ import CmuxNextDaemon
 /// (`cmux tab close`, another client) kept its page, and a Chromium page its renderer.
 @MainActor
 final class GoneTabWatch {
-    private var stores: [String: DaemonStore] = [:]
+    /// The tree each tracked tab is followed in. Only the narrow ``LiveTabListing`` seam: the
+    /// watch can look up its own tabs and nothing else, so a tree change costs it its tracked tabs.
+    private var stores: [String: any LiveTabListing] = [:]
     private var seenLive: Set<String> = []
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
-    /// Tab records this watch examined since it was made, over every tree change it woke for: what a
-    /// tree change costs it. Tests read it; it must follow the tabs it tracks, not the session.
-    private(set) var tabsVisited = 0
 
     /// Follows tab `key` in `store`'s tree; `release` lets it go once the tree drops it.
-    func track(_ key: String, in store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
+    func track(_ key: String, in store: any LiveTabListing, release: @escaping @MainActor (String) -> Void) {
         if stores[key] === store { return }
         // Seen in another tree is not seen in this one: this tree must list it before it can drop it.
         if stores[key] != nil { seenLive.remove(key) }
@@ -38,11 +37,10 @@ final class GoneTabWatch {
     }
 
     /// The tracked keys of `store` its live tree dropped; the ones it lists count as seen.
-    private func gone(in store: DaemonStore) -> [String] {
+    private func gone(in store: any LiveTabListing) -> [String] {
         var gone: [String] = []
         for (key, owner) in stores where owner === store {
             guard let listed = store.liveTreeLists(tab: key) else { return [] }
-            tabsVisited += 1
             if listed {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
@@ -59,7 +57,7 @@ final class GoneTabWatch {
     func forget(_ key: String) {
         stores[key] = nil
         seenLive.remove(key)
-        let used = Set(stores.values.map(ObjectIdentifier.init))
+        let used = Set(stores.values.map { ObjectIdentifier($0) })
         for id in watches.keys where !used.contains(id) {
             watches.removeValue(forKey: id)?.cancel()
         }
