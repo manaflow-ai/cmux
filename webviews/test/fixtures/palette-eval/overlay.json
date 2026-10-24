@@ -8,9 +8,7 @@
     },
     "entry": {
       "title": "cmuxterm-hq",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/cmuxterm-hq",
       "accessory": "Current",
       "rankBias": -5,
@@ -31,9 +29,7 @@
     },
     "entry": {
       "title": "feat-cmux-next",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/cmuxterm-hq/worktrees/feat-cmux-next",
       "accessory": null,
       "rankBias": 0,
@@ -54,9 +50,7 @@
     },
     "entry": {
       "title": "chatmux",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/chatmux",
       "accessory": null,
       "rankBias": 0,
@@ -77,9 +71,7 @@
     },
     "entry": {
       "title": "subrouter",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/subrouter",
       "accessory": null,
       "rankBias": 0,
@@ -100,9 +92,7 @@
     },
     "entry": {
       "title": "cmux-tui",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/cmuxterm-hq/repo/cmux-tui",
       "accessory": null,
       "rankBias": 0,
@@ -123,9 +113,7 @@
     },
     "entry": {
       "title": "ghostty",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/ghostty",
       "accessory": null,
       "rankBias": 0,
@@ -146,9 +134,7 @@
     },
     "entry": {
       "title": "palette ranking",
-      "keywords": [
-        "workspace"
-      ],
+      "keywords": ["workspace"],
       "subtitle": "~/fun/cmuxterm-hq/worktrees/feat-cmux-next-palette-rank",
       "accessory": null,
       "rankBias": 0,
@@ -169,9 +155,7 @@
     },
     "entry": {
       "title": "zsh",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "cmuxterm-hq",
       "accessory": "Current",
       "rankBias": 0,
@@ -192,9 +176,7 @@
     },
     "entry": {
       "title": "Claude Code",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "cmuxterm-hq",
       "accessory": null,
       "rankBias": 0,
@@ -215,9 +197,7 @@
     },
     "entry": {
       "title": "codex",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "feat-cmux-next",
       "accessory": null,
       "rankBias": 0,
@@ -238,9 +218,7 @@
     },
     "entry": {
       "title": "nvim ranker.ts",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "palette ranking",
       "accessory": null,
       "rankBias": 0,
@@ -261,9 +239,7 @@
     },
     "entry": {
       "title": "GitHub - manaflow-ai/cmux",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "feat-cmux-next",
       "accessory": null,
       "rankBias": 0,
@@ -284,9 +260,7 @@
     },
     "entry": {
       "title": "localhost:3000",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "chatmux",
       "accessory": null,
       "rankBias": 0,
@@ -307,9 +281,7 @@
     },
     "entry": {
       "title": "htop",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "subrouter",
       "accessory": null,
       "rankBias": 0,
@@ -330,9 +302,7 @@
     },
     "entry": {
       "title": "Settings",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "cmuxterm-hq",
       "accessory": null,
       "rankBias": 0,
@@ -353,9 +323,7 @@
     },
     "entry": {
       "title": "ssh cmux-lawrence",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "subrouter",
       "accessory": null,
       "rankBias": 0,
@@ -376,9 +344,7 @@
     },
     "entry": {
       "title": "git log",
-      "keywords": [
-        "tab"
-      ],
+      "keywords": ["tab"],
       "subtitle": "cmux-tui",
       "accessory": null,
       "rankBias": 0,
@@ -400,15 +366,7 @@
     "entry": {
       "actionID": "agentPane.toggleDisplaySettings",
       "title": "Toggle Text & Width",
-      "keywords": [
-        "agent",
-        "display",
-        "text",
-        "width",
-        "appearance",
-        "font",
-        "layout"
-      ],
+      "keywords": ["agent", "display", "text", "width", "appearance", "font", "layout"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -434,14 +392,7 @@
     "entry": {
       "actionID": "agentPane.replayConversation",
       "title": "Replay Conversation",
-      "keywords": [
-        "agent",
-        "conversation",
-        "replay",
-        "history",
-        "recording",
-        "playback"
-      ],
+      "keywords": ["agent", "conversation", "replay", "history", "recording", "playback"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -467,15 +418,7 @@
     "entry": {
       "actionID": "agentPane.editInstructions",
       "title": "Edit Project Instructions…",
-      "keywords": [
-        "agent",
-        "project",
-        "instructions",
-        "claude.md",
-        "agents.md",
-        "rules",
-        "edit"
-      ],
+      "keywords": ["agent", "project", "instructions", "claude.md", "agents.md", "rules", "edit"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -501,15 +444,7 @@
     "entry": {
       "actionID": "agentPane.addProjectFiles",
       "title": "Add Project Files…",
-      "keywords": [
-        "agent",
-        "project",
-        "files",
-        "context",
-        "knowledge",
-        "add",
-        "attach"
-      ],
+      "keywords": ["agent", "project", "files", "context", "knowledge", "add", "attach"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -535,14 +470,7 @@
     "entry": {
       "actionID": "agentPane.markUnread",
       "title": "Mark Chat Unread",
-      "keywords": [
-        "agent",
-        "chat",
-        "unread",
-        "notification",
-        "mark",
-        "later"
-      ],
+      "keywords": ["agent", "chat", "unread", "notification", "mark", "later"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -568,15 +496,7 @@
     "entry": {
       "actionID": "agentPane.moveToFloatingChat",
       "title": "Move Chat to Floating Chat",
-      "keywords": [
-        "agent",
-        "chat",
-        "floating",
-        "float",
-        "detach",
-        "panel",
-        "window"
-      ],
+      "keywords": ["agent", "chat", "floating", "float", "detach", "panel", "window"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -602,15 +522,7 @@
     "entry": {
       "actionID": "agentPane.toggleMinimap",
       "title": "Toggle Thread Minimap",
-      "keywords": [
-        "agent",
-        "thread",
-        "minimap",
-        "rail",
-        "prompts",
-        "navigation",
-        "map"
-      ],
+      "keywords": ["agent", "thread", "minimap", "rail", "prompts", "navigation", "map"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -636,15 +548,7 @@
     "entry": {
       "actionID": "agentPane.revealCwdInFinder",
       "title": "Reveal Chat Folder in Finder",
-      "keywords": [
-        "agent",
-        "folder",
-        "cwd",
-        "directory",
-        "finder",
-        "reveal",
-        "show"
-      ],
+      "keywords": ["agent", "folder", "cwd", "directory", "finder", "reveal", "show"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -670,15 +574,7 @@
     "entry": {
       "actionID": "agentPane.openCwdInTerminal",
       "title": "Open Chat Folder in Terminal",
-      "keywords": [
-        "agent",
-        "folder",
-        "cwd",
-        "directory",
-        "terminal",
-        "shell",
-        "open"
-      ],
+      "keywords": ["agent", "folder", "cwd", "directory", "terminal", "shell", "open"],
       "subtitle": null,
       "accessory": null,
       "rankBias": -8,
@@ -704,14 +600,7 @@
     "entry": {
       "actionID": "agentChat.copyName",
       "title": "Copy Agent Name",
-      "keywords": [
-        "agent",
-        "chat",
-        "harness",
-        "name",
-        "provider",
-        "copy"
-      ],
+      "keywords": ["agent", "chat", "harness", "name", "provider", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyName",
       "hasShortcut": false,
@@ -731,17 +620,7 @@
     "entry": {
       "actionID": "agentChat.copyHarnessSessionID",
       "title": "Copy Harness Session ID",
-      "keywords": [
-        "agent",
-        "chat",
-        "harness",
-        "session",
-        "id",
-        "identifier",
-        "claude",
-        "codex",
-        "copy"
-      ],
+      "keywords": ["agent", "chat", "harness", "session", "id", "identifier", "claude", "codex", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyHarnessSessionID",
       "hasShortcut": false,
@@ -761,15 +640,7 @@
     "entry": {
       "actionID": "agentChat.copyConversation",
       "title": "Copy Conversation as Markdown",
-      "keywords": [
-        "agent",
-        "chat",
-        "conversation",
-        "transcript",
-        "markdown",
-        "messages",
-        "copy"
-      ],
+      "keywords": ["agent", "chat", "conversation", "transcript", "markdown", "messages", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyConversation",
       "hasShortcut": false,
@@ -789,16 +660,7 @@
     "entry": {
       "actionID": "agentChat.copySessionDetails",
       "title": "Copy Session Details",
-      "keywords": [
-        "agent",
-        "chat",
-        "session",
-        "details",
-        "metadata",
-        "cwd",
-        "host",
-        "copy"
-      ],
+      "keywords": ["agent", "chat", "session", "details", "metadata", "cwd", "host", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copySessionDetails",
       "hasShortcut": false,
@@ -818,16 +680,7 @@
     "entry": {
       "actionID": "agentChat.copyWorkingDirectory",
       "title": "Copy Working Directory",
-      "keywords": [
-        "agent",
-        "chat",
-        "session",
-        "cwd",
-        "directory",
-        "folder",
-        "path",
-        "copy"
-      ],
+      "keywords": ["agent", "chat", "session", "cwd", "directory", "folder", "path", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyWorkingDirectory",
       "hasShortcut": false,
@@ -847,15 +700,7 @@
     "entry": {
       "actionID": "agentChat.copyHost",
       "title": "Copy Chat Host",
-      "keywords": [
-        "agent",
-        "chat",
-        "session",
-        "host",
-        "machine",
-        "remote",
-        "copy"
-      ],
+      "keywords": ["agent", "chat", "session", "host", "machine", "remote", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyHost",
       "hasShortcut": false,
