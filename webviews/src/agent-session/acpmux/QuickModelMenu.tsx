@@ -168,11 +168,11 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
-/// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu headed "Model · this
-/// session". Keys 1 to 9 pick a model in place, its check sits at the row's trailing edge, Effort
-/// and Account open beside their rows, and More models opens the full picker (the harness rail and
-/// search). Typing a letter opens that picker searching for it. Fast mode is the last row, a
-/// checkbox (Leo 2026-10-20), never a radio group inside Effort.
+/// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu whose first content is
+/// the model list. Keys 1 to 9 pick a model in place, its check sits at the row's trailing edge,
+/// Effort and Account open beside their rows, and More models opens the full picker (the harness
+/// rail and search). Typing a letter opens that picker searching for it. Fast mode is the last row,
+/// a checkbox (Leo 2026-10-20), never a radio group inside Effort.
 export function QuickModelMenu({
   open,
   onOpenChange,
@@ -359,6 +359,44 @@ export function QuickModelMenu({
       ]
     : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
+  const modelRows = (
+    <>
+      <MenuRadioGroup
+        value={currentValue}
+        onValueChange={(value) => {
+          const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
+          if (row) pickRow(row);
+        }}
+      >
+        {rows.map((choice, index) => {
+          const value = families ? rowValue(choice) : choice.id;
+          return (
+            <MenuRadioItem
+              key={value}
+              value={value}
+              closeOnClick
+              disabled={choice.disabled}
+              className="acpmux-quick-item"
+              shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
+            >
+              <span className="acpmux-menu-label">{choice.name}</span>
+              {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+            </MenuRadioItem>
+          );
+        })}
+      </MenuRadioGroup>
+      {rows.length === 0 && (
+        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+          {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
+        </MenuItem>
+      )}
+      {!query && shown?.note && shown.logIn && (
+        <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
+          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+        </MenuItem>
+      )}
+    </>
+  );
   const list = (
     <>
       {forkTab ? (
@@ -371,43 +409,10 @@ export function QuickModelMenu({
             <span className="acpmux-menu-label">{t("picker.forkTo", { harness: forkTab.name })}</span>
           </MenuItem>
         </MenuGroup>
+      ) : query ? (
+        <MenuGroup label={`“${query}”`}>{modelRows}</MenuGroup>
       ) : (
-        <MenuGroup label={query ? `“${query}”` : t("picker.modelThisSession")}>
-          <MenuRadioGroup
-            value={currentValue}
-            onValueChange={(value) => {
-              const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
-              if (row) pickRow(row);
-            }}
-          >
-            {rows.map((choice, index) => {
-              const value = families ? rowValue(choice) : choice.id;
-              return (
-                <MenuRadioItem
-                  key={value}
-                  value={value}
-                  closeOnClick
-                  disabled={choice.disabled}
-                  className="acpmux-quick-item"
-                  shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
-                >
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
-                </MenuRadioItem>
-              );
-            })}
-          </MenuRadioGroup>
-          {rows.length === 0 && (
-            <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-              {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
-            </MenuItem>
-          )}
-          {!query && shown?.note && shown.logIn && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
-            </MenuItem>
-          )}
-        </MenuGroup>
+        modelRows
       )}
       {!query && onChatTab && effort && levels.length > 1 && (
         <>

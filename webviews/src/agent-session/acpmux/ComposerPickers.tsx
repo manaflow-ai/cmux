@@ -1033,8 +1033,8 @@ function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown;
 }
 
 /** The permission control stays quiet in the footer: the mode's shield names the control (a lock
- * when the harness offers no modes and only grants remain) and the menu carries the mode title
- * and one-line explanation, each row with its own shield. Base UI owns focus, typeahead and Escape. */
+ * when the harness offers no modes and only grants remain) and the menu starts with the mode rows,
+ * each carrying its title and one-line explanation. Base UI owns focus, typeahead and Escape. */
 /// Runs a mode pick; resolves false when the agent refused it (a rejected promise or a throw).
 function settle(run: () => void | Promise<unknown>): Promise<boolean> {
   try {
@@ -1168,11 +1168,6 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
-          {heading && modes.length > 0 && (
-            <div className="acpmux-access-heading" aria-hidden="true">
-              {heading}
-            </div>
-          )}
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
               {modes.map((choice, index) => (

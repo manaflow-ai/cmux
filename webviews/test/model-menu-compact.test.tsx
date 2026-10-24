@@ -243,7 +243,8 @@ test("the compact chip names the model and its effort, and a click opens the sho
   // No separate effort chip: Effort is a row of the menu.
   expect(host.querySelector(".acpmux-effort")).toBeNull();
   await open();
-  expect(menu()?.textContent).toContain("Model · this session");
+  expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
+  expect(menu()?.querySelector('[role="menuitemradio"] .acpmux-menu-label')?.textContent).toBe("Opus 5.5");
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
   expect(rows.some((row) => row?.startsWith("Effort") && row.includes("Medium"))).toBe(true);

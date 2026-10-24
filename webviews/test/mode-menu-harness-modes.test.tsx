@@ -166,11 +166,9 @@ function rows() {
     checked: row.hasAttribute("data-checked") || row.getAttribute("aria-checked") === "true",
   }));
 }
-const heading = () => text(dom.window.document.querySelector(".acpmux-access-menu .acpmux-access-heading"));
-
 test("a Claude chat's menu is Claude Code's own Mode menu, in its order, with its keys", async () => {
   await render(summary("claude", "bypassPermissions", CLAUDE_REPORTED));
-  expect(heading()).toBe("Mode");
+  expect(dom.window.document.querySelector(".acpmux-access-heading")).toBeNull();
   expect(rows().map(({ name, description, key, badge }) => ({ name, description, key, badge }))).toEqual([
     { name: "Auto", description: "Claude handles permission decisions", key: "1", badge: "Recommended" },
     { name: "Manual", description: "Always ask before making changes", key: "2", badge: "" },
@@ -186,7 +184,7 @@ test("a Claude chat's menu is Claude Code's own Mode menu, in its order, with it
 
 test("a Codex chat's menu is Codex's own approval menu, with its icons and descriptions", async () => {
   await render(summary("codex", "agent-full-access", CODEX_REPORTED));
-  expect(heading()).toBe("How should actions be approved?");
+  expect(dom.window.document.querySelector(".acpmux-access-heading")).toBeNull();
   expect(rows().map(({ name, description, icon, key }) => ({ name, description, icon, key }))).toEqual([
     {
       name: "Ask for approval",
@@ -222,7 +220,7 @@ test("a Codex chat on today's bridge (no auto review) shows Codex's rows it repo
       CODEX_REPORTED.filter((mode) => mode.id !== "auto-review"),
     ),
   );
-  expect(heading()).toBe("How should actions be approved?");
+  expect(dom.window.document.querySelector(".acpmux-access-heading")).toBeNull();
   expect(rows().map(({ name, icon, checked }) => ({ name, icon, checked }))).toEqual([
     { name: "Ask for approval", icon: "hand", checked: true },
     { name: "Full access", icon: "shield-alert", checked: false },
