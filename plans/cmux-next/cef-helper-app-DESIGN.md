@@ -57,7 +57,11 @@ cmux (app)                          <App> Chromium Host.app (new)              C
   `POSIX_SPAWN_CLOEXEC_DEFAULT`; prototype `S/ChromiumHost/ChromiumHostLauncher.swift`). `CefInitialize` runs in the
   host, off cmux's launch path. The host sends `ready` (fork API, pid).
 - Quit: cmux sends `quit`; the host closes its browsers, `CefShutdown`s and exits. cmux does not wait for it longer than
-  its quit deadline. If cmux dies, the host reads EOF on the wire and quits (prototype: `ReadWire` -> `CloseHost`).
+  its quit deadline (prototype: `ChromiumHostSession.close` SIGKILLs a host still running `ChromiumHostFrame.quitLimit`,
+  15 s, later). If cmux dies, the host reads EOF on the wire and quits (prototype: `ReadWire` -> `CloseHost`); the
+  wire is read from before `CefInitialize`, and a host still running 15 s after EOF or `quit` `_exit`s, so a hung UI
+  thread never leaves an orphan. All four wire descriptors are close-on-exec from creation, so no other child of cmux
+  holds a wire end that would hide the EOF.
 - Crash: a thread blocked in `waitid(WEXITED | WNOWAIT)` reports the exit with its signal (SIGTRAP is a CHECK). The supervisor
   (prototype: `ChromiumHostSession`) clears every page's context (no stale pixels), restarts the host and reloads each
   page from the saved session: today's `cmux_shim_tab_navigation_state` / `tab_restore_navigation` (fork v7) per tab,
