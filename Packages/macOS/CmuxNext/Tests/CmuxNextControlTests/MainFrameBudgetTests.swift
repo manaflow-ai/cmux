@@ -251,6 +251,7 @@ private final class FakeFrameLink: FrameLink {
 private final class Box<Value: Sendable>: Sendable {
     private let mutex: Mutex<Value>
     init(_ value: Value) { mutex = Mutex(value) }
+    nonisolated deinit {}
     func withLock<R>(_ body: (inout sending Value) -> sending R) -> sending R { mutex.withLock(body) }
 }
 
