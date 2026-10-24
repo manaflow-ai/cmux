@@ -38,9 +38,11 @@ import { type BackgroundCommand, commandLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { AgentLine } from "./AgentLine";
+import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import type { StartedSession } from "../started/startedSessions";
+import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
 /// Lines the tray shows under its header without a click.
 export const TRAY_OPEN_MAX = 3;
@@ -53,9 +55,11 @@ export const SubagentTray = memo(function SubagentTray({
   waiting,
   onOpen,
   onOpenCommand,
+  canOpenTerminal = false,
   onOpenSession,
   stop,
   stopProcess,
+  placement = "tray",
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -69,12 +73,16 @@ export const SubagentTray = memo(function SubagentTray({
   onOpen: (id: string) => void;
   /// Opens a command's terminal, or what shows it where none opens (App.tsx).
   onOpenCommand?: (command: BackgroundCommand) => void;
+  /// The local process registry can replay this chat's output in a terminal.
+  canOpenTerminal?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
   /// Stops a running subagent, where the harness can.
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
   stopProcess?: (processId: string) => Promise<unknown>;
+  /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
+  placement?: SubagentTrayPlacement;
 }) {
   const t = useT();
   const listId = useId();
@@ -82,6 +90,7 @@ export const SubagentTray = memo(function SubagentTray({
   // The person's choice holds; until then a short list shows and a long one folds.
   const [opened, setOpened] = useState<boolean>();
   const [showFinished, setShowFinished] = useState(false);
+  const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   if (items.length === 0 && finished.length === 0) return null;
   const headed = items.length > 1;
   const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
@@ -124,7 +133,12 @@ export const SubagentTray = memo(function SubagentTray({
       : []),
   ];
   return (
-    <section className="acpmux-running-tray" aria-label={t("summary.subagents")} data-open={open || undefined}>
+    <section
+      className="acpmux-running-tray"
+      aria-label={t("summary.subagents")}
+      data-open={open || undefined}
+      data-placement={placement}
+    >
       {headed && (
         <button
           type="button"
@@ -170,30 +184,46 @@ export const SubagentTray = memo(function SubagentTray({
         after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
       />
     ) : item.kind === "command" ? (
-      <AgentLine
-        name={commandLabel(item.command)}
-        title={item.command.command}
-        kind={t("tray.kind.command")}
-        chevron
-        icon="terminal"
-        status="running"
-        state={t("subagents.state.running")}
-        time={
-          item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt))
-        }
-        onOpen={onOpenCommand && (() => onOpenCommand(item.command))}
-        after={
-          stopProcess &&
-          item.command.processId && (
-            <ProcessStopButton
-              id={item.command.processId}
-              name={item.command.command}
-              label={t("tray.stopCommand")}
-              stop={stopProcess}
-            />
-          )
-        }
-      />
+      <>
+        <AgentLine
+          name={commandLabel(item.command)}
+          title={item.command.command}
+          kind={t("tray.kind.command")}
+          chevron
+          icon="terminal"
+          working
+          status="running"
+          state={t("subagents.state.running")}
+          expanded={openCommands.has(item.id)}
+          time={
+            item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt))
+          }
+          onOpen={() =>
+            setOpenCommands((current) => {
+              const next = new Set(current);
+              if (next.has(item.id)) next.delete(item.id);
+              else next.add(item.id);
+              return next;
+            })
+          }
+          after={
+            stopProcess &&
+            item.command.processId && (
+              <ProcessStopButton
+                id={item.command.processId}
+                name={item.command.command}
+                label={t("tray.stopCommand")}
+                stop={stopProcess}
+              />
+            )
+          }
+        />
+        <BackgroundTaskTail
+          command={item.command}
+          open={openCommands.has(item.id)}
+          onOpenTerminal={canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined}
+        />
+      </>
     ) : (
       <AgentLine
         name={item.session.title}

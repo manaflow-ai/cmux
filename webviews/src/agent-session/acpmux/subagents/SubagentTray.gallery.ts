@@ -212,6 +212,16 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "after-latest-message": {
+      note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. Expanding a command keeps its live tail bounded to the open row.",
+      theme: { subagentTrayPlacement: "after-latest-message" },
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__tail"));
+      },
+      snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The ended task remains a compact status card.",
       play: trayLines(3),

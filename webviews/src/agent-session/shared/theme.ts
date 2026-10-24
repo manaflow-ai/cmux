@@ -34,6 +34,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   statusIndicators: null,
   workingLook: null,
   subagentTray: null,
+  subagentTrayPlacement: null,
   scrollerFade: null,
 };
 

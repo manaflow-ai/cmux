@@ -174,6 +174,10 @@ import {
   useSubagentTray,
   withSubagentLines,
 } from "./subagents/runningTray";
+import {
+  configureSubagentTrayPlacement,
+  useSubagentTrayPlacement,
+} from "./subagents/subagentTrayPlacement";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -1810,6 +1814,7 @@ export function VirtualTranscript({
   sends = 0,
   coldOpen,
   onColdOpenShown,
+  afterLatest,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1870,6 +1875,8 @@ export function VirtualTranscript({
   /// The rows of open `coldOpen` have shown. The pane keeps that, not this transcript, so a
   /// transcript mounted again (back from New Tab or a replay) does not fade the same open twice.
   onColdOpenShown?: (open: number) => void;
+  /// Optional content placed immediately after the latest message, outside the scroller.
+  afterLatest?: React.ReactNode;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -3684,6 +3691,7 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
+      {afterLatest}
       {jumpButton && (
         <JumpToLatest
           // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
@@ -4412,6 +4420,7 @@ function AcpmuxPane() {
   // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the
   // transcript's group cards and the agents pill.
   const subagentTray = useSubagentTray();
+  const trayPlacement = useSubagentTrayPlacement();
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const childRows = useMemo(() => {
@@ -5541,6 +5550,27 @@ function AcpmuxPane() {
     () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
     [subagentTray, chatAgents, childSessions],
   );
+  const trayNode =
+    !quick &&
+    !freshView &&
+    (trayList.length > 0 || trayFinished.length > 0) ? (
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        <SubagentTray
+          key={shownSessionId}
+          items={trayList}
+          finished={trayFinished}
+          working={snapshot.isWorking}
+          waiting={waitingAgents}
+          onOpen={showSubagent}
+          onOpenCommand={openTrayCommand}
+          canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+          onOpenSession={openOfferChat}
+          stop={stopSubagent}
+          stopProcess={stopProcess}
+          placement={trayPlacement}
+        />
+      </SubagentClockContext.Provider>
+    ) : null;
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({
@@ -6070,6 +6100,7 @@ function AcpmuxPane() {
         configureToolRunLook(theme.toolRunLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
+        configureSubagentTrayPlacement(theme.subagentTrayPlacement);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -7742,6 +7773,7 @@ function AcpmuxPane() {
                                                   reveal={childRows ? undefined : revealRow}
                                                   coldOpen={!childRows && opened.cold ? opened.open : undefined}
                                                   onColdOpenShown={coldOpenShown}
+                                                  afterLatest={!childRows && trayPlacement === "after-latest-message" ? trayNode : undefined}
                                                   registry={registry}
                                                   githubRepository={githubRepository}
                                                   fallbackRepository={
@@ -8114,22 +8146,7 @@ function AcpmuxPane() {
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
-        {!quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) && (
-          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-            <SubagentTray
-              key={shownSessionId}
-              items={trayList}
-              finished={trayFinished}
-              working={snapshot.isWorking}
-              waiting={waitingAgents}
-              onOpen={showSubagent}
-              onOpenCommand={openTrayCommand}
-              onOpenSession={openOfferChat}
-              stop={stopSubagent}
-              stopProcess={stopProcess}
-            />
-          </SubagentClockContext.Provider>
-        )}
+        {trayPlacement === "tray" && trayNode}
         {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
           stack, right above the composer, while the turn works; an agent a cancel or a reconnect left
           "running" shows none. */}

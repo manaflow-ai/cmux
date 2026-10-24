@@ -14,6 +14,7 @@
 import type { ReactNode } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
+import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
@@ -38,6 +39,8 @@ export function AgentLine({
   after,
   card,
   wave,
+  working = false,
+  expanded,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -70,6 +73,10 @@ export function AgentLine({
   /// Its place among the running lines in the one shared running wave (ui/wave.ts); none for a
   /// line that does not run, which stays still.
   wave?: number;
+  /// A live command uses the shared spinner, never a breathing dot.
+  working?: boolean;
+  /// A command row's live-tail disclosure state.
+  expanded?: boolean;
 }) {
   const shimmer = waveProps(wave);
   const button = (
@@ -79,6 +86,7 @@ export function AgentLine({
       style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
       data-status={status}
       aria-current={current ? "true" : undefined}
+      aria-expanded={expanded}
       aria-label={label}
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
@@ -90,7 +98,7 @@ export function AgentLine({
         style={shimmer.style}
         data-state={status}
       >
-        <Icon name={icon} size={iconSize} row />
+        {working ? <Spinner size={iconSize} loading /> : <Icon name={icon} size={iconSize} row />}
       </span>
       <span className="acpmux-summary-text">
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
