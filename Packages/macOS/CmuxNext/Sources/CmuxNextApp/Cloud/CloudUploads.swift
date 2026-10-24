@@ -41,7 +41,7 @@ final class CloudUploads {
     }
 
     private var stages: [String: Stage] = [:]
-    private struct Batch { var target: Target; var remaining: [(String, Int)]; var expires: Date }
+    private struct Batch { var target: Target; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private var batches: [String: Batch] = [:]
 
     /// The upload for chat tab `tab`, nil unless it is a live moved chat on a connected machine. The
@@ -60,6 +60,8 @@ final class CloudUploads {
         guard Self.target(tab: tab, services: services) != nil else { return nil }
         return { [weak self, weak services] request, session in
             guard let self, let services else { return AgentPaneReply.failure(code: "unsupported", message: CloudUploadStrings.failed) }
+            // A staged upload names its chat session, as the peer stager requires.
+            guard let session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             return await self.stage(request, tab: tab, session: session, services: services)
         }
     }
@@ -127,7 +129,7 @@ final class CloudUploads {
             let target: Target
             if let batchToken {
                 guard let batch = batches[batchToken], batch.target.chat.session == session,
-                      batch.expires > Date(), batch.remaining.first?.0 == name, batch.remaining.first?.1 == size,
+                      batch.expires > Date(), batch.remaining.first?.name == name, batch.remaining.first?.size == size,
                       let current = Self.target(tab: tab, services: services), current.chat.session == batch.target.chat.session,
                       current.machine.machineID == batch.target.machine.machineID, current.remoteRoot == batch.target.remoteRoot else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
                 target = batch.target
@@ -147,7 +149,7 @@ final class CloudUploads {
                 batches[batchID!] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
             } else { batchID = batchToken }
             let used = stages.values.filter { $0.target.chat.session == session }.reduce(0) { $0 + $1.size }
-            guard used + size <= Self.maximumTotalBytes, let pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
+            guard used + size <= Self.maximumTotalBytes, let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
             let token = UUID().uuidString.lowercased(), folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
             let file = folder.appendingPathComponent(name, isDirectory: false)
             do {

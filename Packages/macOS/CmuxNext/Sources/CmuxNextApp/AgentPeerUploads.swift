@@ -13,7 +13,7 @@ import Foundation
 @MainActor
 struct AgentPeerUploads {
     private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int; var expires: Date }
-    private struct Batch { var session: String; var remaining: [(String, Int)]; var expires: Date }
+    private struct Batch { var session: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
@@ -41,7 +41,7 @@ struct AgentPeerUploads {
             switch request {
             case .begin(let name, let size, let batchToken, let manifest):
                 if let batchToken {
-                    guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                    guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.name == name, batch.remaining.first?.size == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                     let remaining = Array(batch.remaining.dropFirst())
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
                     else { batches[batchToken] = Batch(session: target.session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
