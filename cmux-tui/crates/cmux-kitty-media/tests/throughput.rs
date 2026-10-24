@@ -19,12 +19,8 @@ fn workloads() -> Vec<(&'static str, Vec<u8>)> {
         .cycle()
         .take(READ)
         .collect();
-    let escapes: Vec<u8> = b"\x1b[H\x1b[2J\x1b[38;5;196mx\x1b_Xapc\x1b\\"
-        .iter()
-        .copied()
-        .cycle()
-        .take(READ)
-        .collect();
+    let escapes: Vec<u8> =
+        b"\x1b[H\x1b[2J\x1b[38;5;196mx\x1b_Xapc\x1b\\".iter().copied().cycle().take(READ).collect();
     vec![("yes", yes), ("ls --color", colored), ("escape-dense", escapes)]
 }
 
@@ -56,12 +52,21 @@ fn non_graphics_throughput_overhead() {
                 black_box(out);
             }
         });
+        // The local reader parses the read in place: its baseline is no copy.
+        let mut scratch = Vec::new();
+        let borrowed = time(|| {
+            for _ in 0..reads {
+                black_box(rewriter.rewrite_borrowed(black_box(&read[..]), &mut scratch).len());
+            }
+        });
         let gib = TOTAL as f64 / f64::from(1u32 << 30);
         println!(
-            "{name:>13}: copy {:.2} GiB/s, rewrite {:.2} GiB/s, extra {:.3} ns/byte",
+            "{name:>13}: copy {:.2} GiB/s, rewrite {:.2} GiB/s (+{:.3} ns/byte), borrowed scan {:.2} GiB/s ({:.3} ns/byte)",
             gib / baseline.as_secs_f64(),
             gib / rewritten.as_secs_f64(),
             (rewritten.as_secs_f64() - baseline.as_secs_f64()) * 1e9 / TOTAL as f64,
+            gib / borrowed.as_secs_f64(),
+            borrowed.as_secs_f64() * 1e9 / TOTAL as f64,
         );
     }
 }
