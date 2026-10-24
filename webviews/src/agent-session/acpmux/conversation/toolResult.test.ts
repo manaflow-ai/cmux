@@ -346,6 +346,14 @@ test("nested image strip order follows the envelope block order", () => {
   expect(envelopeImages(textFirst)).toEqual([url(1), url(0)]);
 });
 
+test("Unicode-escaped image metadata still reaches the strip", () => {
+  const output = '[{"\\u0074ype":"\\u0069mage","data":"' + PNG + '0","mimeType":"\\u0069mage/\\u0070ng"}]';
+  expect(output).not.toContain("image");
+  expect(envelopeImages(output)).toEqual([url(0)]);
+  expect(toolImages(call(output))).toEqual([url(0)]);
+  expect(toolResult(output, cleanText, true).text).toBe("");
+});
+
 test("a JSON-RPC error leaves an image in its result data", () => {
   const output = JSON.stringify({
     jsonrpc: "2.0",
