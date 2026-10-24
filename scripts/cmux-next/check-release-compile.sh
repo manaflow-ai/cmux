@@ -19,9 +19,12 @@
 # legacy-app rule in skills/cmux-architecture/references/swift-6-0-compatibility.md)
 # does not apply to this package.
 #
-# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]
+# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks] [derived-data-path]
 #   --archs: the architecture to compile (default arm64). nightly-next ships an
 #   x86_64 app too, so `--archs x86_64` checks the Intel compile the same way.
+#   --bench-hooks: compile the bench configuration (`reload.sh --config bench`): Release with
+#   -DCMUX_BENCH_HOOKS and no DEBUG, so code under `#if DEBUG || CMUX_BENCH_HOOKS` that reaches a
+#   DEBUG-only symbol fails here instead of in a perf sweep's build.
 #   default derived data: a new directory in $TMPDIR (per fleet step), removed
 #   when the script ends. Never a host-shared fixed path: explicit precompiled
 #   modules (SwiftExplicitPrecompiledModules/*.pcm) are keyed by the compile
@@ -51,9 +54,15 @@ if [[ "${1:-}" == --archs ]]; then
   esac
   shift 2
 fi
-# --archs comes first; anything else after the path would be ignored silently.
+bench_flags=()
+if [[ "${1:-}" == --bench-hooks ]]; then
+  # The same flag reload.sh --config bench passes (SWIFT_OTHER_FLAGS).
+  bench_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_BENCH_HOOKS')
+  shift
+fi
+# --archs and --bench-hooks come first; anything else after the path would be ignored silently.
 if (( $# > 1 )); then
-  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]" >&2
+  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks] [derived-data-path]" >&2
   exit 2
 fi
 kept_path=0
@@ -99,7 +108,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs)"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs${bench_flags[*]:+, bench hooks})"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
   build_attempt=$((build_attempt + 1))
@@ -112,6 +121,7 @@ build() {
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+    ${bench_flags[@]+"${bench_flags[@]}"} \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
