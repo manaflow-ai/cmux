@@ -104,7 +104,7 @@ struct AgentPageProviderEventsTests {
         let provider = AgentPageProvider { _ in nil }
         let router = PageRouter(descriptor: .agent, routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
         var dropped: (@MainActor () -> Void)?
-        router.sendWithDrop = { _, onDrop in dropped = onDrop }
+        router.send = { deliveries in dropped = deliveries.last?.dropped }
         _ = await router.handle(["t": .string("sub"), "id": .number(1), "stream": .string(AgentPageProvider.hostEvents)])
         provider.publish(Self.command("router-reset"))
         #expect(dropped != nil)
@@ -127,9 +127,11 @@ struct AgentPageProviderEventsTests {
                                 routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
         var dropped: [@MainActor () -> Void] = []
         let replayed = CountWaiter(2)
-        router.sendWithDrop = { _, onDrop in
-            dropped.append(onDrop)
-            replayed.add()
+        router.send = { deliveries in
+            for delivery in deliveries {
+                dropped.append(delivery.dropped)
+                replayed.add()
+            }
         }
         _ = await router.handle(["t": .string("sub"), "id": .number(1), "stream": .string(AgentPageProvider.hostEvents)])
         _ = await router.handle(["t": .string("sub"), "id": .number(2), "stream": .string(AgentPageProvider.hostEvents)])
