@@ -61,11 +61,12 @@ public final class CmuxToastAvoidance {
     ///   shows toasts in `window`.
     @discardableResult
     public static func avoidanceChanged(in window: NSWindow) -> Task<Void, Never>? {
-        guard let link = existing(in: window), link.hosts.anyObject != nil else { return nil }
-        // task-owner: one hop past the caller's layout pass; moves this window's toasts once
-        return Task { [weak link, weak window] in
-            guard let window, let link else { return }
-            for case let host as any CmuxToastReanchoring in link.hosts.allObjects { host.reanchor(in: window) }
+        // MUTATION (red check): reach the hosts of every window, as the app-wide notice did.
+        let links = NSApplication.shared.windows.compactMap { existing(in: $0) } + [existing(in: window)].compactMap { $0 }
+        guard links.contains(where: { $0.hosts.anyObject != nil }) else { return nil }
+        return Task { [weak window] in
+            guard let window else { return }
+            for link in links { for case let host as any CmuxToastReanchoring in link.hosts.allObjects { host.reanchor(in: window) } }
         }
     }
 }
