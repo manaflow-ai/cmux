@@ -105,8 +105,8 @@ impl Unit {
 
 impl Drop for Unit {
     fn drop(&mut self) {
+        // `--collect`: the stopped unit is unloaded, failed or not.
         let _ = Command::new("systemctl").args(["--user", "stop", &self.name]).status();
-        let _ = Command::new("systemctl").args(["--user", "reset-failed", &self.name]).status();
         // No daemon can adopt a host of a deleted home: the hosts end (cx-tumi).
         let _ = std::fs::remove_dir_all(&self.home);
     }
