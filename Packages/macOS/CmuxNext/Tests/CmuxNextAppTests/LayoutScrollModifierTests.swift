@@ -456,9 +456,10 @@ struct LayoutScrollModifierTests {
     // MARK: page windows (scrollOrigin)
 
     /// The routing of a monitored scroll by the window it came from: this window's own point; a
-    /// page window over a pane (a non-panel child) under `command`, its point converted; never a
-    /// page window under `none`, a panel (a remote browser popup), or another window's page.
-    @Test func aScrollFromAPageWindowCountsOnlyForItsOwnWindowUnderCommand() throws {
+    /// page window over a pane (a non-panel child), its point converted and flagged as a page's;
+    /// the layout's divider catcher panel, its point converted, as the layout's own input; never
+    /// another panel (a remote browser popup, an overlay) or another window's page.
+    @Test func aScrollFromAPageOrCatcherWindowCountsOnlyForItsOwnWindow() throws {
         func window(_ rect: NSRect) -> NSWindow {
             let window = NSWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
@@ -473,32 +474,35 @@ struct LayoutScrollModifierTests {
         let panel = NSPanel(contentRect: NSRect(x: 130, y: 170, width: 100, height: 100), styleMask: [.borderless],
                             backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
+        let catcher = DividerMousePanel()
+        catcher.setFrame(NSRect(x: 300, y: 200, width: 20, height: 100), display: false)
         shell.addChildWindow(page, ordered: .above)
+        shell.addChildWindow(catcher, ordered: .above)
         shell.addChildWindow(popup, ordered: .above)
         shell.addChildWindow(panel, ordered: .above)
         other.addChildWindow(otherPage, ordered: .above)
         defer {
-            for child in [page, popup, panel] { shell.removeChildWindow(child) }
+            for child in [page, popup, panel, catcher] { shell.removeChildWindow(child) }
             other.removeChildWindow(otherPage)
-            for each in [shell, other, page, otherPage, popup, panel] { each.close() }
+            for each in [shell, other, page, otherPage, popup, panel, catcher] { each.close() }
         }
         let point = NSPoint(x: 10, y: 20)
         typealias Origin = LayoutRootView.ScrollOrigin
-        #expect(LayoutRootView.scrollOrigin(of: shell, at: point, in: shell, modifier: .command)
-                == Origin(locationInWindow: point, isPageWindow: false))
-        #expect(LayoutRootView.scrollOrigin(of: shell, at: point, in: shell, modifier: .noModifier)
+        #expect(LayoutRootView.scrollOrigin(of: shell, at: point, in: shell)
                 == Origin(locationInWindow: point, isPageWindow: false))
         let converted = NSPoint(x: page.frame.minX - shell.frame.minX + 10, y: page.frame.minY - shell.frame.minY + 20)
         #expect(converted != point, "the page sits at an offset in the shell")
-        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: shell, modifier: .command)
+        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: shell)
                 == Origin(locationInWindow: converted, isPageWindow: true), "a page window's point, in the shell window")
-        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: shell, modifier: .noModifier) == nil, "none: the page keeps its scrolls")
-        #expect(LayoutRootView.scrollOrigin(of: otherPage, at: point, in: shell, modifier: .command) == nil, "another window's page")
-        #expect(LayoutRootView.scrollOrigin(of: other, at: point, in: shell, modifier: .command) == nil, "another window")
-        #expect(LayoutRootView.scrollOrigin(of: popup, at: point, in: shell, modifier: .command) == nil, "a remote browser popup scrolls its list")
-        #expect(LayoutRootView.scrollOrigin(of: panel, at: point, in: shell, modifier: .command) == nil, "an overlay panel")
-        #expect(LayoutRootView.scrollOrigin(of: nil, at: point, in: shell, modifier: .command) == nil)
-        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: nil, modifier: .command) == nil)
+        let inCatcher = NSPoint(x: catcher.frame.minX - shell.frame.minX + 10, y: catcher.frame.minY - shell.frame.minY + 20)
+        #expect(LayoutRootView.scrollOrigin(of: catcher, at: point, in: shell)
+                == Origin(locationInWindow: inCatcher, isPageWindow: false), "a divider catcher is the layout's own input")
+        #expect(LayoutRootView.scrollOrigin(of: otherPage, at: point, in: shell) == nil, "another window's page")
+        #expect(LayoutRootView.scrollOrigin(of: other, at: point, in: shell) == nil, "another window")
+        #expect(LayoutRootView.scrollOrigin(of: popup, at: point, in: shell) == nil, "a remote browser popup scrolls its list")
+        #expect(LayoutRootView.scrollOrigin(of: panel, at: point, in: shell) == nil, "an overlay panel")
+        #expect(LayoutRootView.scrollOrigin(of: nil, at: point, in: shell) == nil)
+        #expect(LayoutRootView.scrollOrigin(of: page, at: point, in: nil) == nil)
     }
 
     /// From a page window only Command + scroll is the layout's: a plain scroll there is the
