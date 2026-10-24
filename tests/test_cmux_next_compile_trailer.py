@@ -52,6 +52,7 @@ class CompileTrailerTests(unittest.TestCase):
         self.write("docs/a.md", "a\n")
         self.base = self.commit("base")
         self.jobs = {}
+        self.receipts = {}  # job id -> receipts list; default: every asked target passed
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, capture_output=True, text=True,
@@ -74,7 +75,14 @@ class CompileTrailerTests(unittest.TestCase):
         return job_id
 
     def check(self, head, base=None):
-        return ct.check(self.repo, [(base or self.base, head)], fetch=lambda i: self.jobs.get(i, {}))
+        def receipts(job):
+            if job["id"] in self.receipts:
+                value = self.receipts[job["id"]]
+                if isinstance(value, Exception):
+                    raise value
+                return value
+            return [{"package": t, "ok": True} for t in ct.asked_targets(job)]
+        return ct.check(self.repo, [(base or self.base, head)], fetch=lambda i: self.jobs.get(i, {}), receipts=receipts)
 
     def swift_edit(self, module="Kit", text="public struct Kit { let x = 1 }\n"):
         self.write(f"{PKG}/Sources/{module}/{module}.swift", text)
@@ -225,6 +233,73 @@ class CompileTrailerTests(unittest.TestCase):
         refused, lines = self.check(head, base=base)
         self.assertTrue(refused, lines)
         self.assertIn("fork pin differs", lines[0])
+
+    # The recipe exits 0 when a check fails (the job is "done"): the verdict is in its receipts (lead 2026-10-24).
+    def amended_with(self, job):
+        self.git("commit", "-q", "--amend", "-m", f"kit change\n\nCompiled: {job}")
+        return self.git("rev-parse", "HEAD")
+
+    def test_a_done_job_whose_app_receipt_failed_is_refused(self):
+        self.swift_edit()
+        job = self.job(self.commit("kit change"))
+        self.receipts[job] = [{"package": "CmuxNext", "ok": True}, {"package": "app", "ok": False}]
+        refused, lines = self.check(self.amended_with(job))
+        self.assertTrue(refused)
+        self.assertIn("FAILED to compile app", lines[0])
+
+    def test_a_done_job_missing_the_app_receipt_is_refused(self):
+        self.swift_edit()
+        job = self.job(self.commit("kit change"))
+        self.receipts[job] = [{"package": "CmuxNext", "ok": True}]
+        refused, lines = self.check(self.amended_with(job))
+        self.assertTrue(refused)
+        self.assertIn("no receipt for app", lines[0])
+
+    def test_all_receipts_ok_pass(self):
+        self.swift_edit()
+        job = self.job(self.commit("kit change"))
+        self.receipts[job] = {"receipts": [{"package": "CmuxNext", "ok": True}, {"package": "app", "ok": True}]}["receipts"]
+        refused, lines = self.check(self.amended_with(job))
+        self.assertFalse(refused, lines)
+
+    def test_an_artifact_store_that_does_not_answer_lets_the_push_through_with_a_warning(self):
+        self.swift_edit()
+        job = self.job(self.commit("kit change"))
+        self.receipts[job] = ct.StoreDown("the artifact store did not answer")
+        refused, lines = self.check(self.amended_with(job))
+        self.assertFalse(refused)
+        self.assertIn("verdict was not checked", lines[0])
+        down = {"id": "x", "artifact": "sha256:" + "0" * 64}
+        with self.assertRaises(ct.StoreDown):
+            ct.fetch_receipts(down, timeout=0.5, url="http://127.0.0.1:9")
+
+    def test_fetch_receipts_reads_and_checks_the_artifact(self):
+        import hashlib
+        import http.server
+        import json
+        import threading
+        body = json.dumps({"receipts": [{"package": "app", "ok": False}]}).encode()
+        digest = "sha256:" + hashlib.sha256(body).hexdigest()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path.endswith("/url"):
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                data = body if self.path == f"/v1/artifacts/{digest}" else b""
+                self.send_response(200 if data else 404)
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *a):
+                pass
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        self.assertEqual(ct.fetch_receipts({"artifact": digest}, url=url), [{"package": "app", "ok": False}])
+        self.assertEqual(ct.fetch_receipts({"artifact": "sha256:" + "1" * 64}, url=url), [], "no such artifact: no verdict")
 
     def test_the_manifest_parser_reads_one_line_and_multi_line_targets(self):
         deps = ct.module_deps(MANIFEST)

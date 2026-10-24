@@ -26,8 +26,10 @@ push through with a warning. It is local only (the pre-push gate's guardrails pa
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import time
 import re
 import subprocess
 import urllib.error
@@ -113,6 +115,86 @@ def passed_compile(job: dict, shim: bool = False) -> str | None:
     return None
 
 
+RECEIPTS_TIMEOUT = 5.0  # seconds for the receipts artifact (URL lookup and download): slower is "down" (fail open)
+
+
+class StoreDown(Exception):
+    """The controller or the artifact store did not answer for the receipts in time (fail open)."""
+
+
+def fetch_receipts(job: dict, timeout: float = RECEIPTS_TIMEOUT, url: str | None = None) -> list:
+    """The compile check's receipts (artifacts/receipts.json, the job's content-addressed artifact) as a list, read the
+    way ci-client.py's compile_check does: the signed store URL from /v1/artifacts/<digest>/url, else the controller's
+    proxy; the SHA-256 is checked. Raises StoreDown when nothing answers within TIMEOUT; a job with no artifact, or an
+    artifact that is not receipts, is [] (no verdict: refused)."""
+    digest = str(job.get("artifact") or "")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        return []
+    base, deadline = url or CONTROLLER, time.monotonic() + timeout
+
+    def left() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise StoreDown("the receipts did not arrive in time")
+        return remaining
+    candidates = []
+    try:
+        with urllib.request.urlopen(f"{base}/v1/artifacts/{digest}/url", timeout=left()) as r:
+            direct = json.loads(r.read() or b"{}").get("url")
+        if isinstance(direct, str) and direct.startswith(("https://", "http://")):
+            candidates.append(direct)
+    except urllib.error.HTTPError:
+        pass  # no store copy: the proxy below
+    except (OSError, ValueError) as error:
+        raise StoreDown(f"the controller did not answer for the receipts ({type(error).__name__})") from error
+    candidates.append(f"{base}/v1/artifacts/{digest}")
+    last = None
+    for address in candidates:
+        try:
+            req = urllib.request.Request(address, headers={"User-Agent": "cmux-ci"})
+            with urllib.request.urlopen(req, timeout=left()) as r:
+                data = r.read(8 << 20)
+        except urllib.error.HTTPError as error:
+            last = error
+            continue
+        except (OSError, ValueError) as error:
+            last = error
+            continue
+        if hashlib.sha256(data).hexdigest() != digest[7:]:
+            last = ValueError("receipts SHA-256 mismatch")
+            continue
+        try:
+            value = json.loads(data)
+        except ValueError:
+            return []
+        if isinstance(value, dict):
+            value = value.get("receipts", [])
+        return value if isinstance(value, list) else []
+    if isinstance(last, urllib.error.HTTPError) and last.code == 404:
+        return []  # the store and the controller both say there is no such artifact: no verdict
+    raise StoreDown(f"the artifact store did not answer ({type(last).__name__ if last else 'no URL'})")
+
+
+def asked_targets(job: dict) -> list[str]:
+    """The targets the compile check was asked for: each `--package NAME` of its command, and "app" for `--app`."""
+    words = str(job.get("command") or "").split()
+    packages = [words[i + 1] for i, w in enumerate(words[:-1]) if w == "--package"]
+    return packages + (["app"] if "--app" in words else [])
+
+
+def receipt_verdict(job: dict, receipts: list) -> str | None:
+    """Why the receipts do not show a pass of EVERY asked target (ci-client.py compile_check_verdict), or None. The
+    recipe exits 0 when a check fails, so the job's state alone is no verdict."""
+    by_target = {r.get("package"): r for r in receipts if isinstance(r, dict)}
+    for target in asked_targets(job):
+        receipt = by_target.get(target)
+        if receipt is None:
+            return f"job {job.get('id')} has no receipt for {target}: no verdict"
+        if receipt.get("ok") is not True:
+            return f"job {job.get('id')} FAILED to compile {target} (its receipt says ok={receipt.get('ok')!r})"
+    return None
+
+
 TARGET_START = re.compile(r"\.(?:target|executableTarget)\(\s*name:\s*\"(?P<name>[A-Za-z0-9_]+)\"")
 
 
@@ -188,7 +270,7 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str]) -> str |
     return None
 
 
-def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job) -> tuple[bool, list[str]]:
+def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job, receipts=fetch_receipts) -> tuple[bool, list[str]]:
     """(refused, lines to print) for the pushed RANGES. Refuses only on a definite answer; fails open otherwise."""
     lines: list[str] = []
     try:
@@ -220,6 +302,15 @@ def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job) -> tuple[b
             why = passed_compile(job, shim)
             if why:
                 return True, [f"prepush-gate: {why}. Run: " + command(head, shim)]
+            if job.get("kind") == CHECK_KIND:
+                try:
+                    verdict = receipt_verdict(job, receipts(job))
+                except StoreDown as error:
+                    lines.append(f"prepush-gate: WARNING: {error}, so compile job {job.get('id')}'s verdict was not "
+                                 "checked (allowed).")
+                    verdict = None
+                if verdict:
+                    return True, [f"prepush-gate: {verdict}. Run: " + command(head, shim)]
             ran = job["ref"]
             if ran != head:
                 delta = changed(repo, ran, head)
