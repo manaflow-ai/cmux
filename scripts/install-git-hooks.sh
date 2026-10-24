@@ -56,8 +56,11 @@ esac
 # install inherits it.
 INSTALL_LOCK="$TRUSTED_HOOK_DIR/install.lock"
 if [[ "${CMUX_HOOKS_INSTALL_LOCK_HELD:-}" != "$INSTALL_LOCK" ]]; then
-    # read -d '' stops at the end of the text with status 1.
-    IFS= read -r -d '' LOCK_HOLDER <<'PY' || true
+    # The Python programs here are -c arguments, never here-documents: bash 5.1+ writes a short here-document
+    # into a pipe before the command runs, and on a Mac short of pipe memory (git_batch.py) that write blocks
+    # for good; for `read` the shell is its own reader, so the install hangs (seen with bash 5.3). Keep them
+    # free of single quotes.
+    LOCK_HOLDER='
 import fcntl
 import os
 import signal
@@ -75,7 +78,7 @@ except BlockingIOError:
     fcntl.flock(lock, fcntl.LOCK_EX)
 os.ftruncate(lock, 0)
 os.pwrite(lock, f"{os.getpid()}\n".encode(), 0)
-# The lock must outlive the child: Ctrl-C reaches the child through the terminal's process group, and a
+# The lock must outlive the child: Ctrl-C reaches the child through the process group of the terminal, and a
 # SIGTERM or SIGHUP sent to this holder goes on to the child (one that comes before the child exists is sent
 # once it does). The handlers are caught dispositions, which exec resets: the child keeps the defaults.
 children, pending = [], []
@@ -97,7 +100,7 @@ for number in pending:
     child.send_signal(number)
 code = child.wait()
 sys.exit(128 - code if code < 0 else code)
-PY
+'
     exec "$PYTHON3_BIN" -I -c "$LOCK_HOLDER" "$INSTALL_LOCK" "$BASH" "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
         ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
 fi
@@ -281,7 +284,8 @@ echo "==> generated web bundle merge driver installed (merge.cmux-generated-v1.d
 # lock (or a stage before its lock, seconds old): those keep the old rule (not the copy just replaced, nor any
 # younger than 10 minutes). `.link.` temporaries older than 10 minutes were left by a killed install (an install
 # takes seconds).
-"$PYTHON3_BIN" -I - "$TRUSTED_HOOK_DIR" "$PREVIOUS_CHECKS" <<'PY'
+# A -c argument, not a here-document (the install lock above says why); keep it free of single quotes.
+CLEANUP='
 import fcntl
 import os
 import shutil
@@ -301,7 +305,7 @@ def current():
 
 
 def gone(error):
-    # An install from before the install lock (an older checkout's copy of this script) removes old copies without
+    # An install from before the install lock (the copy of this script in an older checkout) removes old copies without
     # it; what it removed first is gone either way. Anything else is raised.
     if not isinstance(error, FileNotFoundError):
         raise error
@@ -361,4 +365,5 @@ for name in sorted(os.listdir(hook_dir)):
                 remove(claimed)
         finally:
             os.close(lock)
-PY
+'
+"$PYTHON3_BIN" -I -c "$CLEANUP" "$TRUSTED_HOOK_DIR" "$PREVIOUS_CHECKS"
