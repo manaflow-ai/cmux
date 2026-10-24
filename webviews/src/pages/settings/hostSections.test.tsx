@@ -129,6 +129,19 @@ test("Development shows only when the host is a DEV build, however it is reached
   }
 });
 
+test("Devices shows in NIGHTLY and Release builds too, from the sidebar and its deep link", async () => {
+  // Mac Screen's sharing switch, permissions and relays live only here; release builds use the
+  // built-in device hub, so a non-DEV host must still list and open the category.
+  const page = await renderPage({
+    path: "/settings/devices",
+    setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+  });
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("devices");
+  expect(page.container.querySelector('[data-section-link="devices"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+  page.unmount();
+});
+
 test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
   // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
   // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
