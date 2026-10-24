@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
 //! turn (`update` its prompt, or its text, which keeps its images; `move` it, `send_now` or
 //! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
-//! the queue's prompts names it). Every change is a record in the log, so a new daemon rebuilds
-//! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
+//! the queue's prompts names it, or none). Every change is a record in the log, so a new daemon
+//! rebuilds the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
 use super::queue::PromptRun;
 use super::*;
@@ -89,12 +89,14 @@ impl Hub {
         control: Control,
         trust_gate: bool,
     ) -> Result<Value, RpcError> {
+        let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // `resume` lets go of the whole queue: it needs no prompt to name it.
         let prompt_id = params
             .get("promptId")
             .and_then(Value::as_str)
             .filter(|p| !p.is_empty())
+            .or((op == "resume").then_some(""))
             .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
-        let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
             return Err(super::queue::moving_error());

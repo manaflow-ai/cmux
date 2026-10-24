@@ -180,9 +180,11 @@ impl Hub {
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
-        // `finish_turn` put them back already when the turn itself failed; this is any other way.
+        // `finish_turn` put them back already, held, when the turn itself failed, and a turn that
+        // ended before its prompt reached the agent (its agent could not start, or the turn was
+        // refused) put them back unheld: they get their own try. This is any other way.
         if result.is_err() {
-            self.requeue_joined(session, &joined);
+            self.requeue_joined(session, &joined, true);
         }
         joined.answer.send_replace(Some(result.clone()));
         result
@@ -368,6 +370,8 @@ impl Hub {
             Err(e) => {
                 self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
                 drop(guard);
+                // A turn that never started holds nothing: they get their own try.
+                self.requeue_joined(session, joined, false);
                 return Err(e);
             }
         };
@@ -380,12 +384,14 @@ impl Hub {
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
+            self.requeue_joined(session, joined, false);
             return Err(e);
         }
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
+            self.requeue_joined(session, joined, false);
             return Err(e);
         }
         if session.rehydrate.swap(false, Ordering::SeqCst)
@@ -425,8 +431,21 @@ impl Hub {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             self.forum_turn_end(session, &told, false);
             drop(guard);
+            self.requeue_joined(session, joined, false);
             return Err(e);
         }
+        // A prompt that cannot be put into blocks (a bad document, an attachment that cannot be
+        // written) is not sent: the turn ends refused, never left running.
+        let prompt_blocks = match acp_prompt_blocks(session, &blocks) {
+            Ok(prompt_blocks) => prompt_blocks,
+            Err(e) => {
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.forum_turn_end(session, &told, false);
+                drop(guard);
+                self.requeue_joined(session, joined, false);
+                return Err(e);
+            }
+        };
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Start title generation after the first prompt is written to the harness, while its
@@ -434,7 +453,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
+            json!({"sessionId": agent_sid, "prompt": prompt_blocks}),
             &turn_id,
             false,
             || self.title_after_prompt(session),
@@ -490,13 +509,20 @@ impl Hub {
                             // The new agent session gets every rule again.
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
+                        // A prompt that cannot be put into blocks is the turn's error, so
+                        // `finish_turn` settles it.
                         if let Some(sid2) = session.meta().agent_session_id {
-                            result = child2
-                                .request(
-                                    method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
-                                )
-                                .await;
+                            result = match acp_prompt_blocks(session, &blocks) {
+                                Ok(prompt) => {
+                                    child2
+                                        .request(
+                                            method::SESSION_PROMPT,
+                                            json!({"sessionId": sid2, "prompt": prompt}),
+                                        )
+                                        .await
+                                }
+                                Err(e) => Err(e),
+                            };
                         }
                     }
                     (Err(e2), _) => result = Err(e2),
@@ -603,7 +629,7 @@ impl Hub {
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
         if let (Err(_), Some(joined)) = (&result, joined) {
-            self.requeue_joined(session, joined);
+            self.requeue_joined(session, joined, true);
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
@@ -737,7 +763,8 @@ impl Hub {
     }
 
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
+    /// sees the prompt settle instead of a turn that never starts. It fails alone: the prompts
+    /// behind it are not held, each gets its own try.
     fn fail_unstarted_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -752,7 +779,6 @@ impl Hub {
             "turn_error",
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
-        self.pause_queue(session, turn_id);
         let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
