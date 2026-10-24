@@ -21,7 +21,7 @@ use super::*;
 
 /// The environment variable that carries the soft `RLIMIT_NOFILE` cmux
 /// started with.
-const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
+const NOFILE_SOFT_ENV: &str = cmux_pty::LAUNCH_SOFT_LIMIT_ENV;
 
 /// The environment a spawned host takes (nothing when the daemon did not
 /// raise its limit).

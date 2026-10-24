@@ -152,3 +152,28 @@ pub(crate) unsafe fn take_agent_caller_env() {
         unsafe { std::env::remove_var(key) };
     }
 }
+
+/// Take the open-file limit cmux was launched with
+/// (`cmux_tui_core::LAUNCH_SOFT_LIMIT_ENV`) out of this process's environment
+/// and record it as this owner's original limit. The cmux app, and a cmux
+/// process that raised its own limit, start an owner with a raised soft
+/// limit and name the launch limit here: without the record the owner's own
+/// raise finds nothing to change, records nothing, and every hook, plugin,
+/// daemon-local PTY and Chief brain it starts keeps the raised limit. Removed
+/// so no shell, hook or plugin inherits the variable; the holder and the
+/// terminal hosts get it from `original_open_file_limit` at spawn. A value
+/// that is not a number is dropped as well.
+///
+/// # Safety
+///
+/// As [`take_agent_caller_env`]: no other thread may exist yet.
+#[cfg(unix)]
+pub(crate) unsafe fn take_launch_open_file_limit() {
+    let name = cmux_tui_core::LAUNCH_SOFT_LIMIT_ENV;
+    let launch = std::env::var(name).ok().and_then(|value| value.trim().parse::<u64>().ok());
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { std::env::remove_var(name) };
+    if let Some(soft) = launch {
+        cmux_tui_core::record_original_open_file_limit(soft);
+    }
+}
