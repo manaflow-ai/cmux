@@ -294,6 +294,8 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    // The daemon's own save of config.json runs on its config writer's thread.
+    daemon.flush_writes();
     assert!(read_config().get("lastPermissionModeSetting").is_none(), "{}", read_config());
     let _ = std::fs::remove_dir_all(&dir);
 }

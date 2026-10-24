@@ -30,6 +30,10 @@ struct Queued {
 #[derive(Default)]
 struct State {
     queued: HashMap<String, Queued>,
+    /// The newest snapshot version accepted for each session, queued or already written: an
+    /// older snapshot that arrives after it (its caller raced a later save) is dropped, never
+    /// written over it.
+    newest: HashMap<String, u64>,
     /// The session whose record the thread is writing now.
     writing: Option<String>,
     stop: bool,
@@ -91,11 +95,13 @@ impl MetaWriter {
             return;
         }
         let mut state = self.lock();
-        let newer = state.queued.get(&meta.id).is_some_and(|q| q.version > version);
-        if !newer {
-            state.queued.insert(meta.id.clone(), Queued { meta, version, purged });
-            self.shared.work.notify_one();
+        let newest = state.newest.entry(meta.id.clone()).or_default();
+        if *newest > version {
+            return;
         }
+        *newest = version;
+        state.queued.insert(meta.id.clone(), Queued { meta, version, purged });
+        self.shared.work.notify_one();
     }
 
     /// Waits until every save queued before this call is on disk.
@@ -140,6 +146,7 @@ impl Forget {
     pub(crate) fn forget(&self, id: &str) {
         let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
         state.queued.remove(id);
+        state.newest.remove(id);
         while state.writing.as_deref() == Some(id) {
             state = self.0.written.wait(state).unwrap_or_else(|e| e.into_inner());
         }
@@ -267,6 +274,14 @@ mod tests {
         writer.queue(&*store, meta("s1", "older"), older, purged.clone());
         writer.flush();
         assert_eq!(store.load("s1").unwrap().unwrap().name, "newer");
+        // Also once the newer one was written and left the queue.
+        let oldest = writer.next_version();
+        let newest = writer.next_version();
+        writer.queue(&*store, meta("s2", "newest"), newest, purged.clone());
+        writer.flush();
+        writer.queue(&*store, meta("s2", "oldest"), oldest, purged.clone());
+        writer.flush();
+        assert_eq!(store.load("s2").unwrap().unwrap().name, "newest");
     }
 
     #[test]
