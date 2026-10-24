@@ -77,7 +77,9 @@ def main():
         tap = os.path.join(HERE, "notify-tap.mjs")
         if subprocess.run(["pgrep", "-f", f"notify-tap.mjs {TAP_PORT}"], capture_output=True).returncode != 0:
             log = open(os.path.join(RIG, "notify-tap.log"), "a")
-            subprocess.Popen(["node", tap, str(TAP_PORT), CAPTURE], stdout=log, stderr=log, start_new_session=True)
+            # PUSHRIG_UPSTREAM: another cmux-mobile-api (a local `wrangler dev` of a branch's Worker).
+            upstream = [os.environ["PUSHRIG_UPSTREAM"]] if os.environ.get("PUSHRIG_UPSTREAM") else []
+            subprocess.Popen(["node", tap, str(TAP_PORT), CAPTURE, *upstream], stdout=log, stderr=log, start_new_session=True)
         t0 = m.launch(timeout=180)
         ok = m.wait_hostd(timeout=180)
         print(json.dumps({"pid": m.pid, "hostd": ok, "t0": t0}))

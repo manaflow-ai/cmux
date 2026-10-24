@@ -36,13 +36,19 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
     public var conversationId: String?
     public var workspaceId: String?
     public var tabId: String?
+    /// The daemon ledger id of a terminal notification (its reply goes to that terminal).
+    public var notificationId: String?
     public var eventId: String?
+    /// From a sealed push: what a mailbox Allow signs (`PushPayload`).
+    public var decisionNonce: String?
+    public var personInstance: String?
     public var action: Action
     public var createdAt: Date
 
     public init(id: UUID = UUID(), mac: String, macName: String? = nil, kind: PushKind, sessionId: String? = nil,
                 permissionId: String? = nil, conversationId: String? = nil, workspaceId: String? = nil, tabId: String? = nil,
-                eventId: String? = nil, action: Action, createdAt: Date = Date()) {
+                eventId: String? = nil, notificationId: String? = nil, decisionNonce: String? = nil, personInstance: String? = nil,
+                action: Action, createdAt: Date = Date()) {
         self.id = id
         self.mac = mac
         self.macName = macName
@@ -53,6 +59,9 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         self.workspaceId = workspaceId
         self.tabId = tabId
         self.eventId = eventId
+        self.notificationId = notificationId
+        self.decisionNonce = decisionNonce
+        self.personInstance = personInstance
         self.action = action
         self.createdAt = createdAt
     }
@@ -62,7 +71,8 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         guard let mac = payload.mac else { return nil }
         self.init(id: id, mac: mac, macName: payload.macName, kind: payload.kind, sessionId: payload.sessionId,
                   permissionId: payload.permissionId, conversationId: payload.conversationId, workspaceId: payload.workspaceId,
-                  tabId: payload.tabId, eventId: payload.eventId, action: action, createdAt: now)
+                  tabId: payload.tabId, eventId: payload.eventId, notificationId: payload.notificationId,
+                  decisionNonce: payload.decisionNonce, personInstance: payload.personInstance, action: action, createdAt: now)
     }
 
     /// The reply a notification button means, or nil for the default tap,
@@ -82,6 +92,9 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         case .deny:
             action = .deny(optionID: payload.options.first(where: { $0.kind == .rejectOnce })?.id ?? payload.options.first(where: \.isReject)?.id)
         case .reply, .terminalReply:
+            // A terminal takes text only when its poster asked for a reply.
+            if button == .terminalReply, payload.kind != .terminal || !payload.replyable || payload.notificationId == nil { return nil }
+            if button == .reply, payload.kind == .terminal { return nil }
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             action = .text(trimmed, attachments: [])
