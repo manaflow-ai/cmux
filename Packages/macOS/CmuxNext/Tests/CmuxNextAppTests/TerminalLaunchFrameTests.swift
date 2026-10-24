@@ -1,5 +1,7 @@
 import AppKit
+@testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextLaunch
 @testable import CmuxNextTerminal
 import Dispatch
@@ -139,5 +141,32 @@ import Testing
         for await _ in shown { break }
         #expect(pane.content.alphaValue == 1, "the pane shows its terminal's last frame once it is decoded")
         #expect(pane.held?.frame.size == pane.session.surfaceView.frame.size)
+    }
+
+    /// #17587 review: the launch's frames are the store its services hand to the pane builds and the
+    /// quit (`LaunchFiles.terminalFrames`), not a process-wide registry keyed by the state URL. Before,
+    /// a second launch graph on the same state directory got the first one's store back, so a frame
+    /// one had handed out was gone for the other, and each one's `onLateFrameShown` replaced the
+    /// other's.
+    @Test func eachLaunchsFramesAreItsOwnStore() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        let other = Pane(reveal: reveal)
+        defer { pane.close(); other.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let state = FileManager.default.temporaryDirectory.appending(path: "launch-files-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: state) }
+        let size = pane.session.surfaceView.bounds.size
+        await TerminalLaunchFrames(directory: TerminalLaunchFrames.directory(beside: state))
+            .save(images: ["tab-1": Self.frame(size, scale: pane.window.backingScaleFactor)])
+        let home = ChiefHome(root: state.appending(path: "chief"), isolated: false, buildID: ChiefHome.nightlyBundleID)
+        let first = LaunchFiles(state: state, chiefHome: home)
+        let second = LaunchFiles(state: state, chiefHome: home)
+        await first.terminalFrames.decoded()
+        await second.terminalFrames.decoded()
+        #expect(first.terminalFrames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(second.terminalFrames.show("tab-1", on: other.session, in: other.content, reveal: reveal),
+                "another launch graph's store handed out this one's frame")
     }
 }
