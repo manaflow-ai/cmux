@@ -190,12 +190,11 @@ public final class CEFEngine: BrowserEngine {
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
     public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
-    /// The extensions of `profile`, once Chromium runs (nil before).
+    /// The extensions of `profile`, once Chromium runs (nil before). Filled once; Chromium's events
+    /// keep it current, so a read costs no Chromium call (``CEFExtensionStores/readyStore(for:)``).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
         guard isRunning else { return nil }
-        let store = CEFRuntime.shared.extensionStores.store(for: profile)
-        store.refresh()
-        return store
+        return CEFRuntime.shared.extensionStores.readyStore(for: profile)
     }
 
     /// Sets `profile`'s proxy (nil: direct, #24432). A page made later uses it from its

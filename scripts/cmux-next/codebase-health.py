@@ -8,9 +8,10 @@ Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor
 with stale references, and script and workflow counts. Reads the working tree's tracked files only.
 
 The singleton, global-static, assumeIsolated, broadcast-name and observer rows and the layer edges are
-scripts/cmux-next/arch_counts.py's (count_texts(), layers(), observer_calls()): the definitions
-plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the three reports never disagree. An
-observer site is a `MainActorObservation(` wrapper call too, and a call may span lines.
+scripts/cmux-next/arch_counts.py's (count_texts(), layers(), observer_registrations()): the definitions
+plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the reports never disagree. An observer is a
+registration, counted through wrappers such as `MainActorObservation(` (each use of a wrapper that a caller
+configures counts, the wrapper's own body does not), and a call may span lines.
 
   scripts/cmux-next/codebase-health.py           # print the report
   scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md
@@ -65,8 +66,8 @@ ARCH_CATEGORIES = (
      "a static or file-scope var, lock or cache: state no owner injects"),
     ("assume_isolated", "`MainActor.assumeIsolated`", "assume_isolated_total", "assume_isolated_outside_adapters",
      "traps off main; allowed only in a small seam adapter with `// main-proof: <why>`"),
-    ("observers", "NotificationCenter observers (call sites, `MainActorObservation(` wrapper and KVO included; "
-     "arch_counts `observer_sites`)", "observer_sites", None, "each one wakes on every post of its name"),
+    ("observers", "NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, "
+     "KVO included; arch_counts `observer_sites`)", "observer_sites", None, "each one wakes on every post of its name"),
     ("notification_names", "custom `Notification.Name` declarations (arch_counts `app_broadcast_names`)",
      "app_broadcast_names", None, "a broadcast signal: every observer reacts, O(all)"),
 )
@@ -155,7 +156,6 @@ def scan(repo: Path) -> dict:
     texts: dict[str, list[str]] = {}
     raw: dict[str, str] = {}
     compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES]
-    sites: dict[str, list[ObserverSite]] = {}
     blanked: dict[str, str] = {}
     for path in files:
         try:
@@ -166,7 +166,6 @@ def scan(repo: Path) -> dict:
         lines = text.split("\n")
         texts[path] = lines
         blanked[path] = ARCH.strip(text)
-        sites[path] = observer_sites(blanked[path])  # section 2; section 1's row is arch_counts' observer_sites
         lines_per_module[module_of(path)] += text.count("\n") + (0 if text.endswith("\n") or not text else 1)
         for index, line in enumerate(lines):
             code = strip_comment(line)
@@ -183,7 +182,9 @@ def scan(repo: Path) -> dict:
             return (repo / rel).read_text(encoding="utf-8")
         except OSError:
             return None
-    arch, edges = ARCH.count_texts(raw, read(ARCH.MANIFEST), read(ARCH.LAYERS_JSON))
+    observers = ARCH.observer_registrations(raw)  # one resolution for section 1's row and section 2's names
+    sites = observer_sites(observers, blanked)
+    arch, edges = ARCH.count_texts(raw, read(ARCH.MANIFEST), read(ARCH.LAYERS_JSON), observers)
     for cid, _, row, waiver_row, _ in ARCH_CATEGORIES:
         for site in arch.sites[row]:
             hits[cid][site.path] += 1
@@ -195,42 +196,45 @@ def scan(repo: Path) -> dict:
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
 OBSERVED_NAME = re.compile(r"\b(?:forName|named|name|for):\s*([\w.]+)")
-# CmuxNextCompat's main-actor NotificationCenter observer: the name is its first, unlabeled argument.
-WRAPPED = re.compile(r"\s*([\w.]+)")
+# A wrapper call such as `MainActorObservation(name, ...)`: the name is its first, unlabeled argument.
+WRAPPED = re.compile(r"\s*([\w.]+)\s*(?:,|$)")
 
 
 
 class ObserverSite(NamedTuple):
-    """One observer call: its first and last 0-based line, the notification name it observes ("?" when the
-    arguments do not name one), whether that name is a variable (a bare identifier such as a loop's `name`, not
-    `.paneMoved` or `Type.member`) and whether it observes every sender (no `object:` argument, or `object: nil`)."""
+    """One counted registration statement (a raw call, or a use of a wrapper): its first and last 0-based line, the
+    notification name it observes ("?" when the arguments do not name one), whether that name is a variable (a
+    bare identifier such as a loop's `name`, not `.paneMoved` or `Type.member`), whether it observes every sender
+    (no `object:` argument, or `object: nil`) and how many registrations it makes (arch_counts' count for it: a
+    wrapper's per-call count, times the elements of a literal loop it uses)."""
     first: int
     last: int
     name: str
     variable: bool
     every_sender: bool
+    count: int = 1
 
 
-def observer_sites(code: str) -> list[ObserverSite]:
-    """The observer sites arch_counts counts in CODE (`ARCH.strip`'s text: comments and string contents
-    blanked, same length, so a call's parentheses balance and offsets keep their lines)."""
-    found = []
-    for match in ARCH.observer_calls(code):
-        open_paren = code.index("(", match.start())
-        depth, close = 0, len(code)
-        for i in range(open_paren, len(code)):
-            depth += {"(": 1, ")": -1}.get(code[i], 0)
-            if depth == 0:
-                close = i
-                break
-        arguments = code[open_paren + 1:close]
-        named = (WRAPPED.match(arguments) if match.group(0).startswith("MainActorObservation")
-                 else OBSERVED_NAME.search(arguments))
-        # NotificationCenter's `object:` defaults to nil (every sender) in every form that may omit it.
-        every = "object:" not in arguments or re.search(r"\bobject:\s*nil\b", arguments) is not None
-        raw = named.group(1) if named else "?"
-        found.append(ObserverSite(code.count("\n", 0, match.start()), code.count("\n", 0, close),
-                                  raw.split(".")[-1], raw != "?" and "." not in raw, every))
+def observer_sites(observers, blanked: dict[str, str]) -> dict[str, list[ObserverSite]]:
+    """The registrations arch_counts counts (OBSERVERS: `ARCH.observer_registrations`), per file. BLANKED is each
+    file's `ARCH.strip` text (comments and string contents blanked, same length, so offsets keep their lines)."""
+    found: dict[str, list[ObserverSite]] = {}
+    for path, hits in observers.hits.items():
+        code = blanked[path]
+        for reg, count in hits:
+            end = reg.end if reg.end > reg.pos else reg.pos
+            open_paren = code.find("(", reg.pos, end)
+            arguments = code[open_paren + 1:ARCH._closing(code, open_paren)] if open_paren >= 0 else ""
+            if reg.kind == "raw":
+                named = OBSERVED_NAME.search(arguments)
+            else:  # a wrapper: its first, unlabeled argument when it has one
+                named = WRAPPED.match(arguments) if reg.kind == "call" and reg.args and not reg.args[0][0] else None
+            # NotificationCenter's `object:` defaults to nil (every sender) in every form that may omit it.
+            every = "object:" not in arguments or re.search(r"\bobject:\s*nil\b", arguments) is not None
+            raw = named.group(1) if named else "?"
+            found.setdefault(path, []).append(ObserverSite(
+                code.count("\n", 0, reg.pos), code.count("\n", 0, end), raw.split(".")[-1],
+                raw != "?" and "." not in raw, every, count))
     return found
 
 
@@ -257,15 +261,18 @@ def notification_report(code_of: dict[str, str], sites_of: dict[str, list[Observ
     any_name = re.compile(r"\.(" + "|".join(re.escape(n) for n in sorted(names)) + r")\b") if names else None
     for path, sites in sites_of.items():
         for site in sites:
-            for name in attributed_names(site, lines_of[path], names, any_name):
+            attributed = attributed_names(site, lines_of[path], names, any_name)
+            # A statement that names several observed names registers once per name; one name gets them all.
+            each = 1 if len(attributed) > 1 else site.count
+            for name in attributed:
                 entry = observed.setdefault(name, [0, []])
-                entry[0] += 1
+                entry[0] += each
                 if is_view[path] and path not in entry[1]:
                     entry[1].append(path)
                 if name in stats:
                     row = stats[name]
-                    row[0] += 1
-                    row[1] += site.every_sender
+                    row[0] += each
+                    row[1] += each if site.every_sender else 0
                     if is_view[path] and path not in row[3]:
                         row[3].append(path)
     for path, code in lines_of.items():

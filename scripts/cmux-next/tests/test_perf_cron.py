@@ -33,10 +33,12 @@ def confirm_all(state, regs, cur, run_url, t, regression):
 
 
 class OneRunRule(unittest.TestCase):
+    """One run opens a regression and one run closes it (RECOVER_RUNS 1): ConfirmTests test both rules."""
+
     def setUp(self):
-        patcher = mock.patch.object(cron, "confirm_regressions", confirm_all)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (mock.patch.object(cron, "confirm_regressions", confirm_all), mock.patch.object(cron, "RECOVER_RUNS", 1)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
 
 class DecideTests(unittest.TestCase):
@@ -1275,13 +1277,86 @@ class ConfirmTests(unittest.TestCase):
 
     def test_one_outlier_in_the_baseline_does_not_absorb_a_step(self):
         # Review 1 of the confirm rule, finding 2: with the max of the baseline as its spread, one noisy 34 in the last
-        # good values let a step to 33 in as "within the spread", and the median followed it.
+        # good values let a step to 33 in as "within the spread", and the median followed it. A candidate never enters
+        # the baseline, so the median stays; 33 is under the baseline's max, which no noise-free shift needs to pass
+        # (review 2 of 8af6ea46de5, finding 1), so REF_RUNS candidates in a row confirm it, from the first of them.
+        self.measured(19.5)
+        self.state["row_history"][self.NAME] = [{"at": cron.iso(at(-h)), "p95": v, "sha": c * 40} for h, v, c in
+                                                ((5, 19.5, "a"), (4, 20.0, "b"), (3, 34.0, "c"), (2, 20.5, "d"), (1, 19.8, "e"))]
+        ok = self.state["row_ok"][self.NAME]
+        self.assertEqual(self.measured(33.0), "good")
+        first = self.state["history"][-1]["sha"]
+        for _ in range(cron.REF_RUNS - 2):
+            self.assertEqual(self.measured(33.0), "good")
+        self.assertEqual(self.measured(33.0), "regressed")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["range"]["good"], reg["first_bad"]["sha"]), (ok, first))
+        self.assertEqual(self.values(), [19.5, 20.0, 34.0, 20.5, 19.8], "the step never entered the baseline")
+
+    def test_an_outlier_in_a_short_baseline_holds_a_step_until_ref_runs_candidates(self):
+        # Under REF_RUNS values the spread top is the max (34): 33 is inside it and never above it, so neither the
+        # spread rule nor CONFIRM_SAMPLES values above the max confirm it; REF_RUNS candidates in a row do, from the
+        # first of them (held forever otherwise: a held value never enters the baseline, so the 34 never leaves it).
         self.measured(19.5)
         self.state["row_history"][self.NAME] = [{"at": cron.iso(at(-h)), "p95": v, "sha": c * 40}
                                                 for h, v, c in ((3, 19.5, "a"), (2, 20.0, "b"), (1, 34.0, "c"))]
+        ok = self.state["row_ok"][self.NAME]
         self.assertEqual(self.measured(33.0), "good")
+        first = self.state["history"][-1]["sha"]
+        for _ in range(cron.REF_RUNS - 2):
+            self.assertEqual(self.measured(33.0), "good")
         self.assertEqual(self.measured(33.0), "regressed")
-        self.assertEqual(self.state["regressions"][0]["range"]["good"], self.state["row_ok"][self.NAME])
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["range"]["good"], reg["first_bad"]["sha"]), (ok, first))
+        self.assertIn(f"{cron.REF_RUNS} tip measurements in a row", reg["why"])
+
+    def test_three_values_inside_a_noisy_baseline_do_not_open_a_regression(self):
+        # Review 2 of 8af6ea46de5, finding 1: baseline [19, 20, 20.5, 22, 23] (median 20.5, floor 1.0) makes any value
+        # over 22.55 a candidate; 22.7, 23.0, 22.8 are each at or under the baseline's max, which its own noise
+        # reached, so they show no shift. They are held, not confirmed, and the baseline is not restarted.
+        name = "cmd_d.e2e@cmux21"
+        motion = {"motion": {"state": "done"}}
+        self.measured(20.0, name, row(20.0, floor=1.0), parts=motion)
+        self.state["row_history"][name] = [{"at": cron.iso(at(-h)), "p95": v, "sha": c * 40} for h, v, c in
+                                           ((5, 19.0, "a"), (4, 20.0, "b"), (3, 20.5, "c"), (2, 22.0, "d"), (1, 23.0, "e"))]
+        for v in (22.7, 23.0, 22.8):
+            self.assertEqual(self.measured(v, name, row(v, floor=1.0), parts=motion), "good")
+        self.assertEqual(self.names("regressions"), [])
+        self.assertEqual(len(self.state["pending"][name]["values"]), 3)
+        self.assertEqual(self.state.get("baseline_restarts") or [], [])
+        self.assertTrue(self.state["unconfirmed"][0]["why"].startswith("within the baseline's values"))
+        self.assertEqual(self.measured(21.0, name, row(21.0, floor=1.0), parts=motion), "good", "noise again")
+        self.assertNotIn(name, self.state["pending"])
+
+    def test_a_count_row_with_one_dropped_frame_in_its_baseline_needs_more_than_two_ones(self):
+        # Review 2 of 8af6ea46de5, finding 1: baseline [0, 0, 1, 0, 0] has spread top 0, so two runs with one dropped
+        # frame opened a regression although the baseline holds a 1. They are no shift; REF_RUNS in a row are.
+        name = "panes.split.4x2.missed@" + cron.BENCH_WORKER
+
+        def missed(n):
+            return {**row(n, "frames", floor=cron.COUNT_FLOOR, budget=0), "refresh_ms": 8.33}
+        self.measured(0, name, missed(0), parts={"motion": {"state": "done"}})
+        self.state["row_history"][name] = [{"at": cron.iso(at(-h)), "p95": v, "sha": c * 40}
+                                           for h, v, c in ((5, 0, "a"), (4, 0, "b"), (3, 1, "c"), (2, 0, "d"), (1, 0, "e"))]
+        for _ in range(cron.REF_RUNS - 1):
+            self.assertEqual(self.measured(1, name, missed(1), parts={"motion": {"state": "done"}}), "good")
+        self.assertEqual(self.measured(1, name, missed(1), parts={"motion": {"state": "done"}}), "regressed")
+        self.assertEqual(self.measured(2, name, missed(2), parts={"motion": {"state": "done"}}), "still")
+
+    def test_a_short_baseline_with_one_noisy_value_is_not_confirmed_by_two_runs_inside_it(self):
+        # Review 1 of 8af6ea46de5, finding 6: with 3 values the second-highest is the median, so 2 candidates confirmed
+        # with no spread margin. 22.4 (+12 %) is the max of the baseline; 22.2 (+11 %) twice is inside it.
+        name = "cmd_d.e2e@cmux21"
+
+        def r(v):
+            return row(v, floor=1.0)
+        self.measured(20.0, name, r(20.0), parts={"motion": {"state": "done"}})
+        self.state["row_history"][name] = [{"at": cron.iso(at(-h)), "p95": v, "sha": c * 40}
+                                           for h, v, c in ((3, 20.0, "a"), (2, 20.0, "b"), (1, 22.4, "c"))]
+        for _ in range(2):
+            self.assertEqual(self.measured(22.2, name, r(22.2), parts={"motion": {"state": "done"}}), "good")
+        self.assertEqual(self.names("regressions"), [])
+        self.assertIn(name, self.state["pending"])
 
     def test_a_candidate_never_moves_row_ok_or_the_baseline(self):
         # Review 1, finding 4: row_ok moved with every unconfirmed value, so a later confirmation blamed a newer commit.
@@ -1303,28 +1378,59 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(self.measured(1, name, missed(1)), "regressed")
         self.assertEqual(self.values(name), [0, 0, 0])
 
-    def test_a_diff_row_inside_its_own_floor_of_the_spread_is_not_confirmed(self):
-        # diff.stream.p95's floor is 10 ms: 35.5 is a candidate against the median 25 (+10.5) but only 9.5 ms over the
-        # spread's top (26), so twice is no regression; a third time is a listed level change.
+    def test_a_sustained_step_inside_the_spread_confirms_on_the_third_run(self):
+        # diff.stream.p95's floor is 10 ms: 35.5 is a candidate against the median 25 (+42 %, 10.5 ms) but only 9.5 ms
+        # over the spread's top (26), so twice is no regression; a third time in a row against a full baseline is
+        # (review 1 of 8af6ea46de5, finding 1: it restarted the baseline from the step and opened nothing).
         for v in (20.0, 20.0, 25.0, 26.0, 30.0):
             self.measured(v)
+        ok = self.state["row_ok"][self.NAME]
         self.assertEqual(self.values(), [20.0, 20.0, 25.0, 26.0, 30.0])
         self.measured(35.5)
+        first = self.state["history"][-1]["sha"]
         self.assertEqual(self.measured(35.5), "good")
         self.assertEqual(self.names("regressions"), [])
-        self.measured(35.5)
-        self.assertEqual(self.values(), [35.5, 35.5, 35.5])
-        self.assertEqual(self.state["baseline_restarts"][-1]["name"], self.NAME)
+        self.assertEqual(self.measured(35.5), "regressed")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["range"]["good"], reg["range"]["bad"], reg["first_bad"]["sha"]), (ok, first, first))
+        self.assertEqual(self.values(), [20.0, 20.0, 25.0, 26.0, 30.0], "the step never entered the baseline")
+        self.assertEqual(self.state.get("baseline_restarts") or [], [])
 
-    def test_a_failed_part_between_two_candidates_still_confirms(self):
-        # Review 2 of the confirm rule, finding 2: on a busy host a part alternates between done and failed; a tip whose
-        # part failed does not judge the row and keeps it held, so done-failed-done confirms.
-        for v in (19.5, 20.0, 21.0, 45.0):
+    def test_one_run_within_the_threshold_does_not_close_a_regression_or_move_its_range_start(self):
+        # Review 1 of 8af6ea46de5, finding 5: one lucky run closed the regression and moved row_ok to itself, so the
+        # next confirmation's range started after the culprit (and the issue closed and reopened).
+        for v in (19.5, 20.0, 21.0):
             self.measured(v)
-        self.assertEqual(self.measured(None, parts={"diff-viewer": {"state": "failed"}}), "empty")
-        self.assertIn(self.NAME, self.state["pending"])
+        ok = self.state["row_ok"][self.NAME]
+        self.measured(45.0)
+        first = self.state["history"][-1]["sha"]
         self.assertEqual(self.measured(46.0), "regressed")
-        self.assertEqual(self.state["regressions"][0]["first_bad"]["sha"], "4" * 40)
+        self.assertEqual(self.measured(20.0), "still", "one run within the threshold leaves it open")
+        self.assertEqual((self.state["row_ok"][self.NAME], self.values()), (ok, [19.5, 20.0, 21.0]))
+        self.assertIn("1 of the 2 runs", cron.issue_body(self.state, "o/r", at(self.n)))
+        self.assertEqual(self.measured(46.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["range"]["good"], reg["first_bad"]["sha"]), (ok, first), "the range still starts before it")
+        self.assertNotIn("recovering", reg, "worse again ends the recovery")
+        self.assertEqual(self.measured(20.0), "still")
+        self.assertEqual(self.measured(20.5), "recovered", "the second run in a row within the threshold closes it")
+        self.assertEqual(self.values(), [19.5, 20.0, 21.0, 20.0, 20.5], "both recovery runs are good values")
+        self.assertEqual(self.state["row_ok"][self.NAME], self.state["history"][-1]["sha"])
+
+    def test_two_candidates_on_one_host_30_hours_apart_still_confirm(self):
+        # Review 2 of 8af6ea46de5, finding 3: a 24 h wall-clock limit reset the streak of every row of a busy host
+        # whose tip runs finish more than a day apart (a measurement may take ABANDON_WALL_HOURS; bisect steps run
+        # between tips), so a real step there never confirmed. Consecutive runs on the host are the streak, whatever
+        # their gap; the range from row_ok to the first of them holds the culprit.
+        for v in (19.5, 20.0, 21.0):
+            self.measured(v)
+        ok = self.state["row_ok"][self.NAME]
+        self.measured(45.0)
+        first = self.state["history"][-1]["sha"]
+        self.n += 30
+        self.assertEqual(self.measured(46.0), "regressed")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["range"]["good"], reg["first_bad"]["sha"]), (ok, first))
 
     def names(self, key):
         return [r["name"] for r in self.state.get(key) or []]
@@ -1335,15 +1441,17 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(self.names("regressions"), [])
         self.assertEqual(self.names("unconfirmed"), ["diff.stream.p95"])
         self.assertIn("1 of 3 values", self.state["unconfirmed"][0]["why"])
-        self.assertEqual(len(self.state["row_history"]["diff.stream.p95"]), 1,
-                         "a building baseline takes no regressed value (review 2 of the host-keyed rows)")
+        # Review 2 of 8af6ea46de5, finding 5: the rule cannot judge a value against fewer than CONFIRM_SAMPLES, so a
+        # building baseline takes it (holding it restarted the baseline later, a false alarm for a person).
+        self.assertEqual(self.values(), [19.5, 32.9])
+        self.assertEqual(self.state["pending"], {})
 
     def test_a_value_within_the_baseline_spread_is_unconfirmed(self):
         for v in (20.0, 21.0, 30.0, 31.0):  # each within the 10 ms floor of its reference then: baseline values
             self.measured(v)
         self.assertEqual(self.measured(36.0), "good", "above the median (25.5) by 10 % and the floor, under the spread top (30) + floor")
         self.assertEqual(self.names("regressions"), [])
-        self.assertEqual(self.state["unconfirmed"][0]["why"], "within the baseline's spread; held out of it")
+        self.assertTrue(self.state["unconfirmed"][0]["why"].startswith("within the baseline's values (its max 31)"))
         self.assertEqual(len(self.state["row_history"]["diff.stream.p95"]), 4, "a candidate is never a baseline value")
 
     def test_outside_the_spread_once_waits_and_twice_regresses_from_the_first(self):
@@ -1371,19 +1479,33 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(self.names("regressions"), [])
         self.assertEqual(self.measured(45.0), "good", "a later spike starts again from one")
 
-    def test_every_regression_from_before_the_rule_is_held_and_judged_by_the_next_tip(self):
-        # Review 1, finding 9: the migration checked only the count of baseline values.
-        state = {"schema": cron.SCHEMA, "last_good": {"sha": "a" * 40, "rows": {self.KEYED: row(19.5)}},
-                 "row_history": {self.KEYED: [{"at": cron.iso(at(-h)), "p95": 19.5 + h / 10} for h in (3, 2, 1)]},
-                 "regressions": [{"name": self.KEYED, "p95": 45.0, "base": 19.5, "unit": "ms",
-                                  "range": {"good": "a" * 40, "bad": "b" * 40},
-                                  "first_bad": {"sha": "b" * 40, "measured_at": cron.iso(T0)}}]}
+    def test_a_regression_from_before_the_rule_stays_open_with_its_range_when_the_next_run_misses_its_row(self):
+        # Review 1 of 8af6ea46de5, finding 3: the migration made it a pending value dated at its first_bad; the first
+        # tip run that did not judge the row (its part failed, another part on the host was done) or a day without
+        # one dropped it with its range, bisect steps and open issue.
+        x, p = "cmd_d.e2e@cmux21", "palette.open.e2e@cmux21"
+        rng = {"good": "a" * 40, "bad": "b" * 40, "skip": ["c" * 40], "steps": 2}
+        state = {"schema": cron.SCHEMA, "last_good": {"sha": "a" * 40, "measured_at": cron.iso(at(-72)), "rows": {x: row(19.5), p: row(5.0)}},
+                 "row_history": {x: [{"at": cron.iso(at(-h)), "p95": v} for h, v in ((73, 19.4), (72, 19.5), (71, 19.6))],
+                                 p: [{"at": cron.iso(at(-h)), "p95": 5.0} for h in (73, 72, 71)]},
+                 "row_ok": {x: "a" * 40, p: "a" * 40},
+                 "regressions": [{"name": x, "p95": 45.0, "base": 19.5, "unit": "ms", "range": dict(rng),
+                                  "first_bad": {"sha": "b" * 40, "measured_at": cron.iso(at(-70))}}]}
         self.state = cron.migrate_state(state)
-        self.assertEqual(self.state["regressions"], [])
-        self.assertEqual(self.state["pending"][self.KEYED]["values"][0]["sha"], "b" * 40)
+        self.assertEqual([(r["name"], r["confirmed"], r["range"]) for r in self.state["regressions"]], [(x, True, rng)])
+        self.assertEqual(self.state["pending"], {})
+        self.assertTrue(cron.issue_plan(self.state, None, T0, True, True, False)["open"])
         self.n = 5
-        self.assertEqual(self.measured(46.0, self.KEYED), "regressed", "the held value and the next one confirm it")
-        self.assertEqual(self.state["regressions"][0]["first_bad"]["sha"], "b" * 40)
+        both = {"motion": {"state": "failed"}, "switch": {"state": "done"}}
+        self.assertEqual(self.measured(5.0, p, row(5.0, floor=1.0), parts=both), "still")
+        self.assertEqual([(r["name"], r["range"]) for r in self.state["regressions"]], [(x, rng)])
+        self.n += 30
+        self.assertEqual(self.measured(46.0, x, row(46.0, floor=1.0), parts={"motion": {"state": "done"}}), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["range"], reg["first_bad"]["sha"]), (rng, "b" * 40))
+        for v, event in ((19.6, "still"), (19.7, "recovered")):
+            self.assertEqual(self.measured(v, x, row(v, floor=1.0), parts={"motion": {"state": "done"}}), event,
+                             "a noisy one closes by the normal rule")
 
     def test_an_old_single_value_pending_entry_becomes_a_streak_and_bad_shas_are_dropped(self):
         state = {"schema": cron.SCHEMA, "pending": {self.KEYED: {"sha": "b" * 40, "p95": 40.0, "at": cron.iso(T0)},
@@ -1394,19 +1516,24 @@ class ConfirmTests(unittest.TestCase):
         self.assertNotIn("x.e2e", state["pending"])
         self.assertIn("1 pending entries", dropped)
 
-    def test_an_open_regression_from_before_the_rule_with_one_value_becomes_unconfirmed(self):
+    def test_a_history_commit_off_the_branch_loses_its_sha_and_cannot_start_a_creep_range(self):
+        # Review 2 of 8af6ea46de5, finding 9: creep_range_good takes range.good from the history shas; one not on the
+        # branch stored a regression that the next load's sanitize_state dropped whole (the issue could close).
+        state = {"schema": cron.SCHEMA, "row_history": {self.KEYED: [{"at": cron.iso(T0), "p95": 20.0, "sha": "c" * 40},
+                                                                     {"at": cron.iso(T0), "p95": 20.5, "sha": "d" * 40}]}}
+        dropped = cron.sanitize_state(state, lambda s: s == "d" * 40)
+        self.assertEqual([e.get("sha") for e in state["row_history"][self.KEYED]], [None, "d" * 40])
+        self.assertEqual([e["p95"] for e in state["row_history"][self.KEYED]], [20.0, 20.5], "the values stay")
+        self.assertIn("1 row_history commits", dropped)
+
+    def test_an_open_regression_from_before_the_rule_with_one_value_stays_open_under_its_new_name(self):
         state = {"schema": cron.SCHEMA, "last_good": {"sha": "a" * 40, "rows": {"diff.stream.p95": row(19.5)}},
                  "row_history": {"diff.stream.p95": [{"at": cron.iso(T0), "p95": 19.5}]},
                  "regressions": [{"name": "diff.stream.p95", "p95": 32.87, "base": 19.5, "unit": "ms",
                                   "range": {"good": "a" * 40, "bad": "b" * 40}, "first_bad": {"sha": "b" * 40}}]}
         state = cron.migrate_state(state)
-        self.assertEqual(state["regressions"], [])
-        self.assertEqual([u["name"] for u in state["unconfirmed"]], ["diff.stream.p95@" + cron.LEGACY_LINUX_CLASS],
-                         "renamed to its runner class first")
-        self.assertEqual(cron.issue_plan(state, None, T0, True, True, False), {"open": False, "comment": "recovered"})
-        body = cron.issue_body(state, "o/r", T0)
-        self.assertIn("Unconfirmed (1 row(s), not a regression)", body)
-        self.assertIn("No confirmed regression.", body)
+        self.assertEqual([r["name"] for r in state["regressions"]], [self.KEYED], "renamed to its runner class first")
+        self.assertEqual(cron.issue_plan(state, None, T0, True, True, False), {"open": True, "comment": None})
 
 
 class MeasureVersionTests(unittest.TestCase):
@@ -1940,11 +2067,11 @@ class PendingAndBuildingTests(unittest.TestCase):
         self.state = cron.empty_state(T0)
         self.n = 0
 
-    def measured(self, rows, hours=None):
+    def measured(self, rows, hours=None, parts=None):
         self.n += 1
         t = at(hours if hours is not None else self.n)
         self.state["current"] = cron.new_measurement((format(self.n, "x") * 40)[:40], "tip", [], t)
-        self.state["current"]["parts"] = {"motion": {"state": "done"}}
+        self.state["current"]["parts"] = parts or {"motion": {"state": "done"}}
         rows = {k: row(v, floor=1.0) for k, v in rows.items()}
         return cron.finish_measurement(self.state, rows, None, "h", f"u{self.n}", t, budgets_mod)
 
@@ -1971,29 +2098,121 @@ class PendingAndBuildingTests(unittest.TestCase):
         self.assertEqual(self.measured({self.X: 41.0}), "good", "one value outside the spread again, not two in a row")
         self.assertIn(self.X, self.state["pending"])
 
-    def test_a_pending_value_expires_after_a_day(self):
+    def test_a_failed_part_between_two_candidates_still_confirms(self):
+        # Review 2 of the confirm rule, finding 2: on a busy host a part alternates between done and failed. A tip
+        # whose other part on the row's host was done but whose own part failed did not judge the row: that keeps it
+        # held, so done-failed-done confirms (review 1 of 8af6ea46de5, finding 4: the old test's failed tip measured
+        # no row and returned before the expiry, so it passed without the rule).
+        self.baseline()
+        self.measured({self.X: 40.0})
+        first = self.state["history"][-1]["sha"]
+        self.measured({"palette.open.e2e@cmux21": 5.0}, parts={"motion": {"state": "failed"}, "switch": {"state": "done"}})
+        self.assertIn(self.X, self.state["pending"], "its own part failed: not judged, still held")
+        self.assertEqual(self.measured({self.X: 41.0}), "regressed")
+        self.assertEqual(self.state["regressions"][0]["first_bad"]["sha"], first)
+
+    def test_a_pending_value_waits_30_hours_for_its_host_and_still_confirms(self):
+        # Review 2 of 8af6ea46de5, finding 3: no run on the pending host for 30 h (runs on another host meanwhile)
+        # does not end the streak; the next run there confirms it.
         self.baseline()
         self.measured({self.X: 40.0}, hours=10)
-        self.measured({self.Y: 20.0}, hours=10 + cron.PENDING_MAX_HOURS + 1)
-        self.assertNotIn(self.X, self.state["pending"])
+        first = self.state["history"][-1]["sha"]
+        self.measured({self.Y: 20.0}, hours=25)
+        self.assertEqual(self.measured({self.X: 41.0}, hours=40), "regressed")
+        self.assertEqual(self.state["regressions"][0]["first_bad"]["sha"], first)
 
-    def test_a_building_baseline_holds_regressed_values_and_restarts_after_three(self):
-        self.measured({self.X: 20.0})
-        self.measured({self.X: 30.0})
-        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [20.0], "held out of the baseline")
+    def test_a_pending_value_of_a_gone_host_is_dropped(self):
+        self.baseline()
+        self.measured({self.X: 40.0}, hours=10)
+        cron.mark_host(self.state, "cmux21", gone_at=cron.iso(at(11)))
+        self.measured({self.Y: 20.0}, hours=12)
+        self.assertNotIn(self.X, self.state["pending"], "a gone host never judges its row again")
+
+    def test_a_building_baseline_takes_every_value_and_never_restarts(self):
+        # Review 2 of 8af6ea46de5, finding 5: the first CONFIRM_SAMPLES values cannot be judged by the rule, so they all
+        # are baseline values. Holding them made a low first value (after every rebase) hold the normal values that
+        # followed, and restart the baseline after 3: a false alarm that kept the issue open for a person.
+        self.measured({self.X: 15.0})
+        for v in (20.0, 20.5, 20.2):
+            self.assertEqual(self.measured({self.X: v}), "good")
+        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [15.0, 20.0, 20.5, 20.2])
+        self.assertEqual((self.state["pending"], self.state.get("baseline_restarts") or []), ({}, []))
+        self.assertEqual(cron.issue_plan(self.state, "good", at(self.n), False, False, False), {"open": False, "comment": None})
+        self.assertEqual(self.measured({self.X: 30.0}), "good", "a full baseline holds a candidate")
         self.assertIn(self.X, self.state["pending"])
-        self.measured({self.X: 20.5})
-        self.assertNotIn(self.X, self.state["pending"], "a good value ends the hold")
-        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [20.0, 20.5])
-        for v in (31.0, 31.5, 32.0):
-            self.measured({self.X: v})
-        self.assertEqual([e["p95"] for e in self.state["row_history"][self.X]], [31.0, 31.5, 32.0],
-                         "three held values in a row restart the baseline from them")
-        self.assertTrue(self.state["unconfirmed"][0]["restarted"])
-        self.assertIn("restarted", self.state["unconfirmed"][0]["why"])
-        self.assertEqual(self.state["baseline_restarts"][-1]["after"], [31.0, 31.5, 32.0])
-        self.assertIn("Baseline restarts", cron.issue_body(self.state, "o/r", at(self.n)))
 
+    def test_a_low_first_value_after_a_version_rebase_is_no_false_alarm(self):
+        self.baseline()
+        cron.rebase_rows(self.state, {self.X: row(15.0)}, [self.X], at(self.n))
+        for v in (20.0, 20.5, 20.2, 20.4):
+            self.assertEqual(self.measured({self.X: v}), "good")
+        self.assertEqual(self.state.get("baseline_restarts") or [], [])
+        self.assertEqual(self.state["regressions"], [])
+
+
+class LegacyRestartTests(unittest.TestCase):
+    """Review 2 of 8af6ea46de5, findings 7 and 8: 8af6ea46de5's restarts (no 'seen' key) open the issue once for a
+    person, a comment names them, and a rate-limited tick keeps the basis on which a person's close acknowledges them."""
+
+    def legacy(self):
+        state = {"schema": cron.SCHEMA, "baseline_restarts": [
+            {"name": "cmd_d.e2e@cmux21", "at": cron.iso(at(-5)), "before": [20.0, 20.5, 21.0], "after": [30.0, 31.0, 30.5]}]}
+        return cron.migrate_state(state)
+
+    def test_a_restart_from_before_the_seen_key_opens_the_issue_once_with_a_restart_comment(self):
+        state = self.legacy()
+        self.assertEqual([x["seen"] for x in state["baseline_restarts"]], [False])
+        self.assertEqual(cron.issue_plan(state, None, T0, False, True, False), {"open": True, "comment": "restart"},
+                         "a cron-closed issue reopens with a comment that names the restart, not 'no row regressed'")
+        self.assertEqual(cron.issue_plan(state, "good", T0, True, True, False), {"open": True, "comment": "restart"},
+                         "an open issue gets the notice too (a body edit notifies nobody)")
+        self.assertIn("**(not seen yet)**", cron.issue_body(state, "o/r", T0))
+        state["baseline_restarts"][0]["noted"] = True
+        self.assertEqual(cron.issue_plan(state, "good", T0, True, True, False), {"open": True, "comment": None})
+        self.assertEqual(cron.migrate_state(state)["baseline_restarts"][0]["seen"], False, "migration runs once a key")
+
+    def test_manage_issue_posts_the_restart_comment_once(self):
+        state = self.legacy()
+        state["issue"] = 9
+        own = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR}, "body": cron.ISSUE_MARK,
+               "state": "closed"}
+        posts = []
+
+        def gh(path, method="GET", body=None, **k):
+            if method == "POST":
+                posts.append(body["body"])
+            return own
+        with mock.patch.object(cron, "gh_request", gh):
+            self.assertEqual(cron.manage_issue("o/r", state, None, T0, "u", "abc: no row regressed (3 rows)", False),
+                             "reopened issue #9")
+        self.assertEqual(len(posts), 1)
+        self.assertIn("1 baseline restart(s) to check by hand", posts[0])
+        self.assertNotIn("no row regressed", posts[0])
+        self.assertTrue(state["baseline_restarts"][0]["noted"])
+
+    def test_a_rate_limited_tick_keeps_the_basis_of_a_persons_close(self):
+        state = self.legacy()
+        state.update(persisted=True, issue=9, issue_seen={"hash": "x", "open": True},
+                     last={"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": {}})
+        own = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR}, "body": cron.ISSUE_MARK,
+               "state": "open"}
+
+        def gh(path, method="GET", body=None, **k):
+            if method != "GET":
+                raise cron.RateLimited("PATCH")
+            return own
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            with mock.patch.object(cron, "gh_request", gh), mock.patch.object(cron, "now_utc", lambda: at(1)), \
+                    mock.patch("sys.stdout", io.StringIO()):
+                cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=True,
+                                                   output=os.path.join(d, "r.out")))
+            with open(os.path.join(d, "state.json")) as f:
+                after = json.load(f)
+        self.assertEqual(after["issue_seen"], {"hash": None, "open": True})
+        cron.acknowledge_restarts(after, {"state": "closed", "closed_at": cron.iso(at(2))})
+        self.assertEqual(cron.unseen_restarts(after), [], "the person's close after the limited tick counts")
 
 
 class MeasureVersionGateTests(OneRunRule):
@@ -2006,11 +2225,11 @@ class MeasureVersionGateTests(OneRunRule):
         self.state = cron.empty_state(T0)
         self.n = 0
 
-    def measured(self, value, version):
+    def measured(self, value, version, config=None):
         self.n += 1
         self.state["current"] = cron.new_measurement((format(self.n, "x") * 40)[:40], "tip", [], at(self.n))
         self.state["current"]["parts"] = {"motion": {"state": "done"}}
-        rows = {self.NAME: {**row(value), "measure_version": version}}
+        rows = {self.NAME: {**row(value), "measure_version": version, **({"part_config": config} if config else {})}}
         return cron.finish_measurement(self.state, rows, None, cron.BENCH_WORKER, f"u{self.n}", at(self.n), budgets_mod)
 
     def test_a_version_bump_rebases_the_row_and_closes_its_regression(self):
@@ -2020,7 +2239,52 @@ class MeasureVersionGateTests(OneRunRule):
         self.assertEqual(self.measured(40.0, 3), "recovered", "the old version's regression closes, not judged")
         self.assertIn("measurement version", self.state["history"][-1].get("rebased_note") or "")
         self.assertEqual([e["p95"] for e in self.state["row_history"][self.NAME]], [40.0], "the baseline restarts")
+        # Review 2 of 8af6ea46de5, finding 6: a version rebase is not a macOS change in the issue.
+        self.assertEqual((self.state["last"].get("version_rebased"), self.state["last"].get("os_rebased")), ([self.NAME], None))
+        body = cron.issue_body(self.state, "o/r", at(self.n))
+        self.assertIn("Measured another way", body)
+        self.assertNotIn("macOS changed", body)
         self.assertEqual(self.measured(41.0, 3), "good", "the new version compares with its own values")
+
+    def test_a_change_of_the_parts_args_rebases_the_row(self):
+        # Review 2 of 8af6ea46de5, finding 10: the version gate saw only split-spring.sh; a change of this file's args
+        # for the part (rounds, actions, flags) compared two configurations.
+        self.measured(20.0, 2)
+        self.measured(20.0, 2, config="c1")
+        self.assertNotIn("rebased", self.state["history"][-1], "a reference with no config is not known to differ")
+        self.measured(20.0, 2, config="c1")
+        self.assertNotIn("rebased", self.state["history"][-1])
+        self.measured(30.0, 2, config="c2")
+        self.assertEqual(self.state["history"][-1].get("rebased"), [self.NAME])
+        self.assertEqual(self.state["last"].get("version_rebased"), [self.NAME])
+
+    def test_part_config_names_the_args_and_the_report_stamps_the_requested_config(self):
+        self.assertNotEqual(cron.part_config("motion"), cron.part_config("switch"))
+        self.assertEqual(cron.part_config("diff-viewer"), cron.part_config("diff-viewer"))
+        with mock.patch.dict(cron.PART_BY_NAME, {"motion": {**cron.PART_BY_NAME["motion"], "args": ["--rounds=2"]}}):
+            self.assertNotEqual(cron.part_config("motion"), cron.part_config("switch"))
+            changed = cron.part_config("motion")
+        self.assertNotEqual(changed, cron.part_config("motion"))
+        report = {"rows": [{"name": "cmd_d.e2e", "p50": 20.0, "p95": 20.0, "unit": "ms"}],
+                  "display": {"requested_hz": 120, "vdisplay": True, "refresh_ms": 8.33, "line": "ready"}}
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["motion"], T0)
+            state["current"]["configs"] = {"motion": "requested1"}
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            part_dir = os.path.join(d, "motion")
+            os.makedirs(part_dir)
+            for file, value in (("result.json", {"state": "done", "worker": cron.BENCH_WORKER}), ("report.json", report)):
+                with open(os.path.join(part_dir, file), "w") as f:
+                    json.dump(value, f)
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch("sys.stdout", io.StringIO()):
+                cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[f"motion={part_dir}"], run_url="u",
+                                                   finish=False, issues=False, output=os.path.join(d, "report.out")))
+            with open(os.path.join(d, "state.json")) as f:
+                rows = json.load(f)["last"]["rows"]
+        self.assertEqual({r.get("part_config") for r in rows.values()}, {"requested1"})
 
     def test_a_row_stored_before_versions_counts_as_the_legacy_version(self):
         self.measured(20.0, 2)

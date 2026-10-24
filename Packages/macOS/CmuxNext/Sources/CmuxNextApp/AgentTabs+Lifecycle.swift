@@ -279,7 +279,10 @@ extension AgentTabStore {
 
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
-        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"], isAgentTab(key) else { return nil }
+        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"],
+              let (record, store) = lookup(key), isAgentTab(key),
+              case .connected = store.connectionState,
+              record.host == localHost else { return nil }
         return key
     }
 
