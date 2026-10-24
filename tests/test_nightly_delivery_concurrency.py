@@ -24,6 +24,10 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     tick = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
     assert re.search(r'(?m)^\s+- cron: "7,37 \* \* \* \*"$', tick)
     assert "cancel-in-progress: false" in tick
+    assert "group: nightly-next-tick-${{ github.run_id }}" in tick
+    assert "coalesce:" in tick and "needs: coalesce" in tick
+    assert "Number(a.id) - Number(b.id)" in tick
+    assert "candidate[0] === currentOrder[0]" in tick
     dev = (WORKFLOWS / "cmux-next-dev-daily-dispatch.yml").read_text(encoding="utf-8")
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
