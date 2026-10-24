@@ -1636,9 +1636,15 @@ class Sweep:
                  + (f"skipped ({row['skipped']})" if row.get("skipped") else
                     f"commit {(row.get('commit_ms') or {}).get('p95')} turn {(row.get('turn_ms') or {}).get('p95')} "
                     f"missed {row['frames']['missed']} errors {row['errors'][:2]} check {row['check']}"))
-            if any(e.startswith("harness:") for e in row.get("errors") or []):
-                self.relaunch_session(f"a harness failure in {action['id']} (its restore or a builder step)")
-            elif (rpc("system.ping", timeout=10) or {}).get("pong") is not True:
+            alive = (rpc("system.ping", timeout=10) or {}).get("pong") is True
+            if alive and any(e.startswith("harness:") for e in row.get("errors") or []):
+                # A relaunch and a STRESS rebuild cost ~10 min of fleet time: only when the row left the session
+                # unfit to measure (not the base layout, not running busy terminals, Chromium no longer valid).
+                unfit = self.unfit()
+                row["after_harness"] = unfit or "the session is intact; no relaunch"
+                if unfit:
+                    self.relaunch_session(f"a harness failure in {action['id']} left {unfit}")
+            elif not alive:
                 self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
                 # The cause, before the relaunch erases it: a crash report, or a sample of the stuck app.
                 self.rows[-1]["stopped"] = self.app.why_unresponsive(started_at)
@@ -1653,6 +1659,18 @@ class Sweep:
             self.rows.append(row)
             self.relaunch_session(f"{action['id']} closed the windows")
         return self
+
+    def unfit(self):
+        """Why the session cannot measure the next row, or None: the topology is not the base (``restored``), or
+        Chromium is no longer valid (``check_validity``). STRESS also needs its shape (``check_stress_shape`` raises
+        SessionShapeError, which fails the session as for a restore)."""
+        if not self.restored():
+            return "a layout other than the base"
+        validity = self.check_validity()
+        if not validity.get("chromium_ok"):
+            return f"Chromium not valid ({', '.join(validity.get('cef_flags') or [])[:200]})"
+        self.check_stress_shape()
+        return None
 
     def relaunch_session(self, why):
         """The one way back to a known session, after an action's or an interaction's restore failed (a builder step
