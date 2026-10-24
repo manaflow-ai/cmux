@@ -449,8 +449,13 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
+    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
+    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
+        // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
+        // is overtaken by, an older grid still in the ordered input stream.
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }
