@@ -54,18 +54,17 @@ if [[ "${1:-}" == --archs ]]; then
   esac
   shift 2
 fi
-bench_flags=()
+swift_other_flags='OTHER_SWIFT_FLAGS=$(inherited)'
 if [[ "${1:-}" == --bench-hooks ]]; then
   # The same flag reload.sh --config bench passes (SWIFT_OTHER_FLAGS).
-  bench_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_BENCH_HOOKS')
+  swift_other_flags+=' -DCMUX_BENCH_HOOKS'
   shift
 fi
-swift_diagnostics_flags=()
 if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
   # Keep the threshold high enough for a focused profile: the emitted warnings
   # identify the functions and expressions worth fixing without changing the
   # compiler's dependency decisions or optimization mode.
-  swift_diagnostics_flags=('OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -warn-long-function-bodies=200 -Xfrontend -warn-long-expression-type-checking=200 -driver-time-compilation')
+  swift_other_flags+=' -Xfrontend -warn-long-function-bodies=200 -Xfrontend -warn-long-expression-type-checking=200 -driver-time-compilation'
   echo "check-release-compile: Swift type-check diagnostics enabled (200ms threshold)"
 fi
 # --archs and --bench-hooks come first; anything else after the path would be ignored silently.
@@ -129,8 +128,7 @@ build() {
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-    ${bench_flags[@]+"${bench_flags[@]}"} \
-    ${swift_diagnostics_flags[@]+"${swift_diagnostics_flags[@]}"} \
+    OTHER_SWIFT_FLAGS="$swift_other_flags" \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
