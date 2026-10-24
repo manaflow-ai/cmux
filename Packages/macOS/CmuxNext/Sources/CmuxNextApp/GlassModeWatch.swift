@@ -7,7 +7,8 @@ import CmuxNextDesign
 final class GlassModeWatch {
     private var shown: GlassLensMode
     private let onChange: @MainActor () -> Void
-    private var settings: Task<Void, Never>?
+    /// The glass tunable's observation loop (read by the release tests).
+    private(set) var settings: Task<Void, Never>?
     private var lowPower: LowPowerModeObservation?
     private var display: MainActorObservation?
 
