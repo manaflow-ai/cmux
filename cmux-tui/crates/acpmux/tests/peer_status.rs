@@ -143,6 +143,21 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     assert_eq!(names, ["b"], "{one}");
     let unknown = ca.call("_acpmux/peer_status", json!({"name": "nope"})).await;
     assert!(unknown.is_err_and(|e| e.contains("acpmux host ls")), "an unknown peer names host ls");
+
+    // A Web caller learns that b answered and on which build, not b's numbers.
+    let mut web = client_as(a.clone(), Some(acpmux::server::Origin::Web)).await;
+    let reply = web.call("_acpmux/peer_status", json!({})).await.unwrap();
+    let peer = row(&reply, "b");
+    assert_eq!(peer["reachable"], true, "{reply}");
+    assert!(peer["latencyMs"].is_u64(), "{reply}");
+    assert_eq!(peer["build"], acpmux::hub::BUILD, "{reply}");
+    for key in ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs"] {
+        assert!(peer.get(key).is_none(), "{key} reached the web: {reply}");
+    }
+    // Its own machine's row is `_acpmux/host_health`'s, without the host name.
+    let me = &reply["hosts"][0];
+    assert_eq!(me["self"], true, "{reply}");
+    assert!(me["ram"].is_object() && me.get("host").is_none(), "{reply}");
 }
 
 #[tokio::test]
