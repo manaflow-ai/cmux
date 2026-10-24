@@ -103,6 +103,8 @@ final class ScreenBarController {
     // MARK: Intents
 
     private func screen(_ id: StripTabID) -> ScreenModel? { content.workspace.screens.first { $0.id == id.rawValue } }
+    /// The action target of a screen in this bar.
+    private static func target(_ screen: ScreenModel) -> ActionTargetRef { ActionTargetRef(kind: .screen, id: screen.id) }
 
     private func ref(_ id: StripTabID) -> ScreenRef? {
         screen(id).map { ScreenRef(workspace: content.workspace, screen: $0, daemon: content.daemon, content: content) }
@@ -130,12 +132,15 @@ final class ScreenBarController {
         case .newTab:
             ScreenCommands.create(in: workspace, daemon: daemon, content: content)
         case .pin(let id), .unpin(let id):
+            // The person's gesture runs the action (timed, its own entrypoint), as the menu does.
             let pin = if case .pin = intent { true } else { false }
-            if let screen = screen(id) { services.registry.settle(ScreenCommands.setPinned(screen, pin, daemon: daemon), of: "screen.togglePin", ActionInvocation()) }
+            guard let screen = screen(id), screen.pinned != pin else { return }
+            services.registry.perform("screen.togglePin", invocation: ActionInvocation(target: Self.target(screen)))
         case .rename(let id):
             view.beginInlineRename(id)
         case .renameCommitted(let id, let name):
-            if let screen = screen(id) { services.registry.settle(ScreenCommands.rename(screen, to: name, daemon: daemon), of: "screen.rename", ActionInvocation()) }
+            guard let screen = screen(id) else { return }
+            services.registry.perform("screen.rename", invocation: ActionInvocation(target: Self.target(screen), arguments: ["name": .string(name)]))
         case .duplicate(let id):
             if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):
