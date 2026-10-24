@@ -102,7 +102,8 @@ pub struct NewRequest {
 /// have it.
 ///
 /// A first turn that never finished is still in the store when Claude got
-/// its prompt: Claude writes the transcript as the turn runs. An app update
+/// its prompt: Claude writes the transcript as the turn runs. A file with no
+/// prompt in it (a start that died first) holds nothing to resume. An app update
 /// or a quit in the middle of a chat's first long turn then resumes all of
 /// it, instead of a fresh conversation that knows only the chat's text.
 pub(super) fn claude_resume_refusal(
@@ -111,7 +112,7 @@ pub(super) fn claude_resume_refusal(
     sid: &str,
 ) -> Option<&'static str> {
     if meta.claude_unstored
-        && !crate::adopt::claude_session_exists(&meta.claude_store(&profile.env), sid)
+        && !super::claude_keep::stored_with_prompt(&meta.claude_store(&profile.env), sid)
     {
         return Some("never finished a turn");
     }

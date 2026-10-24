@@ -18,10 +18,24 @@
 
 use super::*;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 impl Hub {
+    /// Notes the Claude store of the profile `session` runs on, for an agent
+    /// that did not come through `cold_start` (a pooled one, one adopted from
+    /// its host after a restart): its turns keep the transcript too.
+    pub(super) async fn note_claude_store(&self, session: &Session) {
+        let meta = session.meta();
+        let store = {
+            let cfg = self.config.read().await;
+            cfg.profile(&meta.harness)
+                .filter(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+                .map(|p| meta.claude_store(&p.env))
+        };
+        *session.claude_store.lock().unwrap() = store;
+    }
+
     /// Keeps the transcript of `session`'s running Claude after a turn, off
     /// the runtime's threads: a turn's end never waits on it.
     pub(super) fn keep_claude_transcript(&self, session: &Session) {
@@ -36,20 +50,18 @@ impl Hub {
         });
     }
 
-    /// Before `session` starts Claude on `store`: puts a transcript Claude
-    /// deleted back and keeps the one it has. Answers whether the store has
-    /// conversation `sid` now.
+    /// Before `session` starts Claude on `store` to resume (or fork)
+    /// conversation `sid`: puts a transcript Claude deleted back, from this
+    /// chat's folder or the one of the chat it forks, and keeps it.
     pub(super) async fn restore_claude_transcript(
         &self,
         session: &Session,
         store: PathBuf,
         sid: String,
-    ) -> bool {
-        let Some(dir) = self.store.session_dir(&session.id) else {
-            return crate::adopt::claude_session_exists(&store, &sid);
-        };
+    ) {
+        let Some(dir) = self.store.session_dir(&session.id) else { return };
         let id = session.id.clone();
-        tokio::task::spawn_blocking(move || {
+        let _ = tokio::task::spawn_blocking(move || {
             let restored = restore(&dir, &store, &sid).unwrap_or_else(|e| {
                 tracing::warn!(session = %id, agent_session = %sid, "putting the Claude transcript back: {e}");
                 false
@@ -57,10 +69,8 @@ impl Hub {
             if restored && let Err(e) = keep(&dir, &store, &sid) {
                 tracing::warn!(session = %id, agent_session = %sid, "keeping the Claude transcript: {e}");
             }
-            restored
         })
-        .await
-        .unwrap_or(false)
+        .await;
     }
 }
 
@@ -68,6 +78,25 @@ impl Hub {
 const KEPT_DIR: &str = "claude";
 /// How much of a transcript's first record tells two files apart: its uuid and time come first.
 const FIRST_RECORD_BYTES: u64 = 64 * 1024;
+/// One keep or restore at a time in this process: a turn's keep and the next
+/// start's restore of the same chat must not both append a recreated file's
+/// lines, or share the staged name `replace` renames from.
+static KEEPING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Whether the store `store` holds Claude conversation `sid` with a prompt
+/// in it: a file Claude wrote before any prompt reached it holds nothing
+/// `--resume` can load.
+pub(super) fn stored_with_prompt(store: &Path, sid: &str) -> bool {
+    let Some(file) =
+        crate::adopt::is_bare_id(sid).then(|| crate::adopt::find_claude(store, sid)).flatten()
+    else {
+        return false;
+    };
+    let Ok(file) = File::open(file) else { return false };
+    BufReader::new(file).lines().map_while(Result::ok).any(|line| {
+        serde_json::from_str::<Value>(&line).is_ok_and(|record| super::fork_at::is_prompt(&record))
+    })
+}
 
 /// Keeps Claude session `sid`'s transcript in the store `store` under
 /// `session_dir`, after a turn (or before a start) that may have moved it on.
@@ -77,7 +106,9 @@ const FIRST_RECORD_BYTES: u64 = 64 * 1024;
 /// only the lines since: they are appended to the kept transcript, and
 /// Claude's name points at the whole of it again.
 pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()> {
-    if !crate::adopt::is_bare_id(sid) {
+    let _one = KEEPING.lock().unwrap_or_else(|e| e.into_inner());
+    // A chat deleted meanwhile: its folder is not made again for a transcript nobody keeps.
+    if !crate::adopt::is_bare_id(sid) || !session_dir.is_dir() {
         return Ok(());
     }
     let Some(live) = crate::adopt::find_claude(store, sid) else { return Ok(()) };
@@ -93,41 +124,69 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
     if same_file(&live, &kept) {
         return Ok(());
     }
-    if first_record(&live)? == first_record(&kept)? {
+    let first = first_record(&live)?;
+    if first == first_record(&kept)? {
         // The same conversation: Claude's file is the whole of it (a copy
         // kept on another volume is only as new as the last turn).
         return replace(&live, &kept);
     }
+    if first.is_empty() || holds_line(&kept, &first)? {
+        // Nothing written yet, or lines the kept file already has: appending
+        // them would put them in twice.
+        return Ok(());
+    }
     // Claude started its file again: what it holds came after the kept lines.
-    let mut tail = Vec::new();
-    File::open(&live)?.read_to_end(&mut tail)?;
     let mut whole = OpenOptions::new().append(true).open(&kept)?;
     if !ends_with_newline(&kept)? {
         io::Write::write_all(&mut whole, b"\n")?;
     }
-    io::Write::write_all(&mut whole, &tail)?;
+    // Read to the end again after each copy: Claude may still append while
+    // this runs, and a line written before the rename would be lost with it.
+    let mut copied = 0;
+    loop {
+        let mut from = File::open(&live)?;
+        from.seek(SeekFrom::Start(copied))?;
+        let mut more = Vec::new();
+        from.read_to_end(&mut more)?;
+        if more.is_empty() {
+            break;
+        }
+        copied += more.len() as u64;
+        io::Write::write_all(&mut whole, &more)?;
+    }
     drop(whole);
     replace(&kept, &live)
 }
 
 /// Puts session `sid`'s kept transcript back in the store `store` when Claude
-/// deleted it, before a start resumes it. Answers whether the store has it now.
+/// deleted it, before a start resumes it, from this chat's folder or another
+/// chat's in the same sessions folder (the chat a fork starts from). Answers
+/// whether the store has it now.
 ///
-/// Its time is set to now: a transcript put back with the time it was last
-/// written would be past the retention again, and the cleanup of the very
-/// process that resumes it could delete it from under that process.
+/// Its time is set to now either way: a transcript with the time it was last
+/// written can be past the retention, and the cleanup of the very process that
+/// resumes it could delete it from under that process.
 pub(super) fn restore(session_dir: &Path, store: &Path, sid: &str) -> io::Result<bool> {
+    let _one = KEEPING.lock().unwrap_or_else(|e| e.into_inner());
     if !crate::adopt::is_bare_id(sid) {
         return Ok(false);
     }
-    if crate::adopt::find_claude(store, sid).is_some() {
-        return Ok(true);
-    }
-    let Some(kept) = kept_file(session_dir, sid) else { return Ok(false) };
-    let Some(project) = kept.parent().and_then(Path::file_name) else { return Ok(false) };
-    let live = store.join("projects").join(project).join(file_name(sid));
-    fs::create_dir_all(live.parent().unwrap_or(store))?;
-    share(&kept, &live)?;
+    let live = match crate::adopt::find_claude(store, sid) {
+        Some(live) => live,
+        None => {
+            let Some(kept) = kept_file(session_dir, sid).or_else(|| {
+                let sessions = session_dir.parent()?;
+                fs::read_dir(sessions).ok()?.flatten().find_map(|chat| kept_file(&chat.path(), sid))
+            }) else {
+                return Ok(false);
+            };
+            let Some(project) = kept.parent().and_then(Path::file_name) else { return Ok(false) };
+            let live = store.join("projects").join(project).join(file_name(sid));
+            fs::create_dir_all(live.parent().unwrap_or(store))?;
+            share(&kept, &live)?;
+            live
+        }
+    };
     OpenOptions::new().write(true).open(&live)?.set_modified(std::time::SystemTime::now())?;
     Ok(true)
 }
@@ -185,8 +244,21 @@ fn first_record(path: &Path) -> io::Result<Vec<u8>> {
     Ok(line)
 }
 
+/// Whether a line of the file at `path` starts with `record` (a first record, cut at its bound).
+fn holds_line(path: &Path, record: &[u8]) -> io::Result<bool> {
+    let record = record.strip_suffix(b"\n").unwrap_or(record);
+    let mut reader = BufReader::new(File::open(path)?);
+    let mut line = Vec::new();
+    while reader.read_until(b'\n', &mut line)? > 0 {
+        if line.starts_with(record) {
+            return Ok(true);
+        }
+        line.clear();
+    }
+    Ok(false)
+}
+
 fn ends_with_newline(path: &Path) -> io::Result<bool> {
-    use std::io::{Seek, SeekFrom};
     let mut file = File::open(path)?;
     if file.metadata()?.len() == 0 {
         return Ok(true);
@@ -319,8 +391,55 @@ mod tests {
             Some("never finished a turn"),
             "Claude stored nothing"
         );
-        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        // A start that died before its prompt reached Claude: nothing `--resume` can load.
+        append(&dirs.live(), "{\"type\":\"queue-operation\"}\n");
+        assert_eq!(refusal(&meta, &profile, SID), Some("never finished a turn"));
+        append(
+            &dirs.live(),
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"one\"}}\n",
+        );
         assert_eq!(refusal(&meta, &profile, SID), None);
+    }
+
+    /// A transcript still in the store but last written past the retention is
+    /// made new before the resuming process's cleanup can take it.
+    #[test]
+    fn a_stored_transcript_past_the_retention_is_made_new_before_a_resume() {
+        let dirs = Dirs::new();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(40 * 86_400);
+        OpenOptions::new().write(true).open(dirs.live()).unwrap().set_modified(old).unwrap();
+
+        assert!(restore(&dirs.session(), &dirs.store(), SID).unwrap());
+        let age =
+            fs::metadata(dirs.live()).unwrap().modified().unwrap().elapsed().unwrap_or_default();
+        assert!(age < std::time::Duration::from_secs(3_600), "left with an old time: {age:?}");
+    }
+
+    /// A fork of a chat older than the retention: the transcript it forks is
+    /// kept in that chat's folder, beside this one's.
+    #[test]
+    fn a_fork_puts_back_the_transcript_another_chat_kept() {
+        let dirs = Dirs::new();
+        let parent = dirs.root.join("parent");
+        fs::create_dir_all(&parent).unwrap();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        keep(&parent, &dirs.store(), SID).unwrap();
+        fs::remove_file(dirs.live()).unwrap();
+
+        assert!(restore(&dirs.session(), &dirs.store(), SID).unwrap());
+        assert_eq!(fs::read_to_string(dirs.live()).unwrap(), "{\"uuid\":\"a\"}\n");
+    }
+
+    /// A chat deleted while its last turn's keep was on its way: its folder
+    /// is not made again.
+    #[test]
+    fn a_deleted_chat_keeps_nothing() {
+        let dirs = Dirs::new();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        fs::remove_dir_all(dirs.session()).unwrap();
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        assert!(!dirs.session().exists());
     }
 
     #[test]

@@ -666,6 +666,7 @@ impl Hub {
             m.claude_unstored = true;
             m.claude_profile = Some(m.harness.clone());
             drop(m);
+            self.note_claude_store(session).await;
             self.write_mode_state(
                 session,
                 [ModeWrite::Modes(state.modes), ModeWrite::ConfigOptions(state.config_options)],

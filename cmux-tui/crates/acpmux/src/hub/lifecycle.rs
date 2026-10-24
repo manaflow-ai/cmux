@@ -486,13 +486,16 @@ impl Hub {
         let fork_from = session.fork_from.lock().unwrap().clone();
         let claude_store = is_claude.then(|| meta.claude_store(&profile.env));
         *session.claude_store.lock().unwrap() = claude_store.clone();
-        // Claude deletes transcripts past its retention: the chat's own copy
-        // goes back before the resume looks for it (claude_keep.rs). Only to
-        // the store that ran it; a failover's other store is refused below.
-        if fork_from.is_none()
-            && let (Some(store), Some(sid)) = (claude_store, existing_sid.clone())
-            && meta.claude_profile.as_deref().is_none_or(|p| p == meta.harness)
-        {
+        // Claude deletes transcripts past its retention: the kept copy goes
+        // back before the resume (or the fork) looks for it (claude_keep.rs).
+        // A resume only to the store that ran it; a failover's other store is
+        // refused below.
+        let resumes = fork_from.clone().or_else(|| {
+            existing_sid
+                .clone()
+                .filter(|_| meta.claude_profile.as_deref().is_none_or(|p| p == meta.harness))
+        });
+        if let (Some(store), Some(sid)) = (claude_store, resumes) {
             self.restore_claude_transcript(session, store, sid).await;
         }
         // Resume a Claude conversation only from a store that has it: one
