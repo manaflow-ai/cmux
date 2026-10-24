@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """TagTeardown finds the tag's processes by this bundle path (its executables, a host whose --owner names this bundle
-id and a daemon of this path, the direct children of those, and the shells of its hosts and holders), never by name,
-bundle id alone, environment or launcher ancestry. Another copy of the tag at another path, a tag that sanitizes to
-the same bundle id, and this script's own ancestors never match. Run: python3 -I scripts/cmux-next/tests/test_tag_teardown.py"""
-import importlib.util, os, sys, unittest
+id and a running daemon of this path or a host record of the tag, a holder of the tag's host roots, the direct children
+of those, and the shells of its hosts and holders), never by name, bundle id alone, environment or launcher ancestry.
+Another copy of the tag at another path, a tag that sanitizes to the same bundle id, a reused pid and this script's own
+ancestors never match. Run: python3 -I scripts/cmux-next/tests/test_tag_teardown.py"""
+import importlib.util, json, os, subprocess, sys, tempfile, time, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("tag_teardown", os.path.join(HERE, "..", "tag_teardown.py"))
@@ -18,8 +19,12 @@ TUI = "/Contents/Resources/bin/cmux-tui --headless --session s --socket /tmp/s.s
 HOLDER = "cmux-holder --socket /tmp/cmux-hd-501/ab.sock"
 
 
+START = "Sat Oct 24 10:00:00 2026"
+
+
 def table(*rows):
-    return {pid: (ppid, command) for pid, ppid, command in rows}
+    """{pid: (ppid, start, command)} from (pid, ppid, command) or (pid, ppid, command, start) rows."""
+    return {row[0]: (row[1], row[3] if len(row) > 3 else START, row[2]) for row in rows}
 
 
 class MatchTests(unittest.TestCase):
@@ -27,10 +32,12 @@ class MatchTests(unittest.TestCase):
         teardown = tag_teardown.TagTeardown.__new__(tag_teardown.TagTeardown)
         teardown.app = APP
         teardown.seen = {}
+        teardown.state_roots = set()
+        teardown.daemons_read = set()
         return teardown
 
-    def matched(self, rows, teardown=None, exclude=(), bundle=BUNDLE):
-        return [pid for pid, _ in (teardown or self.teardown()).matches(rows, bundle, exclude=exclude)]
+    def matched(self, rows, teardown=None, exclude=(), bundle=BUNDLE, records=None):
+        return [pid for pid, _ in (teardown or self.teardown()).matches(rows, bundle, exclude=exclude, records=records)]
 
     def test_the_tags_processes_and_only_them(self):
         rows = table(
@@ -84,6 +91,88 @@ class MatchTests(unittest.TestCase):
         # A pid reused by another program is not the old process.
         reused = table((30, 1, "/usr/bin/python3 other.py"))
         self.assertEqual(self.matched(reused, teardown), [])
+
+    def test_a_reused_pid_with_the_same_command_is_another_process(self):
+        # A shell of the tag exits; another login shell (the person's cmux, another agent's build) gets its pid.
+        teardown = self.teardown()
+        self.assertEqual(self.matched(table((11, 1, f"{APP}{TUI}"), (30, 11, HOLDER), (31, 30, "-zsh")), teardown),
+                         [11, 30, 31])
+        reused = table((31, 1, "-zsh", "Sat Oct 24 10:05:00 2026"))
+        self.assertEqual(self.matched(reused, teardown), [])
+
+    def test_an_exited_daemons_pid_is_no_anchor(self):
+        # The daemon 11 was seen, then exited; a host naming @11 that was never seen and is in no record of the tag
+        # (pid 11 may now be another bundle's daemon) is not the tag's.
+        teardown = self.teardown()
+        self.assertEqual(self.matched(table((11, 1, f"{APP}{TUI}")), teardown), [11])
+        later = table((81, 1, f"cmux-tui __terminal-host --owner {BUNDLE}:sweep@11"))
+        self.assertEqual(self.matched(later, teardown), [])
+
+    def test_a_dead_daemons_hosts_and_holder_are_found_by_the_tags_host_roots(self):
+        # A new process (tag_teardown.py <app>, or a daemon crash mid-session): the daemon that spawned the host and
+        # the holder is gone, both run under launchd with no record of them in this process.
+        rows = table((12, 1, f"{APP}{TUI}"),  # the daemon the app started since (same state root)
+                     (20, 1, f"cmux-tui __terminal-host --bootstrap-stdio --owner {BUNDLE}:sweep@11"),
+                     (21, 20, "-zsh"),
+                     (30, 1, HOLDER), (31, 30, "-zsh"),
+                     (40, 1, "cmux-holder --socket /tmp/cmux-hd-501/cd.sock"), (41, 40, "-zsh"),  # another root's
+                     (50, 1, f"cmux-tui __terminal-host --owner com.cmuxterm.app.debug.other:other@11"))  # other id
+        records = tag_teardown.Records(host_pids={20, 50}, holder_sockets={"/tmp/cmux-hd-501/ab.sock"})
+        self.assertEqual(self.matched(rows, records=records), [12, 20, 21, 30, 31])
+        self.assertEqual(self.matched(rows), [12])
+
+    def test_the_host_roots_name_their_hosts_and_holder_socket(self):
+        # unix terminal_host_root: <state root>/terminal-hosts-<token>; the holder's socket is fnv1a of that path.
+        with tempfile.TemporaryDirectory() as state:
+            host_root = os.path.join(state, "terminal-hosts-abc")
+            os.makedirs(host_root)
+            with open(os.path.join(host_root, "t1.json"), "w") as f:
+                json.dump({"host_pid": 4242, "record_version": 4}, f)
+            with open(os.path.join(host_root, "bad.json"), "w") as f:
+                f.write("{")
+            os.makedirs(os.path.join(state, "other"))
+            records = tag_teardown.host_records([state], uid=501)
+            expected = f"/tmp/cmux-hd-501/{tag_teardown.fnv1a(os.fsencode(host_root)):016x}.sock"
+            self.assertEqual(records.host_pids, {4242})
+            self.assertEqual(records.holder_sockets, {expected})
+
+    def test_fnv1a_matches_the_daemons_hash(self):
+        self.assertEqual(tag_teardown.fnv1a(b""), 0xcbf29ce484222325)
+        self.assertEqual(tag_teardown.fnv1a(b"a"), 0xaf63dc4c8601ec8c)
+        self.assertEqual(tag_teardown.holder_socket("/x", uid=7), f"/tmp/cmux-hd-7/{tag_teardown.fnv1a(b'/x'):016x}.sock")
+
+    def test_the_state_root_is_read_once_per_daemon_and_kept_after_it_exits(self):
+        teardown = self.teardown()
+        reads = []
+        def read(pid):
+            reads.append(pid)
+            return ([], {"CMUX_TUI_STATE_DIR": f"/Users/me/Library/Application Support/cmux/tags/sweep{pid}/tui"})
+        rows = table((10, 1, f"{APP}/Contents/MacOS/cmux DEV"), (11, 1, f"{APP}{TUI}"), (70, 1, f"{OTHER}{TUI}"))
+        teardown.learn_state_roots(rows, read)
+        teardown.learn_state_roots(rows, read)
+        self.assertEqual(reads, [11])
+        teardown.learn_state_roots(table((12, 1, f"{APP}{TUI}")), read)
+        self.assertEqual(teardown.state_roots, {"/Users/me/Library/Application Support/cmux/tags/sweep11/tui",
+                                                "/Users/me/Library/Application Support/cmux/tags/sweep12/tui"})
+
+    def test_procargs_reads_an_environment_value_with_spaces(self):
+        child = subprocess.Popen([sys.executable, "-I", "-c", "import sys; print('ready', flush=True); sys.stdin.read()"],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                                 env={"CMUX_TUI_STATE_DIR": "/Users/me/Library/Application Support/cmux/tui"})
+        try:
+            self.assertEqual(child.stdout.readline().strip(), "ready")  # its exec is done
+            found = tag_teardown.procargs(child.pid)
+            self.assertEqual(found[1].get("CMUX_TUI_STATE_DIR"), "/Users/me/Library/Application Support/cmux/tui")
+        finally:
+            child.stdin.close()
+            child.wait()
+
+    def test_remember_arms_end_again(self):
+        teardown = self.teardown()
+        teardown.done = True
+        teardown.processes = lambda: []
+        teardown.remember()
+        self.assertFalse(teardown.done)
 
     def test_this_script_and_its_ancestors_never_match(self):
         # The script runs in a shell of the tag's own terminal: that shell, its holder and the daemon stay.
