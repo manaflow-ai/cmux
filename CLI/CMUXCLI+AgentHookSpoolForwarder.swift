@@ -119,8 +119,12 @@ extension CMUXCLI {
     /// The hook environment values admission reads, in producer order.
     static func agentHookSpoolEnvironmentKeys(agent: String) -> [String] {
         var seen = Set<String>()
+        // Admission reads the headless flag to keep a `claude -p` child of
+        // another session out of that session's lifecycle (#23401).
+        let admissionKeys = agent == "claude" ? ["CMUX_CLAUDE_HEADLESS"] : []
         return (queuedAgentHookDataEnvironmentKeys(agent: agent)
-            + AgentLaunchEnvironmentPolicy().inputEnvironmentKeys)
+            + AgentLaunchEnvironmentPolicy().inputEnvironmentKeys
+            + admissionKeys)
             .filter { seen.insert($0).inserted }
     }
 

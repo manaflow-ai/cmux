@@ -485,6 +485,18 @@ extension CMUXCLI {
             resolvesProcessRoute: resolvesProcessRoute,
             runsInHookProcess: runsInHookProcess
         )
+        // A headless `claude -p` child of another agent session shares that
+        // session's surface; its lifecycle must not take the surface over
+        // (#23401). Decide now: the replay has neither the headless flag nor a
+        // live process to walk. An exited agent's PID may already be reused.
+        if agent == "claude", !client.isRelayBacked, resolvesProcessRoute,
+           claudeHookComesFromHeadlessChild(
+               subcommand: subcommand,
+               agentPID: environment[Self.agentHookPIDEnvironmentVariable(agentName: agent)].flatMap(Int.init),
+               environment: processEnvironment
+           ) {
+            return
+        }
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
                 rawPayload,
