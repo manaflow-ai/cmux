@@ -119,7 +119,7 @@ export function tabExtent(
     separators += 1;
   }
   if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
-  if (chat && menu.account) rows += 1;
+  if ((chat && menu.account) || (menu.families.onAccount && (family.accounts?.length ?? 0) > 1)) rows += 1;
   if (chat && menu.fast) {
     rows += 1;
     separators += 1;
@@ -340,6 +340,8 @@ export function QuickModelMenu({
             ),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
+          ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
+          ...(families.onAccount && family.accounts && family.accounts.length > 1 ? [{ label: t("picker.account"), value: family.accounts.find((choice) => choice.id === family.account)?.name, sub: true }] : []),
         ]),
         ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
         { label: t("picker.moreModels"), sub: true },
@@ -354,7 +356,7 @@ export function QuickModelMenu({
       {forkTab ? (
         <MenuGroup label={forkTab.name}>
           <MenuItem className="acpmux-quick-item acpmux-quick-fork" disabled={!families?.forkReady} onSelect={() => families?.onFork?.(forkTab.id)}>
-            <span className="acpmux-menu-label">Fork to {forkTab.name}</span>
+            <span className="acpmux-menu-label">{t("picker.forkTo", { harness: forkTab.name })}</span>
           </MenuItem>
         </MenuGroup>
       ) : (
