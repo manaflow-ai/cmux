@@ -87,8 +87,8 @@ export function PendingSteer({
   );
 }
 
-/// How long Send now and the X take to leave once Send now worked (conversation.css
-/// `.cv-user__pending--leaving`).
+/// How long Send now and the X take to leave once Send now worked: `--cmux-motion-standard`, the
+/// length of conversation.css `.cv-user__pending--leaving`.
 const LEAVE_MS = 180;
 
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`). Only acpmux's Claude

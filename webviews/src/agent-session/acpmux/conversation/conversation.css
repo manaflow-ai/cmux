@@ -3934,7 +3934,7 @@ article.acpmux-row:empty {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__pending--leaving {
-    animation: cv-user-pending-leave 180ms var(--cv-actions-ease) forwards;
+    animation: cv-user-pending-leave var(--cmux-motion-standard, 180ms) var(--cv-actions-ease) forwards;
   }
 }
 @keyframes cv-user-pending-leave {
