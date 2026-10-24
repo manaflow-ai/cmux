@@ -309,10 +309,7 @@ fn new_segment() -> io::Result<(OwnedFd, OwnedFd)> {
         let hex: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
         let name =
             std::ffi::CString::new(format!("/cmar{hex}")).map_err(|_| invalid("ring name"))?;
-        // SAFETY: shm_open with a NUL-terminated name.
-        let fd = unsafe {
-            libc::shm_open(name.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_EXCL, 0o600)
-        };
+        let fd = shm_open_cloexec(&name, libc::O_RDWR | libc::O_CREAT | libc::O_EXCL, 0o600);
         if fd < 0 {
             let error = io::Error::last_os_error();
             if error.raw_os_error() == Some(libc::EEXIST) {
@@ -322,8 +319,7 @@ fn new_segment() -> io::Result<(OwnedFd, OwnedFd)> {
         }
         // SAFETY: a fresh descriptor this function owns.
         let writer = unsafe { OwnedFd::from_raw_fd(fd) };
-        // SAFETY: shm_open of the name just made, read-only.
-        let reader = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) };
+        let reader = shm_open_cloexec(&name, libc::O_RDONLY, 0);
         let reader_error = io::Error::last_os_error();
         // SAFETY: removes the name; open descriptors keep the object.
         unsafe { libc::shm_unlink(name.as_ptr()) };
@@ -333,12 +329,30 @@ fn new_segment() -> io::Result<(OwnedFd, OwnedFd)> {
         // SAFETY: a fresh descriptor this function owns.
         let reader = unsafe { OwnedFd::from_raw_fd(reader) };
         for descriptor in [&writer, &reader] {
+            // Only for a kernel that refused O_CLOEXEC on shm_open (see
+            // shm_open_cloexec): a no-op otherwise.
             // SAFETY: sets close-on-exec on a live descriptor.
             unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
         }
         return Ok((writer, reader));
     }
     Err(io::Error::new(io::ErrorKind::AlreadyExists, "no free output ring name"))
+}
+
+/// `shm_open` with `O_CLOEXEC`, so a process another daemon thread spawns
+/// between the open and an fcntl never inherits the segment (review of
+/// 0ade7bf4318). A kernel that refuses the flag (EINVAL) gets the open
+/// without it, and the caller's fcntl closes that window as before.
+#[cfg(not(target_os = "linux"))]
+fn shm_open_cloexec(name: &std::ffi::CStr, flags: libc::c_int, mode: libc::mode_t) -> RawFd {
+    // SAFETY: shm_open with a NUL-terminated name.
+    let fd =
+        unsafe { libc::shm_open(name.as_ptr(), flags | libc::O_CLOEXEC, mode as libc::c_uint) };
+    if fd >= 0 || io::Error::last_os_error().raw_os_error() != Some(libc::EINVAL) {
+        return fd;
+    }
+    // SAFETY: as above, without the flag.
+    unsafe { libc::shm_open(name.as_ptr(), flags, mode as libc::c_uint) }
 }
 
 #[cfg(test)]

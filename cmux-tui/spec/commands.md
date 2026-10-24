@@ -8054,7 +8054,9 @@ Asks the host for one READY `snapshot` on this connection's snapshot attach of
 `surface`. It is the raw form of the terminal channel message
 `snapshot_request` (sync-and-transport.md). A request while a snapshot is
 pending for that viewer collapses into it. A viewer gets at most one requested
-snapshot per 500 ms; an earlier request answers `snapshot_throttled`.
+snapshot per 500 ms; an earlier request answers `snapshot_throttled` and is
+held: its snapshot is sent when the interval ends (`retry_after_ms`), so the
+client never asks again.
 
 Params:
 

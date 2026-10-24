@@ -337,6 +337,11 @@ pub(super) struct AttachTapQueue {
     /// The last snapshot could not be encoded (an unfinished escape sequence
     /// over the continuation budget); the next output asks again.
     snapshot_deferred: bool,
+    /// A requested snapshot the per-viewer interval holds until this moment
+    /// (`SnapshotRequestGate`): the worker's wait ends then and the snapshot
+    /// is sent, so a throttled request is never lost. Any snapshot sent
+    /// before then answers it.
+    snapshot_due_at: Option<Instant>,
     /// The viewer reflows its own history: a resize reaches it as a
     /// local-history READY while it is not behind.
     local_history: bool,
@@ -349,6 +354,7 @@ impl AttachTapQueue {
     fn fall_behind(&mut self) {
         self.frames.clear();
         self.retained_bytes = 0;
+        self.snapshot_due_at = None;
         if !self.needs_snapshot {
             self.needs_snapshot = true;
             self.resyncs += 1;
@@ -387,10 +393,32 @@ pub(crate) struct SnapshotRequestHandle {
 }
 
 impl SnapshotRequestHandle {
-    /// Whether a snapshot is queued for the viewer (a deferred one is not:
-    /// it waits for output, and a request may ask again).
+    /// Whether a snapshot is queued for the viewer, now or at its due time
+    /// (one that could not be encoded is not: it waits for output, and a
+    /// request may ask again).
     pub(crate) fn snapshot_pending(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.queue.lock().unwrap().needs_snapshot)
+        self.state.upgrade().is_some_and(|state| {
+            let queue = state.queue.lock().unwrap();
+            queue.needs_snapshot || queue.snapshot_due_at.is_some()
+        })
+    }
+
+    /// Ask for a snapshot at `due` (a request the per-viewer interval holds):
+    /// the viewer's worker wakes then and sends it, unless a snapshot was sent
+    /// before. Returns false when the viewer is gone.
+    pub(crate) fn request_at(&self, due: Instant) -> bool {
+        let Some(state) = self.state.upgrade() else { return false };
+        let mut queue = state.queue.lock().unwrap();
+        if !queue.receiver_alive || !queue.sender_alive {
+            return false;
+        }
+        if !queue.needs_snapshot {
+            queue.snapshot_due_at = Some(queue.snapshot_due_at.map_or(due, |at| at.min(due)));
+        }
+        drop(queue);
+        // The worker may be waiting without a deadline: wake it to wait until `due`.
+        state.ready.notify_all();
+        true
     }
 
     /// Returns false when the viewer is gone.
@@ -421,6 +449,11 @@ impl AttachFrameReceiver {
     ) -> Result<ViewerEvent, RecvTimeoutError> {
         let mut queue = self.state.queue.lock().unwrap();
         loop {
+            let now = Instant::now();
+            if queue.snapshot_due_at.is_some_and(|due| now >= due) {
+                // The held request is due: the snapshot replaces the queued frames.
+                queue.fall_behind();
+            }
             if queue.needs_snapshot {
                 return Ok(ViewerEvent::Snapshot);
             }
@@ -434,15 +467,19 @@ impl AttachFrameReceiver {
             if !queue.sender_alive {
                 return Err(RecvTimeoutError::Disconnected);
             }
-            if interrupt.is_fired() {
+            if interrupt.is_fired() || deadline.is_some_and(|deadline| now >= deadline) {
                 return Err(RecvTimeoutError::Timeout);
             }
-            queue = match deadline {
+            // Wake at the caller's deadline or a held snapshot's due time,
+            // whichever is first; both are after `now`.
+            let wake_at = match (deadline, queue.snapshot_due_at) {
+                (Some(deadline), Some(due)) => Some(deadline.min(due)),
+                (deadline, due) => deadline.or(due),
+            };
+            queue = match wake_at {
                 None => self.state.ready.wait(queue).unwrap(),
-                Some(deadline) => {
-                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                        return Err(RecvTimeoutError::Timeout);
-                    };
+                Some(wake_at) => {
+                    let remaining = wake_at.saturating_duration_since(now);
                     self.state.ready.wait_timeout(queue, remaining).unwrap().0
                 }
             };
@@ -458,6 +495,7 @@ impl AttachFrameReceiver {
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
         queue.snapshot_deferred = false;
+        queue.snapshot_due_at = None;
     }
 
     /// The snapshot could not be encoded now: drop queued frames and retry
@@ -468,6 +506,7 @@ impl AttachFrameReceiver {
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
         queue.snapshot_deferred = true;
+        queue.snapshot_due_at = None;
     }
 
     /// Opt this viewer into local-history READYs at resizes.
@@ -527,6 +566,7 @@ impl AttachTap {
                 needs_snapshot: snapshot_mode,
                 resyncs: 0,
                 snapshot_deferred: false,
+                snapshot_due_at: None,
                 local_history: false,
             }),
             ready: Condvar::new(),
