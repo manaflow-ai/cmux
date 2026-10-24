@@ -4270,10 +4270,12 @@ jobs:
           app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
           test -d "$app"
           scripts/cmux-next/check-app-personalities.sh "$app"
-          # Prove it as nightly.yml proves every nightly-next build.
+          # Prove it as nightly.yml proves every nightly-next build. Its
+          # browser-data-absent proof runs only for the cx-f58x notary test:
+          # the bundled cmux CLI (cmux-tui) names the browsers and is notarized
+          # in every nightly-next build, so that proof fails this app too.
           executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/$executable"
-          scripts/ci/check-browser-data-import-absent.sh "$app"
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
           /usr/bin/ditto -c -k --keepParent "$app" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
