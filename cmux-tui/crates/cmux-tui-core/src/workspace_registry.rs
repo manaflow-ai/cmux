@@ -60,9 +60,7 @@ pub(crate) mod registry_connection;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
-pub(crate) use registry_intent::{
-    OwnedTransactionWrite, RegistryIntent, RegistryIntentSink, RegistryReceipt, SettleState,
-};
+pub(crate) use registry_intent::{OwnedTransactionWrite, RegistryIntent, RegistryReceipt};
 mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;

@@ -80,33 +80,6 @@ pub(crate) enum EffectCommitFinish {
 }
 
 impl EffectCommitIntent {
-    /// Resident size for the writer's durable batch byte cap.
-    pub(crate) fn estimated_bytes(&self) -> usize {
-        let fixed = self
-            .idempotency_key
-            .len()
-            .saturating_add(self.operation.len())
-            .saturating_add(self.fingerprint.len())
-            .saturating_add(self.generation.len())
-            .saturating_add(self.outcome_json.len())
-            .saturating_add(512);
-        match &self.kind {
-            EffectCommitKind::Outcome { deltas, .. } => {
-                fixed.saturating_add(self.outcome_json.len()).saturating_add(
-                    deltas
-                        .as_ref()
-                        .and_then(Value::as_array)
-                        .map_or(0, Vec::len)
-                        .saturating_mul(256),
-                )
-            }
-            EffectCommitKind::Patch { patch, deltas, .. } => fixed
-                .saturating_add(self.outcome_json.len().saturating_mul(2))
-                .saturating_add(patch.changes.len().saturating_mul(256))
-                .saturating_add(deltas.as_array().map_or(0, Vec::len).saturating_mul(256)),
-        }
-    }
-
     /// Write `extra` in the same transaction as this receipt.
     pub(crate) fn with_extra_rows(mut self, extra: OwnedTransactionWrite) -> Self {
         self.extra = Some(ExtraRows(extra));
@@ -169,14 +142,6 @@ impl EffectCommitIntent {
 }
 
 impl WorkspaceRegistry {
-    /// A sent intent returned an error. The writer may still commit it
-    /// later (an indeterminate receipt), after this request released the
-    /// registry: forget the public fold so the next commit cannot prune its
-    /// deltas against a revision that is no longer the journal head.
-    pub(crate) fn abandon_effect_commit(&mut self) {
-        self.public_fold = None;
-    }
-
     /// Validate and prepare a `commit_resource_effect` intent.
     pub(crate) fn prepare_effect_outcome_intent(
         &self,
@@ -186,9 +151,6 @@ impl WorkspaceRegistry {
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
     ) -> anyhow::Result<(EffectCommitIntent, EffectCommitFinish)> {
-        // A late indeterminate commit must land before this intent's fold
-        // pruning and checks read the base (registry_intent).
-        self.connection.drain_unsettled()?;
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
@@ -223,9 +185,6 @@ impl WorkspaceRegistry {
         deltas: &Value,
         restates_all: bool,
     ) -> anyhow::Result<(EffectCommitIntent, EffectCommitFinish)> {
-        // A late indeterminate commit must land before this intent's fold
-        // pruning and checks read the base (registry_intent).
-        self.connection.drain_unsettled()?;
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
