@@ -562,6 +562,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     inlineAttachmentIdsRef.current.length
       ? inlineAttachmentIdsRef.current
       : inlineAttachmentsRef.current.map((attachment) => attachment.id);
+  const inlineAttachmentAt = (index: number) => {
+    const id = currentInlineAttachmentIDs()[index];
+    return id === undefined ? undefined : inlineAttachmentsRef.current.find((attachment) => attachment.id === id);
+  };
   const inlineRemoveRef = useRef(onInlineAttachmentRemove);
   inlineRemoveRef.current = onInlineAttachmentRemove;
   const inlineRestoreRef = useRef(onInlineAttachmentRestore);
@@ -709,7 +713,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               const positions = inlineMarkPositions(editorView.state.doc);
               const ids = positions
                 .map((position, index) =>
-                  position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                  position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                 )
                 .filter((id): id is string => Boolean(id));
               if (!ids.length) return false;
@@ -724,9 +728,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (!data || from === to) return false;
                 const positions = inlineMarkPositions(editorView.state.doc);
                 const attachments = positions
-                  .map((position, index) =>
-                    position >= from && position < to ? inlineAttachmentsRef.current[index] : undefined,
-                  )
+                  .map((position, index) => (position >= from && position < to ? inlineAttachmentAt(index) : undefined))
                   .filter((attachment): attachment is ComposerAttachment => Boolean(attachment));
                 if (!attachments.length) return false;
                 const text = editorView.state.doc.textBetween(from, to, "\n", "\n");
@@ -745,7 +747,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 const positions = inlineMarkPositions(editorView.state.doc);
                 const ids = positions
                   .map((position, index) =>
-                    position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                    position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                   )
                   .filter((id): id is string => Boolean(id));
                 if (!ids.length) return false;
@@ -781,7 +783,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 const positions = inlineMarkPositions(editorView.state.doc);
                 const selectedIds = positions
                   .map((position, positionIndex) =>
-                    position >= from && position < to ? inlineAttachmentsRef.current[positionIndex]?.id : undefined,
+                    position >= from && position < to ? currentInlineAttachmentIDs()[positionIndex] : undefined,
                   )
                   .filter((id): id is string => Boolean(id));
                 removedInlineIds.push(...selectedIds);
@@ -803,7 +805,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (from !== to) {
                   const ids = positions
                     .map((position, index) =>
-                      position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                      position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                     )
                     .filter((id): id is string => Boolean(id));
                   if (!ids.length) return false;
@@ -815,7 +817,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 }
                 const mark = event.key === "Backspace" ? from - 1 : from;
                 const index = positions.indexOf(mark);
-                const id = index >= 0 ? inlineAttachmentsRef.current[index]?.id : undefined;
+                const id = index >= 0 ? currentInlineAttachmentIDs()[index] : undefined;
                 if (!id || !deleteInlineAttachment(editorView, id)) return false;
                 event.preventDefault();
                 return true;
@@ -903,7 +905,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   const positions = inlineMarkPositions(editorView.state.doc);
                   const ids = positions
                     .map((position, index) =>
-                      position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                      position >= from && position < to ? currentInlineAttachmentIDs()[index] : undefined,
                     )
                     .filter((id): id is string => Boolean(id));
                   if (ids.length) {
