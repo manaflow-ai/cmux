@@ -165,4 +165,57 @@ struct CreateOnPendingStandInTests {
         let ghost = ProvisionalPane()
         await #expect(throws: CreateTargetGone.self) { try await store.daemonTarget(for: ghost.handle) }
     }
+
+    /// A create waiting for a stand-in's daemon pane ends when the connection is lost: its command was
+    /// bound to that connection, and the stand-in's `pane-added` will never come on it. Before, the
+    /// wait held until a later snapshot, or for ever.
+    @Test func aLostConnectionEndsEveryWait() async throws {
+        let store = Self.store()
+        let split = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: .generate())
+        let target = Task { try await store.daemonTarget(for: split.handle) }
+        await Task.yield()
+        #expect(store.standInWaiters.count == 1)
+        _ = store.apply(.disconnected(reason: "socket closed"))
+        await #expect(throws: CreateTargetGone.self) { try await target.value }
+        #expect(store.standInWaiters.isEmpty)
+    }
+
+    /// A create waiting on a stand-in whose own create is refused, or closed by the person before
+    /// the daemon made it, ends its wait at once and names that create's anchor.
+    @Test func aRefusedOrClosedStandInEndsTheWaitAtItsAnchor() async throws {
+        let store = Self.store()
+        let refused = ProvisionalPane(), closed = ProvisionalPane()
+        let refusedTransaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: refused), transaction: refusedTransaction)
+        let first = Task { try await store.daemonTarget(for: refused.handle) }
+        await Task.yield()
+        store.rejectIntent(refusedTransaction)
+        #expect(try await first.value == Self.pane)
+
+        store.intend(.splitPane(pane: Self.pane, direction: .down, ratio: 0.5, provisional: closed), transaction: .generate())
+        let second = Task { try await store.daemonTarget(for: closed.handle) }
+        await Task.yield()
+        #expect(store.creations.cancel(pane: closed.handle))
+        #expect(try await second.value == Self.pane)
+        #expect(store.standInWaiters.isEmpty)
+    }
+
+    /// The snapshot path: a resync rebuilds the records with a new pane model for the daemon pane
+    /// that took the stand-in over; the target resolves by the stand-in's public id, not by a model
+    /// held from the press, so it names the daemon's handle.
+    @Test func aResyncSnapshotWithANewPaneModelStillNamesTheDaemonPane() async throws {
+        let store = Self.store()
+        let split = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
+        store.noteSettledAtNextSnapshot(transaction)
+        let daemonPane = PaneID(rawValue: 11)
+        var tree = Self.base
+        tree.screens[0].layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(Self.pane), b: .leaf(daemonPane))
+        tree.screens[0].panes.append(PaneSnapshot(id: daemonPane, resourceID: ResourceID(rawValue: split.paneID),
+                                                  tabs: [TabSnapshot(surface: SurfaceID(rawValue: 12))]))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: [tree]))
+        #expect(try await store.daemonTarget(for: split.handle) == daemonPane)
+    }
 }
