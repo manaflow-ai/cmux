@@ -179,8 +179,14 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
         "notifications": rows
             .iter()
             .map(|(row, acknowledged)| {
+                let post = mux.notification_post(&row.id);
+                let poster = post.as_ref().and_then(|post| post.poster.as_ref());
                 json!({
                     "id": row.id,
+                    "notification": post.as_ref().map(|post| post.notification),
+                    "reply": row.reply,
+                    "poster_pid": poster.map(|poster| poster.pid),
+                    "poster_executable": poster.map(|poster| poster.executable.as_str()),
                     "title": row.title,
                     "subtitle": row.subtitle,
                     "body": row.body,
