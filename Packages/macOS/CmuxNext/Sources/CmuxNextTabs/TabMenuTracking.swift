@@ -12,6 +12,11 @@ import CmuxNextCompat
 
     init(strip: TabStripView) { self.strip = strip }
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The menu's
+    // end-of-tracking observer (a MainActorObservation) is removed on the releasing thread.
+    nonisolated deinit {}
+
     /// A menu from this strip is about to show: the trailing buttons stay
     /// while it is open, since the pointer leaves the strip for it.
     func begin(_ menu: NSMenu) {
