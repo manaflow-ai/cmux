@@ -109,6 +109,18 @@ test("parses canonical cmux MCP names and nested brief identities", () => {
   });
 });
 
+test("parses descriptor names in a generic Codex MCP envelope", () => {
+  expect(
+    dispatchCall(
+      activity("MCP call", {
+        server: "cmux",
+        tool: "agent_dispatch",
+        arguments: { title: "T", body: "B" },
+      }),
+    ),
+  ).toMatchObject({ kind: "dispatch", title: "T", text: "B" });
+});
+
 test("does not classify unrelated MCP or shell envelopes by tool word alone", () => {
   expect(
     dispatchCall(activity("github.report", { server: "github", tool: "report", arguments: { issue: 4 } })),
