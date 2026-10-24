@@ -99,14 +99,16 @@ enum AppBrowserPage {
     }
 
     /// Whether `operation` needs the page's engine browser, created in the
-    /// background for a Chromium tab no pane has shown. A script, a capture
+    /// background for a Chromium tab no pane has shown. A script (a page
+    /// wait is an async one: without the browser it ended with "closed"
+    /// until the timeout), a capture
     /// (else `snapshotUnavailable` for an agent's tab off screen) and cookies
     /// (Chromium's go through the page's DevTools) do. Input creates it in
     /// ``BrowserNativeInputs``; navigation and `state` do not need it.
     static func needsLiveBrowser(_ operation: BrowserPageOperation) -> Bool {
         switch operation {
-        case .evaluate, .screenshot, .cookies: true
-        case .navigate, .back, .forward, .reload, .state, .evaluateAsync, .input: false
+        case .evaluate, .evaluateAsync, .screenshot, .cookies: true
+        case .navigate, .back, .forward, .reload, .state, .input: false
         }
     }
 
