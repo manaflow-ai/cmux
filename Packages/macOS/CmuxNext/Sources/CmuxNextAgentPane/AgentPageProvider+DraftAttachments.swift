@@ -16,8 +16,17 @@ extension AgentPageProvider {
         let store = AgentPaneDraftAttachments.shared
         if method == "chat.draftAttachments.get" {
             guard let store else { return .array([]) }
+            if body["ordered"] == .bool(true) {
+                let draft = await store.draft(for: session)
+                return await Task.detached { AgentPaneDraftAttachments.json(draft) }.value
+            }
             let kept = await store.attachments(for: session)
             return await Task.detached { AgentPaneDraftAttachments.json(kept) }.value
+        }
+        if let value = body["draft"], let draft = AgentPaneDraftAttachments.decodeDraft(value) {
+            guard let store else { return .object(["held": .array([])]) }
+            guard let held = await store.keep(draft, for: session) else { throw PageError.invalidParams(op) }
+            return .object(["held": .array(held.map(JSONValue.string))])
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
         guard let store else { return .object(["held": .array([])]) }

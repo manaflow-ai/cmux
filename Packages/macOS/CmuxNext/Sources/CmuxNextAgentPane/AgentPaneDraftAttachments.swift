@@ -2,6 +2,225 @@ public import CmuxNextSettings
 import CryptoKit
 public import Foundation
 
+/// The ordered content of an agent composer draft.
+///
+/// Text uses one object-replacement character per attachment, just as AppKit's text attachment
+/// model does. Keeping the marks in the text means a paste or drop has one insertion point and the
+/// attachment array remains a compact, durable description of the same draft. The marks never go
+/// on the ACP wire; ``acpContentBlocks`` expands them in order.
+public nonisolated struct AgentPaneDraft: Codable, Sendable, Equatable {
+    /// The character that occupies one attachment's place in ``text``.
+    public static let attachmentMark: Unicode.Scalar = "\u{FFFC}"
+
+    /// The editable text, including one ``attachmentMark`` for each inline attachment.
+    public var text: String
+    /// Attachments in the order of the marks in ``text``.
+    public var attachments: [AgentPaneWakeState.Attachment]
+
+    /// A piece in the order a composer displays and sends it.
+    public enum Piece: Equatable, Sendable {
+        /// A text run between two attachments.
+        case text(String)
+        /// One inline attachment.
+        case attachment(AgentPaneWakeState.Attachment)
+    }
+
+    /// Creates an ordered draft. `text` may contain no marks when the draft is text-only.
+    public init(text: String = "", attachments: [AgentPaneWakeState.Attachment] = []) {
+        self.text = text
+        self.attachments = attachments
+    }
+
+    /// The editable text without its object-replacement marks.
+    public var plainText: String { Self.stripMarks(text) }
+
+    /// The text and attachments in their inline order.
+    public var pieces: [Piece] {
+        var result: [Piece] = []
+        var run = String.UnicodeScalarView()
+        var next = 0
+        func flush() {
+            guard !run.isEmpty else { return }
+            result.append(.text(String(run)))
+            run = String.UnicodeScalarView()
+        }
+        for scalar in text.unicodeScalars {
+            guard scalar == Self.attachmentMark else {
+                run.append(scalar)
+                continue
+            }
+            flush()
+            if let attachment = attachments[safe: next] {
+                result.append(.attachment(attachment))
+            }
+            next += 1
+        }
+        flush()
+        // A malformed or older draft can have attachments with no mark. Keeping them at the end
+        // is lossless and matches the old tray's order while the next edit repairs the marks.
+        result.append(contentsOf: attachments.dropFirst(next).map(Piece.attachment))
+        return result
+    }
+
+    /// ACP content blocks in exactly the order represented by ``pieces``.
+    ///
+    /// Attachments whose bytes were not retained are omitted, as they were by the tray path; a
+    /// link attachment still has a resource block because it is sent by reference. An image that
+    /// also has an original path produces its image block followed by that reference block.
+    public var acpContentBlocks: [JSONValue] {
+        pieces.flatMap { Self.blocks(for: $0) }
+    }
+
+    /// Alias used by callers that describe the ACP value as prompt blocks.
+    public var promptContentBlocks: [JSONValue] { acpContentBlocks }
+
+    /// Inserts an attachment at a UTF-16 caret offset. A nil or out-of-range offset means the end.
+    public mutating func insert(_ attachment: AgentPaneWakeState.Attachment, atUTF16Offset offset: Int?) {
+        let source = text as NSString
+        let location = min(max(0, offset ?? source.length), source.length)
+        let marks = Self.markOffsets(text)
+        let mark = String(Character(Self.attachmentMark))
+        if marks.count == attachments.count {
+            let index = marks.reduce(into: 0) { count, markOffset in
+                if markOffset < location { count += 1 }
+            }
+            attachments.insert(attachment, at: min(index, attachments.count))
+        } else {
+            // Keep malformed drafts editable: appending is safer than assigning an attachment to
+            // an unrelated mark that came from pasted plain text or an old undo stack.
+            attachments.append(attachment)
+        }
+        text = source.replacingCharacters(in: NSRange(location: location, length: 0), with: mark)
+    }
+
+    /// Removes an attachment and its mark when the draft is internally consistent.
+    public mutating func removeAttachment(id: String) {
+        guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+        let marks = Self.markOffsets(text)
+        attachments.remove(at: index)
+        guard marks.count == attachments.count + 1, let location = marks[safe: index] else { return }
+        text = (text as NSString).replacingCharacters(in: NSRange(location: location, length: 1), with: "")
+    }
+
+    /// The UTF-16 offsets of attachment marks, in order.
+    public static func markOffsets(_ text: String) -> [Int] {
+        var offsets: [Int] = []
+        var offset = 0
+        for unit in text.utf16 {
+            if unit == attachmentMark.value { offsets.append(offset) }
+            offset += 1
+        }
+        return offsets
+    }
+
+    /// Removes all object-replacement marks from editable text.
+    public static func stripMarks(_ text: String) -> String {
+        guard text.unicodeScalars.contains(attachmentMark) else { return text }
+        var result = String.UnicodeScalarView()
+        result.append(contentsOf: text.unicodeScalars.filter { $0 != attachmentMark })
+        return String(result)
+    }
+
+    private static func blocks(for piece: Piece) -> [JSONValue] {
+        switch piece {
+        case .text(let text):
+            return text.isEmpty ? [] : [.object(["type": .string("text"), "text": .string(text)])]
+        case .attachment(let attachment):
+            return blocks(for: attachment)
+        }
+    }
+
+    private static func blocks(for attachment: AgentPaneWakeState.Attachment) -> [JSONValue] {
+        var blocks: [JSONValue] = []
+        switch attachment.kind {
+        case "image":
+            guard let data = attachment.data else { break }
+            blocks.append(.object([
+                "type": .string("image"),
+                "mimeType": .string(attachment.mimeType),
+                "data": .string(data),
+                "name": .string(attachment.name),
+            ]))
+        case "document":
+            guard let data = attachment.data else { break }
+            blocks.append(.object([
+                "type": .string("document"),
+                "mimeType": .string(attachment.mimeType),
+                "data": .string(data),
+                "name": .string(attachment.name),
+            ]))
+        case "audio":
+            guard let data = attachment.data else { break }
+            blocks.append(.object([
+                "type": .string("audio"),
+                "mimeType": .string(attachment.mimeType),
+                "data": .string(data),
+            ]))
+        case "link":
+            guard let path = attachment.path else { break }
+            blocks.append(.object([
+                "type": .string("resource_link"),
+                "uri": .string(fileURI(path)),
+                "name": .string(attachment.name),
+            ]))
+        case "pasted":
+            guard let text = attachment.text else { break }
+            blocks.append(.object([
+                "type": .string("text"),
+                "text": .string(text),
+                "_meta": .object(["cmux": .object(["pasted": .bool(true)])]),
+            ]))
+        case "text" where attachment.text != nil:
+            blocks.append(.object([
+                "type": .string("text"),
+                "text": .string(textFileBody(attachment)),
+            ]))
+        default:
+            break
+        }
+        if let originalPath = attachment.originalPath, attachment.kind == "image" {
+            blocks.append(.object([
+                "type": .string("resource_link"),
+                "uri": .string(fileURI(originalPath)),
+                "name": .string(attachment.originalName ?? attachment.name),
+            ]))
+        }
+        return blocks
+    }
+
+    private static func textFileBody(_ attachment: AgentPaneWakeState.Attachment) -> String {
+        let body = attachment.text ?? ""
+        var backticks = 3
+        var run = 0
+        for scalar in body {
+            if scalar == "`" {
+                run += 1
+                backticks = max(backticks, run + 1)
+            } else {
+                run = 0
+            }
+        }
+        let extensionName = attachment.name.split(separator: ".").last.map(String.init) ?? ""
+        let language = extensionName.range(of: "^[A-Za-z0-9+#-]{1,12}$", options: .regularExpression) != nil ? extensionName : ""
+        let fence = String(repeating: "`", count: backticks)
+        return "\(attachment.name)\n\(fence)\(language)\n\(body)\(body.hasSuffix("\n") ? "" : "\n")\(fence)"
+    }
+
+    private static func fileURI(_ path: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        let encoded = path.split(separator: "/", omittingEmptySubsequences: false).map { part in
+            String(part).addingPercentEncoding(withAllowedCharacters: allowed) ?? String(part)
+        }.joined(separator: "/")
+        return "file://\(encoded)"
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 /// Each agent chat's unsent composer chips (pasted screenshots, PDFs, files and folders), by
 /// session, in ``directoryName`` beside the launch snapshot: one folder per chat with its chips'
 /// list and their contents as files of their own. Leo 2026-10-20: a draft's text came back and its
@@ -36,6 +255,13 @@ public final class AgentPaneDraftAttachments {
         return await queued(sessionId) { Self.read(folder, limit: limit) }
     }
 
+    /// The ordered draft left by chat `sessionId`; old stores read as a draft with empty text.
+    public func draft(for sessionId: String) async -> AgentPaneDraft {
+        guard let folder = folder(for: sessionId) else { return AgentPaneDraft() }
+        let limit = maximumBytes
+        return await queued(sessionId) { Self.readDraft(folder, limit: limit) }
+    }
+
     /// Keeps `list` (the page's chips, as JSON) as chat `sessionId`'s chips; none forgets them. A
     /// chip sent without its contents keeps the file it already has. Answers the ids of the chips
     /// whose contents are kept, so the page knows which it need not send again; nil when `list` is
@@ -46,6 +272,15 @@ public final class AgentPaneDraftAttachments {
         return await queued(sessionId) { () -> [String]? in
             guard let attachments = Self.decode(list) else { return nil }
             return Self.write(attachments, to: folder, in: directory, limit: limit)
+        }
+    }
+
+    /// Keeps an ordered draft while retaining the old attachment-only storage API for older pages.
+    public func keep(_ draft: AgentPaneDraft, for sessionId: String) async -> [String]? {
+        guard let directory, let folder = folder(for: sessionId) else { return [] }
+        let limit = maximumBytes
+        return await queued(sessionId) {
+            Self.write(draft.attachments, text: draft.text, to: folder, in: directory, limit: limit)
         }
     }
 
@@ -72,11 +307,27 @@ public final class AgentPaneDraftAttachments {
         return try? JSONDecoder().decode([AgentPaneWakeState.Attachment].self, from: data)
     }
 
+    /// Decodes the ordered `{text, attachments}` draft accepted by the newer page.
+    nonisolated static func decodeDraft(_ value: JSONValue) -> AgentPaneDraft? {
+        guard case .object = value, JSONSerialization.isValidJSONObject(value.foundationObject),
+              let data = try? JSONSerialization.data(withJSONObject: value.foundationObject) else { return nil }
+        return try? JSONDecoder().decode(AgentPaneDraft.self, from: data)
+    }
+
     /// The chips as the page's JSON.
     nonisolated static func json(_ attachments: [AgentPaneWakeState.Attachment]) -> JSONValue {
         guard let data = try? JSONEncoder().encode(attachments),
               let object = try? JSONSerialization.jsonObject(with: data) else { return .array([]) }
         return JSONValue(foundation: object) ?? .array([])
+    }
+
+    /// Encodes an ordered draft for a page action response.
+    nonisolated static func json(_ draft: AgentPaneDraft) -> JSONValue {
+        guard let data = try? JSONEncoder().encode(draft),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return .object(["text": .string(""), "attachments": .array([])])
+        }
+        return JSONValue(foundation: object) ?? .object(["text": .string(""), "attachments": .array([])])
     }
 
     /// Chat `sessionId`'s folder: a digest of its id, so any id is a safe name.
@@ -89,6 +340,13 @@ public final class AgentPaneDraftAttachments {
     nonisolated struct Saved: Codable {
         var attachments: [AgentPaneWakeState.Attachment]
         var files: [String: String]?
+        var text: String?
+
+        init(attachments: [AgentPaneWakeState.Attachment], files: [String: String]? = nil, text: String? = nil) {
+            self.attachments = attachments
+            self.files = files
+            self.text = text
+        }
     }
 
     private nonisolated static func saved(in folder: URL) -> Saved? {
@@ -103,9 +361,18 @@ public final class AgentPaneDraftAttachments {
         return AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder, budget: &budget)
     }
 
-    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) -> [String] {
+    private nonisolated static func readDraft(_ folder: URL, limit: Int) -> AgentPaneDraft {
+        guard let saved = saved(in: folder) else { return AgentPaneDraft() }
+        var budget = limit
+        let attachments = AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder, budget: &budget)
+        return AgentPaneDraft(text: saved.text ?? "", attachments: attachments)
+    }
+
+    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], text: String? = nil,
+                                          to folder: URL, in directory: URL, limit: Int) -> [String] {
         let manager = FileManager.default
-        let kept = saved(in: folder)?.files ?? [:]
+        let previous = saved(in: folder)
+        let kept = previous?.files ?? [:]
         // A chat past the limit keeps nothing rather than some of its chips.
         guard !attachments.isEmpty, let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
               !moved.attachments.isEmpty else {
@@ -114,7 +381,10 @@ public final class AgentPaneDraftAttachments {
         }
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
-            let list = try JSONEncoder().encode(Saved(attachments: moved.attachments, files: moved.files.isEmpty ? nil : moved.files))
+            let keptText = text ?? previous?.text
+            let list = try JSONEncoder().encode(Saved(attachments: moved.attachments,
+                                                      files: moved.files.isEmpty ? nil : moved.files,
+                                                      text: keptText?.isEmpty == false ? keptText : nil))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             try? manager.removeItem(at: folder)

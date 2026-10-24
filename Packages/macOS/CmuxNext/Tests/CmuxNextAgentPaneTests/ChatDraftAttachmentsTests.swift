@@ -40,6 +40,25 @@ struct ChatDraftAttachmentsTests {
         return try JSONDecoder().decode([Chip].self, from: JSONSerialization.data(withJSONObject: value.foundationObject))
     }
 
+    @discardableResult
+    static func keep(_ draft: AgentPaneDraft, for session: String) async throws -> [String] {
+        let encoded = AgentPaneDraftAttachments.json(draft)
+        let reply = try await call("chat.draftAttachments", ["sessionId": .string(session), "draft": encoded])
+        guard case .object(let body) = reply, case .array(let held)? = body["held"] else {
+            Issue.record("no held ids in \(reply)")
+            return []
+        }
+        return held.compactMap { value -> String? in
+            guard case .string(let id) = value else { return nil }
+            return id
+        }
+    }
+
+    static func ordered(_ session: String) async throws -> AgentPaneDraft {
+        let value = try await call("chat.draftAttachments.get", ["sessionId": .string(session), "ordered": .bool(true)])
+        return try #require(AgentPaneDraftAttachments.decodeDraft(value))
+    }
+
     /// A Retina screenshot's worth of PNG.
     static func screenshot(_ index: Int) -> Data {
         Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: UInt8(index), count: 1_500_000)
@@ -60,6 +79,49 @@ struct ChatDraftAttachmentsTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "draft-attachments-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    @Test func anInlineDraftKeepsImageTextImageTextOrderOnTheACPWire() {
+        let first = Chip(id: "image-1", kind: "image", name: "one.png", mimeType: "image/png", size: 3,
+                         data: Data([1, 2, 3]).base64EncodedString())
+        let caption = Chip(id: "caption", kind: "text", name: "caption.txt", mimeType: "text/plain", size: 7,
+                           text: "describe this")
+        let second = Chip(id: "image-2", kind: "image", name: "two.png", mimeType: "image/png", size: 3,
+                          data: Data([4, 5, 6]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "before\u{FFFC}between\u{FFFC}after\u{FFFC}done",
+                                   attachments: [first, caption, second])
+
+        #expect(draft.pieces == [
+            .text("before"), .attachment(first), .text("between"), .attachment(caption),
+            .text("after"), .attachment(second), .text("done"),
+        ])
+        let blocks = draft.acpContentBlocks
+        #expect(blocks.compactMap { $0["type"]?.stringValue } == ["text", "image", "text", "text", "text", "image", "text"])
+        #expect(blocks[0]["text"]?.stringValue == "before")
+        #expect(blocks[2]["text"]?.stringValue == "between")
+        #expect(blocks[3]["text"]?.stringValue == "caption.txt\n```txt\ndescribe this\n```")
+        #expect(blocks[4]["text"]?.stringValue == "after")
+        #expect(blocks[5]["type"]?.stringValue == "image")
+        #expect(blocks[5]["data"]?.stringValue == Data([4, 5, 6]).base64EncodedString())
+        #expect(draft.plainText == "beforebetweenafterdone")
+    }
+
+    @Test func anOrderedDraftPersistsItsTextAndAttachmentFilesWithoutChangingTheOldArrayAPI() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let image = Chip(id: "image", kind: "image", name: "image.png", mimeType: "image/png", size: 3,
+                         data: Data([7, 8, 9]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "look\u{FFFC}now", attachments: [image])
+        #expect(try await Self.keep(draft, for: "ordered") == ["image"])
+
+        let restored = try await Self.ordered("ordered")
+        #expect(restored.text == draft.text)
+        #expect(restored.attachments == draft.attachments)
+        #expect(try await Self.kept("ordered") == draft.attachments)
     }
 
     @Test func aChatsScreenshotsComeBackWhenItShowsAgainOrTheAppRelaunches() async throws {
