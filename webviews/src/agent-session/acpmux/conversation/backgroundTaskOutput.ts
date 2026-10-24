@@ -6,6 +6,7 @@
 // is expanded; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
 // The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
+import { stripAnsi } from "./toolOutput";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;
@@ -23,7 +24,7 @@ export type BackgroundTaskOutput = {
 /// completed process can retain its full tail in the reader without growing the row indefinitely.
 export function tailLines(output: string | undefined, maxLines = 10): string | undefined {
   if (!output || maxLines <= 0) return undefined;
-  const lines = output.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r\n/g, "\n").split("\n");
+  const lines = stripAnsi(output).replace(/\r\n/g, "\n").split("\n");
   while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   return lines.slice(-maxLines).join("\n");
 }

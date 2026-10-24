@@ -327,6 +327,8 @@ test("a known process id wins over a reused tool call id", async () => {
   expect(output.output).toBe("s1/old");
 });
 
-test("a live tail keeps the last lines and removes terminal color escapes", () => {
-  expect(tailLines("first\n\u001b[31msecond\u001b[0m\nthird\n", 2)).toBe("second\nthird");
+test("a live tail keeps the last lines and removes terminal control escapes", () => {
+  expect(tailLines("first\n\u001b]8;;https://example.test\u0007\u001b[31msecond\u001b[0m\u001b]8;;\u0007\nthird\n", 2)).toBe(
+    "second\nthird",
+  );
 });
