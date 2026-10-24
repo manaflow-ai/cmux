@@ -771,6 +771,55 @@ class AppSizeTests(Fixture):
         self.commit("the same block moved out")
         self.assertEqual([h.bucket for h in self.hits()], [], "control: a real move into a new file passes")
 
+    def test_a_file_deleted_whole_and_pasted_into_an_existing_file_is_no_rename_of_a_new_copy(self):
+        # The deleted file's lines are back in TextBoxView: they did not leave the App, so a new file with the same
+        # text is a copy, not a rename, however exactly it matches the deleted file.
+        old = swift_body(40, "old")
+        self.rebase_on({f"{APP}/Quit/QuitOld.swift": old}, "an old Quit file")
+        self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+        self.append(f"{APP}/TextBox/TextBoxView.swift", old)
+        self.write(f"{APP}/Quit/QuitCopy.swift", old)
+        self.commit("delete a file, paste it into an existing file and re-add it under a new name")
+        found = self.assertRefused(f"new App file, {code(old)} source lines ({code(old)} not moved)",
+                                   "only a move or the push's one Host conformance file may be added")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/QuitCopy.swift"])
+        self.reset()
+        self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+        self.write(f"{APP}/Quit/QuitCopy.swift", old)
+        self.commit("control: the same file renamed, not pasted anywhere else")
+        self.assertEqual([h.bucket for h in self.hits()], [], "a rename passes")
+
+    def test_one_deleted_file_is_renamed_once_whatever_the_names_of_its_copies(self):
+        # An exact copy and a near copy of one deleted file: one block moved once, so one of them is refused, and
+        # it is the near copy (the exact copy is the rename) in either name order.
+        old = swift_body(40, "old")
+        near = old + "    let quitFresh = 1\n"
+        self.rebase_on({f"{APP}/Quit/QuitOld.swift": old}, "an old Quit file")
+        for exact, copy in (("B", "A"), ("A", "B")):
+            with self.subTest(exact=exact):
+                self.reset()
+                self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+                self.write(f"{APP}/Quit/Quit{exact}.swift", old)
+                self.write(f"{APP}/Quit/Quit{copy}.swift", near)
+                self.commit(f"Quit{exact} renames QuitOld, Quit{copy} copies it with one new line")
+                found = self.assertRefused(f"new App file, {code(near)} source lines ({code(near)} not moved)")
+                self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/Quit{copy}.swift"])
+
+    def test_the_growth_summary_names_a_feature_file_s_new_lines_beside_a_move_into_it(self):
+        # TextBoxView takes 84 lines out of AppDelegate, deletes one of its own functions (its `return 0` and two
+        # `}` match the moved block's) and adds 3 new lines: those 3 are its growth, and the summary names them.
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        box = swift_body(120, "textBox").splitlines(keepends=True)
+        fresh = "".join(f"    let textBoxFresh{i} = {i}\n" for i in range(3))
+        self.rebase_on({f"{APP}/Zoom/ZoomModel.swift": swift_body(40, "zoom")}, "a Zoom file")
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]))
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(box[8:] + lines[40:136]) + fresh)
+        self.append(f"{APP}/Zoom/ZoomModel.swift", swift_body(10, "zoomMore"))
+        self.commit("84 lines out of AppDelegate into TextBoxView, which drops a function and adds 3 lines")
+        grows = code(box[8:] + lines[40:136]) + 3 + code(swift_body(10, "zoomMore")) - code(box) - code(lines[40:136])
+        self.assertGreater(grows, 0)
+        self.assertWarned(f"App outside the root grows +{grows} source lines", "TextBox/TextBoxView.swift +3 new")
+
     def test_one_host_conformance_file_of_forwards_per_push(self):
         self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
         self.commit("a 25-line Host conformance, unpaid")
