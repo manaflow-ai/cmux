@@ -19,7 +19,7 @@ use super::*;
 
 /// Longest activity or plan step kept, in characters.
 const ACTIVITY_CHARS: usize = 160;
-/// Most tool calls a turn keeps in flight; one past it is still counted as in flight.
+/// Most tool-call ids a turn keeps in flight; calls past it are counted (`open_past_cap`).
 const MAX_OPEN_TOOLS: usize = 256;
 
 /// What a running turn does now (`TurnInfo::doing`), one line each.
@@ -35,8 +35,9 @@ pub struct TurnActivity {
     pub masked_plan_step: Option<String>,
     /// The ids of its tool calls in flight.
     pub open_tools: std::collections::BTreeSet<String>,
-    /// A tool call started past [`MAX_OPEN_TOOLS`]: the turn counts one in flight until it ends.
-    pub open_overflow: bool,
+    /// How many tool calls started past [`MAX_OPEN_TOOLS`] are in flight, by count, not id: the
+    /// end of a call whose id isn't kept ends one of them.
+    pub open_past_cap: usize,
 }
 
 impl TurnActivity {
@@ -49,23 +50,26 @@ impl TurnActivity {
         }
         let status = update.get("status").and_then(Value::as_str);
         if matches!(status, Some("completed" | "failed")) {
-            self.open_tools.remove(id);
+            if !self.open_tools.remove(id) {
+                self.open_past_cap = self.open_past_cap.saturating_sub(1);
+            }
             return;
         }
         // A new call, or an update that says it runs; an update with no status changes nothing.
-        if status.is_none() && kind != Some("tool_call") {
+        if status.is_none() && kind != Some("tool_call") || self.open_tools.contains(id) {
             return;
         }
-        if self.open_tools.len() < MAX_OPEN_TOOLS {
+        if self.open_past_cap == 0 && self.open_tools.len() < MAX_OPEN_TOOLS {
             self.open_tools.insert(id.to_owned());
-        } else if !self.open_tools.contains(id) {
-            self.open_overflow = true;
+        } else if kind == Some("tool_call") {
+            // Past the cap only a new call counts: an update may be for a call already counted.
+            self.open_past_cap += 1;
         }
     }
 
     /// Whether a tool call of the turn is in flight.
     pub(super) fn tool_in_flight(&self) -> bool {
-        !self.open_tools.is_empty() || self.open_overflow
+        !self.open_tools.is_empty() || self.open_past_cap > 0
     }
 
     /// Puts the masked lines in `turn`, a summary's running turn, for the
@@ -229,6 +233,27 @@ mod tests {
         doing.note_tool(
             &json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "completed"}),
         );
+        assert!(!doing.tool_in_flight());
+    }
+
+    #[test]
+    fn tool_calls_past_the_cap_stay_in_flight_only_until_they_end() {
+        let mut doing = TurnActivity::default();
+        let n = MAX_OPEN_TOOLS + 3;
+        for i in 0..n {
+            let id = format!("t{i}");
+            doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": id}));
+            doing.note_tool(&json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "in_progress"
+            }));
+        }
+        for i in 0..n {
+            assert!(doing.tool_in_flight(), "t{i} and later still run");
+            doing.note_tool(&json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": format!("t{i}"),
+                "status": "completed"
+            }));
+        }
         assert!(!doing.tool_in_flight());
     }
 
