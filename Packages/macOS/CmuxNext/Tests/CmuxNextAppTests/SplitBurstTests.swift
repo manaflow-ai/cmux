@@ -34,3 +34,25 @@ struct SplitBurstTests {
         }
     }
 }
+
+/// S4 (red spec, not landed): N Cmd-D presses inside one main-actor turn (a key-repeat burst that
+/// queued while the main thread was busy) cost one workspace apply and one topology, and the frame
+/// after them shows all N new panes. Today each press runs its own forced apply, layout sync and
+/// topology (N of each).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+struct SplitBurstCoalescingTests {
+    @Test func fiveSplitsInOneTurnAreOneApply() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let before = content.panes.count
+            let applies = DebugLayoutCounters.workspaceApplies, topologies = DebugLayoutCounters.topologySends
+            for _ in 0..<5 { _ = services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)) }
+            let turnApplies = DebugLayoutCounters.workspaceApplies - applies
+            let turnTopologies = DebugLayoutCounters.topologySends - topologies
+            #expect(turnApplies <= 1, "five splits in one turn ran \(turnApplies) workspace applies")
+            #expect(turnTopologies <= 1, "five splits in one turn sent \(turnTopologies) focus topologies")
+            // The model has all five in this turn: a press made after them targets the newest pane.
+            #expect(content.panes.count == before + 5, "the turn's model shows \(content.panes.count - before) of 5 new panes")
+        }
+    }
+}
