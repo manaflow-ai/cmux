@@ -1,0 +1,285 @@
+// l10n-allow-file: gallery fixture (sample commands, output and agent names), not shipped UI.
+//
+// A capture board for background activity proposals. It deliberately keeps the four placements
+// together so a review can compare the same live work in a pinned panel, after the latest message,
+// a compact pill and a side panel. The real app owns the process/session lifecycle; this board is
+// data-only and never starts a process or sends a session request.
+import { useEffect, useRef, useState } from "react";
+import { componentEntry, type ComponentVariant } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
+
+type Surface = "pinned-live-tail" | "after-latest-message";
+type Mode = "light" | "dark";
+
+type Props = {
+  surface: Surface;
+  mode: Mode;
+};
+
+type Command = {
+  id: string;
+  command: string;
+  state: "running" | "failed";
+  detail: string;
+};
+
+const COMMANDS: Command[] = [
+  {
+    id: "dev-server",
+    command: "bun run webviews:dev",
+    state: "running",
+    detail: "serving gallery at 127.0.0.1:4210",
+  },
+  {
+    id: "background-tests",
+    command: "bun test test/agent-pane-background-tasks.test.tsx",
+    state: "running",
+    detail: "14 tests collected · 11 passed",
+  },
+  {
+    id: "complexity",
+    command: "bun run lint:complexity",
+    state: "failed",
+    detail: "1 function exceeds the existing baseline",
+  },
+];
+
+const LIVE_TAIL = [
+  "$ bun run webviews:dev",
+  "vite v6.3.1 dev server running",
+  "  ➜  Local:   http://127.0.0.1:4210/gallery/",
+  "  ➜  Network: use --host to expose",
+  "[gallery] warming agent-pane entries…",
+  "[gallery] loaded 182 entries in 1.42s",
+  "[hmr] watching webviews/src/agent-session",
+  "[hmr] waiting for file changes",
+  "[agent] 2 commands running · 101 subagents done",
+  "█ live output · following newest line",
+];
+
+const FAILED_TAIL = [
+  "$ bun run lint:complexity",
+  "Web complexity candidate",
+  "✗ BackgroundActivityGallery has complexity 21 (max 20)",
+  "  at conversation/BackgroundActivity.gallery.tsx:214:1",
+  "1 error · 0 warnings",
+  "process exited with code 1",
+];
+
+const DONE_AGENTS = [
+  "Read the daemon update docs",
+  "Trace the process registry",
+  "Review the gallery capture matrix",
+  "Check the dark-theme contrast",
+];
+
+function commandLabel(command: Command) {
+  return command.state === "failed" ? "Failed" : "Running";
+}
+
+function CommandRows({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`bg-gallery__commands${compact ? " bg-gallery__commands--compact" : ""}`}>
+      {COMMANDS.map((item) => (
+        <div className="bg-gallery__command" data-command-state={item.state} key={item.id}>
+          <span className="bg-gallery__status-dot" aria-hidden="true" />
+          <span className="bg-gallery__command-copy">
+            <code>{item.command}</code>
+            <small>{item.detail}</small>
+          </span>
+          <span className="bg-gallery__command-state">{commandLabel(item)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DoneSummary({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`bg-gallery__done${compact ? " bg-gallery__done--compact" : ""}`} data-done-count="101">
+      <span className="bg-gallery__done-mark" aria-hidden="true">
+        ✓
+      </span>
+      <span>
+        <strong>101 subagents done</strong>
+        {!compact && <small>All completed work is available from the activity surface.</small>}
+      </span>
+    </div>
+  );
+}
+
+function LiveTail({ initialOpen = true }: { initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  const tailRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (!open || !tailRef.current) return;
+    tailRef.current.scrollTop = tailRef.current.scrollHeight;
+  }, [open]);
+
+  return (
+    <section
+      className={`bg-gallery__tail${open ? " is-expanded" : ""}`}
+      data-live-tail={open ? "expanded" : "collapsed"}
+    >
+      <div className="bg-gallery__tail-head">
+        <div>
+          <span className="bg-gallery__eyebrow">Live output</span>
+          <strong>webviews:dev · following</strong>
+        </div>
+        <button type="button" className="bg-gallery__text-button" onClick={() => setOpen((value) => !value)}>
+          {open ? "Collapse output" : "Expand live output"}
+        </button>
+      </div>
+      {open && (
+        <pre ref={tailRef} className="bg-gallery__tail-body" aria-label="Live command output">
+          {LIVE_TAIL.join("\n")}
+        </pre>
+      )}
+      <div className="bg-gallery__tail-foot">
+        <span className="bg-gallery__follow-dot" aria-hidden="true" />
+        <span>Auto-scroll on · 10-line tail</span>
+        <button
+          type="button"
+          className="bg-gallery__terminal-button"
+          onClick={() => setTerminalOpened(true)}
+          aria-label="Open in terminal"
+        >
+          {terminalOpened ? "Terminal opened" : "Open in terminal"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ActivityHeader({ placement }: { placement: string }) {
+  return (
+    <header className="bg-gallery__header">
+      <div>
+        <span className="bg-gallery__eyebrow">Background activity</span>
+        <h2>{placement}</h2>
+      </div>
+      <span className="bg-gallery__count-badge">2 running</span>
+    </header>
+  );
+}
+
+function FailedRow() {
+  return (
+    <details className="bg-gallery__failed">
+      <summary>
+        <span className="bg-gallery__status-dot" aria-hidden="true" />
+        <code>{COMMANDS[2]!.command}</code>
+        <span>Failed · exit 1</span>
+      </summary>
+      <pre>{FAILED_TAIL.join("\n")}</pre>
+    </details>
+  );
+}
+
+function DoneList() {
+  return (
+    <div className="bg-gallery__done-list">
+      {DONE_AGENTS.map((name) => (
+        <div className="bg-gallery__done-agent" key={name}>
+          <span className="bg-gallery__done-agent-mark" aria-hidden="true">
+            ✓
+          </span>
+          <span>{name}</span>
+          <small>done</small>
+        </div>
+      ))}
+      <span className="bg-gallery__done-more">+97 more completed agents</span>
+    </div>
+  );
+}
+
+function PinnedSurface() {
+  return (
+    <div className="bg-gallery__surface bg-gallery__surface--pinned" data-surface="pinned-live-tail">
+      <ActivityHeader placement="Pinned above transcript" />
+      <p className="bg-gallery__intro">Keep long-running work visible while the conversation continues.</p>
+      <LiveTail />
+      <CommandRows compact />
+      <DoneSummary compact />
+    </div>
+  );
+}
+
+function TranscriptSurface() {
+  return (
+    <div className="bg-gallery__surface bg-gallery__surface--transcript" data-surface="after-latest-message">
+      <ActivityHeader placement="After latest message" />
+      <div className="bg-gallery__message bg-gallery__message--user">
+        Can you run the webview checks and report the failures?
+      </div>
+      <div className="bg-gallery__message bg-gallery__message--agent">
+        I started the checks. I’ll keep the output here while the next files finish.
+      </div>
+      <div className="bg-gallery__latest-label">Latest message · activity follows</div>
+      <LiveTail />
+      <CommandRows compact />
+      <DoneSummary compact />
+    </div>
+  );
+}
+
+function BackgroundActivityGallery({ surface, mode }: Props) {
+  return (
+    <div className="bg-gallery" data-bg-gallery data-mode={mode} data-surface={surface}>
+      {surface === "pinned-live-tail" && <PinnedSurface />}
+      {surface === "after-latest-message" && <TranscriptSurface />}
+    </div>
+  );
+}
+
+const expandPinned: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('[data-live-tail="expanded"]'));
+  await ctx.click({ role: "button", name: "Collapse output" });
+  await ctx.click({ role: "button", name: "Expand live output" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-live-tail="expanded"]'));
+};
+
+const expandPill: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /Background activity/ });
+  await ctx.waitFor(() => ctx.document.querySelector("[data-expanded-from-pill]"));
+};
+
+const paired = (surface: Surface, note: string, play?: Play): Record<string, ComponentVariant<Props>> => ({
+  [`${surface}-light`]: {
+    note: `${note} Light theme uses the host's readable status colors and raised surfaces.`,
+    props: { surface, mode: "light" },
+    ...(play ? { play } : {}),
+  },
+  [`${surface}-dark`]: {
+    note: `${note} Dark theme keeps the same hierarchy with quiet separators and a bright live tail.`,
+    props: { surface, mode: "dark" },
+    ...(play ? { play } : {}),
+  },
+});
+
+export default componentEntry<Props>({
+  id: "agent-pane.background-activity",
+  title: "Background activity placements",
+  area: "Agent pane",
+  experimental: true,
+  pane: true,
+  height: 760,
+  widths: { narrow: 420, normal: 760, wide: 1040 },
+  anchors: [{ selector: "[data-bg-gallery]" }],
+  covers: ["agent-session/acpmux/conversation/BackgroundTaskNote.tsx#BackgroundTaskNote"],
+  styles: () => import("./BackgroundActivity.gallery.css"),
+  load: async () => BackgroundActivityGallery,
+  variants: {
+    ...paired(
+      "pinned-live-tail",
+      "A pinned panel keeps two running commands, one failed command and 101 completed subagents visible; its in-place live tail follows ten monospace lines and offers Open in terminal.",
+      expandPinned,
+    ),
+    ...paired(
+      "after-latest-message",
+      "The same activity surface follows the latest assistant message, so the transcript still reads naturally while the output remains expandable.",
+    ),
+  },
+});
