@@ -17,9 +17,9 @@ nonisolated enum DiffViewerSettingsSchema {
                 ["diff", "layout"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.diff.layout", "Layout"),
                 kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Auto")),
                     SettingChoice("split", SettingsText.keyed("settings.choice.diffSplit", "Side by Side")),
                     SettingChoice("unified", SettingsText.keyed("settings.choice.diffUnified", "Unified")),
-                    SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Auto")),
                 ]),
                 default: .string("auto"), keywords: ["diff", "split", "unified", "side by side", "auto", "automatic"]
             ),

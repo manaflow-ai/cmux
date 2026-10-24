@@ -109,15 +109,16 @@ html {
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
    the backdrop shows through as it does through every other surface:
-   - the file bars and the files panel are one material, the plain glass (ui/glass/glass.css: the
-     theme surface at --ds-glass-plain-tint, the shared blur).
+   - the file bars, the files panel and the floating bars are one material: the theme surface at
+     the clearer glass tint (--ds-glass-lens-tint) with the shared blur (ui/glass/glass.css).
    The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
    the host's) keeps them solid. */
 :root[data-cmux-see-through]:not([data-reduce-transparency]) {
   --cmux-diff-files-bg: var(--cmux-diff-header-bg);
   --cmux-diff-files-filter: var(--cmux-diff-glass-filter);
   --cmux-diff-files-layer-bg: transparent;
-  --cmux-diff-header-bg: var(--glass-tint);
+  /* The clearer glass (--ds-glass-lens-tint, 40%): transparent, with the blur doing the work. */
+  --cmux-diff-header-bg: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --cmux-diff-glass-filter: var(--glass-backdrop);
 }
 /* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's own
@@ -129,7 +130,7 @@ html {
   @supports not (-webkit-backdrop-filter: none) {
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) {
       --cmux-diff-float-fill:
-        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        linear-gradient(var(--cmux-diff-header-bg), var(--cmux-diff-header-bg)),
         color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
     }
   }
