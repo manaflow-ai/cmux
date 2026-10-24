@@ -39,10 +39,6 @@ const USAGE_EVERY: Duration = Duration::from_secs(1);
 /// The longest prompt, result or error preview of a workflow agent sent.
 const PREVIEW_CHARS: usize = 240;
 
-/// The largest `args` of a Workflow call sent with its launch, serialized: past it a resume
-/// cannot be offered from the pane, and a person resumes from the chat.
-const ARGS_BYTES: usize = 8 << 10;
-
 /// One running Workflow tool call (`Translator::workflows`).
 #[derive(Debug, Default)]
 pub(super) struct WorkflowRun {
@@ -60,8 +56,6 @@ pub(super) struct WorkflowRun {
     journal: JournalTail,
     /// When the last update went out.
     sent: Option<Instant>,
-    /// The Workflow call's `args`, which its launch sends: a resume names them again.
-    args: Option<Value>,
 }
 
 /// What a run's `journal.jsonl` said up to `offset`: how many agents started
@@ -80,18 +74,6 @@ struct Rows {
     agents: Vec<Value>,
     /// Every agent, each whole: a client replaces what it had.
     full: bool,
-}
-
-impl WorkflowRun {
-    /// A run for a Workflow call's `input`, keeping its `args`.
-    /// A run for a Workflow call's `input`, keeping its `args` when a pane may be sent them
-    /// (`sendable_args`).
-    pub(super) fn new(input: &Value) -> Self {
-        Self {
-            args: input.get("args").filter(|args| sendable_args(args)).cloned(),
-            ..Self::default()
-        }
-    }
 }
 
 impl Translator {
@@ -126,27 +108,12 @@ impl Translator {
         if let Some(task) = text("taskId") {
             self.subagent_tasks.lock().await.insert(task.to_owned(), tool.to_owned());
         }
-        let args = {
-            let mut runs = self.workflows.lock().await;
-            let run = runs.get_mut(tool);
-            match (run, text("transcriptDir")) {
-                (Some(run), Some(dir)) => {
-                    run.dir = Some(PathBuf::from(dir));
-                    run.args.clone()
-                }
-                (Some(run), None) => run.args.clone(),
-                (None, _) => None,
-            }
-        };
+        if let Some(dir) = text("transcriptDir")
+            && let Some(run) = self.workflows.lock().await.get_mut(tool)
+        {
+            run.dir = Some(PathBuf::from(dir));
+        }
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
-        // What a resume names again (`Workflow({scriptPath, resumeFromRunId, args})`): the script
-        // path Claude Code returned, the only kind it takes back, and the call's args.
-        if let Some(path) = text("scriptPath") {
-            update.set("scriptPath", json!(path));
-        }
-        if let Some(args) = args {
-            update.set("args", args);
-        }
         if let Some(name) = text("workflowName") {
             update.set("name", json!(name));
         }
@@ -457,31 +424,6 @@ fn preview(text: &str) -> String {
     let mut out: String = text.chars().take(PREVIEW_CHARS).collect();
     out.push('…');
     out
-}
-
-/// Whether a Workflow call's `args` may go to a pane, which a resume names again: not null, at
-/// most `ARGS_BYTES` serialized, nothing in them the secret scanner masks, and no key named like
-/// a credential. Session updates are not masked, so args that may hold a secret are never sent;
-/// a person resumes such a run from the chat.
-fn sendable_args(args: &Value) -> bool {
-    fn credential_key(value: &Value) -> bool {
-        match value {
-            Value::Object(map) => map.iter().any(|(key, value)| {
-                let key = key.to_ascii_lowercase();
-                ["token", "secret", "password", "passwd", "apikey", "api_key", "credential", "auth"]
-                    .iter()
-                    .any(|word| key.contains(word))
-                    || credential_key(value)
-            }),
-            Value::Array(items) => items.iter().any(credential_key),
-            _ => false,
-        }
-    }
-    if args.is_null() {
-        return false;
-    }
-    let text = args.to_string();
-    text.len() <= ARGS_BYTES && crate::secret_scan::mask(&text) == text && !credential_key(args)
 }
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
