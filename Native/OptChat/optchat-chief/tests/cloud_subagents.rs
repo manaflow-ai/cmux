@@ -1055,8 +1055,15 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     let recorder = Arc::new(CwdRecorder::default());
     let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // The VM's folder, missing on this host whatever it runs on: on a Linux
+    // test host /home/agent/work may exist and hide the bug (a624, Oct 24).
+    let vm_dir = h.dir.path().join("only-on-the-vm");
+    let placement = CloudPlacement {
+        dir: vm_dir.clone(),
+        ..cloud()
+    };
     let sp = Arc::new(
-        Arc::try_unwrap(spawner(&h, Some(cloud())))
+        Arc::try_unwrap(spawner(&h, Some(placement)))
             .ok()
             .unwrap()
             .with_workspaces(Some(ws)),
@@ -1073,8 +1080,7 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     );
     let (spec, _) = subs(&h).into_iter().next().unwrap();
     assert_eq!(
-        spec.cwd,
-        PathBuf::from("/home/agent/work"),
+        spec.cwd, vm_dir,
         "the session still runs in the VM's folder"
     );
     let opened = recorder.opened.lock().unwrap().clone();

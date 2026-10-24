@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Architecture counts for cmux-next, method v1: the numbers plans/cmux-next/arch-ratchet.json records.
+"""Architecture counts for cmux-next, method v3: the numbers plans/cmux-next/arch-ratchet.json records.
 
 The rules are the goal (repo CLAUDE.md "Refactor architecture", "Modern Swift concurrency";
 plans/cmux-next/perf-lead.md "Architecture targets"); these counts are proxies, and a pattern renamed
@@ -10,7 +10,8 @@ Scope: tracked Swift under Packages/macOS/CmuxNext/Sources, read from git object
 string literals blanked (same length, so offsets and line numbers stay). Package rows come from a
 static parse of Packages/macOS/CmuxNext/Package.swift (never `swift package dump-package`: 4-6 s).
 
-Rows (method v1; a change of any definition bumps METHOD_VERSION and rewrites the json):
+Rows (method v3; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
+rewrites the json without comparing totals: reviewers compare the definitions):
   layer_hard              target edges from a core, service or domain target to a ui or app target
                           (layers from plans/cmux-next/architecture-layers.json, as arch-layers.py)
   layer_soft              edges from a service target to a domain target
@@ -20,50 +21,102 @@ Rows (method v1; a change of any definition bumps METHOD_VERSION and rewrites th
                           place (no entry, an entry without a string `layer`, a layer not in `order`, or a
                           map that does not parse). One static reader (`parse_manifest`) and one map reader
                           (`LayerMap`) serve these rows, arch-layers.py and the pre-push layer gate
-  stateful_singletons     a stored type-scope `static let/var` whose type is stateful, whatever its
-                          name. The type comes from the annotation, else from `T(`, `T<..>(`, `T.init(`,
-                          `Self(`, `.init(`, `T.factory(` (the enclosing type for Self/.init), `T {`,
-                          or a member read of a stateful system type (`FileManager.default`). Stateful:
-                          an actor; a repo class with a stored instance `var` or a lock/cache field; a
-                          repo struct/enum with a lock/cache field; UserDefaults, URLSession,
-                          NotificationCenter, OperationQueue, NSWindow, NSPanel, NSWorkspace,
-                          FileManager, WKProcessPool, WKWebsiteDataStore (and
-                          DistributedNotificationCenter); and, one link away (TypeTable.DEPTH), a repo
-                          class whose superclass or stored instance `let` has such a type. A name
-                          declared more than once (two modules) is stateful when any declaration is.
-                          Not counted: @TaskLocal statics, association keys, and the composition root
-                          (CmuxNextApp's AppDelegate*.swift, CmuxNextApp.swift, AppServices*.swift).
-  global_mutable_statics  any other stored `static var`, or a static lock/cache/atomic container
-                          (Mutex, OSAllocatedUnfairLock, NSLock, NSRecursiveLock, NSCondition(Lock),
-                          NSCache, NSHashTable, NSMapTable, Atomic, ManagedAtomic, NSMutable*); same
-                          skips as above
+  stateful_singletons     a global whose type is stateful, whatever its name: a stored type-scope
+                          `static let/var` (also `static weak/unowned var`) or a stored file-scope
+                          `let/var` (a global by another spelling), at a line start or after a `{` or
+                          `;` (`enum E { static let shared = S() }`). Every type the declaration names
+                          counts, and one stateful type is enough: the annotation (a protocol or
+                          `any P` annotation does not hide a stateful initializer); the initializer's
+                          constructed type (`T(`, `T<..>(`, `T.init(`, `Self(`, `.init(`, `T.factory(`,
+                          the enclosing type for Self/.init, `T {`, or a member read of a stateful
+                          system type such as `FileManager.default`); for an immediately invoked
+                          closure `{ ... }()`, its `() -> T in` and what it returns (`return T(...)`,
+                          or a local `let x = T(...)` that it returns); for a lowercase call
+                          `make(...)`, the return type of `func make` (this file's, else every
+                          file-scope or static `func make` in the sources: `func:make` in the type
+                          table); and every type the initializer constructs inside it
+                          (`Env(store: Store())`). Stateful: an actor; a repo class with a stored
+                          instance `var` or a lock/cache field; a repo struct/enum with a lock/cache
+                          field; UserDefaults, URLSession, NotificationCenter, OperationQueue, NSWindow,
+                          NSPanel, NSWorkspace, FileManager, WKProcessPool, WKWebsiteDataStore (and
+                          DistributedNotificationCenter); and, through any number of links, a repo type
+                          whose superclass or stored instance property has a stateful type (a class: its
+                          stored `let`s; a struct: its stored `let`s and `var`s). A name declared more
+                          than once (two modules) is stateful when any declaration is. Not counted:
+                          @TaskLocal statics, and an association key: a static whose address (or
+                          pointer value) this file passes as the key of objc_get/setAssociatedObject and
+                          whose type is a key type (UInt8, Int, Bool, a raw pointer; or an integer or
+                          Boolean literal). The name is never the test, and a key used from another file
+                          counts (keep the key private next to its use). No file is exempt (the
+                          composition root holds instances, not statics). A file-scope func that a
+                          `make()` initializer resolves to is written at column 0 (every one in the
+                          sources is; an indented one is not in the type table).
+  global_mutable_statics  any other stored `static var` or file-scope `var`, or a static or file-scope
+                          lock/cache/atomic container (Mutex, OSAllocatedUnfairLock, NSLock,
+                          NSRecursiveLock, NSCondition(Lock), NSCache, NSHashTable, NSMapTable, Atomic,
+                          ManagedAtomic, NSMutable*), serial queue (DispatchQueue), running Task or
+                          stream (AsyncStream, AsyncThrowingStream); same skips as above
   assume_isolated_outside_adapters
                           every `MainActor.assumeIsolated` except an adapter site: not inside a
                           `deinit` and not inside a raw NotificationCenter `addObserver(... queue: .main)`
-                          block, a `main-proof:` comment on its line, in the 2 lines above or in the
-                          comment block above, and a file of at most 150 code lines and at most 2 type
-                          declarations (class/actor/struct/enum/protocol)
+                          block, a `main-proof:` comment on its own line, in the contiguous comment
+                          block directly above it, or trailing its opener on the line directly above
+                          when that line has no call of its own (one proof per call: the first code
+                          line above ends the search), and inside a seam adapter type: the innermost
+                          type around the call is a class/struct/enum/actor declared there (not an
+                          extension of a type declared elsewhere, not a protocol, not a free function)
+                          whose own body is at most 150 code lines
   assume_isolated_total   every `MainActor.assumeIsolated` (report only)
   app_broadcast_names     custom Notification.Name declarations: `Notification.Name(`,
                           `Notification.Name.init(`, `Name(rawValue:`, `.init(`/`Self(` inside an
                           `extension Notification.Name`, `: Notification.Name = .init(`,
-                          `post(name: .init(`; not counted: a literal that starts with `com.apple.`
-  observer_sites          `addObserver(`, `.notifications(named:`, `.publisher(for:`,
-                          `MainActorObservation(` (not a `func addObserver(` declaration)
+                          `post(name: .init(`, and a type or extension that conforms to
+                          `NotificationCenter.MainActorMessage`/`AsyncMessage` (a typed broadcast); not
+                          counted: a literal that starts with `com.apple.`
+  observer_sites          `addObserver(`, `.notifications(named:`, `.publisher(for:`, `.messages(of:`,
+                          `MainActorObservation(`, KVO `.observe(\\.keyPath`, and
+                          `CFNotificationCenterAddObserver(` (not a `func addObserver(` declaration)
   app_lines               physical lines (newlines) of CmuxNextApp Swift (report only here)
 
+codebase-health.py imports these patterns, analyze(), count_texts() and layers(), so its report and the ratchet share
+one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts).
+
+Site identity (Delta.unpartnered, the ratchet's swap rule): a counted global keeps its identity by its owner
+and name (static_name: `Store.shared`; `<package>:<name>` for a file-scope global, so a file moved or renamed
+within its package keeps its globals) or by its primary type, a broadcast by its literal (or its message
+type), an assumeIsolated outside an adapter by the type and function around it, a layer edge by its two
+targets. The owner is part of the identity on purpose: a static or an unproved assumeIsolated call moved to
+another type (a renamed owner, or a static extracted from a god type into a new Coordinator) is another site,
+new debt in that type. A typed global still finds its partner by its type; a typeless static (`static var
+hook: ((String) -> Void)?`) and an unproved call have no other key, so their move is a swap: fix the debt in
+the move (an injected instance; the call in a seam adapter with its `main-proof:`) or carry a dated exception.
+
 Delta mode (the pre-push hook) reads only the files a range changes, at both ends, and gives the same
-numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics the range leaves
-in place, or moves within a package, cancel without a type lookup; for the rest, and for types whose
-declarations the range changes, one worktree `git grep` per link depth finds the declarations (the
-worktree stands in for both ends for every file that equals them; changed and dirty files are read
-from git objects). A type whose statefulness the range flips (a class gains a stored var) re-counts the
-unchanged files whose statics name it. Most pushes need no grep: about 4 git processes in all.
+numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics that keep their
+identity at both ends (package, owner and name, types, keyword: left in place, or moved within a package)
+cancel without a type lookup; every other changed static gets its own site, so the swap rule and a refusal
+see exactly the statics the range changed. For those, and for types whose
+declarations the range changes, one worktree `git grep -o` lists every declaration line (DECL_INDEX) and a
+type search reads only the declaring files it reaches (the worktree stands in for both ends for every
+file that equals them; changed and dirty files are read from git objects). A type whose statefulness the
+range flips (a class gains a stored var) re-counts the unchanged files that name it (a `func:` entry only
+as a bare call that starts an expression), and then the types that hold it, link by link. Most pushes need
+no grep: about 4 git processes in all.
+
+Every analyzed file's facts are kept by (blob id, path) in `<git common dir>/cmux-arch-counts/` (FactsCache,
+one sqlite file per version of this script), so a file is analyzed once per content: a warm 80-file
+cross-package move reads no file twice; the first run after this file changes pays the analysis once.
+
+The file is self-contained (standard library only): perf-cron-arch-report.py runs a commit's own copy
+under `python3 -I`.
 
 Usage:
   scripts/cmux-next/arch_counts.py [--rev REV] [--json]     full count at REV (default HEAD)
-  scripts/cmux-next/arch_counts.py --write [--rev REV]      write plans/cmux-next/arch-ratchet.json
+  scripts/cmux-next/arch_counts.py --sites ROW [--rev REV]  the sites of ROW
   scripts/cmux-next/arch_counts.py --delta BASE HEAD [--json]
+The one writer of plans/cmux-next/arch-ratchet.json is `arch-ratchet.py --update`: it refuses a rise that
+no dated exception covers, except one that commits already on origin/feat-cmux-next made, which it records
+with a generated applied entry naming them (`raised_by`).
 """
 
 from __future__ import annotations
@@ -74,13 +127,21 @@ import collections
 import concurrent.futures
 import dataclasses
 import datetime
+import hashlib
 import json
 import re
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
-METHOD_VERSION = 1
+# v2: file-scope globals, weak/unowned statics, closure and factory initializers, held struct state, any link
+# depth, one main-proof per call, KVO and CFNotificationCenter observers, no composition-root exemption.
+# v3: seam adapters per type (an extension or free function is none), association keys by use and shape (not
+# by name), declarations after `{`/`;`, DispatchQueue/Task/AsyncStream statics, typed NotificationCenter
+# messages and `.messages(of:` observers, file-scope funcs at column 0, site identity keys.
+METHOD_VERSION = 3
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 LAYERS_JSON = "plans/cmux-next/architecture-layers.json"
@@ -111,8 +172,8 @@ ROWS = (
     Row("layer_soft", "soft layer edges (service -> domain)", True),
     Row("layer_upward", "other upward layer edges (core -> service/domain)", True),
     Row("layer_unplaced", "targets missing from architecture-layers.json", True),
-    Row("stateful_singletons", "stateful singletons (stored static of a stateful type)", True),
-    Row("global_mutable_statics", "global mutable statics (static var, static lock/cache)", True),
+    Row("stateful_singletons", "stateful singletons (stored static or file-scope global of a stateful type)", True),
+    Row("global_mutable_statics", "global mutable statics (static or file-scope var, lock, cache)", True),
     Row("assume_isolated_outside_adapters", "MainActor.assumeIsolated outside seam adapters", True),
     Row("assume_isolated_total", "MainActor.assumeIsolated, all sites", False),
     Row("app_broadcast_names", "app-internal Notification.Name broadcasts", True),
@@ -126,10 +187,13 @@ SYS_STATEFUL = frozenset({
     "UserDefaults", "URLSession", "NotificationCenter", "OperationQueue", "NSWindow", "NSPanel",
     "NSWorkspace", "FileManager", "WKProcessPool", "WKWebsiteDataStore", "DistributedNotificationCenter",
 })
+# Shared mutable machinery: locks, caches, atomics, mutable Foundation collections, a serial queue (the
+# queue-as-lock CLAUDE.md bans), a running Task and a stream (its continuation is a process-wide channel).
 CONTAINERS = frozenset({
     "Mutex", "OSAllocatedUnfairLock", "NSLock", "NSRecursiveLock", "NSCondition", "NSConditionLock",
     "NSCache", "NSHashTable", "NSMapTable", "Atomic", "ManagedAtomic", "NSMutableDictionary",
-    "NSMutableArray", "NSMutableSet", "NSMutableOrderedSet",
+    "NSMutableArray", "NSMutableSet", "NSMutableOrderedSet", "DispatchQueue", "Task", "AsyncStream",
+    "AsyncThrowingStream",
 })
 # Names that are never a repo type: system classes and value types a static commonly holds.
 SYSTEM_PREFIX = re.compile(r"^(?:NS|WK|CA|CG|CF|AV|UI|MTL|MTK|SC|UN|AS|QL|SK|OS|CL|IO|VN|SF|CI|CT|CV|CM)[A-Z]")
@@ -138,9 +202,9 @@ VALUE_NAMES = frozenset({
     "CGFloat", "Bool", "Character", "Array", "Dictionary", "Set", "Optional", "URL", "Data", "Date", "UUID",
     "Duration", "TimeInterval", "Color", "Font", "Image", "Logger", "Self", "Void", "Any", "AnyObject",
 })
-
-COMPOSITION_ROOT = re.compile(r"^Packages/macOS/CmuxNext/Sources/CmuxNextApp/(?:.*/)?"
-                              r"(?:AppDelegate[^/]*|CmuxNextApp|AppServices[^/]*)\.swift$")
+# A file-scope or static `func` in the type table: `func:make` links to make's return type, so a global
+# initialized by `make()` is as stateful as what make returns.
+FUNC = "func:"
 
 # ---------------------------------------------------------------------------------------------------
 # Comment and string blanking
@@ -332,11 +396,38 @@ TYPE_DECL = re.compile(
     r"nonisolated|required|convenience|init|deinit)\b)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
     re.M,
 )
+TYPEALIAS = re.compile(
+    rf"^[ \t]*(?:{ATTR}\s+)*(?:{MODS}\s+)*typealias[ \t]+([A-Za-z_]\w*)\s*(?:<[^=\n]*>)?\s*=\s*([^\n]*)", re.M)
+# A stored `let`/`var` declaration: a type-scope static (`static` among the modifiers) or, with no enclosing
+# brace, a file-scope global. weak/unowned are modifiers too (`static weak var app: App?` is a singleton). It
+# starts a line or follows a `{` or `;` (`enum E { static var n = 0 }`, `let a = 1; let b = Store()`); the
+# match ends before its `=` (group 5) or where the annotation ends, so the next declaration on the line is seen.
 STATIC = re.compile(
-    rf"^[ \t]*(?:{ATTR}\s+)*((?:(?:{MODS}|static|class|lazy|override)\s+)*)(let|var)\s+(`?[A-Za-z_]\w*`?)"
-    r"[ \t]*(?::[ \t]*([^=\n{]+?))?[ \t]*(=[ \t]*(.*?))?[ \t]*$",
+    rf"(?:^|(?<=[{{;]))[ \t]*(?:{ATTR}\s+)*((?:(?:{MODS}|static|class|lazy|override|weak|unowned(?:\([\w ]+\))?)\s+)*)"
+    r"(let|var)\s+(`?[A-Za-z_]\w*`?)"
+    r"[ \t]*(?::[ \t]*([^=\n{};]+?))?[ \t]*(?=(=)|[{};\n]|$)",
     re.M,
 )
+# A func declaration; its modifiers are on the `func` line (DECL_INDEX greps `static ... func name` lines).
+FUNC_DECL = re.compile(
+    rf"^[ \t]*(?:{ATTR}\s+)*((?:(?:{MODS}|static|class|override|mutating|nonmutating)[ \t]+)*)func[ \t]+"
+    r"([A-Za-z_]\w*)\s*(?:<[^(){}\n]*>)?\s*\(",
+    re.M,
+)
+FUNC_RESULT = re.compile(
+    r"\s*(?:async\s+)?(?:(?:re)?throws\b(?:\s*\([^()]*\))?\s*)?(?:async\s+)?->\s*([^{\n]+?)\s*(?:\bwhere\b[^{\n]*)?(?:\{|$)",
+    re.M,
+)
+# A type constructed in an initializer outside its closures (`Env(store: Store())` holds a Store; a closure's
+# body runs later and is not held), and a stateful system singleton passed as a whole
+# (`Config(defaults: UserDefaults.standard)`; `FileManager.default.temporaryDirectory` is a URL value).
+CONSTRUCT = re.compile(r"(?<![\w.])([A-Z]\w*)\s*(?:<[^(){}\n]*?>)?\s*(?:\.\s*init\s*)?\(")
+SYS_ACCESSORS = frozenset({"standard", "default", "shared", "main", "current"})
+SYS_READ = re.compile(r"(?<![\w.])(" + "|".join(sorted(SYS_STATEFUL)) + r")\s*\.\s*(?:" + "|".join(sorted(SYS_ACCESSORS))
+                      + r")\b(?:\s*\(\s*\))?(?!\s*[.(\w])")
+LOWER_CALL = re.compile(r"([a-z_]\w*)\s*(?:<[^(){}\n]*?>)?\s*\(")
+LEAD = re.compile(r"\s*(?:(?:try[!?]?|await)\s+)*")
+NOT_CALLS = frozenset({"if", "switch", "try", "await", "some", "any", "return"})
 VAR_MEMBER = re.compile(
     rf"(?:^|[\n;])[ \t]*(?:{ATTR}\s+)*((?:(?:{MODS}|weak|unowned|lazy|override|static|class|required|"
     r"nonmutating|mutating)\s+)*)var\s+(?:`?[A-Za-z_]\w*`?)([^\n;]*)"
@@ -348,49 +439,81 @@ LOCK_MEMBER = re.compile(
 )
 ASSUME = re.compile(r"\bMainActor\s*\.\s*assumeIsolated\b")
 OBSERVER = re.compile(r"\baddObserver\s*\(|\.notifications\s*\(\s*named\s*:|\.publisher\s*\(\s*for\s*:|"
-                      r"\bMainActorObservation\s*\(")
+                      r"\bMainActorObservation\s*\(|\.observe\s*\(\s*\\|\bCFNotificationCenterAddObserver\s*\(|"
+                      r"\.messages\s*\(\s*of\s*:")
+OBSERVER_DECL = re.compile(r"\bfunc\s+$")  # `func addObserver(` declares one, it is no site
 BROADCAST = re.compile(
     r"\b(?:NS)?Notification\s*\.\s*Name\s*(?:\.\s*init\s*)?(\()|\bName\s*(\()\s*rawValue\s*:|"
     r":\s*(?:NS)?Notification\s*\.\s*Name\s*=\s*\.init\s*(\()|\bpost\s*\(\s*name\s*:\s*\.init\s*(\()"
 )
 EXT_NAME = re.compile(r"\bextension\s+(?:NS)?Notification\s*\.\s*Name\b")
+# A typed broadcast (macOS 26 NotificationCenter messages): a type or extension that conforms to one.
+MESSAGE_CONFORMANCE = re.compile(r"\b(?:NotificationCenter\s*\.\s*)?(?:MainActorMessage|AsyncMessage)\b")
 INIT_CALL = re.compile(r"(?<![\w.])(?:\.init|Self(?:\s*\.\s*init)?)\s*(\()")
 NC_MAIN = re.compile(r"addObserver\s*\([^{}]*\bqueue\s*:\s*(?:\.main|OperationQueue\s*\.\s*main)\b[^{}]*$")
 DEINIT = re.compile(r"\bdeinit\s*$")
-ASSOC = re.compile(r"(?i)associat\w*key|assockey")
+# The key argument of an Objective-C association call: `&key`, `&Self.key`, `&Type.key` or a pointer `key`.
+ASSOC_USE = re.compile(r"\bobjc_(?:get|set)AssociatedObject\s*\([^,()]*(?:\([^()]*\)[^,()]*)*,\s*&?\s*"
+                       r"(?:Self\s*\.\s*|[A-Za-z_]\w*\s*\.\s*)?([A-Za-z_]\w*)")
+# What an association key holds: only its address (or pointer value) is used, never its contents.
+KEY_TYPES = frozenset({"UInt8", "Int8", "UInt", "Int", "Bool", "Character", "Void", "UnsafeRawPointer",
+                       "UnsafeMutableRawPointer"})
 SUPERCLASS = re.compile(r"^\s*(?:<[^{}]*?>)?\s*:\s*(?:@\w+\s+)?([A-Za-z_][\w.]*)")
 
 
 @dataclasses.dataclass
 class Decl:
-    """A class/actor/struct/enum declaration and what makes it stateful on its own."""
+    """A class/actor/struct/enum/protocol/typealias declaration (or a `func:` result link) and what makes it
+    stateful on its own. PATH and PACKAGE scope a name lookup: a reference resolves to its own file's
+    declarations of the name, else its package's, else every declaration (TypeTable)."""
 
     name: str
     kind: str
     own_state: bool
     superclass: str | None
-    held: tuple[str, ...] = ()  # types of its stored instance `let`s (a held stateful object is state)
+    # Types of its stored instance properties (a held stateful object is state): a class's stored `let`s,
+    # a struct's stored `let`s and `var`s; for a `func:` entry, its return type; for a typealias, its target.
+    held: tuple[str, ...] = ()
+    path: str = ""
+    package: str = ""
+
+    def links(self) -> tuple[str, ...]:
+        return ((self.superclass,) if self.superclass else ()) + self.held
 
 
 @dataclasses.dataclass
 class Static:
-    """A stored type-scope static, before its type is resolved."""
+    """A stored type-scope static or file-scope global, before its types are resolved.
+
+    TYPES: every type the declaration names (annotation, initializer, what it constructs); it counts as a
+    stateful singleton when any of them is stateful. CONTAINER: the annotation or the constructed type is a
+    lock/cache/atomic container.
+    """
 
     line: int
     text: str
     keyword: str
-    type_name: str | None
+    types: tuple[str, ...]
     container: bool
+    name: str = ""
+    # The type it is declared in (the extended type for an `extension Store`); "" for a file-scope global.
+    owner: str = ""
 
 
 @dataclasses.dataclass
 class Site:
-    """A counted finding: the row, file, 1-based line and the source line's text."""
+    """A counted finding: the row, file, 1-based line and the source line's text.
+
+    KEYS: what identifies the debt across a move or an edit (Delta.unpartnered): a global's owner-qualified
+    `name:` and its primary `type:`, an assumeIsolated's `scope:` (the type and function around it), a
+    broadcast's name literal, a layer edge. Empty: the site is identified by its text.
+    """
 
     row: str
     path: str
     line: int
     text: str
+    keys: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass
@@ -472,50 +595,252 @@ def _init_type(expr: str, owner: str | None) -> str | None:
     after = [p for p in parts[k + 1:] if p != "init"]
     if rest[:1] in ("(", "{"):
         return parts[k] if len(after) <= 1 else None
-    if not rest and len(after) == 1 and parts[k] in SYS_STATEFUL:
+    if not rest and len(after) == 1 and parts[k] in SYS_STATEFUL and after[0] in SYS_ACCESSORS:
         return parts[k]
     return None
 
 
 def _is_proved(raw_lines: list[str], i: int) -> bool:
+    """A `main-proof:` comment for the call on line I: on that line, in the contiguous comment block directly
+    above it, or trailing the code line directly above when that line is the call's opener and has no call of
+    its own (`setCompletionBlock { // main-proof: ...`). One proof covers one call: below another call, or
+    with any code line between, a call needs its own.
+    """
     if "main-proof:" in raw_lines[i]:
         return True
-    if any("main-proof:" in raw_lines[j] for j in range(max(0, i - 2), i)):
-        return True
     j = i - 1
-    while j >= 0 and re.match(r"^\s*(?://|\*|/\*|@\w)", raw_lines[j]):
+    while j >= 0 and re.match(r"^\s*(?://|\*|/\*)", raw_lines[j]):
         if "main-proof:" in raw_lines[j]:
             return True
         j -= 1
-    return False
+    return j == i - 1 and j >= 0 and "main-proof:" in raw_lines[j] and not ASSUME.search(raw_lines[j])
 
 
-def _decls(code: str, braces: Braces) -> tuple[list[Decl], dict[int, tuple[str, str]], int]:
-    """Type declarations, a map body-open -> (kind, name) for owners, and the type count of the file."""
-    decls: list[Decl] = []
+def _statement(code: str, start: int) -> str:
+    """The expression from START to the end of its statement (a newline or `;` outside brackets)."""
+    depth = 0
+    i = start
+    n = len(code)
+    while i < n:
+        ch = code[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif ch in "\n;" and depth == 0:
+            break
+        i += 1
+    return code[start:i]
+
+
+def _expr_types(expr: str, owner: str | None, funcs: dict[str, list[str]]) -> list[str]:
+    """Every type the initializer EXPR names: its constructed type first, then the types built inside it.
+
+    A lowercase call `make(...)` resolves through FUNCS (this file's file-scope and static funcs), else
+    to the `func:make` entry of the type table (every such func in the sources).
+    """
+    expr = expr[LEAD.match(expr).end():]
+    out: list[str] = []
+    primary = _init_type(expr, owner)
+    if primary:
+        out.append(primary)
+    else:
+        call = LOWER_CALL.match(expr)
+        if call and call.group(1) not in NOT_CALLS:
+            out += funcs.get(call.group(1)) or [FUNC + call.group(1)]
+    held = _without_closures(expr)
+    out += [m.group(1) for m in CONSTRUCT.finditer(held)]
+    out += [m.group(1) for m in SYS_READ.finditer(held)]
+    return out
+
+
+def _without_closures(expr: str) -> str:
+    """EXPR with every `{ ... }` body (balanced) cut to `{}`: what a closure builds is not held by the value."""
+    out: list[str] = []
+    depth = 0
+    for ch in expr:
+        if ch == "{":
+            if depth == 0:
+                out.append("{")
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0:
+                out.append("}")
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def _closure_types(code: str, braces: Braces, open_pos: int, owner: str | None,
+                   funcs: dict[str, list[str]]) -> list[str]:
+    """The types an immediately invoked closure at OPEN_POS yields: its `() -> T in`, what it returns
+    (`return T(...)`, or a local `let x = T(...)` it returns) and, with no `return`, its last expression."""
+    close = braces.close.get(open_pos, len(code))
+    parts: list[str] = []
+    i = open_pos + 1
+    for child in braces.children(open_pos):  # nested closures and blocks: their returns are not this one's
+        parts.append(code[i:child])
+        parts.append("{}")
+        i = braces.close.get(child, len(code)) + 1
+    parts.append(code[i:close])
+    top = "".join(parts)
+    out: list[str] = []
+    signature = re.match(r"\s*(?:\[[^\]]*\]\s*)?\(\s*\)\s*(?:throws\s+)?->\s*(.+?)\s+in\b", top)
+    if signature and _type_name(signature.group(1)):
+        out.append(_type_name(signature.group(1)))
+    results = re.findall(r"\breturn\s+([^\n;]+)", top)
+    if not results:
+        statements = [s for s in re.split(r"[\n;]", top) if s.strip()]
+        results = statements[-1:]
+    for expr in results:
+        found = _expr_types(expr, owner, funcs)
+        name = expr.strip()
+        if not found and re.fullmatch(r"[a-z_]\w*", name):
+            local = re.compile(rf"\b(?:let|var)\s+{re.escape(name)}\b[ \t]*(?::[ \t]*([^=\n;]+?))?[ \t]*"
+                               r"(?:=[ \t]*([^\n;]+))?(?=[\n;]|$)")
+            for m in local.finditer(top):
+                if m.group(1) and _type_name(m.group(1)):
+                    found.append(_type_name(m.group(1)))
+                if m.group(2):
+                    found += _expr_types(m.group(2), owner, funcs)
+        out += found
+    return out
+
+
+def _initializer_types(code: str, braces: Braces, eq_pos: int, owner: str | None,
+                       funcs: dict[str, list[str]]) -> list[str]:
+    """The types of the initializer after the `=` at EQ_POS (it may start on the next line)."""
+    start = eq_pos + 1
+    n = len(code)
+    while start < n and code[start] in " \t\n":
+        start += 1
+    if start < n and code[start] == "{" and start in braces.close:
+        close = braces.close[start]
+        if code[close + 1:close + 41].lstrip(" \t").startswith("("):
+            return _closure_types(code, braces, start, owner, funcs)
+        return []  # a closure value: its type is a function type
+    return _expr_types(_statement(code, start), owner, funcs)
+
+
+def _owners(code: str, braces: Braces) -> tuple[list[tuple[int, str, str, str]], dict[int, tuple[str, str]]]:
+    """([(body open, kind, name, text between name and body)], body open -> (kind, name))."""
+    entries: list[tuple[int, str, str, str]] = []
     owners: dict[int, tuple[str, str]] = {}
-    count = 0
     for m in TYPE_DECL.finditer(code):
         kind, name = m.group(1), m.group(2)
-        if kind != "extension":
-            count += 1
         brace = code.find("{", m.end())
         if brace < 0 or brace not in braces.close:
             continue
         between = code[m.end():brace]
         if ";" in between:
             continue
-        owners[brace] = (kind, name.split(".")[-1])
-        if kind in ("protocol", "extension"):
+        short = name.split(".")[-1]
+        owners[brace] = (kind, short)
+        entries.append((brace, kind, short, between))
+    return entries, owners
+
+
+ADAPTER_KINDS = frozenset({"class", "struct", "enum", "actor"})
+ADAPTER_MAX_LINES = 150
+
+
+def _in_adapter_type(code: str, braces: Braces, owners: dict[int, tuple[str, str]], scopes: list[int]) -> bool:
+    """Whether the innermost type around a site (SCOPES, innermost first) is a seam adapter type: a class,
+    struct, enum or actor declared here (not an extension of a type declared elsewhere, not a protocol)
+    whose own body is at most ADAPTER_MAX_LINES code lines. A free function or file-scope code is none."""
+    for p in scopes:
+        if p in owners:
+            if owners[p][0] not in ADAPTER_KINDS:
+                return False
+            body = code[p + 1:braces.close.get(p, len(code))]
+            return sum(1 for line in body.split("\n") if line.strip()) <= ADAPTER_MAX_LINES
+    return False
+
+
+# The declaration a body brace opens, at the end of its head: a func, an init/deinit/subscript, or a computed
+# or observed property (`var x: T {`; a `let`/`var` with `=` is a stored value whose `{` is a closure).
+BODY_DECL = re.compile(
+    r"(?:\bfunc\s+([^\s(<]+)[^{}]*|(?<![.\w])(init|deinit|subscript)\b[^{}]*"
+    r"|(?:^|\n)[ \t]*(?:(?!(?:for|if|guard|while|case|catch)\b)[\w@]+(?:\([^()\n]*\))?[ \t]+)*var\s+`?(\w+)`?[^{}=]*)$")
+
+
+def _scope_key(path: str, braces: Braces, owners: dict[int, tuple[str, str]], scopes: list[int]) -> str:
+    """`scope:<Type>.<function>` of a site (SCOPES, innermost first): the innermost function, init, deinit,
+    subscript or computed property around it, and the innermost type (or extended type) around that; the
+    file stands in for the type at file scope. An edit of the line or a move of the file keeps it; the
+    same call in another type or function is another site."""
+    func = "-"
+    for p in scopes:
+        if p in owners:
+            return f"scope:{owners[p][1]}.{func}"
+        if func == "-":
+            m = BODY_DECL.search(braces.head(p))
+            if m:
+                func = next(g for g in m.groups() if g)
+    return f"scope:{path}:{func}"
+
+
+def _funcs(code: str, braces: Braces, owners: dict[int, tuple[str, str]]) -> dict[str, list[str]]:
+    """{name: return types} of the file-scope and static/class funcs (the ones a static can call bare).
+
+    A file-scope func is written at column 0 (its `func` line is not indented), as every one in the sources
+    is: DECL_INDEX then finds it without matching the indented instance methods of the same name.
+    """
+    out: dict[str, list[str]] = collections.defaultdict(list)
+    for m in FUNC_DECL.finditer(code):
+        mods, name = m.group(1) or "", m.group(2)
+        scopes = braces.enclosing(m.start())
+        if re.search(r"\b(?:static|class)\b", mods):
+            if not scopes or scopes[0] not in owners:
+                continue
+            owner = owners[scopes[0]][1]
+        elif scopes:
+            continue  # an instance method: no static initializer calls it bare
+        else:
+            keyword = m.start(1) if mods else code.rfind("func", m.start(), m.start(2))
+            if code[code.rfind("\n", 0, keyword) + 1] in " \t":
+                continue  # indented: not a file-scope func for this table (see the docstring)
+            owner = None
+        result = FUNC_RESULT.match(code, _closing(code, m.end() - 1) + 1)
+        if not result:
+            continue
+        text = result.group(1).strip()
+        t = owner if re.fullmatch(r"Self\s*[?!]?", text) else _type_name(text)
+        if t and t not in out[name]:
+            out[name].append(t)
+    return {k: v for k, v in out.items() if v}
+
+
+def _decls(code: str, braces: Braces, entries: list[tuple[int, str, str, str]],
+           funcs: dict[str, list[str]]) -> list[Decl]:
+    """The type declarations of the file, plus one `func:NAME` entry per file-scope or static func.
+
+    Protocols and typealiases are entries too (never stateful on their own; a typealias links to its
+    target): they shadow a same-named type of another file or package in the scoped lookup.
+    """
+    decls: list[Decl] = []
+    for m in TYPEALIAS.finditer(code):
+        target = _type_name(m.group(2))
+        decls.append(Decl(m.group(1), "typealias", False, None, (target,) if target and target != m.group(1) else ()))
+    for brace, kind, name, between in entries:
+        if kind == "extension":
+            continue
+        if kind == "protocol":
+            decls.append(Decl(name, kind, False, None))
             continue
         superclass = None
         if kind == "class":
             sm = SUPERCLASS.match(between)
             if sm:
                 superclass = sm.group(1).split(".")[-1]
-        own, held = _own_state(code, braces, brace, kind, name.split(".")[-1])
-        decls.append(Decl(name.split(".")[-1], kind, kind == "actor" or own, superclass, held))
-    return decls, owners, count
+        own, held = _own_state(code, braces, brace, kind, name, funcs)
+        decls.append(Decl(name, kind, kind == "actor" or own, superclass, held))
+    for name, types in sorted(funcs.items()):
+        decls.append(Decl(FUNC + name, "func", False, None, tuple(types)))
+    return decls
 
 
 HELD_LET = re.compile(
@@ -525,8 +850,23 @@ HELD_LET = re.compile(
 )
 
 
-def _own_state(code: str, braces: Braces, open_pos: int, kind: str, owner: str) -> tuple[bool, tuple[str, ...]]:
-    """(a stored var or lock field of its own, the types of its stored `let`s) of the body at OPEN_POS."""
+def _member_types(ann: str | None, init: str | None, owner: str, funcs: dict[str, list[str]]) -> list[str]:
+    """The lookup-worthy types of a stored member with annotation ANN and initializer INIT."""
+    found: list[str] = []
+    if ann and _type_name(ann):
+        found.append(_type_name(ann))
+    if init:
+        found += _expr_types(init, owner, funcs)
+    return [t for t in found if t != owner and (t in SYS_STATEFUL or lookup_name(t))]
+
+
+def _own_state(code: str, braces: Braces, open_pos: int, kind: str, owner: str,
+               funcs: dict[str, list[str]]) -> tuple[bool, tuple[str, ...]]:
+    """(state of its own, the types of its stored properties) of the body at OPEN_POS.
+
+    Own state: a lock/cache field, or (a class) a stored instance `var`. Held: a class's stored `let`s, a
+    struct's stored `let`s and `var`s (a struct that holds a stateful object shares that state).
+    """
     close = braces.close.get(open_pos, len(code))
     start = open_pos + 1
     segments: list[tuple[int, int, int | None]] = []  # (start, end, child open that follows)
@@ -541,25 +881,30 @@ def _own_state(code: str, braces: Braces, open_pos: int, kind: str, owner: str) 
         for m in LOCK_MEMBER.finditer(text):
             if not re.search(r"\b(?:static|class)\b", m.group(1)):
                 return True, ()
-        if kind != "class":
-            continue
         for m in HELD_LET.finditer(text):
             if re.search(r"\b(?:static|class|weak|unowned)\b", m.group(1)):
                 continue
-            t = _type_name(m.group(2)) if m.group(2) else _init_type(m.group(3) or "", owner)
-            if t and t != owner and (t in SYS_STATEFUL or repo_type_name(t)):
-                held.append(t)
+            held += _member_types(m.group(2), m.group(3), owner, funcs)
         for m in VAR_MEMBER.finditer(text):
             if re.search(r"\b(?:static|class)\b", m.group(1)):
                 continue
             rest = m.group(2)
             followed_by_block = child is not None and "\n" not in text[m.end():]
-            if "=" in rest or not followed_by_block:
+            stored = "=" in rest or not followed_by_block
+            if not stored:
+                block = code[child + 1:braces.close.get(child, len(code))]
+                stored = bool(re.search(r"\b(?:didSet|willSet)\b", block))
+            if not stored:
+                continue
+            if kind == "class":
                 own = True
                 continue
-            block = code[child + 1:braces.close.get(child, len(code))]
-            if re.search(r"\b(?:didSet|willSet)\b", block):
-                own = True
+            member = re.match(r"\s*:\s*([^=]+?)\s*(?:=\s*(.*))?$", rest)
+            if member:
+                held += _member_types(member.group(1), member.group(2), owner, funcs)
+            else:
+                assigned = re.match(r"\s*=\s*(.*)$", rest)
+                held += _member_types(None, assigned.group(1) if assigned else None, owner, funcs)
     return own, (() if own else tuple(dict.fromkeys(held)))
 
 
@@ -569,7 +914,17 @@ def observer_calls(code: str) -> list[re.Match[str]]:
 
     This is the one observer counter: codebase-health.py and arch-layers.py `--counts` read these matches too.
     """
-    return [m for m in OBSERVER.finditer(code) if not re.search(r"\bfunc\s+$", code[max(0, m.start() - 40):m.start()])]
+    return [m for m in OBSERVER.finditer(code) if not OBSERVER_DECL.search(code[max(0, m.start() - 40):m.start()])]
+
+
+def _key_shaped(code: str, m: re.Match, ann: str | None, types: tuple[str, ...]) -> bool:
+    """Whether a static matched by STATIC (M) has an association key's shape: an annotation and initializer
+    that name only KEY_TYPES, or no annotation and an integer or Boolean literal (`static var key = 0`)."""
+    if ann:
+        return bool(types) and all(t in KEY_TYPES for t in types)
+    if types:
+        return all(t in KEY_TYPES for t in types)
+    return m.group(5) is not None and bool(re.fullmatch(r"\s*(?:-?\d+|true|false)\s*", _statement(code, m.start(5) + 1)))
 
 
 def analyze(path: str, raw: str) -> FileFacts:
@@ -579,48 +934,55 @@ def analyze(path: str, raw: str) -> FileFacts:
     starts = [0] + [m.end() for m in re.finditer(r"\n", code)]
     raw_lines = raw.split("\n")
     code_lines = code.split("\n")
-    decls, owners, type_count = _decls(code, braces)
+    entries, owners = _owners(code, braces)
+    funcs = _funcs(code, braces, owners)
+    package = package_of(path)
+    decls = _decls(code, braces, entries, funcs)
+    for d in decls:
+        d.path, d.package = path, package
     sites: list[Site] = []
 
-    def site(row: str, pos: int) -> None:
+    def site(row: str, pos: int, keys: tuple[str, ...] = ()) -> None:
         line = _line_of(code, pos, starts)
-        sites.append(Site(row, path, line, raw_lines[line - 1].strip() if line - 1 < len(raw_lines) else ""))
+        sites.append(Site(row, path, line, raw_lines[line - 1].strip() if line - 1 < len(raw_lines) else "", keys))
 
     statics: list[Static] = []
-    assoc_names = set(re.findall(r"objc_(?:get|set)AssociatedObject\s*\([^,]*,\s*&\s*(?:Self\s*\.\s*|\w+\s*\.\s*)?(\w+)", code))
+    assoc_names = set(ASSOC_USE.findall(code))
     for m in STATIC.finditer(code):
-        mods, keyword, name, ann, assign, expr = m.groups()
-        if not re.search(r"\bstatic\b", mods or ""):
-            continue
+        mods, keyword, name, ann, assign = m.groups()
+        scopes = braces.enclosing(m.start())
+        if re.search(r"\bstatic\b", mods or ""):
+            if not scopes or scopes[0] not in owners:
+                continue
+            kind, owner = owners[scopes[0]]
+            if kind == "protocol":
+                continue
+        elif scopes:
+            continue  # a local or an instance property
+        else:
+            owner = None  # a file-scope global: the same debt as a static
         line = _line_of(code, m.start(2), starts)  # the `let`/`var` line, not an attribute line above it
         if assign is None:
-            # `static var x: T?` is stored (nil); without `=` anything else is computed or a requirement.
+            # `static var x: T?` is stored (nil); without `=` anything else is computed or a requirement
+            # (a `{` after the annotation, on its line or the next).
+            eol = code.find("\n", m.end())
+            after = code[m.end():len(code) if eol < 0 else eol].strip()
             nxt = code_lines[line].strip() if line < len(code_lines) else ""
-            if keyword != "var" or not ann or nxt.startswith("{"):
+            if keyword != "var" or not ann or after.startswith("{") or (not after and nxt.startswith("{")):
                 continue
         raw_line = raw_lines[line - 1] if line - 1 < len(raw_lines) else ""
         head_attrs = raw_line + (raw_lines[line - 2] if line >= 2 else "")
         if "@TaskLocal" in head_attrs:
             continue
         bare = name.strip("`")
-        if ASSOC.search(bare) or bare in assoc_names:
-            continue
-        scopes = braces.enclosing(m.start())
-        if not scopes or scopes[0] not in owners:
-            continue
-        kind, owner = owners[scopes[0]]
-        if kind == "protocol":
-            continue
-        expr = (expr or "").strip()
-        if not expr:  # `static let x =` with the value on the next line
-            nxt = code_lines[line] if line < len(code_lines) else ""
-            expr = nxt.strip()
-        tname = _type_name(ann) if ann else None
-        if tname is None:
-            tname = _init_type(expr, owner)
-        statics.append(Static(line, raw_line.strip(), keyword, tname, tname in CONTAINERS))
+        annotated = _type_name(ann) if ann else None
+        built = _initializer_types(code, braces, m.start(5), owner, funcs) if assign is not None else []
+        types = tuple(dict.fromkeys(t for t in ([annotated] if annotated else []) + built if t))
+        if bare in assoc_names and _key_shaped(code, m, ann, types):
+            continue  # an association key of this file: only its address is used
+        container = annotated in CONTAINERS or bool(built and built[0] in CONTAINERS)
+        statics.append(Static(line, raw_line.strip(), keyword, types, container, bare, owner or ""))
 
-    small = sum(1 for line in code_lines if line.strip()) <= 150 and type_count <= 2
     for m in ASSUME.finditer(code):
         site("assume_isolated_total", m.start())
         scopes = braces.enclosing(m.start())
@@ -628,9 +990,10 @@ def analyze(path: str, raw: str) -> FileFacts:
         in_deinit = any(DEINIT.search(h) for h in heads)
         in_nc_main = any(NC_MAIN.search(h) for h in heads)
         line = _line_of(code, m.start(), starts)
-        adapter = small and not in_deinit and not in_nc_main and _is_proved(raw_lines, line - 1)
+        adapter = (not in_deinit and not in_nc_main and _in_adapter_type(code, braces, owners, scopes)
+                   and _is_proved(raw_lines, line - 1))
         if not adapter:
-            site("assume_isolated_outside_adapters", m.start())
+            site("assume_isolated_outside_adapters", m.start(), (_scope_key(path, braces, owners, scopes),))
 
     for m in observer_calls(code):
         site("observer_sites", m.start())
@@ -651,10 +1014,14 @@ def analyze(path: str, raw: str) -> FileFacts:
             literal = raw[q + 1:end] if end > q else ""
         if literal.startswith("com.apple."):
             continue
-        site("app_broadcast_names", p)
+        site("app_broadcast_names", p, (f"literal:{literal}",) if literal else ())
+    for brace, _, name, between in entries:
+        conformance = MESSAGE_CONFORMANCE.search(between)
+        if conformance:
+            site("app_broadcast_names", brace - len(between) + conformance.start(), (f"message:{name}",))
 
     lines = raw.count("\n")
-    return FileFacts(path, package_of(path), decls, statics, sites, lines)
+    return FileFacts(path, package, decls, statics, sites, lines)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -662,47 +1029,74 @@ def analyze(path: str, raw: str) -> FileFacts:
 
 
 class TypeTable:
-    """stateful(name) over every declaration of NAME at one revision.
+    """stateful(name, path) over every declaration of NAME at one revision, as seen from the file PATH.
 
-    A name is stateful when one of its declarations is on its own (an actor, a class with a stored var
-    or a lock/cache field, a struct/enum with a lock/cache field), or, at most DEPTH links away, through
-    its superclass or the type of a stored `let`. The bound keeps the answer independent of query order
-    and lets the delta count stop after DEPTH + 1 lookup rounds. DECLS(name) returns the declarations of
-    a name: the full count passes an index of every file, the delta count TypeLookup.
+    Scoped lookup (Swift resolves the innermost declaration): a reference from PATH resolves to PATH's own
+    declarations of the name, else those of PATH's package, else every declaration (PATH None: every one).
+    A name is stateful when one resolved declaration is on its own (an actor, a class with a stored var or
+    a lock/cache field, a struct/enum with a lock/cache field), or through any number of links: its
+    superclass, the type of a stored property (Decl.held), a `func:` entry's return type, a typealias's
+    target, each resolved from the declaration's own file. Each query is a complete search of the link
+    graph (no partial answer is cached), so the answer does not depend on query order or on cycles.
+    DECLS(name) returns every declaration of a name: the full count passes an index of every file, the
+    delta count TypeLookup.
     """
-
-    DEPTH = 1
 
     def __init__(self, decls_for) -> None:
         self._decls_for = decls_for
-        self._memo: dict[tuple[str, int], bool] = {}
+        self._memo: dict[tuple[str, str | None], bool] = {}
 
-    def stateful(self, name: str | None) -> bool:
-        return bool(name) and self._resolve(name, self.DEPTH)
-
-    def stateful_at(self, name: str, depth: int) -> bool:
-        """stateful(), at most DEPTH links deep (0: the declarations' own state only)."""
-        return self._resolve(name, depth)
-
-    def _resolve(self, name: str, depth: int) -> bool:
-        if name in SYS_STATEFUL:
-            return True
-        if not repo_type_name(name):
+    def stateful(self, name: str | None, path: str | None = None) -> bool:
+        if not name:
             return False
-        key = (name, depth)
-        if key in self._memo:
-            return self._memo[key]
-        self._memo[key] = False
-        result = False
-        for decl in self._decls_for(name):
-            if decl.own_state:
-                result = True
-                break
-            if depth > 0 and any(self._resolve(t, depth - 1) for t in ((decl.superclass,) if decl.superclass else ()) + decl.held):
-                result = True
-                break
-        self._memo[key] = result
-        return result
+        key = (name, path)
+        if key not in self._memo:
+            self._memo[key] = self._search(name, path)
+        return self._memo[key]
+
+    def stateful_any(self, names, path: str | None = None) -> bool:
+        return any(self.stateful(n, path) for n in names)
+
+    def resolve(self, name: str, path: str | None) -> list[Decl]:
+        decls = self._decls_for(name)
+        if path is None:
+            return decls
+        mine = [d for d in decls if d.path == path]
+        if mine:
+            return mine
+        package = package_of(path)
+        return [d for d in decls if d.package == package] or decls
+
+    def _search(self, root: str, path: str | None) -> bool:
+        seen: set[tuple[str, str | None]] = set()
+        stack = [(root, path)]
+        while stack:
+            name, where = stack.pop()
+            if (name, where) in seen:
+                continue
+            seen.add((name, where))
+            known = self._memo.get((name, where))
+            if known is not None:
+                if known:
+                    return True
+                continue  # a finished search found nothing stateful from here
+            if name in SYS_STATEFUL:
+                return True
+            if not lookup_name(name):
+                continue
+            for decl in self.resolve(name, where):
+                if decl.own_state:
+                    return True
+                stack.extend((link, decl.path or None) for link in decl.links())
+        # Nothing reachable from ROOT is stateful, so nothing reachable from any node it visited is either.
+        for node in seen:
+            self._memo[node] = False
+        return False
+
+
+def package_probe(package: str) -> str:
+    """A path in PACKAGE that declares nothing: TypeTable resolves it to the package's declarations."""
+    return f"{SOURCES}/{package}/"
 
 
 def repo_type_name(name: str | None) -> bool:
@@ -711,13 +1105,36 @@ def repo_type_name(name: str | None) -> bool:
         and name not in CONTAINERS and not SYSTEM_PREFIX.match(name)
 
 
+def lookup_name(name: str | None) -> bool:
+    """True when NAME has declarations worth a lookup: a possible repo type or a `func:` result link."""
+    return bool(name) and (name.startswith(FUNC) or repo_type_name(name))
+
+
+def static_name(package: str, static: Static) -> str:
+    """The owner-qualified name of a counted static: `Store.shared` for a static of `Store` (or of an
+    `extension Store`), `<package>:cache` for a file-scope global of PACKAGE.
+
+    The one name identity of a static: static_site's `name:` key (the swap rule) and _static_identity (the
+    delta cancel) both use it. A bare name would make every `shared` the partner of every other `shared`, so
+    removing `Store.shared = Store()` and adding `Hub.shared = Cache()` would read as a retype instead of a
+    swap. The owner stays in it when the owner is renamed or the static moves to another type: that is
+    another static (see the module docstring, "Site identity").
+    """
+    return f"{static.owner}.{static.name}" if static.owner else f"{package}:{static.name}"
+
+
+def static_site(row: str, package: str, path: str, static: Static) -> Site:
+    """The site of a counted static of PACKAGE at PATH: it keeps its identity through a rename (by its type)
+    or a retype (by its owner and name, static_name)."""
+    keys = (f"name:{static_name(package, static)}",) + ((f"type:{static.types[0]}",) if static.types else ())
+    return Site(row, path, static.line, static.text, keys)
+
+
 def classify(static: Static, path: str, table: TypeTable) -> str | None:
-    """The row a static counts in, or None."""
-    if COMPOSITION_ROOT.match(path):
-        return None
+    """The row a static or global at PATH counts in, or None (no file is exempt; PATH scopes the type lookup)."""
     if static.container:
         return "global_mutable_statics"
-    if table.stateful(static.type_name):
+    if table.stateful_any(static.types, path):
         return "stateful_singletons"
     if static.keyword == "var":
         return "global_mutable_statics"
@@ -1090,10 +1507,13 @@ class Layers:
     error: str | None = None  # why the layer map does not parse (then every target is unplaced)
 
     def sites(self) -> list[Site]:
-        out = [Site("layer_hard", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})") for a, la, b, lb in self.hard]
-        out += [Site("layer_soft", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})") for a, la, b, lb in self.soft]
-        out += [Site("layer_upward", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})") for a, la, b, lb in self.upward]
-        out += [Site("layer_unplaced", LAYERS_JSON, 0, name) for name in self.unplaced]
+        out = [Site("layer_hard", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
+               for a, la, b, lb in self.hard]
+        out += [Site("layer_soft", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
+                for a, la, b, lb in self.soft]
+        out += [Site("layer_upward", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
+                for a, la, b, lb in self.upward]
+        out += [Site("layer_unplaced", LAYERS_JSON, 0, name, (f"target:{name}",)) for name in self.unplaced]
         return out
 
     def per_package(self) -> dict[str, collections.Counter]:
@@ -1139,11 +1559,11 @@ class Git:
     def rev(self, rev: str) -> str:
         return self.run("rev-parse", "--verify", f"{rev}^{{commit}}").strip()
 
-    def read(self, items: list[tuple[str, str]]) -> dict[tuple[str, str], str | None]:
-        """{(rev, path): text or None} through one `git cat-file --batch`."""
+    def read(self, items: list[tuple[str, str]], by_id: bool = False) -> dict[tuple[str, str], str | None]:
+        """{(rev, path): text or None} through one `git cat-file --batch` (BY_ID: REV is an object id)."""
         if not items:
             return {}
-        data = "".join(f"{rev}:{path}\n" for rev, path in items).encode()
+        data = "".join(f"{rev}\n" if by_id else f"{rev}:{path}\n" for rev, path in items).encode()
         r = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], input=data, capture_output=True)
         out = r.stdout
         result: dict[tuple[str, str], str | None] = {}
@@ -1160,15 +1580,58 @@ class Git:
                 result[item] = None
         return result
 
-    def changed(self, base: str, head: str) -> list[tuple[str, str]]:
-        """(status, path) of every file BASE..HEAD changes (renames as delete + add)."""
-        out = self.run("diff", "--name-status", "--no-renames", "-z", base, head, "--")
+    def read_blobs(self, items: list[tuple[str, str]]) -> dict[tuple[str, str], str | None]:
+        """{(blob, path): text} for ITEMS through one `git cat-file --batch` (by object id)."""
+        texts = self.read([(blob, "") for blob, _ in items], by_id=True)
+        return {item: texts[(item[0], "")] for item in items}
+
+    def changed(self, base: str, head: str) -> tuple[list[tuple[str, str]], dict[tuple[str, str], str | None]]:
+        """((status, path) of every file BASE..HEAD changes (renames as delete + add), {(rev, path): blob id or
+        None (absent)} at both ends)."""
+        out = self.run("diff", "--raw", "--no-renames", "--no-abbrev", "-z", base, head, "--")
         parts = [p for p in out.split("\0") if p]
-        return [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+        files: list[tuple[str, str]] = []
+        blobs: dict[tuple[str, str], str | None] = {}
+        for i in range(0, len(parts) - 1, 2):
+            meta, path = parts[i].split(), parts[i + 1]
+            old, new, status = meta[2], meta[3], meta[4]
+            files.append((status, path))
+            blobs[(base, path)] = None if set(old) == {"0"} else old
+            blobs[(head, path)] = None if set(new) == {"0"} else new
+        return files, blobs
+
+    def swift_blobs(self, rev: str) -> dict[str, str]:
+        """{path: blob id} of the Swift files under Sources at REV."""
+        out = self.run("ls-tree", "-r", "-z", rev, "--", SOURCES)
+        blobs: dict[str, str] = {}
+        for entry in out.split("\0"):
+            meta, _, path = entry.partition("\t")
+            fields = meta.split()
+            if path.endswith(".swift") and len(fields) == 3 and fields[1] == "blob":
+                blobs[path] = fields[2]
+        return blobs
 
     def swift_files(self, rev: str) -> list[str]:
-        out = self.run("ls-tree", "-r", "-z", "--name-only", rev, "--", SOURCES)
-        return [p for p in out.split("\0") if p.endswith(".swift")]
+        return sorted(self.swift_blobs(rev))
+
+    def common_dir(self) -> Path | None:
+        """The repository's git directory shared by its worktrees (where the facts cache lives)."""
+        dot = self.repo / ".git"
+        try:
+            if dot.is_dir():
+                return dot
+            if dot.is_file():
+                gitdir = Path(dot.read_text().split("gitdir:", 1)[1].strip())
+                gitdir = gitdir if gitdir.is_absolute() else (self.repo / gitdir)
+                common = gitdir / "commondir"
+                if common.is_file():
+                    rel = Path(common.read_text().strip())
+                    return (rel if rel.is_absolute() else gitdir / rel).resolve()
+                return gitdir
+        except (OSError, IndexError):
+            pass
+        out = self.run("rev-parse", "--git-common-dir", check=False).strip()
+        return (self.repo / out).resolve() if out else None
 
     def worktree(self) -> Path | None:
         r = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "--is-inside-work-tree", "--show-toplevel"],
@@ -1186,6 +1649,133 @@ def is_source(path: str) -> bool:
 def is_counted(path: str) -> bool:
     """True when a change to PATH can change a count: a Swift source or one of COUNTED_PATHS."""
     return is_source(path) or path in COUNTED_PATHS
+
+
+# ---------------------------------------------------------------------------------------------------
+# Per-file facts cache
+
+# The facts of a file depend only on its path, its content and this file: one cache per version of this file.
+FINGERPRINT = hashlib.sha1(Path(__file__).read_bytes() + str(METHOD_VERSION).encode()).hexdigest()[:16]
+CACHE_DIR = "cmux-arch-counts"
+CACHE_KEEP_DAYS = 7  # another worktree may run an older copy of this file; its cache is rebuilt when needed
+
+
+def _facts_json(f: FileFacts) -> str:
+    return json.dumps([f.lines, [[d.name, d.kind, d.own_state, d.superclass, list(d.held)] for d in f.decls],
+                       [[s.line, s.text, s.keyword, list(s.types), s.container, s.name, s.owner] for s in f.statics],
+                       [[s.row, s.line, s.text, list(s.keys)] for s in f.sites]], separators=(",", ":"))
+
+
+def _facts_from_json(path: str, text: str) -> FileFacts:
+    lines, decls, statics, sites = json.loads(text)
+    package = package_of(path)
+    return FileFacts(path, package,
+                     [Decl(n, k, own, sup, tuple(held), path, package) for n, k, own, sup, held in decls],
+                     [Static(line, txt, kw, tuple(types), cont, name, owner)
+                      for line, txt, kw, types, cont, name, owner in statics],
+                     [Site(row, path, line, txt, tuple(keys)) for row, line, txt, keys in sites], lines)
+
+
+class FactsCache:
+    """analyze() results by (blob id, path), kept in the repository's git directory across runs.
+
+    A file is analyzed once per content (per version of this script), so a push that moves 80 files, or a
+    retried push, reads the facts of every unchanged declaring file from here. Any sqlite error turns the
+    cache off for the run (the counts are the same, only slower): it never fails a count.
+    """
+
+    def __init__(self, git: Git, enabled: bool = True) -> None:
+        self.git = git
+        self.enabled = enabled
+        self._db: sqlite3.Connection | None = None
+        self._opened = False
+        self._new: dict[str, str] = {}
+        self.analyzed = 0
+        self.cached = 0
+
+    def _connect(self) -> sqlite3.Connection | None:
+        if self._opened:
+            return self._db
+        self._opened = True
+        if not self.enabled:
+            return None
+        try:
+            common = self.git.common_dir()
+            if common is None:
+                return None
+            folder = common / CACHE_DIR
+            folder.mkdir(exist_ok=True)
+            path = folder / f"facts-{FINGERPRINT}.sqlite"
+            fresh = not path.exists()
+            self._db = sqlite3.connect(str(path), timeout=1.0)
+            self._db.execute("CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            if fresh:
+                horizon = datetime.datetime.now().timestamp() - CACHE_KEEP_DAYS * 86400
+                for old in folder.glob("facts-*.sqlite"):
+                    if old != path and old.stat().st_mtime < horizon:
+                        old.unlink()
+        except (sqlite3.Error, OSError):
+            self._db = None
+        return self._db
+
+    def get(self, items: list[tuple[str, str]]) -> dict[tuple[str, str], FileFacts]:
+        """{(blob, path): facts} for the ITEMS the cache has."""
+        db = self._connect()
+        if db is None or not items:
+            return {}
+        keys = {f"{blob}:{path}": (blob, path) for blob, path in items}
+        out: dict[tuple[str, str], FileFacts] = {}
+        try:
+            names = list(keys)
+            for i in range(0, len(names), 500):
+                chunk = names[i:i + 500]
+                rows = db.execute(f"SELECT key, value FROM facts WHERE key IN ({','.join('?' * len(chunk))})", chunk)
+                for key, value in rows:
+                    blob, path = keys[key]
+                    out[(blob, path)] = _facts_from_json(path, value)
+        except (sqlite3.Error, ValueError, TypeError):
+            self.enabled, self._db = False, None
+            return {}
+        self.cached += len(out)
+        return out
+
+    def put(self, blob: str, facts: FileFacts) -> None:
+        if self.enabled:
+            self._new[f"{blob}:{facts.path}"] = _facts_json(facts)
+
+    def flush(self) -> None:
+        """Write the facts analyzed in this run (one transaction; skipped when another run holds the lock)."""
+        db = self._connect() if self._new else self._db
+        if db is None:
+            return
+        try:
+            if self._new:
+                with db:
+                    db.executemany("INSERT OR IGNORE INTO facts (key, value) VALUES (?, ?)", self._new.items())
+                self._new.clear()
+        except sqlite3.Error:
+            pass
+        finally:
+            db.close()
+            self._db = None
+            self._opened = False
+
+    def facts(self, items: list[tuple[str, str]], read) -> dict[tuple[str, str], FileFacts]:
+        """{(blob, path): facts} for ITEMS: from the cache, else analyze(path, text) with READ(missing items)
+        returning {(blob, path): text or None}."""
+        found = self.get(items)
+        missing = [item for item in dict.fromkeys(items) if item not in found]
+        if missing:
+            texts = read(missing)
+            for item in missing:
+                text = texts.get(item)
+                if text is None:
+                    continue
+                facts = analyze(item[1], text)
+                self.analyzed += 1
+                self.put(item[0], facts)
+                found[item] = facts
+        return found
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -1217,7 +1807,7 @@ def count_facts(counts: Counts, facts: FileFacts, table: TypeTable) -> None:
     for st in facts.statics:
         row = classify(st, facts.path, table)
         if row:
-            counts.add_site(Site(row, facts.path, st.line, st.text), facts.package)
+            counts.add_site(static_site(row, facts.package, facts.path, st), facts.package)
     if facts.package == APP_PACKAGE:
         counts.rows["app_lines"][APP_PACKAGE] += facts.lines
 
@@ -1229,13 +1819,18 @@ def count_layers(counts: Counts, lay: Layers) -> None:
         counts.sites[s.row].append(s)
 
 
-def full_count(repo: Path, rev: str = "HEAD") -> tuple[str, Counts, Layers]:
-    """(sha, counts, layers) of every file at REV."""
-    git = Git(repo)
-    sha = git.rev(rev)
-    paths = git.swift_files(sha)
-    texts = git.read([(sha, p) for p in paths + list(COUNT_INPUTS)])
-    facts = [analyze(p, texts[(sha, p)] or "") for p in paths]
+def count_texts(texts: dict[str, str], manifest_raw: str | None, layers_raw: str | None) -> tuple[Counts, Layers]:
+    """(counts, layers) of TEXTS ({path: Swift text}; paths outside Sources are ignored) and the manifest.
+
+    The full count reads git objects; arch-layers.py --counts and codebase-health.py pass working-tree
+    texts, so every report counts with the same method.
+    """
+    facts = [analyze(p, t) for p, t in sorted(texts.items()) if is_source(p)]
+    return count_file_facts(facts, manifest_raw, layers_raw)
+
+
+def count_file_facts(facts: list[FileFacts], manifest_raw: str | None, layers_raw: str | None) -> tuple[Counts, Layers]:
+    """(counts, layers) of every file's FACTS and the manifest (count_texts and full_count)."""
     index: dict[str, list[Decl]] = collections.defaultdict(list)
     for f in facts:
         for d in f.decls:
@@ -1244,38 +1839,79 @@ def full_count(repo: Path, rev: str = "HEAD") -> tuple[str, Counts, Layers]:
     counts = Counts.empty()
     for f in facts:
         count_facts(counts, f, table)
-    lay = layers(texts[(sha, MANIFEST)], texts[(sha, LAYERS_JSON)])
+    lay = layers(manifest_raw, layers_raw)
     count_layers(counts, lay)
+    return counts, lay
+
+
+def full_count(repo: Path, rev: str = "HEAD", cache: bool = True) -> tuple[str, Counts, Layers]:
+    """(sha, counts, layers) of every file at REV (facts of contents seen before come from FactsCache)."""
+    git = Git(repo)
+    sha = git.rev(rev)
+    blobs = git.swift_blobs(sha)
+    store = FactsCache(git, cache)
+    try:
+        items = [(blobs[p], p) for p in sorted(blobs)]
+        found = store.facts(items, git.read_blobs)
+        meta = git.read([(sha, p) for p in COUNT_INPUTS])
+        facts = [found.get(item) or analyze(item[1], "") for item in items]
+        counts, lay = count_file_facts(facts, meta[(sha, MANIFEST)], meta[(sha, LAYERS_JSON)])
+    finally:
+        store.flush()
     return sha, counts, lay
 
 
-def decl_pattern(names: set[str]) -> str:
-    """PCRE for a line that declares one of NAMES (a superset: the file's parse decides)."""
-    alternation = "|".join(sorted(re.escape(n) for n in names))
-    return rf"\b(?:class|actor|struct|enum)[ \t]+(?:{alternation})\b"
+def _alternation(names) -> str:
+    return "|".join(sorted(re.escape(n) for n in names))
+
+
+# Every line that can declare a type or a `func:` entry (a superset: the file's parse decides), as one
+# `git grep -o`: the type lookup's index of name -> declaring files, so a link chain of any depth costs one grep.
+# A static/class func has its modifier on the func line; a file-scope func's line is not indented (_funcs).
+# `class func make` is a func (TYPE_DECL's lookahead): the type alternative skips it so the func one matches.
+DECL_INDEX = (r"\b(?:class|actor|struct|enum|protocol|typealias)[ \t]+"
+              r"(?!(?:func|var|let|subscript|override|final|static|private|fileprivate|public|internal|package|open|"
+              r"nonisolated|required|convenience|init|deinit)\b)[A-Za-z_]\w*|"
+              r"\b(?:static|class)\b[^\n]*?\bfunc[ \t]+[A-Za-z_]\w*|^(?![ \t])[^\n]*?\bfunc[ \t]+[A-Za-z_]\w*")
+_INDEX_NAME = re.compile(r"(?:\b(class|actor|struct|enum|protocol|typealias)|\bfunc)[ \t]+([A-Za-z_]\w*)$")
 
 
 def mention_pattern(names: set[str]) -> str:
-    alternation = "|".join(sorted(re.escape(n) for n in names))
-    return rf"\b(?:{alternation})\b"
+    """PCRE for a line that can make a static or a stored property name one of NAMES (a superset: the file's
+    parse decides). A type by its name; a `func:` entry only as a bare call that starts an expression (after
+    `=`, `;`, `{`, `return`, `in` or at a line start, past `try`/`await`), the one place _expr_types resolves
+    a lowercase call, so `x.make(` and `func make(` lines do not match."""
+    types = {n for n in names if not n.startswith(FUNC)}
+    funcs = {n[len(FUNC):] for n in names if n.startswith(FUNC)}
+    parts = []
+    if types:
+        parts.append(rf"\b(?:{_alternation(types)})\b")
+    if funcs:
+        parts.append(rf"(?:^|[=;{{]|\breturn\b|\bin\b)\s*(?:(?:try[!?]?|await)\s+)*(?:{_alternation(funcs)})"
+                     r"\s*(?:<[^>\n]*>)?\s*\(")
+    return "|".join(parts)
 
 
 class TypeLookup:
     """Declarations by name at BASE and HEAD without reading every file.
 
-    Files that equal the worktree at both ends are found with `git grep` in the worktree and read from
-    disk once (shared by both ends); OVERLAY files (changed by the range or dirty in the worktree) are
-    analyzed from each end's git content.
+    Files that equal the worktree at both ends are found with `git grep` in the worktree (shared by both
+    ends: their content is HEAD's blob); their facts come from CACHE by blob id, else are analyzed once from
+    disk. OVERLAY files (changed by the range or dirty in the worktree) are analyzed from each end's git
+    content.
     """
 
-    def __init__(self, git: Git, worktree: Path | None, revs: tuple[str, str]) -> None:
+    def __init__(self, git: Git, worktree: Path | None, revs: tuple[str, str], cache: FactsCache | None = None) -> None:
         self.git = git
         self.worktree = worktree
         self.revs = revs
+        self.cache = cache or FactsCache(git, enabled=False)
+        self._head_blobs: dict[str, str] | None = None
         self.overlay: dict[str, dict[str, FileFacts | None]] = {r: {} for r in revs}
         self.overlay_index: dict[str, dict[str, list[Decl]]] = {r: {} for r in revs}
         self.searched: set[str] = set()
         self._grep_cache: dict[tuple[str, str], object] = {}
+        self._index: object = None  # {name: declaring paths} (or the Future that computes it)
         self._pool: concurrent.futures.ThreadPoolExecutor | None = None
         self.shared: dict[str, list[Decl]] = collections.defaultdict(list)
         self.shared_files: dict[str, FileFacts] = {}
@@ -1301,6 +1937,41 @@ class TypeLookup:
     def close(self) -> None:
         if self._pool is not None:
             self._pool.shutdown(wait=True)
+
+    def prefetch_index(self) -> None:
+        """Start the declaration index grep now (it runs while the dirty files are read)."""
+        if self._index is None:
+            if self._pool is None:
+                self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            self._index = self._pool.submit(self._grep_index)
+
+    def decl_index(self) -> dict[str, set[str]]:
+        """{name or `func:` name: the tracked Swift files with a line that may declare it} (worktree, else HEAD)."""
+        if self._index is None:
+            self._index = self._grep_index()
+        if isinstance(self._index, concurrent.futures.Future):
+            self._index = self._index.result()
+        return self._index
+
+    def _grep_index(self) -> dict[str, set[str]]:
+        args = ["grep", "-o", "-z", "-I", "-P", "-e", DECL_INDEX]
+        if self.worktree is None:
+            args.append(self.revs[1])
+        args += ["--", f"{SOURCES}/*.swift"]
+        r = subprocess.run(["git", "-C", str(self.repo_root()), *args], capture_output=True)
+        if r.returncode not in (0, 1):
+            raise RuntimeError(f"git grep: {r.stderr.decode(errors='replace').strip()}")
+        index: dict[str, set[str]] = collections.defaultdict(set)
+        prefix = f"{self.revs[1]}:" if self.worktree is None else ""
+        for line in r.stdout.decode(errors="replace").split("\n"):
+            path, sep, text = line.partition("\0")
+            if not sep:
+                continue
+            m = _INDEX_NAME.search(text)
+            if m:
+                index[m.group(2) if m.group(1) else FUNC + m.group(2)].add(path[len(prefix):] if prefix and
+                                                                            path.startswith(prefix) else path)
+        return index
 
     def grep_files(self, pattern: str, rev_for_bare: str) -> list[str]:
         """Tracked Swift files under Sources whose text matches the PCRE PATTERN (worktree, else REV)."""
@@ -1331,54 +2002,53 @@ class TypeLookup:
     def read_shared(self, paths: list[str]) -> list[FileFacts]:
         out = []
         todo = [p for p in paths if p not in self.shared_files and not any(p in o for o in self.overlay.values())]
-        if self.worktree is not None:
-            for p in todo:
-                try:
-                    text = (self.worktree / p).read_text(errors="replace")
-                except OSError:
-                    continue
-                self.shared_files[p] = analyze(p, text)
-        else:
-            texts = self.git.read([(self.revs[1], p) for p in todo])
-            for p in todo:
-                if texts[(self.revs[1], p)] is not None:
-                    self.shared_files[p] = analyze(p, texts[(self.revs[1], p)])
+        if todo:
+            if self._head_blobs is None:
+                self._head_blobs = self.git.swift_blobs(self.revs[1])  # one ls-tree: the cache keys
+            items = [(self._head_blobs[p], p) for p in todo if p in self._head_blobs]
+
+            def read(missing: list[tuple[str, str]]) -> dict[tuple[str, str], str | None]:
+                if self.worktree is None:
+                    return self.git.read_blobs(missing)
+                texts: dict[tuple[str, str], str | None] = {}
+                for item in missing:
+                    try:
+                        texts[item] = (self.worktree / item[1]).read_text(errors="replace")
+                    except OSError:
+                        texts[item] = None
+                return texts
+
+            for (_, path), facts in self.cache.facts(items, read).items():
+                self.shared_files[path] = facts
         for p in paths:
             if p in self.shared_files:
                 out.append(self.shared_files[p])
         return out
 
     def ensure(self, names: set[str]) -> None:
-        """Look up NAMES and the names their declarations link to, TypeTable.DEPTH links deep.
+        """Read the declarations of NAMES not looked up yet, in one batch.
 
-        One worktree `git grep` per depth, only for names not looked up yet.
+        The declaring files come from decl_index() (one `git grep` for the whole run). Links are not
+        followed here: TypeTable asks decls() for each name its search reaches, and a search stops at the
+        first declaration with state of its own, so only the files a search really needs are read.
         """
-        level = {n for n in names if repo_type_name(n)}
-        for _ in range(TypeTable.DEPTH + 1):
-            todo = level - self.searched
-            if todo:
-                self.searched |= todo
-                for f in self.read_shared(self.grep_files(decl_pattern(todo), self.revs[1])):
-                    for d in f.decls:
-                        if d.name in todo and d not in self.shared[d.name]:
-                            self.shared[d.name].append(d)
-            links: set[str] = set()
-            for n in level:
-                decls = list(self.shared.get(n, []))
-                for rev in self.revs:
-                    decls += self.overlay_index[rev].get(n, [])
-                for d in decls:
-                    links.update(((d.superclass,) if d.superclass else ()) + d.held)
-            level = {n for n in links if repo_type_name(n)}
-            if not level:
-                return
+        todo = {n for n in names if lookup_name(n)} - self.searched
+        if not todo:
+            return
+        self.searched |= todo
+        index = self.decl_index()
+        for f in self.read_shared(sorted({p for n in todo for p in index.get(n, ())})):
+            for d in f.decls:
+                if d.name in todo and d not in self.shared[d.name]:
+                    self.shared[d.name].append(d)
+
+    def decls(self, rev: str, name: str) -> list[Decl]:
+        if lookup_name(name) and name not in self.searched:
+            self.ensure({name})
+        return self.shared.get(name, []) + self.overlay_index[rev].get(name, [])
 
     def table(self, rev: str) -> TypeTable:
-        def decls_for(name: str) -> list[Decl]:
-            if repo_type_name(name) and name not in self.searched:
-                self.ensure({name})  # a name no planned lookup reached (kept correct, costs a grep)
-            return self.shared.get(name, []) + self.overlay_index[rev].get(name, [])
-        return TypeTable(decls_for)
+        return TypeTable(lambda name: self.decls(rev, name))
 
 
 @dataclasses.dataclass
@@ -1390,6 +2060,8 @@ class Delta:
     files: list[tuple[str, str]]
     before: Counts
     after: Counts
+    analyzed: int = 0  # files analyze() read in this count
+    cached: int = 0  # files whose facts came from FactsCache
 
     def total(self, row: str) -> int:
         return sum(self.after.rows[row].values()) - sum(self.before.rows[row].values())
@@ -1398,6 +2070,28 @@ class Delta:
         keys = set(self.after.rows[row]) | set(self.before.rows[row])
         out = {k: self.after.rows[row][k] - self.before.rows[row][k] for k in sorted(keys)}
         return {k: v for k, v in out.items() if v}
+
+    def unpartnered(self, row: str) -> list[Site]:
+        """HEAD sites of ROW that no BASE site of the range accounts for. A partner shares a key (the same
+        global by name or by type, the same broadcast literal, the same edge) or, for a site without keys,
+        its text. A move, a rename or a retyped global has a partner; a site that replaces a removed one of
+        another identity (a swap) has none: it is debt the push adds, whatever the total does."""
+        def ids(s: Site) -> set[str]:
+            return set(s.keys) or {"text:" + s.text}
+
+        old = [ids(s) for s in self.before.sites[row]]
+        used = [False] * len(old)
+        out = []
+        for s in self.after.sites[row]:
+            mine = ids(s)
+            match = next((i for i, o in enumerate(old) if not used[i] and o == mine), None)
+            if match is None:
+                match = next((i for i, o in enumerate(old) if not used[i] and o & mine), None)
+            if match is None:
+                out.append(s)
+            else:
+                used[match] = True
+        return out
 
     def new_sites(self, row: str) -> list[Site]:
         """HEAD sites whose (file, text) BASE does not have, falling back to text alone (moves)."""
@@ -1415,42 +2109,76 @@ def _decl_signature(facts: list[FileFacts | None]) -> dict[str, collections.Coun
     out: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     for f in facts:
         for d in (f.decls if f else []):
-            out[d.name][(d.kind, d.own_state, d.superclass, d.held)] += 1
+            out[d.name][(d.kind, d.own_state, d.superclass, d.held, d.path)] += 1
     return out
 
 
 def _may_flip(a: collections.Counter | None, b: collections.Counter | None) -> bool:
     """Whether a name's changed-file declarations A (base) and B (head) can change its statefulness.
 
-    Not when a declaration has state of its own at both ends (stateful at both), nor when neither end
-    has one and they link to the same types (the other declarations decide, and they are unchanged).
+    Judged per file, because a lookup resolves to one file's, one package's or every declaration
+    (TypeTable): a file that gains or loses a declaration of the name can change a scope; otherwise a file
+    whose declarations have state of their own at both ends, or at neither end with the same links,
+    changes no scope's answer.
     """
     a, b = a or collections.Counter(), b or collections.Counter()
     if a == b:
         return False
-    own_a = any(sig[1] for sig in a)
-    own_b = any(sig[1] for sig in b)
-    if own_a and own_b:
-        return False
-    links = [{x for sig in side for x in ((sig[2],) if sig[2] else ()) + sig[3]} for side in (a, b)]
-    return own_a != own_b or links[0] != links[1]
+    sides = []
+    for side in (a, b):
+        files: dict[str, list[tuple]] = collections.defaultdict(list)
+        for sig in side:
+            files[sig[4]].append(sig)
+        sides.append(files)
+    if set(sides[0]) != set(sides[1]):
+        return True
+    for path in sides[0]:
+        own = [any(sig[1] for sig in side[path]) for side in sides]
+        if own[0] and own[1]:
+            continue
+        links = [{x for sig in side[path] for x in ((sig[2],) if sig[2] else ()) + sig[3]} for side in sides]
+        if own[0] != own[1] or links[0] != links[1]:
+            return True
+    return False
 
 
-def _static_key(f: FileFacts, st: Static) -> tuple:
-    return (f.package, st.type_name, st.keyword, st.container, bool(COMPOSITION_ROOT.match(f.path)))
+class StaticIdentity(NamedTuple):
+    """What makes a static at one end of a range the same static at the other (_static_identity)."""
+
+    package: str
+    name: str  # static_name: the owner-qualified name, `<package>:<name>` at file scope
+    types: tuple[str, ...]
+    keyword: str
+    container: bool
 
 
-def delta_count(repo: Path, base: str, head: str) -> Delta:
+def _static_identity(f: FileFacts, st: Static) -> StaticIdentity:
+    """A static's package, its name as static_site's `name:` key has it (static_name: the owner and name, or
+    the package and name for a file-scope global, so a file moved or renamed within its package keeps its
+    globals), and the types, keyword and container that classify() reads.
+
+    Only statics equal by all of these cancel unseen in delta mode. Every other static the range changes is
+    classified at its end, so its site carries its own line and Delta.unpartnered judges it: a typeless
+    `static var` removed from one type and added to another of the same package (a renamed owner too) is a
+    swap there, and the refusal names the static the push added, not the first one of the same shape in the
+    file.
+    """
+    return StaticIdentity(f.package, static_name(f.package, st), st.types, st.keyword, st.container)
+
+
+def delta_count(repo: Path, base: str, head: str, use_worktree: bool = True, cache: bool = True) -> Delta:
     """Counts of BASE and HEAD over the files BASE..HEAD changes, so after - before is the push's delta.
 
-    Equal to two full counts subtracted. Statics that the range leaves in place or moves within a
-    package (same type, keyword and composition-root side) cancel without a type lookup; only the
-    others, and the types whose declarations the range changes, are looked up.
+    Equal to two full counts subtracted. Statics that keep their identity (_static_identity: package,
+    owner and name, types, keyword) at both ends cancel without a type lookup; only the others, and the
+    types whose declarations the range changes, are looked up. USE_WORKTREE False reads every lookup from HEAD's git
+    objects (an audit of old commits: the worktree would differ from them in most files). CACHE False
+    analyzes every file it reads instead of reading facts seen before from FactsCache.
     """
     git = Git(repo)
     # Started first: it stats every source file, and only a type lookup waits for it.
     dirty_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "--name-only", "-z", head, "--", SOURCES],
-                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) if use_worktree else None
     try:
         worktree: Path | None
         if SHA.fullmatch(base) and SHA.fullmatch(head):  # the hook passes shas: no process to resolve them
@@ -1465,29 +2193,39 @@ def delta_count(repo: Path, base: str, head: str) -> Delta:
             else:
                 worktree = None
                 base, head = git.rev(base), git.rev(head)
-        return _delta(git, base, head, worktree, dirty_proc)
+        if not use_worktree:
+            worktree = None
+        store = FactsCache(git, cache)
+        try:
+            delta = _delta(git, base, head, worktree, dirty_proc, store)
+        finally:
+            store.flush()
+        delta.analyzed, delta.cached = store.analyzed, store.cached
+        return delta
     finally:
-        if dirty_proc.poll() is None:
-            dirty_proc.kill()
-        dirty_proc.wait()
+        if dirty_proc is not None:
+            if dirty_proc.poll() is None:
+                dirty_proc.kill()
+            dirty_proc.wait()
+            if dirty_proc.stdout is not None:
+                dirty_proc.stdout.close()  # communicate() never ran when no type lookup was needed
 
 
-def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: subprocess.Popen) -> Delta:
-    files = git.changed(base, head)
+def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: subprocess.Popen | None,
+           store: FactsCache) -> Delta:
+    files, blobs = git.changed(base, head)
     changed = sorted({p for _, p in files if is_source(p)})
     before, after = Counts.empty(), Counts.empty()
     layer_files = [p for p in COUNT_INPUTS if any(p == q for _, q in files)]
-    items = [(r, p) for r in (base, head) for p in changed]
     if layer_files:
-        items += [(r, p) for r in (base, head) for p in COUNT_INPUTS]
-    texts = git.read(items)
-    if layer_files:
+        texts = git.read([(r, p) for r in (base, head) for p in COUNT_INPUTS])
         count_layers(before, layers(texts[(base, MANIFEST)], texts[(base, LAYERS_JSON)]))
         count_layers(after, layers(texts[(head, MANIFEST)], texts[(head, LAYERS_JSON)]))
     if not changed:
         return Delta(base, head, files, before, after)
-    facts = {r: {p: (analyze(p, texts[(r, p)]) if texts[(r, p)] is not None else None) for p in changed}
-             for r in (base, head)}
+    ends = {(r, p): blobs.get((r, p)) for r in (base, head) for p in changed}
+    found = store.facts([(b, p) for (_, p), b in ends.items() if b], git.read_blobs)
+    facts = {r: {p: (found.get((ends[(r, p)], p)) if ends[(r, p)] else None) for p in changed} for r in (base, head)}
 
     # Rows that need no other file.
     for r, counts in ((base, before), (head, after)):
@@ -1503,23 +2241,23 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
     sig_base = _decl_signature(list(facts[base].values()))
     sig_head = _decl_signature(list(facts[head].values()))
     redeclared = {n for n in set(sig_base) | set(sig_head) if _may_flip(sig_base.get(n), sig_head.get(n))}
-    keys = {r: collections.Counter(_static_key(f, st) for f in facts[r].values() if f for st in f.statics)
+    keys = {r: collections.Counter(_static_identity(f, st) for f in facts[r].values() if f for st in f.statics)
             for r in (base, head)}
     net = {base: keys[base] - keys[head], head: keys[head] - keys[base]}
-    wanted = {k[1] for r in (base, head) for k in net[r] if k[1]}
-    if not (wanted | redeclared) or not any(repo_type_name(n) for n in wanted | redeclared):
+    wanted = {t for r in (base, head) for k in net[r] for t in k.types}
+    if not any(lookup_name(n) for n in wanted | redeclared):
         table = TypeTable(lambda name: [])
         tables = {base: table, head: table}
         lookup = None
     else:
-        dirty_out, _ = dirty_proc.communicate()
-        if dirty_proc.returncode != 0:
-            worktree = None
-        lookup = TypeLookup(git, worktree, (base, head))
+        dirty_out = b""
+        if dirty_proc is not None and worktree is not None:
+            dirty_out, _ = dirty_proc.communicate()
+            if dirty_proc.returncode != 0:
+                worktree, dirty_out = None, b""
+        lookup = TypeLookup(git, worktree, (base, head), store)
         # The first lookup round and the flip lookup run while the dirty files are read.
-        lookup.prefetch(decl_pattern({n for n in wanted | redeclared if repo_type_name(n)}), head)
-        if any(repo_type_name(n) for n in redeclared):
-            lookup.prefetch(mention_pattern({n for n in redeclared if repo_type_name(n)}), head)
+        lookup.prefetch_index()
         dirty = [p for p in dirty_out.decode(errors="replace").split("\0") if is_source(p) and p not in facts[head]]
         dirty_texts = git.read([(head, p) for p in dirty])
         dirty_facts = {p: (analyze(p, dirty_texts[(head, p)]) if dirty_texts[(head, p)] is not None else None)
@@ -1537,50 +2275,59 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
 def _count_statics(base, head, files, facts, net, redeclared, tables, lookup, before, after) -> Delta:
 
     # A type the range flips (a stored var added or removed) changes how statics of it count everywhere,
-    # and, one link away (TypeTable.DEPTH), the types whose superclass or stored `let` it is.
-    def flipped(names: set[str], depth: int) -> set[str]:
-        return {n for n in names if tables[base].stateful_at(n, depth) != tables[head].stateful_at(n, depth)}
+    # and so does every type that holds it, link by link (its superclass, a stored property, a func result).
+    def flipped(names: set[str]) -> set[str]:
+        """The names whose answer differs between the ends in any scope a reference can see them from: every
+        declaration's file and package, and the whole sources (conservative: a flip only adds a recount)."""
+        out = set()
+        for n in names:
+            decls = [d for r in (base, head) for d in (lookup.decls(r, n) if lookup is not None else [])]
+            scopes = {None} | {d.path for d in decls} | {package_probe(d.package) for d in decls}
+            if any(tables[base].stateful(n, where) != tables[head].stateful(n, where) for where in scopes):
+                out.add(n)
+        return out
 
-    flips = flipped(redeclared, TypeTable.DEPTH)
-    own_flips = flipped(redeclared, 0)
-    mentioned = {n for n in redeclared if repo_type_name(n)}
-    if lookup is not None and own_flips:
-        # The prefetched grep of every redeclared name (a superset of OWN_FLIPS; the parse filters).
-        mention = lookup.read_shared(lookup.grep_files(mention_pattern(mentioned), head))
+    flips = flipped(redeclared)
+    frontier = set(flips)
+    users: set[str] = set()  # the files that mention a flipped name: the union of every round's grep
+    while lookup is not None and frontier:
+        names = {n for n in frontier if lookup_name(n)}
+        if not names:
+            break
+        found = lookup.grep_files(mention_pattern(names), head)
+        users.update(found)
+        mention = lookup.read_shared(found)
         decls = [d for f in mention for d in f.decls]
         decls += [d for r in (base, head) for f in lookup.overlay[r].values() if f for d in f.decls]
-        linkers = {d.name for d in decls if own_flips & ({d.superclass} | set(d.held))}
+        linkers = {d.name for d in decls if names & set(d.links())} - flips
         lookup.ensure(linkers)
-        flips |= flipped(linkers, TypeTable.DEPTH)
+        frontier = flipped(linkers)
+        flips |= frontier
 
     for r, counts in ((base, before), (head, after)):
         left = collections.Counter(net[r])
         for f in facts[r].values():
             for st in (f.statics if f else []):
-                key = _static_key(f, st)
-                if st.type_name not in flips:
+                key = _static_identity(f, st)
+                if not flips.intersection(st.types):
                     if left[key] <= 0:
-                        continue  # the other end has the same static: it cancels
+                        continue  # the other end has this very static: it cancels
                     left[key] -= 1
                 row = classify(st, f.path, tables[r])
                 if row:
-                    counts.add_site(Site(row, f.path, st.line, st.text), f.package)
+                    counts.add_site(static_site(row, f.package, f.path, st), f.package)
 
     if lookup is not None and flips:
         overlay_paths = set(lookup.overlay[head])
-        found = set(lookup.grep_files(mention_pattern(mentioned), head)) if mentioned else set()
-        rest = {n for n in flips if repo_type_name(n)} - mentioned
-        if rest:
-            found |= set(lookup.grep_files(mention_pattern(rest), head))
-        users = sorted(p for p in found if p not in overlay_paths)
-        unchanged = lookup.read_shared(users) + [f for p, f in lookup.overlay[head].items() if p not in facts[head] and f]
+        unchanged = lookup.read_shared(sorted(p for p in users if p not in overlay_paths))
+        unchanged += [f for p, f in lookup.overlay[head].items() if p not in facts[head] and f]
         for f in unchanged:
             for r, counts in ((base, before), (head, after)):
                 for st in f.statics:
-                    if st.type_name in flips:
+                    if flips.intersection(st.types):
                         row = classify(st, f.path, tables[r])
                         if row:
-                            counts.add_site(Site(row, f.path, st.line, st.text), f.package)
+                            counts.add_site(static_site(row, f.package, f.path, st), f.package)
     return Delta(base, head, files, before, after)
 
 
@@ -1596,11 +2343,19 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
             if n:
                 packages[pkg][row] = n
     return {
-        "_doc": ("Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is "
-                 "scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a "
-                 "ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. "
-                 "exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] "
-                 "lets the push that adds the entry raise that row by n; never CI."),
+        "_doc": ("Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs "
+                 "scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring "
+                 "defines every row). A push may not raise a ratcheted row's total, in the code or in this file's "
+                 "totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The "
+                 "one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, "
+                 "\"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next "
+                 "--update folds it into the totals and marks it with applied_sha (an applied entry is never edited "
+                 "or removed). --update refuses a rise that no pending exception covers, except a rise that "
+                 "commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it "
+                 "records that one with a generated applied entry whose raised_by names those commits. A generated "
+                 "entry allows no rise in any push's code, and the push that brings it is re-checked: its commits "
+                 "must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no "
+                 "other entry, and its allow at most their rise. Never CI."),
         "method": "arch_counts",
         "method_version": METHOD_VERSION,
         "measured_sha": sha,
@@ -1620,6 +2375,7 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
 
 def write_record(repo: Path, data: dict) -> Path:
     path = repo / RATCHET_JSON
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
     return path
 
@@ -1628,7 +2384,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=None)
     parser.add_argument("--rev", default="HEAD")
-    parser.add_argument("--write", action="store_true", help=f"write {RATCHET_JSON} at --rev")
     parser.add_argument("--delta", nargs=2, metavar=("BASE", "HEAD"))
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--sites", metavar="ROW", help="print the sites of ROW (full count)")
@@ -1646,15 +2401,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{row.id:34} {totals[row.id]:+d} {d.by_package(row.id) or ''}")
         return 0
     sha, counts, lay = full_count(repo, args.rev)
-    if args.write:
-        old_exceptions = []
-        existing = repo / RATCHET_JSON
-        if existing.is_file():
-            try:
-                old_exceptions = json.loads(existing.read_text()).get("exceptions", [])
-            except (OSError, ValueError):
-                old_exceptions = []
-        print(f"wrote {write_record(repo, record(sha, counts, lay, old_exceptions))}")
     if args.sites:
         for s in counts.sites[args.sites]:
             print(f"{s.path}:{s.line}: {s.text}")

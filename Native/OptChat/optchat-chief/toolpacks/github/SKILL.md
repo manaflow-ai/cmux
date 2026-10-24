@@ -6,6 +6,9 @@ cmux-managed: true
 
 # GitHub sign-in for this Chief
 
+Shipped by the `github` tool pack (plans/cmux-next/chief-toolpacks-DESIGN.md): `chief github VERB`
+is `chief pack VERB github` (`pat` is `paste`, `mac` is `share`).
+
 Every Chief has its own GitHub login (plans/cmux-next/chief-github-DESIGN.md). It is kept
 per Chief in a secret store and given to your `gh` and `git` on every turn: you never paste
 a token into a file, a repo, a reply or a log. Offer sign-in once when you are not signed

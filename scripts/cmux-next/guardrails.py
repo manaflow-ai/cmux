@@ -13,10 +13,18 @@ merge or rebase onto it) never count (check_push). Base debt never blocks a push
 (plans/cmux-next/codebase-health.md has the counts).
 
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
-Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named rules; say it in your
-report.
+Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
+your report.
 A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
 it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
+
+Arch ratchet (one entry, one report): run_push() also runs scripts/cmux-next/arch-ratchet.py, next to this file,
+on a thread (start_ratchet() starts it early so it runs beside prepush-gate's scanners). It holds the counts of
+plans/cmux-next/arch-ratchet.json (arch_counts.py defines them): stateful singletons and file-scope globals,
+global mutable statics, MainActor.assumeIsolated outside seam adapters, app Notification.Name broadcasts,
+observer sites, layer edges. Those concerns have no line rule here, so there is one definition and one escape
+per concern: the dated exception in arch-ratchet.json (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
+inline marker hides them).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (a trailing comment on its
             declaration line, or in the comment block above it); names the bench from scripts/cmux-next/perf-hot-benches.json to run before
@@ -42,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 import importlib.util
 import itertools
 import json
@@ -49,12 +58,14 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
+HERE = Path(__file__).resolve().parent
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
@@ -157,6 +168,7 @@ class FileChange:
     removed: list[Added] = field(default_factory=list)  # numbered in base
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
+    is_deleted: bool = False
     has_perf_hot: bool = False
 
     @property
@@ -325,54 +337,6 @@ def in_loop(version: Version, index: int) -> tuple[bool, list[int]]:
     return bool(loops), loops
 
 
-SINGLETON = re.compile(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b")
-# CLAUDE.md names these too; as stored statics of a class or actor, or mutable ones, they hold runtime state.
-# A struct or enum's `static let standard = Style()` is a value constant and passes.
-SINGLETON_NAMED = re.compile(r"\bstatic\s+(let|var)\s+(`default`|standard|current|live)\s*(:[^={]*)?=")
-SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern)
-STATEFUL = re.compile(r"\bstatic\s+var\b|=\s*(Mutex|NSHashTable|NSMapTable|OSAllocatedUnfairLock)\b")
-TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b")
-SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
-
-
-def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
-    code = code_of(version.lines[index])
-    if SINGLETON.search(code) or STATEFUL.search(code):
-        return True, []
-    openers = enclosing_openers(version.lines, index, TYPE_OPENER)
-    if not openers:
-        return False, []
-    opener, number = openers[-1]
-    kind = TYPE_OPENER.search(opener)
-    return kind is not None and kind.group(1) in ("class", "actor"), [number]
-
-
-# Creating a name: `Notification.Name("x")`, `.Name(rawValue:)`, `x: Notification.Name = .init("x")`. A typed
-# alias or a parameter default (`name: Notification.Name = .pagesChanged`) creates none.
-BROADCAST = re.compile(r"\b(NS)?Notification\.Name(\.init)?\(|:\s*(NS)?Notification\.Name\s*=\s*\.init\s*\(")
-# Inside `extension Notification.Name`, `static let x = Self("x")` / `.init("x")` declare one too.
-BROADCAST_SHORT = re.compile(r"\bstatic\s+(let|var)\s+\w+\s*=\s*(Self|\.init)\s*\(")
-BROADCAST_ANY = re.compile(BROADCAST.pattern + "|" + BROADCAST_SHORT.pattern)
-NAME_EXTENSION = re.compile(r"\bextension\s+(Foundation\.)?(NS)?Notification\.Name\b")
-STATIC_DECL = re.compile(r"\bstatic\s+(let|var)\b")
-FILE_SCOPE_DECL = re.compile(r"^\s*(@\w+\s+)*((private|fileprivate|internal|public|package)\s+)?(let|var)\b")
-BROADCAST_ALLOW = re.compile(r"//\s*broadcast-allow:\s*\S")
-
-
-def declares_name(version: Version, index: int) -> tuple[bool, list[int]]:
-    """A declared name: a static or file-scope constant that creates one, or anything in a name extension.
-
-    A name created inline to observe an existing (system or distributed) notification declares nothing.
-    """
-    code = code_of(version.lines[index])
-    openers = enclosing_openers(version.lines, index, TYPE_OPENER)
-    if openers and NAME_EXTENSION.search(openers[-1][0]):
-        return True, [openers[-1][1]]
-    if BROADCAST.search(code) and (STATIC_DECL.search(code) or (not openers and FILE_SCOPE_DECL.search(code))):
-        return True, []
-    return False, []
-
-
 ROW_STRUCT = re.compile(r"\bstruct\s+(\w*(Row|Cell|Tile|Gap|Item)(View)?)\b[^{]*:\s*[^{]*\bView\b")
 ROW_STORE = re.compile(
     r"@(ObservedObject|EnvironmentObject|StateObject|Bindable)\b|@Environment\(\s*\w+\.self\s*\)"
@@ -424,28 +388,37 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 # Revisit: turn the growth warning into a refusal once cmux-next-arch-targets has moved the large domains out of
 # CmuxNextApp (until then about two of every three App pushes grow a feature file, below). The perf cron arch report
 # is the backstop meanwhile: it opens the regression issue when the App line count rises. Measured on
-# origin/feat-cmux-next at 2952080b0a5 (CI's lexer, first-parent commits, each commit against its first parent):
+# origin/feat-cmux-next up to 2952080b0a5 with CI's lexer and app_size as of the commit "fix(guardrails app-size):
+# moves are credited from lines the push really lost, on whole blocks, with imports out of the moved share" (before
+# credit_moves matched a generic line to its neighbour and a `}` to an opener in its run, and before phase 2 took
+# phase 1's renames):
 # - ROOT_BUDGET: the wiring of a few domains per push (a stored instance, its construction, passing it on), never
-#   their logic; the `total` warning asks the same push to pay for it with an App shrink. Of the last 600 App commits
-#   (2026-10-20..23), 62 changed root files: net root growth p50 +2, p95 +11, max +41; 61 of 62 are within +30. The
-#   one over (4aa19112632, +41) is folder and harness logic in AppServices+WorkContext.swift, not wiring.
+#   their logic; the `total` warning asks the same push to pay for it with an App shrink. Measured per push, the
+#   unit the rule limits: the 1243 `git push`es to feat-cmux-next from 2026-10-20 00:00Z to 2952080b0a5 (GitHub's
+#   repository activity API, activity_type push, each push's before..after through this rule's own root count;
+#   PR merges land on GitHub, where no pre-push hook runs). 54 pushes changed root files, 52 of them landing more
+#   than one first-parent commit: net root growth p50 +2, p95 +16, max +41; 53 of 54 are within +30. The one over
+#   (705557dc225..95b7af279ab, +41, three commits) is folder and harness logic in AppServices+WorkContext.swift
+#   (4aa19112632), not wiring.
 # - HOST_FILE_MAX: one domain's Host protocol forwards, one member per line; a larger Host protocol is a sign that
 #   the domain still reaches into the App. No AppServices+<Domain>Host.swift exists yet; the four `*Host` protocols
 #   in Sources have 4 to 9 members (BrowserRestoredSessionHost 9), so 30 lines (the opener, its imports and attribute
 #   and its `}` included) is about 3x the largest known Host; a bigger domain splits into two Host files over two
 #   pushes.
 # - MOVE_RUN: one or two lines in a row that match removed text can be chance (`let x = 0`, a shared call); a
-#   moved block is longer. Over 1500 Sources commits (2026-10-19..23): of 133 new files git calls a >= 90% rename,
-#   132 reach MOVE_SHARE at runs of 2 or 3, 129 at 4, 122 at 5; of 1779 plain new files the p95 credited share is
-#   0.19 at 2, 0.14 at 3, 0.10 at 4. 3 is the longest run that still credits every near-pure move run 2 credits.
+#   moved block is longer. Over the last 1500 Sources commits to 2952080b0a5, each against its first parent, with
+#   app_size's own share (credit_moves over lost_lines, imports out of both counts): of 133 new files git calls a
+#   >= 90% rename, 132 reach MOVE_SHARE at runs of 2 or 3, 129 at 4, 122 at 5; of 1781 plain new files the p95
+#   credited share is 0.17 at 2, 0.14 at 3, 0.08 at 4. 3 is the longest run that still credits every near-pure
+#   move run 2 credits.
 # - MOVE_SHARE: a git mv or a split also edits some lines (a renamed type, a changed access level); a mostly
-#   unchanged file is still a move, not new code. Same 1500 commits at MOVE_RUN 3: 0.8 passes 132 of 133 renames
-#   >= 90% similar and 18 of 30 at 80-89%, and passes 23 of 1779 plain new files (splits git does not see as
-#   renames); 0.7 would pass 25 of 30 at 80-89% and 29 plain new files.
+#   unchanged file is still a move, not new code. Same commits and share at MOVE_RUN 3: 0.8 passes 132 of 133
+#   renames >= 90% similar and 15 of 30 at 80-89%, and passes 22 of 1781 plain new files (splits git does not see
+#   as renames); 0.7 would pass 25 of 30 at 80-89% and 28 plain new files.
 # - MOVE_GENERIC_PER_LINE: a moved specific line usually closes one or two blocks (`}` of an `if` and of its
 #   function); generic lines beyond that are not explained by the run's specific lines.
-# - The `other` and `total` buckets as warnings: in the same 600 App commits, 404 grew feature App files (net +14726
-#   source lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal would stop
+# - The `other` and `total` buckets as warnings: of the last 600 first-parent App commits (2026-10-20..23, each
+#   against its first parent), 404 grew feature App files (net +14726 source lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal would stop
 #   about two of every three App pushes of that period until they move lines out, so it waits for the domain moves.
 # A source line is the unit (CI's unit): joining statements onto one line lowers the count without removing code,
 # a count dodge this rule cannot see; review rejects it.
@@ -469,19 +442,20 @@ TOKEN = re.compile(r"@?\w+|\S")
 DESIGN = "plans/cmux-next/architecture-refactor-DESIGN.md section 4, \"Destination map\""
 
 
-def _load_source_line_flags() -> Callable[[str], list[bool]]:
-    """CI's lexer, count-swift-code-lines.py's `source_line_flags`, from next to this file.
+@functools.cache
+def swift_lexer() -> Callable[[str], list[bool]]:
+    """CI's lexer, count-swift-code-lines.py's `source_line_flags`, from next to this file, loaded on first use.
 
-    One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files.
+    One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files. Only
+    app-size reads it, so it loads inside that rule: a lexer that does not load (CI owns that file) turns off
+    app-size alone through check()'s per-rule fail open, never this module and every rule with it. A failed load
+    is not cached; the next push tries again.
     """
     spec = importlib.util.spec_from_file_location("cmux_next_count_swift_code_lines",
                                                   Path(__file__).with_name("count-swift-code-lines.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.source_line_flags
-
-
-source_line_flags = _load_source_line_flags()
 
 
 @dataclass
@@ -504,12 +478,13 @@ class SourceLine(Added):
 
 @dataclass
 class AppFile:
-    """One changed App Swift file: its added and removed source lines, and whether it is new and a root file."""
+    """One changed App Swift file: its added and removed source lines, and whether it is new, deleted, a root file."""
     path: str
     is_new: bool
     root: bool
     added: list[SourceLine]
     removed: list[SourceLine]
+    is_deleted: bool = False
 
 
 def app_rel(path: str) -> str:
@@ -538,13 +513,13 @@ def app_file(change: FileChange) -> AppFile:
     block comment or a multi-line string is what it is there)."""
 
     def source(lines: list[str], changed: list[Added]) -> list[SourceLine]:
-        flags = source_line_flags("\n".join(lines))
+        flags = swift_lexer()("\n".join(lines))
         ordinals = list(itertools.accumulate(map(int, flags)))
         return [SourceLine(line.path, line.number, line.text, ordinals[line.number - 1]) for line in changed
                 if 0 < line.number <= len(flags) and flags[line.number - 1]]
 
     return AppFile(change.path, change.is_new, is_root_file(change.path), source(change.head_lines, change.added),
-                   source(change.base_lines, change.removed))
+                   source(change.base_lines, change.removed), change.is_deleted)
 
 
 def is_generic(key: str) -> bool:
@@ -555,44 +530,124 @@ def is_generic(key: str) -> bool:
                or not (token[0].isalnum() or token[0] == "_") for token in TOKEN.findall(key))
 
 
-def credit_moves(lines: list[SourceLine], pools: list[collections.Counter]) -> int:
-    """How many of LINES (one file's added source lines, in head order) moved here from POOLS; consumes what it credits.
+class MoveCredit(NamedTuple):
+    """credit_moves' account of one file's added lines: MOVED it credited, REST it neither credited nor explained.
+
+    A line BRIDGE names or EXPLAINED took is in neither list. A summary of a file's new lines reads REST (and MOVED
+    when moved-in lines are growth), so it comes from the same accounting as the credit and never needs a clamp.
+    """
+    moved: list[SourceLine]
+    rest: list[SourceLine]
+
+
+def braces(key: str) -> tuple[int, int]:
+    """(opening, closing) braces of KEY's code, string contents and a trailing `//` comment left out."""
+    code = code_of(key)
+    return code.count("{"), code.count("}")
+
+
+def credit_moves(lines: list[SourceLine], pools: list[collections.Counter], explained: collections.Counter | None = None,
+                 bridge: Callable[[str], bool] = lambda key: False) -> MoveCredit:
+    """Which of LINES (one file's added source lines, in head order) moved here from POOLS; consumes what it credits.
 
     A line is moved when its stripped text is in a pool (the first that has it) and it is in a run of at least
     MOVE_RUN source lines in a row that are all in a pool. A run credits each specific line and at most
     MOVE_GENERIC_PER_LINE generic ones (is_generic: `}`, `return nil`) per specific one: those match some removed
-    line anywhere, so on their own they prove nothing. What it does not credit goes back to the pools.
+    line anywhere, so on their own they prove nothing. A run credits no more closing braces than its credited lines
+    open: a `}` with no opener in the run (the `}` of a new `extension` or `Task { ... }` wrapped around a moved
+    block) closes code that did not move, so the last such `}` lines are left out. Counting braces over the whole
+    run, not line by line, keeps a block whose -U0 hunk starts with the `}` of the block before it (and ends with
+    an opener) whole. What a run does not credit goes back to the pools.
+
+    Two kinds of line keep a run going without being in it (neither credited nor counted toward MOVE_RUN), so a
+    moved block is judged whole and never cut into pieces by lines that are not part of the move: a line BRIDGE
+    names (a new file's imports, which its moved share leaves out), and a line EXPLAINED by the file's own side (a
+    Counter of that side's removed lines, consumed). A specific line is taken from EXPLAINED first. A generic line
+    goes with the specific line before it: after one EXPLAINED took (a re-indented statement's `}`) it is taken
+    from EXPLAINED first, so a file's own re-added braces never join a moved block; otherwise (after a pool line:
+    the braces of a moved block; at the start, after a gap or after a new line) it is taken from POOLS first. Either
+    way it falls back to the other source.
+
+    Returns the lines it credited (MoveCredit.moved) and the lines that neither a move nor the file's own side
+    explains (MoveCredit.rest), both in head order: a line of a run that is not credited goes to EXPLAINED when
+    EXPLAINED has it, and to REST only when it does not.
     """
-    credited = 0
-    run: list[tuple[str, int]] = []
+    moved: list[SourceLine] = []
+    rest: list[SourceLine] = []
+    run: list[tuple[SourceLine, str, int]] = []
 
     def close() -> None:
-        nonlocal credited
-        specific = sum(1 for key, _ in run if not is_generic(key))
-        qualifies, generic_left = len(run) >= MOVE_RUN and specific > 0, MOVE_GENERIC_PER_LINE * specific
-        for key, source in run:
-            generic = is_generic(key)
-            if qualifies and not generic:
-                credited += 1
-            elif qualifies and generic_left > 0:
-                generic_left -= 1
-                credited += 1
+        specific = sum(1 for _, key, _ in run if not is_generic(key))
+        credited = [False] * len(run)
+        if len(run) >= MOVE_RUN and specific > 0:
+            generic_left = MOVE_GENERIC_PER_LINE * specific
+            for i, (_, key, _) in enumerate(run):
+                if not is_generic(key):
+                    credited[i] = True
+                elif generic_left > 0:
+                    credited[i], generic_left = True, generic_left - 1
+            unmatched = sum(closing - opening for (_, key, _), ok in zip(run, credited) if ok
+                            for opening, closing in [braces(key)])
+            for i in reversed(range(len(run))):
+                if unmatched <= 0:
+                    break
+                opening, closing = braces(run[i][1])
+                if credited[i] and is_generic(run[i][1]) and closing > opening:
+                    credited[i], unmatched = False, unmatched - (closing - opening)
+        for (line, key, source), ok in zip(run, credited):
+            if ok:
+                moved.append(line)
+                continue
+            pools[source][key] += 1
+            if explained is not None and explained[key] > 0:
+                explained[key] -= 1
             else:
-                pools[source][key] += 1
+                rest.append(line)
         run.clear()
 
     previous = None
+    after = None  # where the last specific line came from: "pool", "explained", or None (start, gap, new line)
     for line in lines:
         key = line.text.strip()
-        source = next((i for i, pool in enumerate(pools) if pool[key] > 0), None)
-        if source is None or (previous is not None and line.ordinal != previous + 1):
+        if previous is not None and line.ordinal != previous + 1:
             close()
+            after = None
+        previous = line.ordinal
+        if bridge(key):
+            continue
+        generic = is_generic(key)
+        if explained is not None and explained[key] > 0 and (not generic or after == "explained"):
+            explained[key] -= 1
+            after = after if generic else "explained"
+            continue
+        source = next((i for i, pool in enumerate(pools) if pool[key] > 0), None)
         if source is not None:
             pools[source][key] -= 1
-            run.append((key, source))
-        previous = line.ordinal
+            run.append((line, key, source))
+            after = after if generic else "pool"
+        elif explained is not None and explained[key] > 0:
+            explained[key] -= 1
+        else:
+            close()
+            rest.append(line)
+            after = after if generic else None
     close()
-    return credited
+    return MoveCredit(moved, rest)
+
+
+def lost_lines(files: list[AppFile], readding: list[AppFile]) -> collections.Counter:
+    """The removed source lines of FILES (stripped) that no added line of READDING puts back: what really left.
+
+    A specific line removed and added back with the same stripped text (a re-indented block, a line git's -U0
+    diff pairs differently) is still there, so it is not lost and cannot be credited as moved anywhere. A generic
+    line is lost whenever it is removed: every edit re-adds braces, and credit_moves credits a generic line only
+    in a run that a specific moved line proves, never after a line the file's own side explains, and a `}` only
+    when the run opens it.
+    """
+    removed = collections.Counter(r.text.strip() for f in files for r in f.removed)
+    added = collections.Counter(a.text.strip() for f in readding for a in f.added)
+    return collections.Counter({key: count if is_generic(key) else count - added[key]
+                                for key, count in removed.items() if is_generic(key) or count > added[key]})
 
 
 def host_problem(file: AppFile) -> str | None:
@@ -643,18 +698,57 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         return []
     hits: list[Added] = []
 
-    def removed_pool(files: list[AppFile]) -> collections.Counter:
-        return collections.Counter(r.text.strip() for f in files for r in f.removed)
+    root_files = [f for f in app if f.root]
+    other_files = [f for f in app if not f.root]
+    # What a new file may be credited from: lines no existing App file puts back (a block re-indented in its file
+    # and pasted into a new one is new code; a block moved into an existing file is not also in a new one). An
+    # existing file's re-added line is taken from its own side's removed lines first, then from the other side's,
+    # once. The new files' own lines do not cancel their source, and each new file draws from the pools once, so
+    # two copies of one moved block are one move.
+    def spill(readding: list[AppFile], files: list[AppFile]) -> collections.Counter:
+        """Specific lines READDING adds back that FILES (their own side) did not remove."""
+        added = collections.Counter(key for f in readding for a in f.added if not is_generic(key := a.text.strip()))
+        return added - collections.Counter(r.text.strip() for f in files for r in f.removed)
 
-    root_pool = removed_pool([f for f in app if f.root])
-    other_pool = removed_pool([f for f in app if not f.root])
+    existing_root = [f for f in root_files if not f.is_new]
+    existing_other = [f for f in other_files if not f.is_new]
+    root_pool = lost_lines(root_files, existing_root) - spill(existing_other, other_files)
+    other_pool = lost_lines(other_files, existing_other) - spill(existing_root, root_files)
     host: AppFile | None = None
-    for file in app:
-        if not file.is_new:
+
+    def keys(lines: list[SourceLine]) -> list[str]:
+        return [line.text.strip() for line in lines]
+
+    def is_import(key: str) -> bool:
+        return IMPORT_LINE.match(key) is not None
+
+    def still_lost(lines: list[SourceLine], pool: collections.Counter) -> bool:
+        """Every specific line of LINES is still in POOL: no existing App file put it back, no new file took it."""
+        return not collections.Counter(key for key in keys(lines) if not is_generic(key)) - pool
+
+    new_files = [f for f in app if f.is_new]
+    twins: dict[str, AppFile] = {}  # a new file that is a rename -> the deleted file it renames
+    # A file the push deletes whole and adds back elsewhere, line for line, is a rename however short (no run of a
+    # short file reaches MOVE_RUN), when its lines really left: the same lost-lines pool every move draws from, so
+    # a deleted file pasted into an existing file is not also renamed. A new root file is split from the root: code
+    # from elsewhere does not become wiring by moving, so its twin must be a root file too. Renames are found before
+    # any credit_moves, so an exact copy is the rename and a near copy of the same file is not, whatever their names.
+    for file in new_files:
+        twin = next((d for d in app if d.is_deleted and d not in twins.values() and (d.root or not file.root)
+                     and keys(d.removed) == keys(file.added)
+                     and still_lost(d.removed, root_pool if d.root else other_pool)), None)
+        if twin is not None:
+            pool = root_pool if twin.root else other_pool
+            for key in keys(file.added):  # what the rename took, no other new file takes
+                pool[key] -= 1 if pool[key] > 0 else 0
+            twins[file.path] = twin
+    for file in new_files:
+        if file.path in twins:
             continue
-        # A new root file is split from the root; code from elsewhere does not become wiring by moving.
-        moved_lines = credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool])
-        code = sum(1 for a in file.added if not IMPORT_LINE.match(a.text))
+        # The moved share is of non-import source lines on both sides: imports count neither as moved nor as code.
+        moved_lines = len(credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
+                                       bridge=is_import).moved)
+        code = sum(1 for a in file.added if not is_import(a.text.strip()))
         if moved_lines and moved_lines >= MOVE_SHARE * code:
             continue
         lines = len(file.added)
@@ -674,35 +768,33 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         hits.append(NetHit(file.path, number, f"new App file, {lines} source lines ({lines - moved_lines} not "
                            f"moved), goes to {destination(file.path)}: {why}", f"new:{file.path}", lines))
 
-    root_files = [f for f in app if f.root]
-    other_files = [f for f in app if not f.root]
-
-    def side(files: list[AppFile]) -> tuple[dict[str, list[SourceLine]], collections.Counter]:
-        """(added lines no removed line of the same side explains, per file; lines the side lost)."""
-        removed = collections.Counter(r.text.strip() for f in files for r in f.removed)
-        lost = removed - collections.Counter(a.text.strip() for f in files for a in f.added)
-        own, out = removed.copy(), {}
-        for f in files:
-            rest = []
-            for a in f.added:
-                key = a.text.strip()
-                if own[key] > 0:
-                    own[key] -= 1
-                else:
-                    rest.append(a)
-            out[f.path] = rest
-        return out, lost
+    def removed(files: list[AppFile]) -> collections.Counter:
+        return collections.Counter(r.text.strip() for f in files for r in f.removed)
 
     # The Host file is a root file here: what it takes from feature files is moved into the root, not a shrink.
-    root_new, root_lost = side(root_files)
-    other_new, other_lost = side(other_files)
-    credited = {f.path: credit_moves(root_new[f.path], [other_lost]) for f in root_files}
-    credited.update({f.path: credit_moves(other_new[f.path], [root_lost]) for f in other_files})
-    into_root = sum(credited[f.path] for f in root_files)
-    out_of_root = sum(credited[f.path] for f in other_files)
-    new_lines = {**root_new, **other_new}
-    # A root file's moved-in lines are root growth (wiring budget), so only feature files subtract their moves.
-    fresh = {f.path: len(new_lines[f.path]) - (0 if f.root else credited[f.path]) for f in app}
+    # A move across the root's edge is found on each file's whole added list, from the lines the other side
+    # really lost: a line the file's own side explains (a removed stub's `}`) never cuts a moved block apart, so
+    # every line moved out of the root is counted and none becomes free root budget.
+    # The renames found above are the one rename decision: a rename moves its whole file, so neither of its two
+    # files is credited again or lends lines to another move, and a root file renamed into a feature folder (the
+    # only rename across the edge: a new root file's twin is a root file) counts all its lines as moved out.
+    paired = set(twins) | {twin.path for twin in twins.values()}
+    moving_root = [f for f in root_files if f.path not in paired]
+    moving_other = [f for f in other_files if f.path not in paired]
+    root_lost, other_lost = lost_lines(moving_root, moving_root), lost_lines(moving_other, moving_other)
+    root_own, other_own = removed(moving_root), removed(moving_other)
+    credit = {f.path: credit_moves(f.added, [other_lost], root_own) for f in moving_root}
+    credit.update({f.path: credit_moves(f.added, [root_lost], other_own) for f in moving_other})
+    into_root = sum(len(credit[f.path].moved) for f in moving_root)
+    out_of_root = sum(len(credit[f.path].moved) for f in moving_other) + sum(
+        len(f.added) for f in other_files if f.path in twins and twins[f.path].root)
+    # What the summary calls a file's new lines, from the credit's own accounting: the lines its own side does not
+    # explain, less (for a feature file) the lines moved out of the root. A root file's moved-in lines are root
+    # growth (wiring budget), so they stay in, in head order. A rename has no new lines.
+    new_lines = {f.path: [] if f.path in paired else (
+        sorted(credit[f.path].moved + credit[f.path].rest, key=lambda line: line.ordinal) if f.root
+        else credit[f.path].rest) for f in app}
+    fresh = {path: len(lines) for path, lines in new_lines.items()}
 
     def net(files: list[AppFile]) -> int:
         return sum(len(f.added) - len(f.removed) for f in files)
@@ -778,26 +870,11 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, []
 
 
-singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
 sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
-broadcast_name = matcher_rule(Matcher(BROADCAST_ANY, BROADCAST_ALLOW, declares_name))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
 
 RULES = (
-    Rule("singleton", "New singleton (`static let shared`, or a class's stored `standard`/`default`/`current`/`live`)",
-         "a global hides runtime state: no injection, no test seam, every caller couples to one instance "
-         "(codebase-health.md counts the ones already there)",
-         "construct it once at the composition root (the App's startup) and pass it through `init`; "
-         "`static let` is fine for constants and identifiers",
-         "// singleton-allow: <why a process-wide instance is the only correct shape>",
-         singleton),
-    Rule("assume-isolated", "`MainActor.assumeIsolated` without a main-thread proof",
-         "it traps in Release when the caller is not on main, and nothing proves it is",
-         "make the caller `@MainActor` (and await it), or prove the thread on the line or above: "
-         "`// main-proof: <why this always runs on main>` (e.g. an observer registered with queue: .main)",
-         "// main-proof: <why>",
-         line_rule(r"\bMainActor\.assumeIsolated\b", "main-proof:")),
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
@@ -816,13 +893,6 @@ RULES = (
          "owned by the caller",
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
-    Rule("broadcast-name", "New `Notification.Name` (a broadcast signal)",
-         "every observer wakes on every post: O(all) work per change (browserChildWindowPagesNeedUpdate makes "
-         "every Chromium host re-post geometry on any layout change; perf-lead.md issue 2)",
-         "tell the one object that changed (a method on its owner, a closure the owner holds, or an "
-         "AsyncStream keyed by id)",
-         "// broadcast-allow: <why every observer must hear every post>",
-         broadcast_name),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
          "one change invalidates every observer view; CLAUDE.md requires Observation",
          "`@MainActor @Observable` models; views take `@State`, `@Bindable`, a plain `let` or "
@@ -893,6 +963,7 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
             current = changes.setdefault(path, FileChange(path, [])) if path else None
             if current is not None:
                 current.is_new = pending_new
+                current.is_deleted = line == "+++ /dev/null"
         elif line.startswith("@@") and current is not None:
             old = re.search(r"-(\d+)", line)
             old_number = int(old.group(1)) if old else 0
@@ -1211,6 +1282,89 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     return "\n".join(lines), True
 
 
+ARCH_RATCHET = "arch-ratchet.py"
+
+
+class Ratchet:
+    """The arch ratchet (arch-ratchet.py next to this file) for RANGES, running on a thread from the start.
+
+    Its cost is the Swift files it reads (git) and analyzes (Python, about 1 ms per file; arch_counts'
+    FactsCache keeps every analyzed content, so a warm push analyzes only new contents); the ratchet report
+    prints how many. A caller that starts it before other work pays what is left of it at finish(), but the
+    analysis shares the interpreter with that work, so it is not free beside CPU-bound scanners. It fails
+    open: a missing or broken script, an error or a run past WAIT_LIMIT is a warning and lets the push
+    through.
+    """
+
+    WAIT_LIMIT = 20.0
+
+    def __init__(self, repo: Path, ranges: list[tuple[str, str]], scripts_dir: Path | None = None) -> None:
+        self.out: list[str] = []
+        self.refused = False
+        self.error: str | None = None
+        self.thread: threading.Thread | None = None
+        self.waited = 0.0  # seconds finish() waited for the thread (prepush-gate --timings prints it)
+        script = (scripts_dir or HERE) / ARCH_RATCHET
+        try:
+            if not script.is_file():
+                self.error = f"{script} is missing; rerun scripts/install-git-hooks.sh"
+                return
+            spec = importlib.util.spec_from_file_location("cmux_next_arch_ratchet", script)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+            spec.loader.exec_module(module)
+        except (Exception, SystemExit) as error:
+            self.error = f"{ARCH_RATCHET} failed ({type(error).__name__}: {error})"
+            return
+
+        def run() -> None:
+            try:
+                self.refused = bool(module.run_push(repo, ranges, out=self.out))
+            except (Exception, SystemExit) as error:  # run_push fails open itself; this is the last guard
+                self.error = f"{ARCH_RATCHET} failed ({type(error).__name__}: {error})"
+
+        self.thread = threading.Thread(target=run, name="arch-ratchet", daemon=True)
+        self.thread.start()
+
+    def finish(self) -> tuple[str, bool]:
+        """(the ratchet's report, whether it refuses the push)."""
+        if self.thread is not None:
+            started = time.monotonic()
+            self.thread.join(self.WAIT_LIMIT)
+            self.waited = time.monotonic() - started
+            if self.thread.is_alive():
+                return (f"guardrails: WARNING: the arch ratchet ran past {self.WAIT_LIMIT:.0f}s; not applied to this "
+                        "push. Tell the Performance Lead with this line."), False
+        lines = list(self.out)
+        if self.error:
+            lines.append(f"guardrails: WARNING: {self.error}; the arch ratchet was not applied to this push. Tell the "
+                         "Performance Lead with this line.")
+        return "\n".join(lines), self.refused and self.error is None
+
+
+def start_ratchet(repo: Path, ranges: list[tuple[str, str]]) -> Ratchet:
+    """Start the arch ratchet for RANGES now (prepush-gate calls this before its scanners)."""
+    return Ratchet(repo, ranges)
+
+
+def run_push(repo: Path, ranges: list[tuple[str, str]], ratchet: Ratchet | None = None) -> bool:
+    """Print the guardrails report for the pushed RANGES: the line rules (check_push per range, so lines a
+    push only brings in from origin/feat-cmux-next never count) and the arch ratchet (started here unless the
+    caller started it). True when either refuses the push."""
+    ratchet = ratchet or Ratchet(repo, ranges)
+    refused = False
+    for base, head in ranges:
+        refusals, warnings = check_push(repo, base, head)
+        text, refuse = format_report(refusals, warnings)
+        if text:
+            print(text)
+        refused = refused or refuse
+    text, refuse = ratchet.finish()
+    if text:
+        print(text)
+    return refused or refuse
+
+
 def default_base(repo: Path, head: str) -> str:
     base = git(repo, "merge-base", head, UPSTREAM, check=False).strip()
     return base or f"{head}~1"
@@ -1226,13 +1380,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
+        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception in "
+              "plans/cmux-next/arch-ratchet.json)")
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()
-    refusals, warnings = check(repo, args.base or default_base(repo, args.head), args.head)
-    text, refused = format_report(refusals, warnings)
-    if text:
-        print(text)
+    refused = run_push(repo, [(args.base or default_base(repo, args.head), args.head)])
     print(f"guardrails: {'refused' if refused else 'ok'} ({time.monotonic() - started:.2f}s)")
     return 1 if refused else 0
 

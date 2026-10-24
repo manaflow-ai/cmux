@@ -47,12 +47,14 @@ count); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
 brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
 for a manual run.
-In the same local-only place: "Arch ratchet" (arch-ratchet.py, plans/cmux-next/arch-ratchet.json): refuses a
-push that raises the total of an architecture count (layer edges, stateful singletons, global mutable statics,
-assumeIsolated outside seam adapters, app broadcast names, observer sites; arch_counts.py defines them),
-counting only the files the push changes; a move between packages passes. It starts on a thread before the
-scanners (it only waits on git), so a push pays only what is left of it at the guardrails. Skip one row for one
-push with ARCH_RATCHET_SKIP_REASON="<row>: <why>"; --no-guardrails turns it off too; it fails open.
+The guardrails include the arch ratchet (guardrails.py runs arch-ratchet.py; plans/cmux-next/arch-ratchet.json):
+it refuses a push that raises the total of an architecture count (layer edges, stateful singletons, global
+mutable statics, assumeIsolated outside seam adapters, app broadcast names, observer sites; arch_counts.py
+defines them), counting only the files the push changes (a move between packages passes), or that raises the
+json's own totals; its rule modules (arch_rules/, the layer gate) refuse what they find. guardrails' ratchet
+starts on a thread before the scanners, so a push pays what is left of it at the guardrails (its cost is the
+Swift files it reads and analyzes; --timings prints the wait). Its one escape is a dated exception in
+arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -79,7 +81,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import urllib.request
 import zipfile
@@ -657,22 +658,46 @@ def load_guardrails(repo: Path, trusted_scripts: Path | None):
     return module
 
 
-def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
-    """Print the guardrail warnings and refusals for RANGES; True when they refuse the push.
+def start_guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None):
+    """(module, ratchet, error): guardrails.py loaded, and its arch ratchet started on a thread at once.
 
-    The rules are advisory debt checks in every agent's hook: a bug in one rule turns off only that rule
-    (guardrails.check warns and runs the rest); a bug outside the rules (a failed load or git call, a parse
-    edge) prints a warning and lets the push through instead of blocking every push with a traceback.
-    check_push leaves out what a range only brings in from origin/feat-cmux-next (a merge of it into a branch,
-    or a rebase onto it and a force push): CI never runs these rules, so that base can carry debt.
+    The ratchet runs next to the scanners, so the push pays what is left of it when the gate reaches the
+    guardrails (its cost is the Swift files it reads and analyzes; guardrails.Ratchet). A load error is
+    reported there (fail open).
     """
     try:
         module = load_guardrails(repo, trusted_scripts)
         if module is None:
-            if trusted_scripts:
-                log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
-            return False
-        refused = False
+            return None, None, ("guardrails.py is not installed; rerun scripts/install-git-hooks.sh"
+                                if trusted_scripts else None)
+        start = getattr(module, "start_ratchet", None)
+        return module, (start(repo, ranges) if start is not None else None), None
+    except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
+        return None, None, (f"WARNING: guardrails.py failed ({type(error).__name__}: {error}); not applied to this "
+                            "push. Tell the Performance Lead (PL-guardrails) with this line.")
+
+
+def guardrails(repo: Path, ranges: list[tuple[str, str]], started) -> bool:
+    """Print the guardrail warnings and refusals (line rules and arch ratchet) for RANGES; True when they refuse.
+
+    STARTED is start_guardrails()'s result. The rules are advisory debt checks in every agent's hook: a bug in
+    one rule turns off only that rule (guardrails.check warns and runs the rest); a bug outside the rules (a
+    failed load or git call, a parse edge) prints a warning and lets the push through instead of blocking
+    every push with a traceback. check_push leaves out what a range only brings in from origin/feat-cmux-next
+    (a merge of it into a branch, or a rebase onto it and a force push): CI never runs these rules, so that
+    base can carry debt.
+    """
+    module, ratchet, error = started
+    if error:
+        log(f"prepush-gate: {error}")
+        return False
+    if module is None:
+        return False
+    try:
+        run = getattr(module, "run_push", None)
+        if run is not None:
+            return bool(run(repo, ranges, ratchet))
+        refused = False  # an older guardrails.py without the ratchet
         check = getattr(module, "check_push", module.check)
         for base, head in ranges:
             refusals, warnings = check(repo, base, head)
@@ -730,89 +755,71 @@ def perf_cron_tests(repo: Path, ranges: list[tuple[str, str]]) -> bool:
     return refused
 
 
-class ArchRatchet:
-    """The arch ratchet (arch-ratchet.py) for RANGES, started at once on a thread next to the scanners.
-
-    It waits only on git, so the push pays just what is left of it when the gate reaches the guardrails
-    (`finish`). It fails open: a missing or broken script, an error or a run past the wait limit is a
-    warning and lets the push through.
-    """
-
-    WAIT_LIMIT = 20.0
-
-    def __init__(self, repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> None:
-        self.out: list[str] = []
-        self.refused = False
-        self.error: str | None = None
-        self.thread: threading.Thread | None = None
-        script = (trusted_scripts / "arch-ratchet.py") if trusted_scripts else (repo / SCRIPTS / "arch-ratchet.py")
-        try:
-            if not script.is_file():
-                if trusted_scripts:
-                    self.error = "arch-ratchet.py is not installed; rerun scripts/install-git-hooks.sh"
-                return
-            spec = importlib.util.spec_from_file_location("cmux_next_arch_ratchet", script)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
-            spec.loader.exec_module(module)
-        except (Exception, SystemExit) as error:
-            self.error = f"WARNING: arch-ratchet.py failed ({type(error).__name__}: {error}); not applied to this push"
-            return
-
-        def run() -> None:
-            try:
-                self.refused = bool(module.run_push(repo, ranges, out=self.out))
-            except (Exception, SystemExit) as error:  # run_push fails open itself; this is the last guard
-                self.error = f"WARNING: arch-ratchet.py failed ({type(error).__name__}: {error}); not applied"
-
-        self.thread = threading.Thread(target=run, name="arch-ratchet", daemon=True)
-        self.thread.start()
-
-    def finish(self) -> bool:
-        """Print its report; True when it refuses the push."""
-        if self.thread is not None:
-            self.thread.join(self.WAIT_LIMIT)
-            if self.thread.is_alive():
-                log(f"prepush-gate: WARNING: arch-ratchet.py ran past {self.WAIT_LIMIT:.0f}s; not applied to this push. "
-                    "Tell the Performance Lead with this line.")
-                return False
-        if self.error:
-            log(f"prepush-gate: {self.error}. Tell the Performance Lead with this line.")
-        for text in self.out:
-            print(text)
-        return self.refused and self.error is None
-
-
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
-# source lines unlike CI's check-app-size.sh.
-TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "arch_rules/__init__.py", "arch_rules/layer_gate.py")
+# source lines unlike CI's check-app-size.sh. The arch_rules/*.py modules are compared as a folder
+# (_stale_rules), so a rule module added upstream needs no entry here.
+TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py")
+RULES_SUBDIR = "arch_rules"
+
+
+def _blob_id(data: bytes, hex_len: int) -> str:
+    """The git object id of a blob with DATA (sha1, or sha256 in a sha256 repository)."""
+    digest = hashlib.sha256 if hex_len == 64 else hashlib.sha1
+    return digest(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _stale_rules(tree: bytes, hex_len: int, installed: Path) -> list[str]:
+    """The arch_rules/*.py files whose installed copy differs from TREE's (a raw git tree object)."""
+    want: dict[str, str] = {}
+    raw_len = hex_len // 2
+    i = 0
+    while i < len(tree):
+        nul = tree.find(b"\0", i)
+        if nul < 0:
+            break
+        mode, _, name = tree[i:nul].partition(b" ")
+        oid = tree[nul + 1:nul + 1 + raw_len].hex()
+        i = nul + 1 + raw_len
+        if mode.startswith(b"100") and name.endswith(b".py"):
+            want[name.decode(errors="replace")] = oid
+    have = {p.name: p for p in installed.glob("*.py")} if installed.is_dir() else {}
+    stale = [f"{RULES_SUBDIR}/{n}" for n, oid in sorted(want.items())
+             if n not in have or _blob_id(have[n].read_bytes(), hex_len) != oid]
+    stale += [f"{RULES_SUBDIR}/{n} (removed upstream)" for n in sorted(set(have) - set(want))]
+    return stale
 
 
 def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
-    """Warn when the installed checker copies differ from origin/feat-cmux-next's (a rebase never refreshes them)."""
+    """Warn when the installed checker copies differ from origin/feat-cmux-next's (a rebase never refreshes them).
+
+    The copies: TRUSTED_COPIES and every arch_rules/*.py module (a rule the install missed never runs).
+    """
     for ref in DEFAULT_BASE_REFS:
         if not rev_ok(repo, ref):
             continue
         stale = []
-        # One `git cat-file --batch` for every copy (a `git show` each cost a process per push).
-        batch = "".join(f"{ref}:{SCRIPTS}/{name}\n" for name in TRUSTED_COPIES).encode()
+        # One `git cat-file --batch` for every copy and the arch_rules tree (a `git show` each cost a process).
+        names = [f"{SCRIPTS}/{name}" for name in TRUSTED_COPIES] + [f"{SCRIPTS}/{RULES_SUBDIR}"]
+        batch = "".join(f"{ref}:{name}\n" for name in names).encode()
         out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=batch, capture_output=True).stdout
         i = 0
-        for name in TRUSTED_COPIES:
+        for index, name in enumerate(names):
             nl = out.find(b"\n", i)
             if nl < 0:
                 break
             header = out[i:nl].split()
             i = nl + 1
-            if len(header) < 3 or header[1] != b"blob":
+            if len(header) < 3 or header[1] not in (b"blob", b"tree"):
                 continue
             size = int(header[2])
             theirs = out[i:i + size]
             i += size + 1
-            mine = trusted_scripts / name
+            if header[1] == b"tree":
+                stale += _stale_rules(theirs, len(header[0]), trusted_scripts / RULES_SUBDIR)
+                continue
+            mine = trusted_scripts / TRUSTED_COPIES[index]
             if not mine.is_file() or mine.read_bytes() != theirs:
-                stale.append(name)
+                stale.append(TRUSTED_COPIES[index])
         if stale:
             log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
                 f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
@@ -846,7 +853,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,sidebar")
     parser.add_argument("--timings", action="store_true")
-    parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and arch-ratchet.py (they never run on CI)")
+    parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
@@ -892,7 +899,7 @@ def main(argv: list[str] | None = None) -> int:
         ranges = [(args.base or default_base(repo, args.head), args.head)]
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
-    arch = ArchRatchet(repo, ranges, trusted_scripts) if local_only else None
+    started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
     found_any = []
     for base, head in ranges:
         found_any += gate(repo, base, head, only, args.timings, trusted_scripts)
@@ -901,21 +908,21 @@ def main(argv: list[str] | None = None) -> int:
     guarded = False
     if local_only:
         t0 = time.monotonic()
-        guarded = guardrails(repo, ranges, trusted_scripts)
+        guarded = guardrails(repo, ranges, started_guardrails)
         if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  guardrails")
+            ratchet = started_guardrails[1]
+            waited = getattr(ratchet, "waited", None)
+            log(f"  {time.monotonic() - t0:5.2f}s  guardrails (line rules, and the arch ratchet's wait left: it "
+                "ran next to the scanners)"
+                + (f"; of it {waited:.2f}s waiting for the arch ratchet" if isinstance(waited, float) else ""))
         t0 = time.monotonic()
         guarded = perf_cron_tests(repo, ranges) or guarded
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
-        t0 = time.monotonic()
-        guarded = arch.finish() or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  arch ratchet (the wait left; it ran next to the scanners)")
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails, the arch ratchet or the perf cron tests ({elapsed:.1f}s)")
+            print(f"prepush-gate: push refused by the guardrails or the perf cron tests ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
@@ -934,8 +941,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")
         if guarded:
-            print("prepush-gate: push refused by the guardrails or the arch ratchet (CMUX_NEXT_CHECKS_SKIP_REASON "
-                  "does not skip them)")
+            print("prepush-gate: push refused by the guardrails (CMUX_NEXT_CHECKS_SKIP_REASON does not skip them)")
             return 1
         return 0
     print(HOW_TO_FIX)

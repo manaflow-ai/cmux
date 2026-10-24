@@ -498,18 +498,18 @@
     },
     {
       "name": "cmux-cua",
-      "version": "0.8.7",
-      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/cmux-cua-0.8.7-linux-x86_64.tar.gz",
-      "sha256": "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e",
-      "size": 8706672,
+      "version": "0.8.12",
+      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/cmux-cua-0.8.12-linux-x86_64.tar.gz",
+      "sha256": "3a81784562139f273e9489baefe2ce8b63cb59cf61290a10a18377ebaa15c521",
+      "size": 8741562,
       "format": "tar.gz",
-      "bin": { "cmux-cua": "cmux-cua-0.8.7-linux-x86_64/cmux-cua" },
+      "bin": { "cmux-cua": "cmux-cua-0.8.12-linux-x86_64/cmux-cua" },
       "versionArgs": ["--version"],
-      "expect": "cmux-cua 0.8.7",
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt",
-      "checksumsName": "cmux-cua-0.8.7-linux-x86_64.tar.gz",
+      "expect": "cmux-cua 0.8.12",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/checksums.txt",
+      "checksumsName": "cmux-cua-0.8.12-linux-x86_64.tar.gz",
       "roles": ["cua"],
-      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.7 (full release 2026-10-05, LICENSE in the tarball); arm64 tarball sha256 550b1c902c4f47ded822f02dd1badb812bea2ae5e59d89817e1693805c867eaf; needs libX11 (base), libXi and libxkbcommon (display role)"
+      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.12 (full release 2026-10-08, LICENSE in the tarball; the release the macOS app builds from, scripts/build-cmux-cua.sh e8a8dbfd); sha256 checked against checksums.txt; arm64 tarball sha256 cf88895f3e68cba83691fd20de8aaf3ccd408c23a1d07e023d187f81d687bc07; needs libX11 (base), libXi and libxkbcommon (display role)"
     },
     {
       "name": "chrome-for-testing",

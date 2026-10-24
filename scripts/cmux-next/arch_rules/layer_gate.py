@@ -30,16 +30,20 @@ and refuses only what the push adds:
 An edge that is already in the base is never refused (arch-layers.py and the arch_counts layer rows report
 that debt). Test targets are ignored. Each refusal names the edge and both layers, then the fix: lift the
 shared type to a core target, or define a protocol seam in the consumer and conform in the App (DESIGN
-sections 2-4). Escape once: ARCH_RATCHET_SKIP_REASON="layer-gate: <why>" (the arch ratchet loader applies it
-by ID; `skip_reason()` reads it for callers that do not). Local pre-push only, never CI.
+sections 2-4). The one escape (a reviewed reason only): the push adds a dated exception for ID to
+plans/cmux-next/arch-ratchet.json's `exceptions` ({"date": "YYYY-MM-DD", "row": "layer-gate", "allow": <n>,
+"why": "..."}); the arch ratchet loader lets that push carry n of this rule's refusals. There is no
+environment-variable skip. Local pre-push only, never CI.
 
 The manifest reader, the map reader and the edge classes are arch_counts.py's (`parse_manifest`,
 `LayerMap`, `edge_class`), the same ones the layer rows count with, so the gate and the counts never
 disagree about which edges exist.
 
 Loader contract (scripts/cmux-next/arch_rules/__init__.py): `check(base, head, changes)` returns
-(refusals, notes); a refusal is ("layer-gate", text, key), KEY naming what is refused (("edge", A, B),
-("relabel", T), ...) so a merge push matches it over both ranges. It reads only `changes.files` and two files
+(refusals, notes); a refusal is ("layer-gate", text, key, row), KEY naming what is refused (("edge", A, B),
+("relabel", T), ...) so a merge push matches it over both ranges, ROW the arch_counts row the refused change
+raises (a new edge's class row, layer_unplaced for a new unplaced target; else None) so the count rule does
+not refuse it a second time: one new edge, one refusal, one dated entry. It reads only `changes.files` and two files
 at both ends through `changes.read` (one `git cat-file --batch`).
 
   scripts/cmux-next/arch_rules/layer_gate.py                  # HEAD over its merge base with origin/feat-cmux-next
@@ -48,6 +52,7 @@ at both ends through `changes.read` (one `git cat-file --batch`).
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.util
 import json
 import os
@@ -74,7 +79,6 @@ def _load_counts():
 counts = _load_counts()
 
 ID = "layer-gate"
-SKIP_ENV = "ARCH_RATCHET_SKIP_REASON"
 UPSTREAM = "origin/feat-cmux-next"
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_SWIFT = counts.MANIFEST
@@ -115,8 +119,10 @@ class Refusal:
     number: int
     text: str
     rule: str = ID
-    # The arch_counts row that counts the same debt (the count rule may refuse the push under it too).
-    row: str = "layer_hard"
+    # The arch_counts row whose rise this refusal answers (a new edge: its class's row; a new unplaced target:
+    # layer_unplaced), or None. The ratchet's count rule does not refuse that unit again, so one new edge has
+    # one refusal and one escape.
+    row: str | None = None
     # What is refused, independent of the base: matches the same refusal over the ranges of a merge push.
     key: tuple = ()
 
@@ -167,7 +173,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         return [Refusal(LAYERS_JSON, 1, f"{LAYERS_JSON} does not parse: {head_map.error}; the gate cannot place any "
                                         f"target, so fix the file (an object with `order`, a list of layer names, "
                                         f"and `targets`, {{name: {{\"layer\": ...}}}})",
-                        row="layer_unplaced", key=("map",))]
+                        key=("map",))]
     head, base = counts.parse_manifest(head_manifest), counts.parse_manifest(base_manifest)
     # A base map that does not parse places nothing: then only the head's layers judge the push.
     base_map = counts.LayerMap.parse(base_layers)
@@ -175,7 +181,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
     justified, invalid = relabels(base_map, head_map, base, head, changed)
     out = []
 
-    def refuse(name: str, text: str, row: str, key: tuple) -> None:
+    def refuse(name: str, text: str, row: str | None, key: tuple) -> None:
         out.append(Refusal(PACKAGE_SWIFT, head.targets[name].line, text, row=row, key=key))
 
     def span(name: str) -> tuple[str, str] | None:
@@ -209,7 +215,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         if now == "app" and name != COMPOSITION_ROOT and was != "app":
             refuse(name, f"target {name} is placed as app in {LAYERS_JSON}: only {COMPOSITION_ROOT}, the "
                          f"composition root, is app (DESIGN section 4); give {name} the layer its code holds "
-                         f"(core, service, domain or ui)", "layer_hard", ("app", name))
+                         f"(core, service, domain or ui)", None, ("app", name))
         if was is None or now is None or was == now or name in justified:
             continue
         changed_edges = []
@@ -224,7 +230,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                      f"same push) and a dated reason the push adds under `relayered`: {{\"target\": \"{name}\", "
                      f"\"from\": \"{was}\", \"to\": \"{now}\", \"date\": \"YYYY-MM-DD\", \"reason\": what changed "
                      f"in its code}}; a relabel that only clears an edge is the debt renamed: {FIX}",
-               "layer_hard", ("relabel", name))
+               None, ("relabel", name))
     for source, dep in sorted(head.edges() - base.edges()):
         ends, deps = span(source), span(dep)
         if ends is None or deps is None:
@@ -253,7 +259,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
         for expr in sorted(target.unresolved - (before.unresolved if before else set())):
             refuse(name, f"{name}'s dependencies hold `{shown(expr)}`, which the gate cannot read without swift: use "
                          f"string literals, `.target(name:)`/`.product(...)` entries or a top-level "
-                         f"`let` `[Target.Dependency]` variable", "layer_hard", ("unresolved", name, expr))
+                         f"`let` `[Target.Dependency]` variable", None, ("unresolved", name, expr))
     for expr, (line, why) in sorted(head.unreadable.items(), key=lambda item: item[1][0]):
         if expr in base.unreadable:
             continue
@@ -261,7 +267,7 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                                                 f"declare each target as a `.target(name: \"...\", dependencies: "
                                                 f"[...])` call in `Package(targets:)` or a top-level `let X: Target`, "
                                                 f"with string-literal names and dependencies, and never change "
-                                                f"`package` after it is built", row="layer_hard",
+                                                f"`package` after it is built",
                            key=("unreadable", expr)))
     return out
 
@@ -309,8 +315,9 @@ def check_repo(repo: Path | str, base: str, head: str, changed: Iterable[str], r
 def check(base: str, head: str, changes: Any = None, repo: Path | str | None = None) -> tuple[list, list]:
     """arch-ratchet entry point: (refusals, notes) for the pushed range BASE..HEAD.
 
-    A refusal is `(ID, text, key)`, so ARCH_RATCHET_SKIP_REASON="layer-gate: <why>" names it and a merge push
-    matches it over both ranges by KEY. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
+    A refusal is `(ID, text, key, row)`, so a dated arch-ratchet.json exception for ID covers it, a merge push
+    matches it over both ranges by KEY, and the count rule does not refuse the unit of ROW (the arch_counts
+    row the refused change raises, or None) that it answers. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
     `read`); None reads the changed paths from git in REPO (default: the repository that holds this file).
     """
     root = Path(getattr(changes, "repo", None) or repo or ROOT)
@@ -319,23 +326,22 @@ def check(base: str, head: str, changes: Any = None, repo: Path | str | None = N
     else:
         changed = changed_paths(getattr(changes, "files", changes))
     found = check_repo(root, base, head, changed, getattr(changes, "read", None))
-    return [(ID, f"{refusal}\n  Escape for this push only: {SKIP_ENV}=\"{ID}: <why>\" (say it in your report; "
-                 f"when the count rule refuses the same change, name its row too: \"{ID},{refusal.row}: <why>\").",
-             refusal.key)
-            for refusal in found], []
+    return [(ID, f"{refusal}\n  {escape()}", refusal.key, refusal.row) for refusal in found], []
+
+
+def escape() -> str:
+    """The one escape, printed with each refusal: a dated exception for ID that the push adds. It is the only
+    entry a refused edge needs: the count rule does not refuse the layer row rise that the refusal answers."""
+    today = datetime.date.today().isoformat()
+    return (f"The only escape (a reviewed reason, never to pass the hook): add {{\"date\": \"{today}\", \"row\": "
+            f"\"{ID}\", \"allow\": 1, \"why\": \"<the reviewed reason>\"}} per refusal to the exceptions of "
+            f"{counts.RATCHET_JSON} in this push.")
 
 
 def git(repo: Path | str, *args: str) -> str:
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=env, check=True,
                           text=True).stdout
-
-
-def skip_reason(env: dict[str, str] | None = None) -> str | None:
-    """The why of an ARCH_RATCHET_SKIP_REASON="<rule>[,<rule>]: <why>" that names this rule, else None."""
-    value = (os.environ if env is None else env).get(SKIP_ENV, "").strip()
-    named, colon, why = value.partition(":")
-    return why.strip() if colon and why.strip() and ID in {r.strip() for r in named.split(",")} else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -352,11 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     for refusal in found:
         print(refusal)
-    why = skip_reason()
-    if why:
-        print(f"{ID}: skipped ({SKIP_ENV}): {why}")
-        return 0
-    print(f'{ID}: escape once with {SKIP_ENV}="{ID}: <why>" and say it in your report')
+    print(f"{ID}: {escape()}")
     return 1
 
 

@@ -277,11 +277,11 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(manifest.aptSources).toContain(`Signed-By: ${lock.apt.ubuntu.signedBy}`);
   });
 
-  test("cmux-cua 0.8.7 (full release, LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
+  test("cmux-cua 0.8.12 (the macOS app's release, scripts/build-cmux-cua.sh; LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
     const pinned = lock.programs.find((p) => p.name === "cmux-cua")!;
-    expect(pinned).toMatchObject({ ...cmuxCuaReleaseShape("0.8.7", "x86_64"), expect: "cmux-cua 0.8.7", sha256: "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e", size: 8706672 });
-    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt");
-    expect(pinned.checksumsName).toBe("cmux-cua-0.8.7-linux-x86_64.tar.gz");
+    expect(pinned).toMatchObject({ ...cmuxCuaReleaseShape("0.8.12", "x86_64"), expect: "cmux-cua 0.8.12", sha256: "3a81784562139f273e9489baefe2ce8b63cb59cf61290a10a18377ebaa15c521", size: 8741562 });
+    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/checksums.txt");
+    expect(pinned.checksumsName).toBe("cmux-cua-0.8.12-linux-x86_64.tar.gz");
     expect(cmuxCuaReleaseShape("0.8.0", "x86_64")).toEqual({
       name: "cmux-cua",
       version: "0.8.0",

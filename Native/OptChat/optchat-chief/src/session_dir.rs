@@ -598,8 +598,9 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
-    // git asks the Chief's credential helper for github.com (github.rs).
-    for (key, value) in crate::github::git_env(&paths.bin) {
+    // git asks the tool packs' credential helpers for their hosts (toolpacks.rs).
+    let packs = crate::toolpacks::load(&paths.home);
+    for (key, value) in crate::toolpacks::git_env(&packs, &paths.bin) {
         settings["env"][key] = json!(value);
     }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
@@ -625,11 +626,20 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let claude = paths.bin.join("claude");
     write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
-    // gh and git with the Chief's own GitHub login when it has one (github.rs).
-    for (name, text) in [
-        ("gh", crate::github::GH_SHIM),
-        ("git-credential-chief", crate::github::GIT_CREDENTIAL),
-    ] {
+    // Each pack's CLI and git with the Chief's own login when it has one
+    // (toolpacks.rs; the GitHub pack's gh as before).
+    remove_if_present(&paths.bin.join("git-credential-chief"))?;
+    let shims = crate::toolpacks::wrappers(&packs);
+    // A pack turned off or removed takes its wrapper with it.
+    for entry in std::fs::read_dir(&paths.bin)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let ours = std::fs::read_to_string(entry.path())
+            .is_ok_and(|t| t.lines().take(3).any(|l| l.contains("(tool pack ")));
+        if ours && !shims.iter().any(|(n, _)| *n == name) {
+            remove_if_present(&entry.path())?;
+        }
+    }
+    for (name, text) in shims {
         let shim = paths.bin.join(name);
         write_if_changed(&shim, text.as_bytes())?;
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;

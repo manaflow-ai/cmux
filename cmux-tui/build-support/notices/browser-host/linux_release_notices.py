@@ -69,7 +69,15 @@ class NoticeError(RuntimeError):
 
 
 def crate_version() -> str:
-    return tomllib.loads((CRATE / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+    """The crate's version; `version.workspace = true` takes cmux-tui's [workspace.package] version
+    (the same rule as scripts/cmux-next/browser-host-release.py crate-version)."""
+    version = tomllib.loads((CRATE / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+    if version == {"workspace": True}:
+        workspace = tomllib.loads((ROOT / "cmux-tui/Cargo.toml").read_text(encoding="utf-8"))["workspace"]
+        version = (workspace.get("package") or {}).get("version")
+    if not isinstance(version, str):
+        raise NoticeError(f"cannot read the cmux-browser-host version (got {version!r})")
+    return version
 
 
 def source_tag() -> str:

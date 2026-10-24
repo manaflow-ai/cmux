@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Measure cmux-next codebase health: the debt the guardrails ratchet (plans/cmux-next/codebase-health.md).
 
-Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: singletons, MainActor.assumeIsolated,
-@unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops, NotificationCenter
-broadcast names and their observers (arch_counts.py's observer sites, the arch ratchet's own counter: a
-`MainActorObservation(` wrapper site is an observer too, and a call may span lines), NSHostingView, #if DEBUG,
-plus target sizes, the Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor
-architecture"), docs sprawl with stale references, and script and workflow counts. Reads the working tree's tracked files only.
+Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: stateful singletons and global mutable
+statics, MainActor.assumeIsolated, @unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops,
+NotificationCenter broadcast names and their observers, NSHostingView, #if DEBUG, plus target sizes, the
+Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl
+with stale references, and script and workflow counts. Reads the working tree's tracked files only.
+
+The singleton, global-static, assumeIsolated, broadcast-name and observer rows and the layer edges are
+scripts/cmux-next/arch_counts.py's (count_texts(), layers(), observer_calls()): the definitions
+plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the three reports never disagree. An
+observer site is a `MainActorObservation(` wrapper call too, and a call may span lines.
 
   scripts/cmux-next/codebase-health.py           # print the report
   scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md
@@ -26,6 +30,8 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
+HERE = Path(__file__).resolve().parent
+
 PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
@@ -36,13 +42,37 @@ MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workfl
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
 
+def load_arch_counts():
+    """scripts/cmux-next/arch_counts.py: the one definition of the architecture rows and the layer rule."""
+    name = "cmux_next_arch_counts"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, HERE / "arch_counts.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+ARCH = load_arch_counts()
+
+# (id, title, arch_counts row, the row of the sites outside seam adapters or None, note)
+ARCH_CATEGORIES = (
+    ("singleton", "stateful singletons and globals (arch_counts `stateful_singletons`)", "stateful_singletons", None,
+     "runtime state behind a global, under any name; construct at the composition root and inject "
+     "(CLAUDE.md Package design discipline)"),
+    ("global_static", "global mutable statics (arch_counts `global_mutable_statics`)", "global_mutable_statics", None,
+     "a static or file-scope var, lock or cache: state no owner injects"),
+    ("assume_isolated", "`MainActor.assumeIsolated`", "assume_isolated_total", "assume_isolated_outside_adapters",
+     "traps off main; allowed only in a small seam adapter with `// main-proof: <why>`"),
+    ("observers", "NotificationCenter observers (call sites, `MainActorObservation(` wrapper and KVO included; "
+     "arch_counts `observer_sites`)", "observer_sites", None, "each one wakes on every post of its name"),
+    ("notification_names", "custom `Notification.Name` declarations (arch_counts `app_broadcast_names`)",
+     "app_broadcast_names", None, "a broadcast signal: every observer reacts, O(all)"),
+)
 
 # (id, title, pattern on comment-stripped code, waiver marker or None, note)
 CATEGORIES = (
-    ("singleton", "`static let/var shared` singletons", r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b", r"singleton-allow:",
-     "runtime state behind a global; construct at the composition root and inject (CLAUDE.md Package design discipline)"),
-    ("assume_isolated", "`MainActor.assumeIsolated`", r"\bMainActor\.assumeIsolated\b", r"main-proof:",
-     "traps off main; each needs `// main-proof: <why>` (crash_ratchet.py counts the rest)"),
     ("unchecked_sendable", "`@unchecked Sendable`", r"@unchecked\s+Sendable\b", r"crash-allow:",
      "a data race the compiler cannot see; needs `// crash-allow: <safety argument>`"),
     ("nonisolated_unsafe", "`nonisolated(unsafe)`", r"\bnonisolated\(unsafe\)", r"crash-allow:",
@@ -55,25 +85,16 @@ CATEGORIES = (
     ("clock_sleep", "clock sleeps `.sleep(for:/until:)`", r"\.sleep\((for|until):", r"wakeup-allow:", "as above"),
     ("main_async", "`DispatchQueue.main.async`", r"\bDispatchQueue\.main\.async\b", None, "use @MainActor and await"),
     ("async_after", "`asyncAfter`", r"\basyncAfter\(", None, "banned (check-concurrency.sh); an injected Clock"),
-    # No pattern here: the sites are arch_counts.py's `observer_calls` (its observer_sites row), never a second copy.
-    ("observers", "NotificationCenter observers (call sites, `MainActorObservation(` wrapper included)", None, None,
-     "each one wakes on every post of its name; the wrapper is still an observer (arch-ratchet.json `observer_sites`)"),
-    ("notification_names", "custom `Notification.Name` declarations", r"\b(NS)?Notification\.Name\(\s*\"", None,
-     "a broadcast signal: every observer reacts, O(all)"),
     ("hosting_view", "`NSHostingView` / `NSHostingController`", r"\bNSHosting(View|Controller)\b", None,
      "a SwiftUI graph inside AppKit; costly on hot paths"),
     ("if_debug", "`#if DEBUG` blocks", r"^\s*#if\s+DEBUG\b", None, "DEBUG-only instrumentation is not in Release builds"),
     ("combine_state", "`ObservableObject` / `@Published` / `@StateObject` / `@ObservedObject` / `@EnvironmentObject`",
      r"\bObservableObject\b|@(Published|StateObject|ObservedObject|EnvironmentObject)\b", None, "CLAUDE.md: @Observable"),
 )
+# Every table row in report order: (id, title, waiver label or None, note).
+SHOWN = ([(c[0], c[1], ("outside seam adapters" if c[3] else None), c[4]) for c in ARCH_CATEGORIES]
+         + [(c[0], c[1], (f"no `{c[3]}`" if c[3] else None), c[4]) for c in CATEGORIES])
 
-UI_IMPORT = re.compile(r"^\s*(@\w+\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+(AppKit|SwiftUI|WebKit|Cocoa)\b",
-                       re.MULTILINE)
-# Targets every layer may import (Package.swift header): macOS 14 back-ports and the sanctioned wakeup primitives.
-FOUNDATION = {"CmuxNextCompat", "CmuxNextWakeups"}
-IO_USE = re.compile(r"\b(FileManager|FileHandle|Process\(|URLSession|NWConnection|NWListener|socket\(|posix_spawn|"
-                    r"sqlite3_|SecItem\w+|DispatchSource|NSXPCConnection|xpc_|fopen\(|UserDefaults|Darwin\.(read|write)|"
-                    r"open\(\w*path)", re.MULTILINE)
 TARGET_CALL = re.compile(r"\.(target|executableTarget|testTarget|binaryTarget|systemLibrary)\(\s*name:\s*\"([^\"]+)\"")
 STRING_DEP = re.compile(r"\"([A-Za-z0-9_]+)\"")
 STALE_PATH = re.compile(r"plans/cmux-next/[\w./-]+?\.md\b")
@@ -127,12 +148,13 @@ def module_of(path: str) -> str:
 
 def scan(repo: Path) -> dict:
     files = [p for p in tracked(repo, SOURCES) if p.endswith(".swift")]
-    hits: dict[str, collections.Counter] = {c[0]: collections.Counter() for c in CATEGORIES}
-    unwaived: dict[str, collections.Counter] = {c[0]: collections.Counter() for c in CATEGORIES}
+    ids = [c[0] for c in ARCH_CATEGORIES] + [c[0] for c in CATEGORIES]
+    hits: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
+    unwaived: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
     lines_per_module: collections.Counter = collections.Counter()
     texts: dict[str, list[str]] = {}
-    compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES if c[2]]
-    counter = load_arch_counts()
+    raw: dict[str, str] = {}
+    compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES]
     sites: dict[str, list[ObserverSite]] = {}
     blanked: dict[str, str] = {}
     for path in files:
@@ -140,12 +162,11 @@ def scan(repo: Path) -> dict:
             text = (repo / path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        raw[path] = text
         lines = text.split("\n")
         texts[path] = lines
-        blanked[path] = counter.strip(text)
-        sites[path] = observer_sites(counter, blanked[path])
-        if sites[path]:
-            hits["observers"][path] = len(sites[path])
+        blanked[path] = ARCH.strip(text)
+        sites[path] = observer_sites(blanked[path])  # section 2; section 1's row is arch_counts' observer_sites
         lines_per_module[module_of(path)] += text.count("\n") + (0 if text.endswith("\n") or not text else 1)
         for index, line in enumerate(lines):
             code = strip_comment(line)
@@ -156,8 +177,20 @@ def scan(repo: Path) -> dict:
                     hits[cid][path] += 1
                     if marker is not None and not waived(lines, index, marker):
                         unwaived[cid][path] += 1
+
+    def read(rel: str) -> str | None:
+        try:
+            return (repo / rel).read_text(encoding="utf-8")
+        except OSError:
+            return None
+    arch, edges = ARCH.count_texts(raw, read(ARCH.MANIFEST), read(ARCH.LAYERS_JSON))
+    for cid, _, row, waiver_row, _ in ARCH_CATEGORIES:
+        for site in arch.sites[row]:
+            hits[cid][site.path] += 1
+        for site in (arch.sites[waiver_row] if waiver_row else []):
+            unwaived[cid][site.path] += 1
     return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts,
-            "sites": sites, "blanked": blanked}
+            "edges": edges, "sites": sites, "blanked": blanked}
 
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
@@ -165,17 +198,6 @@ OBSERVED_NAME = re.compile(r"\b(?:forName|named|name|for):\s*([\w.]+)")
 # CmuxNextCompat's main-actor NotificationCenter observer: the name is its first, unlabeled argument.
 WRAPPED = re.compile(r"\s*([\w.]+)")
 
-
-def load_arch_counts():
-    """arch_counts.py next to this file: the arch ratchet's counter. Sections 1 and 2 take their observer sites from
-    it (`observer_calls` over its comment- and string-blanked text), so this report, arch-ratchet.json's
-    observer_sites and `arch-layers.py --counts` count one set."""
-    spec = importlib.util.spec_from_file_location("cmux_next_arch_counts_for_health",
-                                                  Path(__file__).resolve().parent / "arch_counts.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module  # its dataclasses resolve their module by name
-    spec.loader.exec_module(module)
-    return module
 
 
 class ObserverSite(NamedTuple):
@@ -189,11 +211,11 @@ class ObserverSite(NamedTuple):
     every_sender: bool
 
 
-def observer_sites(counter, code: str) -> list[ObserverSite]:
-    """The observer sites arch_counts counts in CODE (`counter.strip`'s text: comments and string contents
+def observer_sites(code: str) -> list[ObserverSite]:
+    """The observer sites arch_counts counts in CODE (`ARCH.strip`'s text: comments and string contents
     blanked, same length, so a call's parentheses balance and offsets keep their lines)."""
     found = []
-    for match in counter.observer_calls(code):
+    for match in ARCH.observer_calls(code):
         open_paren = code.index("(", match.start())
         depth, close = 0, len(code)
         for i in range(open_paren, len(code)):
@@ -287,57 +309,16 @@ def targets(repo: Path) -> dict[str, dict]:
     return out
 
 
-def classify(repo: Path, graph: dict[str, dict]) -> dict[str, str]:
-    """Layer per target from what its sources import and call: app, ui, service, core, test, other."""
-    layers = {}
-    for name, info in graph.items():
-        if info["kind"] == "testTarget":
-            layers[name] = "test"
-            continue
-        if name in FOUNDATION:
-            layers[name] = "foundation"
-            continue
-        if name == APP or info["kind"] == "executableTarget":
-            layers[name] = "app"
-            continue
-        if info["kind"] in ("binaryTarget", "systemLibrary"):
-            layers[name] = "other"
-            continue
-        texts = []
-        for path in tracked(repo, f"{SOURCES}{name}/"):
-            if path.endswith((".swift", ".c", ".m", ".mm", ".h")):
-                try:
-                    texts.append((repo / path).read_text(encoding="utf-8", errors="replace"))
-                except OSError:
-                    pass
-        joined = "\n".join(texts)
-        if UI_IMPORT.search(joined):
-            layers[name] = "ui"
-        elif IO_USE.search(joined):
-            layers[name] = "service"
-        else:
-            layers[name] = "core"
-    return layers
-
-
-RANK = {"core": 1, "service": 2, "ui": 4, "app": 5}
-
-
-def layer_violations(graph: dict[str, dict], layers: dict[str, str]) -> list[tuple[str, str, str]]:
-    found = []
-    for name, info in sorted(graph.items()):
-        mine = layers.get(name)
-        if mine not in RANK:
-            continue
-        for dep in info["deps"]:
-            theirs = layers.get(dep)
-            if theirs not in RANK:
-                continue
-            if RANK[theirs] > RANK[mine]:
-                found.append((name, dep, f"{mine} depends upward on {theirs}"))
-            elif mine == "ui" and theirs == "service":
-                found.append((name, dep, "UI depends on a service directly (needs a domain model or protocol seam)"))
-    return found
+def placed_layers(repo: Path, graph: dict[str, dict]) -> dict[str, str]:
+    """Layer per target from plans/cmux-next/architecture-layers.json (the map the ratchet holds the edges to);
+    test targets are `test`, a target the map misses is `unplaced`."""
+    try:
+        text = (repo / ARCH.LAYERS_JSON).read_text(encoding="utf-8")
+    except OSError:
+        text = None
+    layer_map = ARCH.LayerMap.parse(text)  # the map reader the layer rows and the layer gate use
+    return {name: "test" if info["kind"] == "testTarget" else layer_map.placed(name) or "unplaced"
+            for name, info in graph.items()}
 
 
 def depth(graph: dict[str, dict], name: str, memo: dict[str, int], stack: frozenset = frozenset()) -> int:
@@ -568,8 +549,8 @@ def report(repo: Path) -> str:
             except OSError:
                 pass
     graph = targets(repo)
-    layers = classify(repo, graph)
-    violations = layer_violations(graph, layers)
+    layers = placed_layers(repo, graph)
+    edges = data["edges"]
     memo: dict[str, int] = {}
     non_test = {n: i for n, i in graph.items() if layers[n] != "test"}
     app_deps = len([d for d in graph.get(APP, {}).get("deps", []) if d in graph])
@@ -596,13 +577,12 @@ def report(repo: Path) -> str:
     w("")
     w("| Pattern | Lines | Files | Without the waiver comment | Why it matters |")
     w("|---|---:|---:|---:|---|")
-    for cid, title, _, marker, note in CATEGORIES:
+    for cid, title, label, note in SHOWN:
         hits = data["hits"][cid]
-        unw = sum(data["unwaived"][cid].values()) if marker else None
-        waiver = f"{unw} (no `{marker}`)" if marker else "-"
+        waiver = f"{sum(data['unwaived'][cid].values())} ({label})" if label else "-"
         w(f"| {title} | {sum(hits.values())} | {len(hits)} | {waiver} | {note} |")
     w("")
-    for cid, title, _, marker, _ in CATEGORIES:
+    for cid, title, _, _ in SHOWN:
         hits = data["hits"][cid]
         if not hits:
             continue
@@ -657,25 +637,28 @@ def report(repo: Path) -> str:
     w("")
     counts = collections.Counter(layers[n] for n in graph)
     w(f"`Package.swift`: {len(graph)} targets ({len(non_test)} non-test: "
-      + ", ".join(f"{counts[k]} {k}" for k in ("app", "ui", "service", "core", "foundation", "other") if counts[k])
+      + ", ".join(f"{counts[k]} {k}" for k in ("app", "ui", "domain", "service", "core", "unplaced") if counts[k])
       + f"; {counts['test']} test). The App depends directly on {app_deps} targets; {len(leaves)} targets have no")
-    w(f"in-package dependency; the longest dependency chain is {max_depth} targets. The graph is flat: almost every")
-    w("feature is a leaf that the App wires, and domain state and UI share targets (every UI target is main-actor")
-    w("by default via `uiSwiftSettings`), so CLAUDE.md layer 3 (domain) and 4 (UI) are not separate.")
+    w(f"in-package dependency; the longest dependency chain is {max_depth} targets.")
     w("")
-    w("Layer per target is inferred from its sources: `ui` imports AppKit/SwiftUI/WebKit; `service` does I/O")
-    w("(FileManager, Process, sockets, URLSession, XPC, SQLite, Keychain, UserDefaults, DispatchSource); `core` neither;")
-    w("`foundation` (CmuxNextCompat, CmuxNextWakeups) is importable by every layer. A heuristic: read each edge before acting.")
-    w(f"**{len(violations)} edges break the rule** (upward edges, or UI straight onto a service):")
+    w("Layer per target from `plans/cmux-next/architecture-layers.json`; the rule is arch_counts.py's `layers()`,")
+    w("the one plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold: hard, a core/service/domain target")
+    w("that depends on a ui or app target; soft, a service target that depends on a domain target; upward, any")
+    w("other edge that points up a layer (core -> service/domain).")
+    w(f"**{len(edges.hard)} hard, {len(edges.soft)} soft and {len(edges.upward)} upward edges break the rule; "
+      f"{len(edges.unplaced)} targets are unplaced:**")
     w("")
     w("<details><summary>Layer violations</summary>")
     w("")
     w("```")
-    for why, n in collections.Counter(why for _, _, why in violations).most_common():
-        w(f"{n:3d}  {why}")
-    w("")
-    for src, dst, why in violations:
-        w(f"{src} -> {dst}: {why}")
+    for src, a, dst, b in edges.hard:
+        w(f"hard  {src} ({a}) -> {dst} ({b})")
+    for src, a, dst, b in edges.soft:
+        w(f"soft  {src} ({a}) -> {dst} ({b})")
+    for src, a, dst, b in edges.upward:
+        w(f"upward  {src} ({a}) -> {dst} ({b})")
+    for name in edges.unplaced:
+        w(f"unplaced  {name}")
     w("```")
     w("</details>")
     w("")
@@ -713,7 +696,10 @@ def report(repo: Path) -> str:
     w("domains are out of CmuxNextApp. It is the only App-size limit in force on a")
     w("push. Skip one rule for one push with")
     w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>[,<rule>]: <why>\"` (the other rules still refuse) and say so in your report.")
-    w("`guardrails.py --list` prints every rule.")
+    w("`guardrails.py --list` prints every rule. The guardrails also run the arch ratchet (`arch-ratchet.py`): the")
+    w("arch_counts rows of section 1 and the layer edges of section 4 may not rise over a push, and their totals in")
+    w("`plans/cmux-next/arch-ratchet.json` only go down; their one escape is a dated exception in that file (the skip")
+    w("variable does not skip them).")
     w("If the script itself fails, the hook prints a warning and lets the push through.")
     w("It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,")
     w("`scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).")
