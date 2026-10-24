@@ -441,28 +441,6 @@ async fn dispatch_brief(
     )
 }
 
-#[cfg(test)]
-mod dispatch_policy_tests {
-    use super::peer_approve_all_allowed;
-    use crate::config::PermissionPolicy;
-
-    #[test]
-    fn peer_approve_all_requires_approved_preset() {
-        assert!(!peer_approve_all_allowed(Some("approve-all"), None, false));
-        assert!(!peer_approve_all_allowed(
-            Some("approve-all"),
-            Some(PermissionPolicy::ApproveAll),
-            false
-        ));
-        assert!(peer_approve_all_allowed(
-            Some("approve-all"),
-            Some(PermissionPolicy::ApproveAll),
-            true
-        ));
-        assert!(peer_approve_all_allowed(Some("ask"), None, false));
-    }
-}
-
 async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
     let id = params
         .get("briefId")
@@ -478,20 +456,20 @@ async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<
             json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row),"replayed":true}),
         );
     }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local") {
-        if let Some(peer) = hub.peer_by_name(host) {
-            let mut forwarded = params.clone();
-            super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
-            let result = peer.request(method::MUX_STEER, forwarded).await.map_err(|e| {
-                RpcError::internal(format!(
-                    "steer to {host} failed: {e}; recovery: reconnect the peer and retry"
-                ))
-            })?;
-            if let Some(remote) = result.get("brief").cloned() {
-                hub.briefs.put(remote);
-            }
-            return Ok(result);
+    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
+        && let Some(peer) = hub.peer_by_name(host)
+    {
+        let mut forwarded = params.clone();
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
+        let result = peer.request(method::MUX_STEER, forwarded).await.map_err(|e| {
+            RpcError::internal(format!(
+                "steer to {host} failed: {e}; recovery: reconnect the peer and retry"
+            ))
+        })?;
+        if let Some(remote) = result.get("brief").cloned() {
+            hub.briefs.put(remote);
         }
+        return Ok(result);
     }
     let sid = row
         .get("sessionId")
@@ -544,7 +522,7 @@ async fn list_briefs(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcError> {
     if let Some(want) = status {
         rows.retain(|row| row.get("status").and_then(Value::as_str) == Some(want));
     }
-    Ok(json!({"briefs":rows.into_iter().take(limit.max(1).min(500)).collect::<Vec<_>>() }))
+    Ok(json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() }))
 }
 
 async fn report_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
@@ -562,20 +540,20 @@ async fn report_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result
             json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
         );
     }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local") {
-        if let Some(peer) = hub.peer_by_name(host) {
-            let mut forwarded = params.clone();
-            super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
-            let result = peer.request(method::MUX_REPORT, forwarded).await.map_err(|e| {
-                RpcError::internal(format!(
-                    "report to {host} failed: {e}; recovery: reconnect the peer and retry"
-                ))
-            })?;
-            if let Some(remote) = result.get("brief").cloned() {
-                hub.briefs.put(remote);
-            }
-            return Ok(result);
+    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
+        && let Some(peer) = hub.peer_by_name(host)
+    {
+        let mut forwarded = params.clone();
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
+        let result = peer.request(method::MUX_REPORT, forwarded).await.map_err(|e| {
+            RpcError::internal(format!(
+                "report to {host} failed: {e}; recovery: reconnect the peer and retry"
+            ))
+        })?;
+        if let Some(remote) = result.get("brief").cloned() {
+            hub.briefs.put(remote);
         }
+        return Ok(result);
     }
     let summary = params
         .get("summary")
@@ -1699,5 +1677,27 @@ async fn dispatch_request(
             }
             Err(RpcError::method_not_found(other))
         }
+    }
+}
+
+#[cfg(test)]
+mod dispatch_policy_tests {
+    use super::peer_approve_all_allowed;
+    use crate::config::PermissionPolicy;
+
+    #[test]
+    fn peer_approve_all_requires_approved_preset() {
+        assert!(!peer_approve_all_allowed(Some("approve-all"), None, false));
+        assert!(!peer_approve_all_allowed(
+            Some("approve-all"),
+            Some(PermissionPolicy::ApproveAll),
+            false
+        ));
+        assert!(peer_approve_all_allowed(
+            Some("approve-all"),
+            Some(PermissionPolicy::ApproveAll),
+            true
+        ));
+        assert!(peer_approve_all_allowed(Some("ask"), None, false));
     }
 }
