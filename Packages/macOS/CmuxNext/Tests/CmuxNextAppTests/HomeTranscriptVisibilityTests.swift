@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextBridge
+@testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextHome
 import Foundation
@@ -84,12 +85,18 @@ import Testing
 
     /// A conversation tab reports reads only while a pane the layout reports on screen presents it:
     /// not before its pane presents it, not while that pane is scrolled out of the strip or covered
-    /// (keep-alive or hidden presence), not after another tab of the pane is selected.
-    @Test func aConversationTabIsSeenOnlyWhileAPaneOnScreenPresentsIt() {
+    /// (keep-alive or hidden presence), not after another tab of the pane is selected. The view comes
+    /// from the one path a pane takes (`HomeService.tabView(for:)`), which gives it its tab's
+    /// presence when it is made.
+    @Test func aConversationTabIsSeenOnlyWhileAPaneOnScreenPresentsIt() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let key = "tab_seen"
-        let home = HomeHostView(services: services, conversation: "conv_seen")
+        var snapshot = TabSnapshot(surface: 4, kind: .conversation, title: "Chief")
+        snapshot.conversation = ConversationTabRef(conversation: "conv_seen", owner: "home")
+        let tab = TabModel(snapshot)
+        let key = tab.id
+        let home = try #require(services.home.tabView(for: tab))
+        defer { services.home.releaseTabView(key) }
         home.transcript.isWindowSeen = { _ in true }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -97,18 +104,18 @@ import Testing
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 500))
         window.contentView = container
         home.frame = container.bounds
-        services.home.tabViews[key] = home
-        defer { services.home.tabViews[key] = nil }
         container.addSubview(home)
         home.layoutSubtreeIfNeeded()
         let seen = { home.transcript.transcript.isVisibleToUser }
         #expect(!seen(), "a conversation tab no pane presents reports reads")
+        #expect(!home.transcript.isObservingWindow, "a conversation tab no pane presents hears its window's notices")
 
         let pane = Pane()
         services.cache.present(key, by: pane, presence: .visible)
         #expect(seen(), "a conversation tab a pane on screen presents reports no reads")
         services.cache.setPresence(.keepAlive, presenter: pane) // scrolled out of the strip, under a docked column
         #expect(!seen(), "a conversation tab in a pane off screen reports reads")
+        #expect(!home.transcript.isObservingWindow)
         services.cache.setPresence(.hidden, presenter: pane) // a parked workspace, an inactive screen
         #expect(!seen())
         services.cache.setPresence(.visible, presenter: pane)
