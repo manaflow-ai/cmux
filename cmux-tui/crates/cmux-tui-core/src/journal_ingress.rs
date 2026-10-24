@@ -511,6 +511,9 @@ struct JournalIngressState {
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    /// Pauses the writer before its next batch, before it takes any lock.
+    #[cfg(test)]
+    before_batch_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
     enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
 }
@@ -546,6 +549,15 @@ impl JournalIngressState {
     fn notify_failure_for_test(&self, failure: &str) {
         if let Some(notifier) = self.failure_notifier.lock().recover_poison().take() {
             let _ = notifier.send(failure.to_string());
+        }
+    }
+
+    #[cfg(test)]
+    fn pause_before_batch_for_test(&self) {
+        let hook = self.before_batch_hook.lock().recover_poison().take();
+        if let Some((entered, release)) = hook {
+            let _ = entered.send(());
+            let _ = release.recv();
         }
     }
 
@@ -894,6 +906,16 @@ impl JournalIngressSender {
     }
 
     #[cfg(test)]
+    /// Pause the writer before its next batch, before it takes any lock.
+    pub(crate) fn install_before_batch_hook_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.state.before_batch_hook.lock().recover_poison() = Some((entered, release));
+    }
+
+    #[cfg(test)]
     pub(crate) fn install_nonretryable_failure_hook_for_test(
         &self,
         entered: SyncSender<()>,
@@ -1138,6 +1160,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         break;
                     }
                 }
+                #[cfg(test)]
+                receivers.state.pause_before_batch_for_test();
                 if let Some(stall) = writer_stall() {
                     // Debug seam: a writer busy elsewhere, before it takes
                     // any lock (no request may wait for it, PL-daemon).
