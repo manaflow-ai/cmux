@@ -71,8 +71,10 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
-    /// Loads the art the last `apply` asked for when it was not decoded yet.
-    private var artLoad: Task<Void, Never>?
+    /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
+    /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
+    /// load shows.
+    private(set) var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
