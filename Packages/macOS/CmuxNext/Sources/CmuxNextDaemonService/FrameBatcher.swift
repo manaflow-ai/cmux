@@ -59,6 +59,15 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
         MainRunLoopHop().perform { self.queue.enqueue(work) }
     }
 
+    /// Appends `work` to the frame queue at once (main-actor callers, such as a budgeted drain that
+    /// re-arms itself inside its tick): the queue's drain then reports work left, so its client
+    /// stays active and the display link keeps running. Through ``scheduleFrame(_:)`` the hop
+    /// landed after the tick, the queue went idle, and the link was invalidated and rebuilt (with
+    /// its stall timer) every frame of a backlog.
+    public func scheduleFrameFromMain(_ work: @escaping @MainActor @Sendable () -> Void) {
+        queue.enqueue(work)
+    }
+
     /// The next main run loop turn, without waiting for a display frame
     /// (the control work queue's first request after idle).
     public nonisolated func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {

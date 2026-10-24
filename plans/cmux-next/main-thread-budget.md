@@ -24,6 +24,15 @@ priority class, under a per-frame budget (Chrome's UI thread: USER_BLOCKING, USE
 Why 4 ms in total: the target is no main-thread stall over 8 ms (key to frame p95 under 8 ms). One run loop pass
 holds the person's input dispatch (under 2 ms a key), the scheduled tasks, and the commit of what they changed; 4 ms
 of scheduled work leaves at least 4 ms for input and commit. The split puts the person's visible updates first.
+That 4 ms for the commit is not assumed: `RenderPassMeter` times the main run loop's before-waiting phase (AppKit
+layout and display, the Core Animation commit: the cost the tasks' changes leave behind them, which no task body
+measures) while the budgeted link runs, and the next frame's scheduled work stops at 8 ms minus the longest such
+pass (never above 4 ms; the first task of a class still runs). Requests whose commits are expensive so run fewer per
+frame. The pending-input checks between tasks count in the 4 ms too, and each is one window-server query
+(`kCGAnyInputEventType` against the newest event AppKit dispatched) unless some input is still on its way.
+Measured numbers (light and STRESS, `--input real`, `bench_cli_storm.py`: `max_input_check_ms`,
+`max_render_pass_ms`, `max_frame_ms`) are still to be taken on the fleet; until then this split is a design bound,
+not a measured one.
 
 The budget protects a pending input and the frame, nothing else. The per-class shares hold only while a key or a
 click is pending. With none pending, a class past its share uses the frame time the others left, up to the 4 ms in
@@ -40,8 +49,12 @@ cadence, not a throttle: work over budget runs on the next frame, never later.
 - `MainWorkScheduler` (one per app, built by `AppDelegate`, the composition root, and passed by init to the control
   socket, `AppServices`, every `DaemonService` and the watchdog; no shared instance): the `MainFrameBudget` and the
   one display link budgeted batches tick on, so the budget's window opens once per real frame (never once per tick
-  of each window's link). Budgeted clients and queues take it in their init and never fall back to another
-  scheduler.
+  of each window's link). While that link exists its ticks own the window: a request outside any tick never opens
+  one, and a tick within one refresh period of a window a request opened on an idle app keeps it, so one run loop
+  pass never gets two budgets. A drain that leaves work re-arms on its queue directly (`scheduleFrameFromMain`),
+  never through a run loop hop that lands after the tick, so the link stays up for the whole backlog. Budgeted
+  clients and queues take it in their init and never fall back to another scheduler. The Cloud, SSH and server
+  services get it by init from `AppServices`.
 - `MainFrameBudget`: `mayRun(class)`, `run(class, owner:)` (nested tasks are charged as themselves; the owner is a
   `MainTaskOwner` interned on the board when the queue or method is built, so a task start takes no lock),
   `beginFrame` at each tick, stats for `debug.main_budget` (`idle_tasks`: tasks run on idle time past the share).
