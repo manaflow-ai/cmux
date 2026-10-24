@@ -359,6 +359,9 @@ extension SettingsSchema {
         "phone.cloudReplica": .privacy,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
+        // Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.
+        "mobile.terminalSizing": .userOnly,
+        "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
         "macScreen.systemShortcuts": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.

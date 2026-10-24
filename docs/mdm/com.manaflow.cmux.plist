@@ -1047,6 +1047,46 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>smallest</string>
+			<key>pfm_description</key>
+			<string>Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone.</string>
+			<key>pfm_name</key>
+			<string>mobile.terminalSizing</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>smallest</string>
+				<string>mac</string>
+				<string>latest</string>
+				<string>priority</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Terminal Size When Shared</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order.</string>
+			<key>pfm_name</key>
+			<string>mobile.terminalSizingOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Terminal Size Priority</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -3236,6 +3276,16 @@
 			<string>diff.groupByKind</string>
 			<key>pfm_title</key>
 			<string>Group Files by Kind</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.hideWhitespace</string>
+			<key>pfm_title</key>
+			<string>Hide White Space</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -7537,6 +7587,42 @@
 			<string>Send Hang Reports</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.</string>
+			<key>pfm_name</key>
+			<string>macScreen.systemShortcuts</string>
+			<key>pfm_title</key>
+			<string>Send System Shortcuts to the Remote Mac</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect.</string>
+			<key>pfm_name</key>
+			<string>macScreen.debug.relayOnly</string>
+			<key>pfm_title</key>
+			<string>Relay Only</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.</string>
+			<key>pfm_name</key>
+			<string>deviceHub.url</string>
+			<key>pfm_title</key>
+			<string>Device Hub Address</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
