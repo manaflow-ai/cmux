@@ -15,6 +15,7 @@ pub(super) fn handle(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     }
     let InventoryWatchParams { enabled } = serde_json::from_value(params.clone())
         .map_err(|_| RpcError::invalid_params("expected only a boolean enabled field"))?;
+    let _outbound = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = enabled;
     if enabled { Ok(hub.health.inventory_changes().borrow().wire()) } else { Ok(json!({})) }
 }
