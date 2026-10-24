@@ -29,27 +29,36 @@ nonisolated struct TerminalWrappedLink: Equatable, Sendable {
 
     /// The wrapped link under (`column`, `row`), from the viewport rows around it.
     /// `rows[row - firstRow]` is the text of viewport row `row`, one `Character` per
-    /// grapheme as Ghostty reads it; a wide character takes two cells.
-    static func find(rows: [String], firstRow: Int, columns: Int, column: Int, row: Int) -> TerminalWrappedLink? {
+    /// grapheme as Ghostty reads it; a wide character takes two cells. `hint`: the link Ghostty
+    /// reports under the pointer; rows whose words join into part of it continue whatever their
+    /// edge (Ghostty joined a row the terminal wrapped, but underlines only the pointer's row).
+    static func find(rows: [String], firstRow: Int, columns: Int, column: Int, row: Int, hint: String? = nil) -> TerminalWrappedLink? {
         let grid = rows.map { Cells($0, columns: columns) }
         let index = row - firstRow
         guard grid.indices.contains(index), let hit = grid[index].word(at: column) else { return nil }
 
         var pieces = [(row: row, word: hit)]
+        var chain = grid[index].text(hit)
+        // Whether `text` is part of Ghostty's link, so these rows are one link whatever their edges.
+        let inHint = { (text: String) in hint.map { $0.count > text.count / 2 && $0.contains(text) } ?? false }
         // Back while the earlier row's last word was broken at the edge and this word starts its row.
         var current = index
         while current > grid.startIndex, pieces[0].word == grid[current].firstWord,
               let previous = grid[current - 1].lastWord,
-              grid[current - 1].continues(previous, onto: grid[current].text(pieces[0].word)) {
+              grid[current - 1].continues(previous, onto: grid[current].text(pieces[0].word))
+                || inHint(grid[current - 1].text(previous) + chain) {
             current -= 1
             pieces.insert((firstRow + current, previous), at: 0)
+            chain = grid[current].text(previous) + chain
         }
         // On while this word was broken at the edge and the next row starts with a word.
         current = index
         while current + 1 < grid.endIndex, let last = pieces.last?.word, last == grid[current].lastWord,
-              let next = grid[current + 1].firstWord, grid[current].continues(last, onto: grid[current + 1].text(next)) {
+              let next = grid[current + 1].firstWord,
+              grid[current].continues(last, onto: grid[current + 1].text(next)) || inHint(chain + grid[current + 1].text(next)) {
             current += 1
             pieces.append((firstRow + current, next))
+            chain += grid[current].text(next)
         }
         guard pieces.count > 1 else { return nil }
 

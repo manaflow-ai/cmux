@@ -239,6 +239,7 @@ def run_agent():
     shown = state.get("wrapped") or state.get("hovered")
     check(shown == AGENT_URL, f"Command over Codex's URL shows the whole URL ({(shown or '')[:70]!r})")
     check(state.get("pointingHand") is True, f"the pointer shows the pointing hand over Codex's URL ({state.get('pointingHand')!r})")
+    check(state.get("wrapped") == AGENT_URL, f"every row of Codex's URL is underlined ({(state.get('wrapped') or '')[:50]!r})")
     snapshot("codex-url-hover")
     opened = click(col + 1, start)
     check(opened == [f"system:{AGENT_URL}"], f"Cmd-click on Codex's URL opens it whole ({[o[:80] for o in opened]})")

@@ -13,6 +13,8 @@ import GhosttyNextKit
 ///   Ghostty's last cell, so the first cell the pointer reached shows and opens
 ///   its link. While the pointer is over this terminal, a modifier watcher
 ///   (``TerminalModifierMonitor``) reaches it focused or not.
+/// - A link Ghostty found across rows the terminal wrapped: Ghostty underlines
+///   only the pointer's row; this underlines the rest (the press stays Ghostty's).
 /// - A URL the program broke onto several rows (``TerminalWrappedLink``): every
 ///   piece is underlined, the pointer is the hand and either row opens the whole
 ///   URL; Ghostty never sees that press.
@@ -124,7 +126,8 @@ import GhosttyNextKit
         let point = view.convert(event.locationInWindow, from: nil)
         refresh(event.modifierFlags, at: point)
         let hovered = view.session?.model.hoveredLink
-        if let wrapped = wrappedLink(at: point), hovered.map({ wrapped.text.contains($0) }) ?? true {
+        // Ghostty opens a link it found whole itself; this owns only one it saw a piece of.
+        if let wrapped = wrappedLink(at: point), wrapped.text != hovered, hovered.map({ wrapped.text.contains($0) }) ?? true {
             wrappedPress = wrapped
             return true
         }
@@ -177,7 +180,7 @@ import GhosttyNextKit
         guard Self.isLinkChord(flags), let cell = cell(at: point) else { return clearWrapped() }
         if !force, let last = wrappedCell, last == cell { return }
         wrappedCell = cell
-        guard let link = wrappedLink(at: point) else { return clearWrapped(keepCell: true) }
+        guard let link = wrappedLink(at: point, hint: view?.session?.model.hoveredLink) else { return clearWrapped(keepCell: true) }
         guard link != wrapped, let view else { return }
         wrapped = link
         showUnderlines(link)
@@ -214,7 +217,7 @@ import GhosttyNextKit
     }
 
     /// The wrapped link at `point`, read from the viewport rows around it.
-    func wrappedLink(at point: NSPoint) -> TerminalWrappedLink? {
+    func wrappedLink(at point: NSPoint, hint: String? = nil) -> TerminalWrappedLink? {
         guard let surface = view?.surface, let cell = cell(at: point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
@@ -222,7 +225,7 @@ import GhosttyNextKit
         let last = min(Int(metrics.rows) - 1, cell.row + TerminalWrappedLink.reach)
         guard first <= last else { return nil }
         let rows = (first...last).map { rowText(surface, row: $0, columns: Int(metrics.columns)) }
-        return TerminalWrappedLink.find(rows: rows, firstRow: first, columns: Int(metrics.columns), column: cell.column, row: cell.row)
+        return TerminalWrappedLink.find(rows: rows, firstRow: first, columns: Int(metrics.columns), column: cell.column, row: cell.row, hint: hint)
     }
 
     /// The viewport cell under `point` (view coordinates), or nil off the grid.

@@ -219,6 +219,14 @@ import Testing
         let margin = ["  see https://example.com/abcd", "  efg/h?i=1"]
         #expect(TerminalWrappedLink.find(rows: margin, firstRow: 0, columns: 32, column: 3, row: 1)?.text
             == "https://example.com/abcdefg/h?i=1")
+        // Ghostty's own link (rows the terminal wrapped) joins rows whatever their edges, and only
+        // as far as that link goes.
+        let soft = ["  1: https://example.com/abc-", "  def-ghi end. Line 2", "  next"]
+        let joined = TerminalWrappedLink.find(rows: soft, firstRow: 0, columns: 40, column: 4, row: 1,
+                                              hint: "https://example.com/abc-def-ghi")
+        #expect(joined?.text == "https://example.com/abc-def-ghi")
+        #expect(joined?.segments.map(\.row) == [0, 1])
+        #expect(TerminalWrappedLink.find(rows: soft, firstRow: 0, columns: 40, column: 4, row: 1) == nil)
         // A table's column border is not the row's frame: the next row's first word stays out.
         let table = ["│ docs │ https://example.com/a │ ok │", "│ more │ text                  │    │"]
         #expect(TerminalWrappedLink.find(rows: table, firstRow: 0, columns: 37, column: 12, row: 0) == nil)
