@@ -3,7 +3,7 @@
 
 guardrails.py runs it (one entry, one report: `prepush-gate.py --pre-push` starts guardrails' ratchet on a
 thread next to its scanners, and the guardrails report prints it). The counts are
-scripts/cmux-next/arch_counts.py's (method v5; its docstring defines every row), recorded in
+scripts/cmux-next/arch_counts.py's (method v6; its docstring defines every row), recorded in
 plans/cmux-next/arch-ratchet.json. guardrails.py has no line rule for these rows: a count row has exactly one
 escape, the dated json exception below.
 

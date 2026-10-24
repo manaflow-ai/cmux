@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Architecture counts for cmux-next, method v5: the numbers plans/cmux-next/arch-ratchet.json records.
+"""Architecture counts for cmux-next, method v6: the numbers plans/cmux-next/arch-ratchet.json records.
 
 The rules are the goal (repo CLAUDE.md "Refactor architecture", "Modern Swift concurrency";
 plans/cmux-next/perf-lead.md "Architecture targets"); these counts are proxies, and a pattern renamed
@@ -20,7 +20,7 @@ targets that product exposes, classified by the one layer map like an edge insid
 of a remote package is no edge. Moving code into a linked local package therefore moves its count, it
 does not drop it.
 
-Rows (method v5; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
+Rows (method v6; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
 rewrites the json without comparing totals: reviewers compare the definitions):
   layer_hard              target edges from a core, service or domain target to a ui or app target
                           (layers from plans/cmux-next/architecture-layers.json, as arch-layers.py)
@@ -48,8 +48,9 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           (`Env(store: Store())`). Stateful: an actor; a repo class with a stored
                           instance `var` or a lock/cache field; a repo struct/enum with a lock/cache
                           field; UserDefaults, URLSession, NotificationCenter, OperationQueue, NSWindow,
-                          NSPanel, NSWorkspace, FileManager, WKProcessPool, WKWebsiteDataStore (and
-                          DistributedNotificationCenter); and, through any number of links, a repo type
+                          NSPanel, NSWorkspace, FileManager, WKProcessPool, WKWebsiteDataStore,
+                          DistributedNotificationCenter, NSResponder, NSView, NSViewController,
+                          NSWindowController, NSMenu, NSStatusItem, Timer, Process, Thread and FileHandle; and, through any number of links, a repo type
                           whose superclass or stored instance property has a stateful type (a class: its
                           stored `let`s; a struct: its stored `let`s and `var`s). A name declared more
                           than once (two modules) is stateful when any declaration is. Not counted:
@@ -194,7 +195,11 @@ from typing import NamedTuple
 # Sources, their targets, and `.product` edges to a local package as layer edges). Every row can rise from v4
 # with no code change (the Shared packages' globals, observers and targets are new to the count): the totals of
 # a v4 record are not comparable with v5.
-METHOD_VERSION = 5
+# v6: stateful system types add the AppKit responders (NSResponder, NSView, NSViewController, NSWindowController;
+# their subclasses through the superclass link), NSMenu, NSStatusItem, Timer, Process, Thread and FileHandle, and
+# the blocking_allow_escapes row is new (deep-guardrails review a08985b7dac; lead 2026-10-24). stateful_singletons
+# can rise from v5 with no code change.
+METHOD_VERSION = 6
 # The app's package: the root of the closure (read_paths). Its Sources and Package.swift are the v4 scope; the
 # layer gate (arch_rules/layer_gate.py) still judges only this manifest's targets and edges.
 PACKAGE_DIR = "Packages/macOS/CmuxNext"
@@ -245,6 +250,11 @@ EDGE_ROWS = ("layer_hard", "layer_soft", "layer_upward")
 SYS_STATEFUL = frozenset({
     "UserDefaults", "URLSession", "NotificationCenter", "OperationQueue", "NSWindow", "NSPanel",
     "NSWorkspace", "FileManager", "WKProcessPool", "WKWebsiteDataStore", "DistributedNotificationCenter",
+    # Reference objects whose system superclass holds runtime state (deep-guardrails review a08985b7dac): a view,
+    # view controller or window controller (a subclass too: a superclass link), a menu, a status item, and running
+    # Foundation objects. JSONEncoder/JSONDecoder are left out: configured once and read, they are constants here.
+    "NSResponder", "NSView", "NSViewController", "NSWindowController", "NSMenu", "NSStatusItem", "Timer",
+    "Process", "Thread", "FileHandle",
 })
 # Shared mutable machinery: locks, caches, atomics, mutable Foundation collections, a serial queue (the
 # queue-as-lock CLAUDE.md bans), a running Task and a stream (its continuation is a process-wide channel).
