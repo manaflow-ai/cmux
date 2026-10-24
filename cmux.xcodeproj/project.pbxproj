@@ -553,6 +553,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Helpers/cmux-remote-browser-host.app",
 				"$(TARGET_TEMP_DIR)/embed-remote-browser-host.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -580,6 +581,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Computer Use (dev).app",
 				"$(TARGET_TEMP_DIR)/embed-cua-helper-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
