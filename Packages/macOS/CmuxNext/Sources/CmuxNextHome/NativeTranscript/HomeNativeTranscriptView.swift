@@ -119,9 +119,12 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
-    private var observers: [any NSObjectProtocol] = []
+    /// Its window's key and occlusion notices, heard only while the transcript shows there.
+    var windowObservers: [MainActorObservation] = []
+    /// The window `windowObservers` hear.
+    weak var observedWindow: NSWindow?
     /// It hears its window's key and occlusion notices now.
-    var isObservingWindow: Bool { !observers.isEmpty }
+    var isObservingWindow: Bool { !windowObservers.isEmpty }
     /// Whether a person can see `window` now: key and on screen (tests stand in for a window
     /// server that makes no test window key).
     var isWindowSeen: @MainActor (NSWindow) -> Bool = { $0.isKeyWindow && $0.occlusionState.contains(.visible) }
@@ -186,14 +189,6 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for o in observers { NotificationCenter.default.removeObserver(o) }
-        }
-    }
 
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?
@@ -444,23 +439,14 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for o in observers { NotificationCenter.default.removeObserver(o) }
-        observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
         if let linkPreviews {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
-        guard let window else { return }
+        followWindow()
+        guard window != nil else { return }
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
-        let nc = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification] {
-            observers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
-            })
-        }
-        windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()
     }
