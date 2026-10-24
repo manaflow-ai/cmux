@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Lawrence 2026-10-23 (msg 11494): "the scrollbar stuff needs to be fixed so it auto-fades away,
@@ -8,11 +9,11 @@ import Testing
 /// scrolls and for a moment after, shown and wide while the pointer is near the trailing edge or the
 /// knob is dragged, and it takes clicks only on the drawn knob.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct ThinScrollerFadeTests {
     /// A scroll view whose content is four times its height, with the shared thin scroller on
     /// `clock`, scrolled to the top.
-    private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock()) -> (NSScrollView, ThinScroller) {
+    private static func scrollView(clock: ManualClock = ManualClock()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
         scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock)
@@ -38,7 +39,7 @@ struct ThinScrollerFadeTests {
     }
 
     @Test func scrollingShowsTheKnobAndItFadesAfterTheRestDelay() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.doubleValue = 0.5 // the app or a layout moved it: no knob
         #expect(!scroller.isKnobShown)
@@ -77,7 +78,7 @@ struct ThinScrollerFadeTests {
     }
 
     @Test func aDragKeepsTheKnobWideAndItStaysAMomentAfter() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (_, scroller) = Self.scrollView(clock: clock)
         var presence = scroller.presence
         presence.drag(true)
@@ -91,7 +92,7 @@ struct ThinScrollerFadeTests {
     /// The terminal: the pointer does not reveal a knob at rest (the last column is the
     /// terminal's), but it holds and widens one a scroll showed, so it can be grabbed.
     @Test func withoutRevealAtRestThePointerOnlyHoldsAShownKnob() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.revealsNearPointerAtRest = false
         scroller.showsOnScroll = false

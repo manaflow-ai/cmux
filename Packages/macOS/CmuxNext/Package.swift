@@ -523,7 +523,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPermissionsTests",
-            dependencies: ["CmuxNextAgentPermissions"],
+            dependencies: ["CmuxNextAgentPermissions", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1234,6 +1234,21 @@ let package = Package(
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The one manual clock and manual serial executor for every test target that drives a
+        // DemandTimer or another injected-clock wait: a fix lands once (private copies drifted).
+        // Their waits for a sleeper or a job are signals, not polls, bounded only by the test's
+        // time limit, which they check on entry.
+        .target(
+            name: "CmuxNextWakeupsTestSupport",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The wakeup primitives and their test support: the manual clock and executor's waits.
+        .testTarget(
+            name: "CmuxNextWakeupsTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeupsTestSupport"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
@@ -1317,6 +1332,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
