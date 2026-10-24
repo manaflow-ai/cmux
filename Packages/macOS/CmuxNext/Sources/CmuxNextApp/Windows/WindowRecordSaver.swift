@@ -218,3 +218,5 @@ final class WindowRecordSaver {
 }
 
 private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], batches: [UInt64] }
+
+private let pr4FastLoopProbe = 1
