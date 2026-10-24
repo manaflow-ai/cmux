@@ -53,7 +53,7 @@ import Testing
         let chosen = [folder.appendingPathComponent("first.txt"), folder.appendingPathComponent("second.txt")]
         for file in chosen { try Data("cmux".utf8).write(to: file) }
 
-        let engine = WebKitEngine()  // the tab holds its engine weakly
+        let engine = WebKitEngine(stores: .inMemory())  // the tab holds its engine weakly
         let answerer = Answerer(answer: chosen)
         engine.fileInput = answerer
         let page = engine.makeWebKitTab()
