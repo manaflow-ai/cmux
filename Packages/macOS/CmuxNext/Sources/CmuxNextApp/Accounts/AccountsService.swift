@@ -14,6 +14,11 @@ import CmuxNextCompat
 /// act through this one model (plans/cmux-next/coderouter.md).
 @MainActor
 final class AccountsService: AccountsServices {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     let keys: any ProviderKeyStoring

@@ -8,6 +8,11 @@ import CmuxNextCompat
 /// Transparency change, so each window shows the same color at the same
 /// opacity as the main window.
 public final class WindowSurfaceView: NSView, WindowSurfacePainting {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     /// The owner's content (`NSWindow.installedContent`).
     public let content: NSView
     /// The window's one material and tint.

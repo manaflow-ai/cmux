@@ -22,6 +22,11 @@ import CmuxNextCompat
 /// A frame client runs only while the ghost animates or a columns screen
 /// auto-scrolls, and is invalidated when the drag ends.
 final class TabDragSession: NSObject {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     unowned let services: AppServices
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
