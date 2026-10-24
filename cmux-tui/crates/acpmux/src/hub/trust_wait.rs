@@ -3,7 +3,9 @@
 //!
 //! `start_session` (`subsessions.rs`) asks [`Hub::ensure_folder_trusted`] before it starts
 //! anything. A folder that reads as trusted (an answer, an agent's own level, or one of the
-//! person's own folders, `trust_auto.rs`) passes at once. Any other folder raises a card on the
+//! person's own folders, `trust_auto.rs`) passes at once, and so does a folder at or under the
+//! starting session's own folder when that session runs in full access and a decision trusts its
+//! folder ([`Hub::inherits_parent_trust`]). Any other folder raises a card on the
 //! session that wants the sub-session: a choice question, **Trust** or **Not now**, through the
 //! permission path every agent question uses, so the chat shows its card and the sidebar row its
 //! "Needs your input" mark, and only the person answers it (never a policy, never a remote
@@ -215,6 +217,11 @@ impl Hub {
         let asked = cwd.to_string_lossy().into_owned();
         let key = match self.trust_level_of(&paths, &asked, &family).await {
             Ok(read) if passes(&read, web) => return Ok(!read.by_rule_only()),
+            // No decision of its own, so nothing is recorded and a worktree made from it is not
+            // recorded as trusted either.
+            Ok(read) if self.inherits_parent_trust(&paths, parent, cwd, &read, web).await => {
+                return Ok(false);
+            }
             Ok(read) => read.cwd,
             Err(crate::trust::Failure::Invalid(message)) => {
                 return Err(RpcError::invalid_params(message));
@@ -296,6 +303,41 @@ impl Hub {
         self.trust_card_answered(&paths, &key, &outcome).await?;
         // Trust wrote the person's decision.
         Ok(true)
+    }
+
+    /// Whether a start in `cwd` (resolved) takes the trust of `parent`'s own folder instead of a
+    /// card (Leo, 2026-10-24, on a card a chat in full access raised: "why did this even happen in
+    /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
+    /// access by its mode or command (`subsession_guard.rs` `Access::Full`), outside a Web turn;
+    /// `cwd` is the parent's own folder or under it; a decision trusts that folder for the parent's
+    /// agent (a person's answer, the agent's own level, or a folder cmux made: never an auto-trust
+    /// rule alone); and nobody marked `cwd` untrusted. Any other start keeps its card, and the
+    /// folder walk after it (`subsession_folder_check`) still refuses a folder marked untrusted
+    /// anywhere up to `/`.
+    async fn inherits_parent_trust(
+        &self,
+        paths: &crate::trust::Paths,
+        parent: &Session,
+        cwd: &Path,
+        read: &crate::trust::SessionTrust,
+        web: bool,
+    ) -> bool {
+        if web || read.level == Level::Untrusted {
+            return false;
+        }
+        let pm = parent.meta();
+        if self.caller_access(&pm) != super::subsession_guard::Access::Full {
+            return false;
+        }
+        let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
+        if !cwd.starts_with(&own) {
+            return false;
+        }
+        let family = self.trust_family(&pm.harness).await;
+        let own = own.to_string_lossy();
+        self.trust_level_of(paths, &own, &family)
+            .await
+            .is_ok_and(|read| read.decided == Level::Trusted)
     }
 
     /// Whether the folder reads as trusted for `family` now (`web`: a Web turn, where an auto-trust
