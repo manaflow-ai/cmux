@@ -30,6 +30,7 @@ import { ChatFindBar } from "./conversation/ChatFindBar";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { fileKind, missingTests, orderByKind } from "../../fileKinds";
 import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
 import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
 import { useGitWrite } from "./changes/useGitWrite";
@@ -56,6 +57,38 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
+/// `path` with its `.` and `..` steps applied; undefined when a relative path steps above its start.
+function resolved(path: string): string | undefined {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (parts.length > 0) parts.pop();
+    else if (!path.startsWith("/")) return undefined;
+  }
+  return (path.startsWith("/") ? "/" : "") + parts.join("/");
+}
+
+/// The path a file's kind (fileKinds.ts) is read from, so a folder above the project never names it
+/// (a repository under `~/tests/` is not all tests): a git scope's from the repository's top; a
+/// turn's from the chat's folder `root`, as its display path drops the folder its files share (one
+/// file under `tests/` shows as `helpers.py`). A turn's path is matched under either spelling
+/// acpmux recorded (its canonical path: /tmp is /private/tmp). A turn's file outside that folder,
+/// or with no folder known, is read by its name alone.
+export function kindPath(scope: ChangeScope, file: TurnFile, root: string | undefined): string {
+  if (scope !== "lastTurn") return file.displayPath;
+  const top = root && resolved(root);
+  for (const spelling of [file.canonical, file.path]) {
+    if (!spelling) continue;
+    // A relative path is the agent's, under its folder.
+    const path = spelling.startsWith("/") ? resolved(spelling) : resolved(top ? `${top}/${spelling}` : spelling);
+    if (!path) continue;
+    if (!path.startsWith("/")) return path;
+    if (top && path.startsWith(top === "/" ? "/" : `${top}/`)) return path.slice(top === "/" ? 1 : top.length + 1);
+  }
+  return file.path.slice(file.path.lastIndexOf("/") + 1);
+}
+
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
   const ownerDocument = panel.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
@@ -78,6 +111,7 @@ export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): ()
 export function DiffPanel({
   files: turnFiles,
   initialPath,
+  root,
   onClose,
   source,
   onOpenFile,
@@ -94,6 +128,8 @@ export function DiffPanel({
 }: {
   files: TurnFile[];
   initialPath?: string;
+  /// The chat's folder: a Last turn file's kind is read from its path in it (`kindPath`).
+  root?: string;
   onClose: () => void;
   source?: ChangesSource;
   /// Asks the host to open a changed file; rejects with the host's reason when it can't.
@@ -146,7 +182,12 @@ export function DiffPanel({
     onGitIntentHandled?.();
   }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
-  const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  // The delineated diff, as the diff viewer and the pull request card read a change
+  // (fileKinds.ts): code first, then tests, mocks, docs, evals and generated files.
+  const files = useMemo(
+    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => kindPath(scope, file, root))],
+    [scope, turnFiles, scopeFiles, root],
+  );
   const threadsByPath = useMemo(() => {
     const byPath = new Map<string, ReviewThread[]>();
     for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
@@ -186,10 +227,26 @@ export function DiffPanel({
       : load.state === "loaded"
         ? "empty"
         : load.state;
+  // Code changed and no test did: the pull request card's warning, in its words.
+  const noTests = !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file, root) })));
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // Generated files and lockfiles start folded, as the diff viewer defers them; the reader opens
+  // one from its header or the tree. Each file folds once, so one the reader opened stays open,
+  // and the file the view was opened on is never folded.
+  const generated = useMemo(
+    () => files.filter((file) => fileKind(kindPath(scope, file, root)) === "generated").map((file) => file.path),
+    [files, scope, root],
+  );
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const unfolded = generated.filter((path) => !folded.has(path));
+  if (unfolded.length > 0) {
+    setFolded(new Set([...folded, ...unfolded]));
+    const fold = unfolded.filter((path) => path !== initialPath);
+    if (fold.length > 0) setCollapsed((current) => new Set([...current, ...fold]));
+  }
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
@@ -254,7 +311,16 @@ export function DiffPanel({
     back.current?.focus();
     // Another file opened in the open view: later paints keep it in view, not the first one.
     revealing.current = initialPath;
-    if (initialPath) reveal(initialPath);
+    if (initialPath) {
+      // The file the view opens on shows, even one folded as generated.
+      setCollapsed((current) => {
+        if (!current.has(initialPath)) return current;
+        const next = new Set(current);
+        next.delete(initialPath);
+        return next;
+      });
+      reveal(initialPath);
+    }
   }, [initialPath]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
@@ -459,6 +525,7 @@ export function DiffPanel({
             stopRevealing();
             setScope(next);
             setCollapsed(new Set());
+            setFolded(new Set());
             setViewed(new Set());
             setSelected(undefined);
             latestOpen.current += 1;
@@ -500,9 +567,10 @@ export function DiffPanel({
           </button>
         </div>
       )}
-      {(branch || skipped > 0 || turnNote) && (
+      {(branch || skipped > 0 || turnNote || noTests) && (
         <div className="acpmux-diff-notes">
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
+          {noTests && <output className="acpmux-diff-no-tests">{t("prCard.noTestsWhy")}</output>}
           {branch && (
             <div className="acpmux-branch-row">
               <BranchPill branch={branch.branch} base={branch.base} />
@@ -552,6 +620,7 @@ export function DiffPanel({
                   <EditBlock
                     key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
                     file={file}
+                    kind={fileKind(kindPath(scope, file, root))}
                     edit={edit}
                     index={index}
                     layout={layout}
