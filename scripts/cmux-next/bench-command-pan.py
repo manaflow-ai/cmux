@@ -134,15 +134,24 @@ def pan_round(app, name, mode, index, session, point):
     """One pan at `point`: with Command (`command`), or plain under `layout.scrollModifier: none` (`base`).
     Returns the round's record."""
     dx = opts.dx if index % 2 == 0 else -opts.dx
+    app.rpc("debug.hangs", {"clear": True})
     app.rpc("debug.frames", {"action": "start"})
     delivered = session.gesture(point, dx, command=mode == "command")
     time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
     frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+    # The main-thread stalls of the pan (over the hang threshold): the longest one's stack says what a long frame was.
+    hangs = app.rpc("debug.hangs", {"limit": 8}) or {}
+    stalls = sorted(hangs.get("hangs") or [], key=lambda h: -(h.get("duration_ms") or 0)) if isinstance(hangs, dict) else []
     taken = sum(1 for d in delivered if d == "LayoutRootView")
     run = {"session": name, "mode": mode, "round": index, "dx": dx, "events": len(delivered), "layout_took": taken,
            "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
            "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
-           "missed_at_ms": frames.get("missed_at_ms")}
+           "missed_at_ms": frames.get("missed_at_ms"), "stalls": len(stalls),
+           "longest_stall": {"ms": round(stalls[0].get("duration_ms") or 0, 2), "cpu_ms": round(stalls[0].get("cpu_ms") or 0, 2),
+                             "frames": (stalls[0].get("frames") or [])[:48]} if stalls else None}
+    if stalls:
+        print(f"  PAN-STALL {name} {mode} #{index} {run['longest_stall']['ms']} ms: "
+              + " < ".join(f for f in (stalls[0].get('frames') or [])[:24] if f), flush=True)
     print(f"  {name:<6} {mode:<7} #{index} dx {dx:+.0f}: layout took {taken}/{len(delivered)}, {run['frames']} frames, "
           f"p95 {run['p95_ms']} max {run['max_ms']} ms, missed {run['missed']} (refresh {run['refresh_ms']} ms)", flush=True)
     return run
