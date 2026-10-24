@@ -59745,6 +59745,28 @@
         }
       }
     },
+    "settings.appearance.dividerHitWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Divider Drag Width"
+          }
+        }
+      }
+    },
+    "settings.appearance.dividerThickness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Divider Thickness"
+          }
+        }
+      }
+    },
     "settings.group.toolbar": {
       "extractionState": "manual",
       "localizations": {
