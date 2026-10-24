@@ -57,12 +57,19 @@ install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_w
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the
 # cmux-next-checks symlink at it with one rename: the checks are never missing (a missing guardrails.py
-# would let a push through unchecked). The gate resolves the link once when it starts.
+# would let a push through unchecked). The gate resolves the link once when it starts and holds the copy it
+# resolved in use until it exits: a shared flock on the copy's .in-use file (prepush-gate.py,
+# claim_trusted_scripts). This install holds its own copy the same way, from its first file until it exits,
+# so another install's cleanup below never removes it before or after the link points at it.
 TRUSTED_CHECKS_DIR="$TRUSTED_HOOK_DIR/cmux-next-checks"
 CHECKS_VERSION="cmux-next-checks.v$(date +%s).$$"
 TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/$CHECKS_VERSION.partial"
 rm -rf "$TRUSTED_CHECKS_STAGE"
 mkdir -p "$TRUSTED_CHECKS_STAGE"
+: > "$TRUSTED_CHECKS_STAGE/.in-use"
+exec 9<"$TRUSTED_CHECKS_STAGE/.in-use"
+# The lock belongs to the open file (fd 9, which this shell keeps open), so it outlives the Python that takes it.
+"$PYTHON3_BIN" -I -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_SH)'
 while IFS= read -r -d '' checker; do
     relative="${checker#scripts/cmux-next/}"
     # lint/ holds the linters' configs; arch_rules/ holds the rule modules arch-ratchet.py loads from its
@@ -86,17 +93,65 @@ rm -f "$TRUSTED_CHECKS_DIR.link.$$"
 ln -s "$CHECKS_VERSION" "$TRUSTED_CHECKS_DIR.link.$$"
 "$PYTHON3_BIN" -I -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
     "$TRUSTED_CHECKS_DIR.link.$$" "$TRUSTED_CHECKS_DIR"
-# Keep the copy just replaced (a push that started before the swap may still read it) and any copy younger
-# than 10 minutes (another install may be about to link it, or a push started on it); remove older ones. That
-# includes `.partial` stages and `.link.` temporaries older than 10 minutes: an install takes seconds, so those
-# were left by a killed install (about 570 files each) and would otherwise stay forever.
-while IFS= read -r -d '' old; do
-    name="$(basename "$old")"
-    case "$name" in
-        "$CHECKS_VERSION"|"$PREVIOUS_CHECKS") continue ;;
-    esac
-    rm -rf "$old"
-done < <(find "$TRUSTED_HOOK_DIR" -mindepth 1 -maxdepth 1 -name 'cmux-next-checks.*' -mmin +10 -print0)
+# Remove every copy nobody holds: not the one the link points at, and not one whose .in-use a push or an
+# install holds (an exclusive flock that fails). A removed copy is first renamed out of the way while its lock is
+# held, so a gate that resolved it before sees it gone and resolves the link again. Copies without .in-use come
+# from installs before the lock: those keep the old rule (not the copy just replaced, nor any younger than 10
+# minutes). `.link.` temporaries older than 10 minutes were left by a killed install (an install takes seconds).
+"$PYTHON3_BIN" -I - "$TRUSTED_HOOK_DIR" "$PREVIOUS_CHECKS" <<'PY'
+import fcntl
+import os
+import shutil
+import sys
+import time
+
+hook_dir, previous = sys.argv[1], sys.argv[2]
+link = os.path.join(hook_dir, "cmux-next-checks")
+STALE_SECONDS = 600
+
+
+def current():
+    try:
+        return os.readlink(link)
+    except OSError:
+        return None
+
+
+for name in sorted(os.listdir(hook_dir)):
+    path = os.path.join(hook_dir, name)
+    if not name.startswith("cmux-next-checks.") or name == current():
+        continue
+    if ".deleting." in name:  # a removal a killed install did not finish; nothing can resolve it
+        shutil.rmtree(path)
+    elif os.path.islink(path):
+        if ".link." in name and time.time() - os.lstat(path).st_mtime > STALE_SECONDS:
+            os.unlink(path)
+    elif not os.path.isdir(path):
+        continue
+    elif not os.path.exists(os.path.join(path, ".in-use")):
+        if name != previous and time.time() - os.stat(path).st_mtime > STALE_SECONDS:
+            shutil.rmtree(path)
+    else:
+        try:
+            lock = os.open(os.path.join(path, ".in-use"), os.O_RDONLY)
+        except FileNotFoundError:
+            continue  # another install's cleanup removed it first
+        try:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue  # a push or an install holds it
+            if name == current():
+                continue
+            gone = os.path.join(hook_dir, f"cmux-next-checks.deleting.{os.getpid()}.{name}")
+            try:
+                os.rename(path, gone)
+            except FileNotFoundError:
+                continue  # another install's cleanup removed it first
+            shutil.rmtree(gone)
+        finally:
+            os.close(lock)
+PY
 if (( NAMESPACE_FIX )); then
     install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
     install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"
