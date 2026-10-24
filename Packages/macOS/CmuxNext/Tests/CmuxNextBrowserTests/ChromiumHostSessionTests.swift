@@ -20,6 +20,8 @@ import Testing
         let wire: ChromiumHostConnection
         /// The descriptor `wire` writes to the session on, for raw writes.
         let toSessionFD: Int32
+        /// The session's own ends of the wire (its read and write descriptors).
+        let sessionFDs: [Int32]
     }
 
     /// Shared by the session (any thread) and the test: its mutable state is
@@ -61,7 +63,7 @@ import Testing
             let host = state.withLock { state -> FakeHost in
                 let host = FakeHost(pid: pid_t(1_000 + state.hosts.count),
                                     wire: ChromiumHostConnection(readFD: toHost[1], writeFD: fromHost[1]),
-                                    toSessionFD: fromHost[1])
+                                    toSessionFD: fromHost[1], sessionFDs: [fromHost[0], toHost[0]])
                 state.hosts.append(host)
                 return host
             }
@@ -448,6 +450,41 @@ import Testing
         reply.seq = request.seq
         host.wire.send(reply)
         #expect(await stats.value?["events"] == 7)
+    }
+
+    /// The file a descriptor names (device and inode), or nil when it is closed.
+    private static func identity(of fd: Int32) -> [UInt64]? {
+        var info = stat()
+        guard fstat(fd, &info) == 0 else { return nil }
+        return [UInt64(bitPattern: Int64(info.st_dev)), info.st_ino]
+    }
+
+    // The close path frees everything the host had in cmux: both descriptors and the reader thread
+    // (a connection dropped without close() is ChromiumHostProcessTests.aConnectionDroppedWithoutCloseEndsTheWire).
+    @Test(.timeLimit(.minutes(1))) func aClosedSessionFreesItsReaderThreadAndDescriptors() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        let opened = host.sessionFDs.map(Self.identity(of:))
+        #expect(opened.allSatisfy { $0 != nil })
+        answer(host, context: 5, address: "https://a.example/")
+        try await until("running") { session.phase == .running }
+        session.close()
+        _ = try #require(await frame(.quit, in: host.wire.frames))
+        launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
+        try await until("idle") { session.phase == .idle }
+        // The reader thread closes its descriptor as its last step before it returns, so a closed
+        // read descriptor means the thread has ended. No signal crosses from that thread to the test:
+        // this checks each 10 ms, bounded by the test's limit.
+        let deadline = ContinuousClock.now + .seconds(10)
+        var stillOpen = host.sessionFDs
+        while !stillOpen.isEmpty, ContinuousClock.now < deadline {
+            // A number the system gave to another file since (another test) is closed for this check.
+            stillOpen = zip(host.sessionFDs, opened).filter { fd, was in Self.identity(of: fd) == was }.map(\.0)
+            if !stillOpen.isEmpty { try await Task.sleep(for: .milliseconds(10)) } // bound of a test wait
+        }
+        #expect(stillOpen.isEmpty)
     }
 
     @Test func restartPolicy() {

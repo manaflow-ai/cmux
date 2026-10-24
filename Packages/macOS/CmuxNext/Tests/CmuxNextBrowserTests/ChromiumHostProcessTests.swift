@@ -102,6 +102,22 @@ import Testing
         if readable == 1 { #expect(read(pair[1], &byte, byte.count) == 0) }
     }
 
+    // Before the fix the host made its own small bundle Chromium's main bundle: the helpers it starts
+    // live outside it, the page's renderer ended at once and the host aborted (SIGABRT, macOS 27).
+    @Test func theHostRunsChromiumWithTheAppAsItsMainBundle() {
+        let app = URL(filePath: "/Applications/cmux DEV t.app")
+        let frameworks = app.appending(path: "Contents/Frameworks")
+        let layout = CEFRuntimeLayout(frameworksDirectory: frameworks, mainBundle: app,
+                                      helperApp: frameworks.appending(path: "cmux DEV t Helper.app"))
+        let root = URL(filePath: "/tmp/host-root")
+        let arguments = ChromiumHostConfiguration.arguments(layout: layout, rootCache: root, bundleIdentifier: "com.cmuxterm.app.debug.t",
+                                                            environment: [:])
+        #expect(arguments.contains("--main-bundle=\(app.path)"))
+        #expect(arguments.contains("--subprocess=\(frameworks.path)/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper"))
+        let configuration = ChromiumHostConfiguration(executable: URL(filePath: "/bin/true"), arguments: arguments)
+        #expect(configuration.logFile == "/tmp/host-root/chromium-host.log")
+    }
+
     @Test func aHostThatStopsReadingEndsTheConnection() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.

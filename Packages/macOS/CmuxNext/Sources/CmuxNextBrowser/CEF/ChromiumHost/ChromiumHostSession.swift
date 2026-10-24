@@ -176,7 +176,8 @@ public final class ChromiumHostSession {
     }
 
     /// The host's input timing: from each event's time in cmux to the host's
-    /// `Send*Event` on its UI thread, in microseconds.
+    /// `Send*Event` on its UI thread, in microseconds, and how many input frames
+    /// the host folded into a waiting one (`coalesced`: pointer moves, wheel deltas).
     public func hostInputStats() async -> [String: Int]? {
         seq &+= 1
         let id = seq
@@ -196,6 +197,7 @@ public final class ChromiumHostSession {
         let stats: [String: Int] = [
             "events": Int(v[0]), "p50_us": Int(v[1]), "p95_us": Int(v[2]),
             "p99_us": Int(v[3]), "max_us": Int(v[4]), "refused_frames": Int(v[5]),
+            "coalesced": Int(clamping: reply.t1),
         ]
         return stats
     }
@@ -211,7 +213,7 @@ public final class ChromiumHostSession {
         }
         return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "exits": exits, "error": lastError ?? ""]
+                "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? ""]
     }
 
     // MARK: Lifecycle

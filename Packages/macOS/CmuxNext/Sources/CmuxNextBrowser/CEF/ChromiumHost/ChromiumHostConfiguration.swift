@@ -47,10 +47,25 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
             // Chromium's code-sign clone copies the main bundle (here the small host app)
             // and starts helpers from the copy, but the helpers live outside it.
             + ["disable-features=MacAppCodeSignClone"]
+        // The main bundle is the app's (as in process), never the host's own small bundle: it holds the
+        // framework and the helpers Chromium starts and sandboxes (browser_host_main.mm).
         return ["--framework=\(layout.frameworkDirectory.path)",
                 "--subprocess=\(layout.helperExecutable.path)",
-                "--root-cache=\(rootCache.path)"]
+                "--main-bundle=\(layout.mainBundle.path)",
+                "--root-cache=\(rootCache.path)",
+                "--log-file=\(logFile(rootCache: rootCache).path)"]
             + switches.map { "--cef-switch=\($0)" }
+    }
+
+    /// Chromium's log of a host whose data folder is `rootCache` (warnings and
+    /// fatal messages): where a host that ended says why.
+    static func logFile(rootCache: URL) -> URL {
+        rootCache.appending(path: "chromium-host.log")
+    }
+
+    /// The `--log-file` this configuration passes, or nil.
+    public var logFile: String? {
+        arguments.first { $0.hasPrefix("--log-file=") }.map { String($0.dropFirst("--log-file=".count)) }
     }
 }
 #endif
