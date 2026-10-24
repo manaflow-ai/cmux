@@ -45,6 +45,11 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The status watch
+    // (an OwnedTask) is cancelled on the releasing thread.
+    nonisolated deinit {}
+
     override public var isFlipped: Bool { true }
     override public var mouseDownCanMoveWindow: Bool { false }
 

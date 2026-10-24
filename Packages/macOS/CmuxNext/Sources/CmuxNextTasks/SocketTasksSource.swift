@@ -36,6 +36,11 @@ public final class SocketTasksSource: TasksSource {
         self.path = path ?? Self.defaultPath(team: "local")
     }
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The directory watch
+    // (a MainDirectoryWatch) stops and closes its descriptor on the releasing thread.
+    nonisolated deinit {}
+
     public static func defaultPath(team: String) -> String {
         let base = ProcessInfo.processInfo.environment["CMUX_TASKS_HOME"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/cmux/tasks")
