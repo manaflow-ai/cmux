@@ -299,3 +299,66 @@ async fn two_reports_at_once_send_one_card_and_a_card_not_delivered_is_kept_and_
     let again = a.call("_acpmux/report", done).await;
     assert!(again.get("replayed").is_none(), "{again}");
 }
+
+#[tokio::test]
+async fn a_lane_that_closes_or_is_deleted_with_its_task_open_orphans_it_and_the_giver_hears_at_once()
+ {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let closing = person.new_session().await;
+    let deleted = person.new_session().await;
+    let finished = person.new_session().await;
+    let closing_name = hub.resolve(&closing).unwrap().meta().name;
+    let deleted_name = hub.resolve(&deleted).unwrap().meta().name;
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+    let mut give = async |lane: &str, title: &str| {
+        let given = from_coordinator
+            .call("_acpmux/task_new", json!({"sessionId": lane, "title": title}))
+            .await;
+        given["task"]["taskId"].as_str().unwrap().to_owned()
+    };
+    let t_closed = give(&closing, "Land the fix").await;
+    let t_deleted = give(&deleted, "Write the doc").await;
+    let t_done = give(&finished, "Rerun CI").await;
+    let done = json!({"briefId": t_done, "status": "done", "summary": "Green"});
+    Client::in_session(&hub, &finished).await.call("_acpmux/report", done).await;
+    person.prompts(&coordinator, &format!("task-result-{t_done}"), 1).await;
+
+    // cx3-s61 closed with Leo's asks unfinished, and nobody noticed.
+    person.call("session/close", json!({"sessionId": closing})).await;
+    person.call("session/delete", json!({"sessionId": deleted})).await;
+    person.call("session/close", json!({"sessionId": finished})).await;
+    let card = person.prompts(&coordinator, &format!("task-result-{t_closed}"), 1).await.remove(0);
+    assert_eq!(
+        card["text"],
+        format!(
+            "Task {t_closed} \"Land the fix\" orphaned: {closing_name} closed with it still open"
+        )
+    );
+    let provenance = card.pointer("/_meta/provenance").unwrap();
+    assert_eq!(provenance["state"], "orphaned", "{card}");
+    assert_eq!(provenance["from"], closing.as_str(), "{card}");
+    let card = person.prompts(&coordinator, &format!("task-result-{t_deleted}"), 1).await.remove(0);
+    assert_eq!(
+        card["text"],
+        format!(
+            "Task {t_deleted} \"Write the doc\" orphaned: {deleted_name} is gone with it still open"
+        )
+    );
+
+    // Orphans first; the task that was done stays done, and no second card comes for it.
+    let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
+    let states: Vec<&str> =
+        listed["tasks"].as_array().unwrap().iter().map(|t| t["status"].as_str().unwrap()).collect();
+    assert_eq!(states, ["orphaned", "orphaned", "done"], "{listed}");
+    let open = from_coordinator.call("_acpmux/tasks", json!({"open": true})).await;
+    assert_eq!(open["tasks"].as_array().unwrap().len(), 2, "{open}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(person.prompts(&coordinator, &format!("task-result-{t_done}"), 1).await.len(), 1);
+
+    // The giver may still end an orphan, once it knows what became of it.
+    let done = json!({"briefId": t_closed, "status": "done", "summary": "Landed it myself"});
+    let ended = from_coordinator.call("_acpmux/report", done).await;
+    assert_eq!(ended["brief"]["status"], "done", "{ended}");
+}

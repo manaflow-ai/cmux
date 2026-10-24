@@ -106,6 +106,12 @@ impl Briefs {
         }
     }
 
+    /// Every row `keep` keeps, unpaged: for the daemon's own sweeps, not for a client.
+    pub(crate) fn matching(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        rows.values().filter(|row| keep(row)).cloned().collect()
+    }
+
     pub(crate) fn list(&self, status: Option<&str>, limit: usize) -> Vec<Value> {
         let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         rows.values()

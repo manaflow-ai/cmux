@@ -12,12 +12,18 @@
 //!   (`prompt_provenance.rs`): the chat draws it as the lane's card. That card is the lane's
 //!   whole reply; nothing acknowledges it.
 //!
-//! A task for a peer's session, and a lane that closes with its task open, are not here yet.
+//! - A lane that closes, or is deleted, with its task still open orphans it (`watch_orphans`):
+//!   the task's state becomes `orphaned`, and the giver gets its card at once, steered into a
+//!   running turn ("Task T "…" orphaned: codex-lane closed with it still open"). `task ls` lists
+//!   orphans first. A later result, from the giver or a revived lane, still ends it.
+//!
+//! A task for a peer's session is not here yet.
 
 use super::{Hub, PromptOptions};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 /// The states a lane ends its task in.
 pub(crate) const RESULT_STATES: &[&str] = &["done", "blocked", "failed"];
@@ -34,9 +40,24 @@ fn refused(message: impl Into<String>) -> RpcError {
     RpcError::invalid_params(message.into()).with_data(json!({"reason": "task.result_invalid"}))
 }
 
-/// Whether task `row` is still to be done: its lane works on it, or it is blocked.
+/// Whether task `row` is still to be done: its lane works on it, it is blocked, or its lane
+/// closed with it open.
 pub(crate) fn open(row: &Value) -> bool {
-    matches!(row.get("status").and_then(Value::as_str), Some("starting" | "running" | "blocked"))
+    worked_on(row) || orphaned(row)
+}
+
+/// Whether task `row`'s lane still has it: it works on it, or it is blocked.
+fn worked_on(row: &Value) -> bool {
+    row.get("kind").and_then(Value::as_str) == Some("task")
+        && matches!(
+            row.get("status").and_then(Value::as_str),
+            Some("starting" | "running" | "blocked")
+        )
+}
+
+/// Whether task `row`'s lane closed with it open (module docs).
+pub(crate) fn orphaned(row: &Value) -> bool {
+    row.get("status").and_then(Value::as_str) == Some("orphaned")
 }
 
 /// The result the `_acpmux/report` `params` give for `state`, reported by `by`, or why not.
@@ -155,7 +176,11 @@ impl Hub {
         };
         let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
         let (lane, result) = (field("sessionId"), &row["result"]);
-        let lane_name = self.session_name(lane);
+        // A lane deleted since keeps the name the task was given to.
+        let lane_name = match self.session_name(lane) {
+            name if name == lane && !field("to").is_empty() => field("to").to_owned(),
+            name => name,
+        };
         let provenance = crate::prompt_provenance::task_result(
             lane,
             &lane_name,
@@ -179,6 +204,66 @@ impl Hub {
                 hub.result_undelivered(&id, &at, &e.message);
             }
         });
+    }
+
+    /// Watches for a lane that closes or is deleted with its task open, and orphans the task
+    /// (module docs). Each such event, a lag, and the start run one sweep over the open tasks, so
+    /// one closed while nothing watched is orphaned too. Ends when the hub does.
+    pub(super) fn watch_orphans(self: &Arc<Self>) {
+        let mut events = self.subscribe();
+        let hub = Arc::downgrade(self);
+        tokio::spawn(async move {
+            if let Some(hub) = hub.upgrade() {
+                hub.orphan_sweep();
+            }
+            loop {
+                match events.recv().await {
+                    Ok(ev) => {
+                        let rec = &ev.record;
+                        let closed = rec.kind == "status" && rec.msg["status"] == "closed";
+                        let purged = rec.kind == "purged" && rec.msg["replaced"] != true;
+                        if rec.dir != "mux" || ev.remote.is_some() || !(closed || purged) {
+                            continue;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => return,
+                }
+                let Some(hub) = hub.upgrade() else { return };
+                hub.orphan_sweep();
+            }
+        });
+    }
+
+    /// Orphans every task whose lane is closed or gone (module docs).
+    fn orphan_sweep(self: &Arc<Self>) {
+        for row in self.briefs.matching(worked_on) {
+            let lane = row.get("sessionId").and_then(Value::as_str).unwrap_or_default();
+            let gone = match self.resolve(lane) {
+                Ok(s) if s.status() == super::SessionStatus::Closed => "closed",
+                Ok(_) => continue,
+                Err(_) => "is gone",
+            };
+            let lane_name = row.get("to").and_then(Value::as_str).unwrap_or(lane).to_owned();
+            let result = json!({
+                "state": "orphaned", "summary": format!("{lane_name} {gone} with it still open"),
+                "prs": [], "shas": [], "at": crate::store::now_ms(), "by": lane_name,
+            });
+            let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default();
+            // Under the ledger's lock: a result reported meanwhile wins.
+            let mut orphaned = false;
+            let row = self.briefs.update(id, |r| {
+                if worked_on(r) {
+                    r["status"] = json!("orphaned");
+                    r["result"] = result.clone();
+                    orphaned = true;
+                }
+            });
+            if let Some(row) = row.filter(|_| orphaned) {
+                tracing::warn!(task = %id, lane = %lane, "a task's lane {gone} with it open");
+                self.send_task_result(&row, None);
+            }
+        }
     }
 
     /// Records on task `id` that the card of its result made `at` did not reach the chat that

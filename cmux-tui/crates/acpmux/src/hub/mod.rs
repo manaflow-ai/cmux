@@ -545,6 +545,7 @@ impl Hub {
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
             hub.watch_titles();
+            hub.watch_orphans();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
