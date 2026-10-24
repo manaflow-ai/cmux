@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -14,7 +15,8 @@ import os
 final class TerminalThemeStore {
     private(set) var themes: [String: String] = [:]
     @ObservationIgnored private let url: URL?
-    @ObservationIgnored private var lastWrite: Task<Void, Never>?
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private let writes: OrderedWrites
     /// The file was read; until then a save waits, so it never publishes
     /// a partial set over the saved one.
     @ObservationIgnored private var isLoaded = false
@@ -25,16 +27,19 @@ final class TerminalThemeStore {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
 
     /// `url` nil keeps themes in memory only (tests). Changes reach the
-    /// file once `load()` has read it.
-    init(url: URL?) {
+    /// file once `load()` has read it; reads and writes run on `work`'s files lane.
+    init(url: URL?, work: BackgroundWork) {
         self.url = url
+        self.work = work
+        let logger = logger
+        writes = OrderedWrites(work: work) { logger.error("terminal themes write failed: \(String(describing: $0), privacy: .public)") }
     }
 
-    static func forApplication(bundleIdentifier: String?) -> TerminalThemeStore {
+    static func forApplication(bundleIdentifier: String?, work: BackgroundWork) -> TerminalThemeStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return TerminalThemeStore(url: support.appending(path: bundle).appending(path: "terminal-themes.json"))
+        return TerminalThemeStore(url: support.appending(path: bundle).appending(path: "terminal-themes.json"), work: work)
     }
 
     static func key(machine: String, tab: String) -> String { "\(machine):\(tab)" }
@@ -66,7 +71,8 @@ final class TerminalThemeStore {
     func load() async {
         guard let url else { return }
         let logger = logger
-        let loaded = await Task.detached(priority: .userInitiated) { Self.read(url, logger: logger) }.value
+        // What the windows show at launch: a person sees it.
+        let loaded = (try? await work.run(.userVisible, mayBlock: .files) { Self.read(url, logger: logger) }) ?? ([:], false)
         // A theme set before the file loaded wins.
         themes = loaded.themes.merging(themes) { _, current in current }
         keepsFile = !loaded.complete
@@ -87,7 +93,7 @@ final class TerminalThemeStore {
     nonisolated static func read(_ url: URL, logger: Logger) -> (themes: [String: String], complete: Bool) {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else { return ([:], true) }
-        // concurrency-allow: called from a detached task in load(), off the main actor
+        // concurrency-allow: runs on the BackgroundWork files lane (load()), off the main actor
         guard let data = try? Data(contentsOf: url) else { return ([:], false) }
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             let first = url.appendingPathExtension("corrupt")
@@ -107,7 +113,7 @@ final class TerminalThemeStore {
 
     /// Waits for every queued write (tests).
     func flush() async {
-        await lastWrite?.value
+        await writes.flush()
     }
 
     private func save() {
@@ -116,21 +122,6 @@ final class TerminalThemeStore {
             saveAfterLoad = true
             return
         }
-        let data = try? JSONEncoder().encode(themes)
-        let empty = themes.isEmpty
-        let previous = lastWrite, logger = logger
-        lastWrite = Task.detached(priority: .utility) {
-            await previous?.value
-            do {
-                if let data, !empty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
-                }
-            } catch {
-                logger.error("terminal themes write failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        writes.save(themes.isEmpty ? nil : try? JSONEncoder().encode(themes), to: url)
     }
 }

@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -88,20 +89,20 @@ import Testing
         let url = directory.appending(path: "workspace-backgrounds.json")
         let key = WorkspaceBackgroundStore.key(session: "home", workspace: "ws-1")
 
-        let first = WorkspaceBackgroundStore(url: url)
+        let first = WorkspaceBackgroundStore(url: url, work: BackgroundWork())
         await first.load()
         first.set("none", for: key)
         first.set(Self.work.id, for: WorkspaceBackgroundStore.key(session: "home", workspace: "ws-2"))
         await first.flush()
 
-        let relaunched = WorkspaceBackgroundStore(url: url)
+        let relaunched = WorkspaceBackgroundStore(url: url, work: BackgroundWork())
         await relaunched.load()
         #expect(relaunched.background(for: key) == "none")
         #expect(WorkspaceBackgroundStore.pin(relaunched.background(for: key), now: Date()) == BackdropPin.none)
 
         relaunched.set(nil, for: key)
         await relaunched.flush()
-        let again = WorkspaceBackgroundStore(url: url)
+        let again = WorkspaceBackgroundStore(url: url, work: BackgroundWork())
         await again.load()
         #expect(again.background(for: key) == nil)
         #expect(again.backgrounds.count == 1)
@@ -125,7 +126,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        let store = WorkspaceBackgroundStore(url: nil)
+        let store = WorkspaceBackgroundStore(url: nil, work: BackgroundWork())
         await store.load()
         var preview: String?? = nil
         let window = ThemeScope(level: .workspace, parent: ThemeScope(level: .room))
