@@ -308,10 +308,18 @@ export class HoverBridge {
     this.setRect(region, rect);
     this.pointer = point ?? this.pointer;
     this.trigger.add(region);
-    this.clearTimer();
-    if (this.state === "open") return;
-    if (immediate || this.options.dwell <= 0) return this.show();
-    if (this.state !== "waiting") {
+    if (this.state === "open") {
+      this.clearTimer();
+      return;
+    }
+    if (immediate || this.options.dwell <= 0) {
+      this.clearTimer();
+      return this.show();
+    }
+    // Keep an existing dwell while React moves from the trigger to the portal card. A prior
+    // region callback may have left the state waiting without a timer; in that case re-arm it.
+    if (this.state !== "waiting" || this.timer === undefined) {
+      this.clearTimer();
       this.state = "waiting";
       this.timer = this.clock.set(() => {
         this.timer = undefined;
