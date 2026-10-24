@@ -106,6 +106,8 @@ export function ChiefPetCard({
               type="button"
               className="button"
               data-action="chief-pet-toggle"
+              role="switch"
+              aria-checked={enabled}
               disabled={toggleLocked}
               ref={target === CHIEF_PET_ENABLED ? reveal : undefined}
               onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}

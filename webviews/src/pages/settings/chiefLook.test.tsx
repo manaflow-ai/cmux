@@ -6,7 +6,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, renderPage, settle } = await import("./testing");
+const { changeValue, click, fire, renderPage, settle } = await import("./testing");
 
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 
@@ -83,5 +83,21 @@ test("search result rows for the pet controls can receive keyboard focus", async
   )!;
   mascot.focus();
   expect(document.activeElement).toBe(mascot);
+  page.unmount();
+});
+
+test("the Show Chief Pet search row toggles with Space", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  const search = page.container.querySelector<HTMLInputElement>("[data-settings-search]")!;
+  await changeValue(search, "Show Chief Pet");
+  const enabled = page.container.querySelector<HTMLElement>(
+    '[data-search-results] [data-row-key="home.chiefPetEnabled"]',
+  )!;
+  enabled.focus();
+  await fire(enabled, "keydown", { key: " " });
+  expect(page.provider.log.filter((entry) => entry.op === "cmux.settings.set").at(-1)?.params).toMatchObject({
+    key: "home.chiefPetEnabled",
+    value: true,
+  });
   page.unmount();
 });
