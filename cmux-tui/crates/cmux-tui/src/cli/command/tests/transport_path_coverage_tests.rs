@@ -187,6 +187,23 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "session.journal.append",
         ),
+        // A question hook's question rides beside the event as live_question (memory only).
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "PreToolUse",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Continue?","header":"Next","multiSelect":false,"options":[{"label":"Yes"},{"label":"No"}]}]}}"#,
+            ],
+            "session.journal.append",
+        ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
         (
