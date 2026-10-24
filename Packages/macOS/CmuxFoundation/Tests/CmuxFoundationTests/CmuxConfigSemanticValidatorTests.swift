@@ -73,6 +73,21 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(result.isEmpty)
     }
 
+    @Test("accepts Vault session visibility filters")
+    func acceptsVaultSessionFilters() throws {
+        let result = try issues([
+            "vault": [
+                "hideClaudeSDKSessions": true,
+                "exclude": [
+                    ["agent": "claude", "entrypoint": "sdk-*"],
+                    ["labelPattern": "re:^Review this"],
+                    ["pattern": "*background*"],
+                ],
+            ],
+        ])
+        #expect(result.isEmpty)
+    }
+
     @Test("reports unknown paths, types, enums, bounds, and nested constraints")
     func reportsSemanticFailures() throws {
         let cases: [(Any, String, String)] = [
