@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextRemoteView
 import CmuxNextCompat
+public import CmuxNextDesign
 
 #if DEBUG
 /// The popup surfaces of one remote tab (`rb.surface.show/update/hide`,
@@ -16,12 +17,14 @@ import CmuxNextCompat
 /// window update), a window resize or a screen change places them again. While the page is hidden or out of
 /// a window (another tab shows, the window closes) the panels are ordered
 /// out; they come back with the page. They go with the page's session.
+/// The window's occlusion and deminiaturize notices come through its
+/// ``WindowOcclusionFamily`` (one observer per window, PATTERNS.md P3).
 ///
 /// Popup surfaces take pointer input only (cmux-remote-browser `rp_input`):
 /// pointer events go out named by the surface, in its own CSS pixels; keys
 /// go to the page, which routes them to the open popup.
 @MainActor
-public final class RemoteBrowserSurfaces {
+public final class RemoteBrowserSurfaces: WindowOcclusionFollowing {
     private let page: RemoteBrowserContentView
     private let source: @MainActor (UInt16) -> any RemoteViewStreamSource
     private let send: @MainActor (RemoteRdJSON, Bool) -> Void
@@ -29,6 +32,8 @@ public final class RemoteBrowserSurfaces {
     /// The page window's geometry observers, while a surface is open.
     private weak var observedWindow: NSWindow?
     private var windowObservers: [MainActorObservation] = []
+    /// The page window's occlusion family, while a surface is open.
+    private weak var occlusionFamily: WindowOcclusionFamily?
 
     /// `source` gives a surface stream's units; `send` sends one rb input
     /// event (`mustDeliver` second).
@@ -109,6 +114,12 @@ public final class RemoteBrowserSurfaces {
         if open.isEmpty { observeWindow(nil) }
     }
 
+    /// The page's window was covered, minimized, ordered out or came back:
+    /// a window shown again brings the panels back.
+    public func windowOcclusionDidChange() {
+        placeAll()
+    }
+
     /// Every open surface at its anchor (the page moved, resized, was
     /// hidden or shown, or changed window).
     private func placeAll() {
@@ -152,12 +163,16 @@ public final class RemoteBrowserSurfaces {
         // that went away leaves observers with a nil `observedWindow`.)
         guard !(window === observedWindow && (window == nil) == windowObservers.isEmpty) else { return }
         windowObservers.removeAll()
+        occlusionFamily?.remove(self)
+        occlusionFamily = nil
         observedWindow = window
         guard let window else { return }
+        let family = WindowOcclusionFamily.of(window)
+        family.add(self)
+        occlusionFamily = family
         let center = NotificationCenter.default
         for name in [NSWindow.didUpdateNotification, NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
-                     NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
+                     NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
             windowObservers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
                 self?.placeAll()
             })
