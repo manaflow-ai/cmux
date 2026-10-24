@@ -105,7 +105,8 @@ extension ScreenContentView {
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.restOffset != restOffset { host.restOffset = restOffset }
-            let restChanged = host.restSize != nil && host.restSize != rest.size
+            // A new rest size (a split's new pane has none before its first one) on a running spring.
+            let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect
