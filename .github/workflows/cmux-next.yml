@@ -3628,6 +3628,32 @@ jobs:
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           [[ "$verdict" != fail ]]
+      # request-nightly-next.sh refuses unless HEAD is the pushed commit, and
+      # reads nightly.yml and history from it. The compile check above needs no
+      # checkout, so without this step the request ran in whatever commit this
+      # reused gateway workspace last held and failed the gate after a pass.
+      - name: Checkout the pushed commit for the promotion request
+        id: checkout
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.verdict == 'pass' }}
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.verdict == 'pass' }}
+        run: scripts/ci/reset-stale-submodules.sh
       - name: Request nightly-next promotion after the fast gate
         if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.compile.outputs.verdict == 'pass' }}
         env:
