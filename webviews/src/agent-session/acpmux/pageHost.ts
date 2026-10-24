@@ -13,6 +13,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { NEW_TAB_PLACES_EVENT, NEW_TAB_WEATHER_EVENT } from "./newtab/hostEvents";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
@@ -109,6 +110,15 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "newTabPlaces":
+      // The shown New Tab page's bar takes them in place (adoption.ts useNewTabPlaces). An event,
+      // not a host script: a frozen hidden page gets the newest at its thaw (PATTERNS.md P10).
+      window.dispatchEvent(new CustomEvent(NEW_TAB_PLACES_EVENT, { detail: event.value }));
+      return;
+    case "newTabWeather":
+      // Null (the widget turned off) takes the reading away (adoption.ts useNewTabWeather).
+      window.dispatchEvent(new CustomEvent(NEW_TAB_WEATHER_EVENT, { detail: event.value ?? null }));
+      return;
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
