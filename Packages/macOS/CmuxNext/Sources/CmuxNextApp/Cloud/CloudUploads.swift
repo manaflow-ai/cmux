@@ -155,11 +155,7 @@ final class CloudUploads {
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
             } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             stages[token] = Stage(target: target, folder: folder, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(Self.stageLifetime))
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Self.stageLifetime))
-                guard let self else { return }
-                await self.expire(token)
-            }
+            scheduleExpiry(token)
             var response: [String: Any] = ["token": token, "size": size, "chunkSize": Self.stageChunkBytes]
             if let batchID { response["batchToken"] = batchID }
             return AgentPaneReply.success(response)
@@ -172,6 +168,7 @@ final class CloudUploads {
                 try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close()
             } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             stage.received += data.count; stage.expires = Date().addingTimeInterval(Self.stageLifetime); stages[token] = stage
+            scheduleExpiry(token)
             return AgentPaneReply.success(["offset": stage.received])
         case .finish(let token):
             guard let stage = stages[token], stage.target.chat.session == session,
@@ -194,6 +191,14 @@ final class CloudUploads {
             if let stage = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: stage.folder) }
         }
         batches = batches.filter { $0.value.expires >= Date() }
+    }
+
+    private func scheduleExpiry(_ token: String) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.stageLifetime))
+            guard let self else { return }
+            await self.expire(token)
+        }
     }
 
     private func expire(_ token: String) {
