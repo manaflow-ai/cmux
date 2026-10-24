@@ -121,6 +121,12 @@ final class ChiefPetMascotCell: NSButton {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// Moved with the Settings page to another window under a still pointer: its hover recomputes there.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover.viewDidMoveToWindow()
+    }
+
     nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
