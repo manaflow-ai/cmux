@@ -75,11 +75,13 @@ import Testing
         }
         watch.start()
         defer { watch.stop() }
-        queue.sync {}  // the watch is installed (on the directory: nothing at the path)
+        queue.sync {}  // the watch is installed (on the directory: nothing at the path, the restore refused)
+        let checksAtStart = watch.checks.load(ordering: .relaxed)
+        let restoresAtStart = restores.value.load(ordering: .relaxed)
 
         // Someone else's file at the path: the directory event moves the watch onto it.
         FileManager.default.createFile(atPath: path, contents: Data("x".utf8))
-        #expect(try await eventually { watch.checks.load(ordering: .relaxed) >= 1 })
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > checksAtStart })
         queue.sync {}
         let settled = watch.checks.load(ordering: .relaxed)
         for index in 0..<50 {
@@ -92,7 +94,7 @@ import Testing
         #expect(watch.checks.load(ordering: .relaxed) == settled, "the watch stayed on the directory")
 
         #expect(unlink(path) == 0)
-        #expect(try await eventually { restores.value.load(ordering: .relaxed) >= 1 }, "the entry's removal was not noticed")
+        #expect(try await eventually { restores.value.load(ordering: .relaxed) > restoresAtStart }, "the entry's removal was not noticed")
     }
 }
 
