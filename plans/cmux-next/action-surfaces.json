@@ -35335,7 +35335,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "agentPane.toggleInspector",
+          "id" : "agentChat.copyIdentifier",
           "kind" : "action",
           "order" : 16,
           "visible_when" : {
@@ -35347,31 +35347,41 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "agentPane.togglePointerInspector",
-          "kind" : "action",
-          "label" : "Inspect Element",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPane.toggleInspector",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPane.togglePointerInspector",
+              "kind" : "action",
+              "label" : "Inspect Element",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "tools",
+          "kind" : "folder",
           "order" : 17,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "agentChat.copyIdentifier",
-          "kind" : "action",
-          "order" : 18,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Tools",
+          "title_key" : "menu.folder.tools",
+          "title_table" : "Localizable"
         }
       ],
       "implied" : [
