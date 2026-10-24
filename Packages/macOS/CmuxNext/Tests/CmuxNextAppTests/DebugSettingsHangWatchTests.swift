@@ -1,6 +1,8 @@
 @testable import CmuxNextApp
 @testable import CmuxNextControl
+import CmuxNextDesignTokens
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextSettingsWindow
 import Dispatch
 import Foundation
