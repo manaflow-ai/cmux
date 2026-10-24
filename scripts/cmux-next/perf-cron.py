@@ -231,20 +231,32 @@ def migrate_state(state):
     state.setdefault("last_tried", None)
     rename_legacy_rows(state)
     name_legacy_parts(state.get("current"))
-    # Regressions opened before the confirmation rule (2026-10-24): one with fewer than CONFIRM_SAMPLES baseline values
-    # becomes unconfirmed (diff.stream.p95 opened against one good value).
-    kept = []
+    # Regressions opened before the confirmation rule (2026-10-24), whatever their baseline: each becomes its row's first
+    # held value (pending), so the next tip measurement on its host judges it by the full rule (review 1 of the
+    # confirm rule, finding 9: only those with fewer than CONFIRM_SAMPLES values were migrated).
+    kept, pending = [], state.get("pending") if isinstance(state.get("pending"), dict) else {}
     for r in state.get("regressions") or []:
-        if isinstance(r, dict) and not r.get("confirmed") and isinstance(r.get("name"), str) \
-                and len(baseline_samples(state, r["name"])) < CONFIRM_SAMPLES:
+        first = (r.get("first_bad") or {}) if isinstance(r, dict) else {}
+        if isinstance(r, dict) and not r.get("confirmed") and isinstance(r.get("name"), str) and is_sha(first.get("sha")) \
+                and isinstance(r.get("p95"), (int, float)):
+            pending.setdefault(r["name"], {"values": [{"sha": first["sha"], "p95": r["p95"], "run_url": first.get("run_url"),
+                                                       "at": first.get("measured_at")}],
+                                           "at": first.get("measured_at"), "sha": first["sha"]})
             n = len(baseline_samples(state, r["name"]))
             state.setdefault("unconfirmed", []).append(
                 {"name": r["name"], "p95": r.get("p95"), "unit": r.get("unit"), "base": r.get("base"), "samples": n,
-                 "sha": (r.get("first_bad") or {}).get("sha"), "run_url": (r.get("first_bad") or {}).get("run_url"),
-                 "why": f"opened before the confirmation rule; the baseline has {n} of {CONFIRM_SAMPLES} values"})
+                 "sha": first["sha"], "run_url": first.get("run_url"),
+                 "why": "opened before the confirmation rule; held, the next tip measurement judges it"})
         else:
             kept.append(r)
     state["regressions"] = kept
+    # A pending entry of e1e3f6edf70's rule held one value at its top level: it becomes a streak of that value.
+    for name, value in list(pending.items()):
+        if isinstance(value, dict) and "values" not in value and is_sha(value.get("sha")):
+            pending[name] = {"values": [{k: value.get(k) for k in ("sha", "p95", "at", "run_url")}],
+                             "at": value.get("at"), "sha": value["sha"]}
+    state["pending"] = pending
+    state.pop("building", None)
     return state
 
 
@@ -283,6 +295,16 @@ def sanitize_state(state, ok):
         else:
             dropped.append(f"regression {r.get('name') if isinstance(r, dict) else r!r}")
     state["regressions"] = regs
+    pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
+    kept_pending = {}
+    for name, value in pending.items():
+        values = (value or {}).get("values") if isinstance(value, dict) else None
+        if isinstance(name, str) and isinstance(values, list) and values and all(
+                isinstance(v, dict) and ok(v.get("sha")) and isinstance(v.get("p95"), (int, float)) for v in values):
+            kept_pending[name] = value
+    if len(kept_pending) != len(pending):
+        dropped.append(f"{len(pending) - len(kept_pending)} pending entries")
+    state["pending"] = kept_pending
     row_ok = state.get("row_ok") if isinstance(state.get("row_ok"), dict) else {}
     state["row_ok"] = {k: v for k, v in row_ok.items() if isinstance(k, str) and ok(v)}
     if len(state["row_ok"]) != len(row_ok):
@@ -555,6 +577,22 @@ def over_target(name, row, refresh_ms):
     return t is not None and row.get("p95") is not None and row["p95"] > t
 
 
+def version_changed(rows, base_rows):
+    """The Mac rows measured with another split-spring.sh measurement version than their reference (pure): the bench
+    changed what it measures, so such a row is not compared; the tip measurement rebases it (review 1 of the confirm
+    rule: the version gated which commits run, not the baseline). A reference stored before rows carried the version
+    measured with LEGACY_MEASURE_VERSION."""
+    out = []
+    for n, r in rows.items():
+        now = r.get("measure_version")
+        base = base_rows.get(n)
+        if isinstance(now, int) and base is not None:
+            then = base.get("measure_version", LEGACY_MEASURE_VERSION) if mac_host(n) else None
+            if isinstance(then, int) and then != now:
+                out.append(n)
+    return sorted(out)
+
+
 def os_changed(rows, base_rows):
     """The rows measured on another macOS (major.minor) than their reference (pure): the same host after an update or
     a re-image measures differently, so such a row is not compared; the tip measurement rebases it. A reference that
@@ -572,10 +610,12 @@ NO_REFERENCE = "over target, no reference on this host"
 
 def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     """Rows worse than the last good run: past perf-budgets' 10 % and floor rule, or newly over target. A frame row
-    measured at another display refresh than its last good value, or a row measured on another macOS, is not compared
+    measured at another display refresh than its last good value, or a row measured on another macOS or measurement
+    version, is not compared
     (the next good run rebases it). A row with no reference (its first value on this host) is listed only when it is
     over its target, with base None and why NO_REFERENCE: it has no culprit range, but it is not a silent pass."""
-    skipped = set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
+    skipped = (set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
+               | set(version_changed(rows, base_rows)))
     rows = {n: r for n, r in rows.items() if n not in skipped}
     listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
@@ -1343,10 +1383,13 @@ BUILD_FAILED_MARK = "the tagged reload printed no app path"
 
 
 MEASURE_VERSION_RE = re.compile(r"^SPLIT_SPRING_MEASURE_VERSION=(\d+)\s*$", re.MULTILINE)
-# split-spring.sh blobs from before SPLIT_SPRING_MEASURE_VERSION, with the version they measure as: 07ed24bb is the one
-# of 36289e3cd3b (Release-optimized bench build), 9a147625 the one of 3c2bfd8efbb, which changed only a report key
-# (macos). Older blobs built or displayed differently, so they have no version (not measured).
-KNOWN_MEASURE_VERSIONS = {"07ed24bb2427ca2681f2762221a579d6185feeda": 2, "9a14762578b353ec46d64c67049a3bade4c3d0ea": 2}
+# split-spring.sh blobs from before SPLIT_SPRING_MEASURE_VERSION, with the version they measure as. The cron passes no
+# --config, so it measures the default Debug build with each: 626c77ac (b5b629ddfd2..36289e3cd3b^), 07ed24bb
+# (36289e3cd3b, which added --config=bench, unused here) and 9a147625 (3c2bfd8efbb, which added a report key, macos).
+# Older blobs built or displayed differently, so they have no version (not measured).
+LEGACY_MEASURE_VERSION = 2  # the version of every row stored before rows carried one (2026-10-24)
+KNOWN_MEASURE_VERSIONS = {"626c77accc2f511146571fbb9314b1af95d2d7c9": 2, "07ed24bb2427ca2681f2762221a579d6185feeda": 2,
+                          "9a14762578b353ec46d64c67049a3bade4c3d0ea": 2}
 _versions_by_blob = {}
 
 
@@ -1473,11 +1516,12 @@ def issue_body(state, repo, now):
     unconfirmed = [u for u in state.get("unconfirmed") or [] if isinstance(u, dict)]
     if unconfirmed:
         lines += ["", f"**Unconfirmed ({len(unconfirmed)} row(s), not a regression):** a row is a regression only with "
-                      f"{CONFIRM_SAMPLES} baseline values on its host and outside their spread in 2 consecutive tip measurements.",
-                  "", "| row | now p95 | reference p95 | baseline max | values | commit | why |", "|---|---|---|---|---|---|---|"]
+                      f"{CONFIRM_SAMPLES} baseline values on its host and outside their spread (its second-highest value) "
+                      "in 2 consecutive tip measurements; a candidate's value never enters the baseline.",
+                  "", "| row | now p95 | reference p95 | spread top | values | commit | why |", "|---|---|---|---|---|---|---|"]
         for u in unconfirmed[:20]:
             sha_link = f"[`{str(u.get('sha'))[:11]}`]({u.get('run_url')})" if u.get("sha") else "?"
-            lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('max'))} | "
+            lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('top', u.get('max')))} | "
                          f"{u.get('samples')} | {sha_link} | {u.get('why')} |")
     restarts = [x for x in state.get("baseline_restarts") or [] if isinstance(x, dict)][-5:]
     if restarts:
@@ -1561,9 +1605,10 @@ def _history_time(entry):
         return None
 
 
-def remember_good(state, rows, refresh_ms, t, prev_good=None):
-    """Append each accepted row's good p95 to state['row_history'] (kept HISTORY_DAYS, at most HISTORY_MAX values a
-    row). A row with no history yet starts from its value in prev_good (a state from before the history existed)."""
+def remember_good(state, rows, refresh_ms, t, prev_good=None, sha=None):
+    """Append each accepted row's good p95 (and the commit, sha) to state['row_history'] (kept HISTORY_DAYS, at most
+    HISTORY_MAX values a row). A row with no history yet starts from its value in prev_good (a state from before the
+    history existed)."""
     hist = state.setdefault("row_history", {})
     since = t - datetime.timedelta(days=HISTORY_DAYS)
     for name, r in rows.items():
@@ -1573,7 +1618,7 @@ def remember_good(state, rows, refresh_ms, t, prev_good=None):
         prev = ((prev_good or {}).get("rows") or {}).get(name) or {}
         if not h and isinstance(prev.get("p95"), (int, float)) and prev_good.get("measured_at"):
             h.append({"at": prev_good["measured_at"], "p95": prev["p95"]})
-        h.append({"at": iso(t), "p95": r["p95"]})
+        h.append({"at": iso(t), "p95": r["p95"], **({"sha": sha} if is_sha(sha) else {})})
         hist[name] = [e for e in h if (_history_time(e) or since) >= since][-HISTORY_MAX:]
 
 
@@ -1673,77 +1718,99 @@ def rebase_faster_rows(state, part_rows, skipped, refresh_ms, t):
     return rebase_rows(state, part_rows, faster, t)
 
 
-def baseline_samples(state, name, t=None):
-    """A row's baseline values (pure): the ones behind its reference (row_reference): its last REF_RUNS good p95s, or
-    its last REF_RUNS good p95s at least CREEP_DAYS old when their median is lower (a creep under the 10 % rule per run
-    is caught against those, so within CREEP_DAYS). Its last good value when it has no history."""
+def baseline_window(state, name, t=None):
+    """A row's baseline entries (pure): the ones behind its reference (row_reference): its last REF_RUNS good values,
+    or its last REF_RUNS good values at least CREEP_DAYS old when their median is lower (a creep under the 10 % rule
+    per run is caught against those, so within CREEP_DAYS). Returns (entries, old): old is True for the week-old
+    window. Its last good value when it has no history."""
     hist = [e for e in (state.get("row_history") or {}).get(name) or []
             if isinstance(e, dict) and isinstance(e.get("p95"), (int, float))]
-    values = [e["p95"] for e in hist][-REF_RUNS:]
-    if values and t is not None:
+    recent = hist[-REF_RUNS:]
+    if recent and t is not None:
         cutoff = t - datetime.timedelta(days=CREEP_DAYS)
-        old = [e["p95"] for e in hist if (_history_time(e) or t) <= cutoff][-REF_RUNS:]
-        if old and _median(old) < _median(values):
-            values = old
-    if not values:
-        last = (((state.get("last_good") or {}).get("rows") or {}).get(name) or {}).get("p95")
-        values = [last] if isinstance(last, (int, float)) else []
-    return values
+        aged = [e for e in hist if (_history_time(e) or t) <= cutoff][-REF_RUNS:]
+        if aged and _median([e["p95"] for e in aged]) < _median([e["p95"] for e in recent]):
+            return aged, True
+    if recent:
+        return recent, False
+    last = (((state.get("last_good") or {}).get("rows") or {}).get(name) or {}).get("p95")
+    return ([{"p95": last}] if isinstance(last, (int, float)) else []), False
 
 
-def outside_spread(reg, samples, regression):
-    """A candidate regression's value is above the baseline's max by more than the margin (pure): the 10 % rule and the
-    row's floor for a row worse than last good, the floor alone for one newly over its target."""
-    hi = max(samples)
+def baseline_samples(state, name, t=None):
+    """A row's baseline values (pure): the p95s of baseline_window."""
+    return [e["p95"] for e in baseline_window(state, name, t)[0]]
+
+
+def spread_top(samples):
+    """The top of a baseline's spread (pure): its second-highest value once it has CONFIRM_SAMPLES values, so one
+    outlier among its good values cannot widen the spread and let a real step in (review 1 of the confirm rule); its
+    max before that."""
+    s = sorted(samples)
+    return s[-2] if len(s) >= CONFIRM_SAMPLES else s[-1]
+
+
+def outside_spread(reg, p95, samples, regression):
+    """A candidate's value p95 is above the top of its baseline's spread (spread_top) by more than the margin (pure):
+    the 10 % rule and the row's floor for a row worse than its reference, the floor alone for one newly over target."""
+    hi = spread_top(samples)
     rel = 0.0 if reg.get("why") == "newly over target" else regression
-    return reg["p95"] - hi > reg.get("floor", 1.0) and reg["p95"] > hi * (1 + rel)
+    return p95 - hi > reg.get("floor", 1.0) and p95 > hi * (1 + rel)
 
 
 def confirm_regressions(state, regs, cur, run_url, t, regression):
-    """Split this tip measurement's candidate regressions of rows not regressed already (pure): returns (confirmed,
-    unconfirmed). A candidate is confirmed only with CONFIRM_SAMPLES baseline values and outside their spread in this
-    and the previous tip measurement (state['pending']); its range then starts at that first measurement. The others
-    are unconfirmed with why; a row outside the spread for the first time goes into state['pending']."""
+    """Judge this tip measurement's candidates (rows worse than their reference) of rows not regressed already.
+    Returns (confirmed, unconfirmed, restarted names). A candidate's value never enters the baseline. Each candidate
+    row keeps its streak of consecutive candidate values in state['pending'] (finish_measurement ends a streak when
+    the row is judged within its threshold, or when its host's next tip run does not judge it, or after
+    PENDING_MAX_HOURS):
+    - confirmed: CONFIRM_SAMPLES baseline values and the last 2 values of the streak outside the spread (spread_top);
+      first_bad is the earlier one, and range_good the newest commit of the baseline window when the week-old values
+      were the reference (a creep).
+    - a level change: CONFIRM_SAMPLES candidates in a row that cannot be confirmed (too few values, or not both
+      outside the spread): the row's baseline restarts from them, listed in the issue (state['baseline_restarts']).
+    - unconfirmed: every other candidate, with why."""
     pending = state.setdefault("pending", {})
-    building = state.setdefault("building", {})
-    confirmed, unconfirmed = [], []
+    confirmed, unconfirmed, restarted = [], [], set()
     for r in regs:
-        samples = baseline_samples(state, r["name"], t)
-        entry = {"name": r["name"], "p95": r["p95"], "unit": r.get("unit"), "base": r.get("base"),
-                 "max": max(samples) if samples else None, "samples": len(samples), "sha": cur["sha"], "at": iso(t),
-                 "run_url": run_url}
-        if len(samples) < CONFIRM_SAMPLES:
-            # Held out of the baseline (it builds only from values that are not regressed, review 2): a regression
-            # right after a macOS change or on a new host is not absorbed. CONFIRM_SAMPLES held values in a row mean
-            # the first value was the odd one: the baseline restarts from them, listed as unconfirmed.
-            held = [e for e in building.get(r["name"]) or [] if isinstance(e, dict)] + \
-                [{"at": iso(t), "p95": r["p95"], "sha": cur["sha"]}]
-            if len(held) >= CONFIRM_SAMPLES:
-                building.pop(r["name"], None)
-                state.setdefault("row_history", {})[r["name"]] = [{"at": e["at"], "p95": e["p95"]} for e in held]
-                entry["restarted"] = True
-                restarts = state.setdefault("baseline_restarts", [])
-                restarts.append({"name": r["name"], "at": iso(t), "sha": cur["sha"], "run_url": run_url,
-                                 "before": samples, "after": [e["p95"] for e in held]})
-                state["baseline_restarts"] = restarts[-20:]
-                entry["why"] = (f"the baseline restarted from {len(held)} values held while it built (its earlier "
-                                f"{len(samples)} value(s) were lower; a regression in that window is not judged)")
-            else:
-                building[r["name"]] = held
-                entry["why"] = f"the baseline has {len(samples)} of {CONFIRM_SAMPLES} values; held out of it"
-        elif not outside_spread(r, samples, regression):
-            entry["why"] = "within the baseline's spread"
-            pending.pop(r["name"], None)
-        elif r["name"] in pending:
-            first = pending.pop(r["name"])
-            confirmed.append({**r, "confirmed": True, "first_bad": {"sha": first["sha"], "run_url": first.get("run_url"),
-                                                                    "measured_at": first.get("at")}})
+        name = r["name"]
+        window, aged = baseline_window(state, name, t)
+        samples = [e["p95"] for e in window]
+        value = {"sha": cur["sha"], "p95": r["p95"], "at": iso(t), "run_url": run_url}
+        prior = pending.get(name) if isinstance(pending.get(name), dict) else {}
+        streak = [v for v in prior.get("values") or [] if isinstance(v, dict)][-(CONFIRM_SAMPLES - 1):] + [value]
+        entry = {"name": name, "p95": r["p95"], "unit": r.get("unit"), "base": r.get("base"),
+                 "top": spread_top(samples) if samples else None, "samples": len(samples), "sha": cur["sha"],
+                 "at": iso(t), "run_url": run_url, "held": len(streak)}
+        out = [len(samples) >= CONFIRM_SAMPLES and outside_spread(r, v["p95"], samples, regression) for v in streak]
+        if len(streak) >= 2 and out[-1] and out[-2]:
+            first = streak[-2]
+            good_sha = next((e.get("sha") for e in reversed(window) if is_sha(e.get("sha"))), None) if aged else None
+            confirmed.append({**r, "confirmed": True, "range_good": good_sha,
+                              "first_bad": {"sha": first["sha"], "run_url": first.get("run_url"), "measured_at": first.get("at")}})
+            pending.pop(name, None)
             continue
+        if len(streak) >= CONFIRM_SAMPLES:
+            pending.pop(name, None)
+            state.setdefault("row_history", {})[name] = [{"at": v["at"], "p95": v["p95"], "sha": v["sha"]} for v in streak]
+            restarted.add(name)
+            restarts = state.setdefault("baseline_restarts", [])
+            restarts.append({"name": name, "at": iso(t), "sha": cur["sha"], "run_url": run_url,
+                             "before": samples, "after": [v["p95"] for v in streak]})
+            state["baseline_restarts"] = restarts[-20:]
+            entry["restarted"] = True
+            entry["why"] = (f"a candidate {len(streak)} times in a row that could not be confirmed: its baseline restarted "
+                            f"from those values (a level change; check it by hand)")
         else:
-            entry["why"] = "outside the baseline's spread once; the next tip measurement confirms it or clears it"
-            pending[r["name"]] = {"sha": cur["sha"], "p95": r["p95"], "at": iso(t), "run_url": run_url}
+            pending[name] = {"values": streak, "at": iso(t), "sha": cur["sha"]}
+            if len(samples) < CONFIRM_SAMPLES:
+                entry["why"] = f"the baseline has {len(samples)} of {CONFIRM_SAMPLES} values; held out of it"
+            elif out[-1]:
+                entry["why"] = "outside the baseline's spread once; the next tip measurement confirms it or clears it"
+            else:
+                entry["why"] = "within the baseline's spread; held out of it"
         unconfirmed.append(entry)
-    return confirmed, unconfirmed
+    return confirmed, unconfirmed, restarted
 
 
 def note_list(prefix, names):
@@ -1787,7 +1854,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # unknown one), or a row on another macOS, was measured but not compared, so it neither clears a regression nor
     # counts as good.
     skipped = set(refresh_skipped(part_rows, base_rows, refresh_ms, good_refresh))
-    moved = set(os_changed(part_rows, base_rows)) - skipped
+    versioned = set(version_changed(part_rows, base_rows)) - skipped
+    moved = (set(os_changed(part_rows, base_rows)) | versioned) - skipped
     judged = {n: r for n, r in part_rows.items() if n not in skipped and n not in moved}
     if cur["kind"] == "bisect":
         entry["status"], entry["note"] = bisect_step(state, cur, judged, regs)
@@ -1802,7 +1870,7 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     row_ok = state.setdefault("row_ok", {})
     if not good:
         state["last_good"] = record
-        remember_good(state, part_rows, refresh_ms, t)
+        remember_good(state, part_rows, refresh_ms, t, sha=cur["sha"])
         if not failed:
             state["last"] = record  # a first run with a part that did not run is the baseline, not a stale reset
         state["regressions"] = []
@@ -1826,8 +1894,11 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         record["os_rebased"] = {n: [macos_minor((base_rows.get(n) or {}).get("macos")), macos_minor(part_rows[n].get("macos"))]
                                 for n in os_rebased}
         closed = sorted(n for n in os_rebased if n in open_names)
-        if closed:
-            notes.append(note_list("rebased on a macOS change, not judged", closed))
+        by_version = sorted(n for n in closed if n in versioned)
+        if by_version:
+            notes.append(note_list("rebased on a measurement version change, not judged", by_version))
+        if set(closed) - set(by_version):
+            notes.append(note_list("rebased on a macOS change, not judged", sorted(set(closed) - set(by_version))))
     all_rebased = set(rebased) | set(os_rebased)
     if all_rebased:
         entry["rebased"] = sorted(all_rebased)
@@ -1836,22 +1907,25 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         judged = {**judged, **{n: part_rows[n] for n in all_rebased}}
     old = {r["name"]: r for r in state.get("regressions") or []}
     # A row regressed already stays regressed while it is still worse; a new candidate must be confirmed first.
-    confirmed, unconfirmed = confirm_regressions(state, [r for r in regs if r["name"] not in old], cur, run_url, t,
-                                                 getattr(budgets_mod, "REGRESSION", 0.10))
-    # Rows judged in this run that are no candidate any more: a pending one was noise, a building one is good again.
+    confirmed, unconfirmed, restarted = confirm_regressions(state, [r for r in regs if r["name"] not in old], cur, run_url,
+                                                            t, getattr(budgets_mod, "REGRESSION", 0.10))
+    # Rows judged in this run that are no candidate any more: a pending one was noise.
     candidates = {r["name"] for r in regs}
-    for key in ("pending", "building"):
-        for name in [n for n in state.get(key) or {} if n in judged and n not in candidates]:
-            state[key].pop(name)
+    for name in [n for n in state.get("pending") or {} if n in judged and n not in candidates]:
+        state["pending"].pop(name)
     # A pending row that this measurement did not judge although it ran on the row's host, or one older than
     # PENDING_MAX_HOURS, expires: its confirming run must be the next one on its host.
+    # A part that failed or yielded did not judge the row: that keeps it (done-failed-done confirms).
     ran_here = {row_host(n) for n in part_rows}
+    done_parts = {n for n, p in cur["parts"].items() if p.get("state") == "done"}
     for name, value in list((state.get("pending") or {}).items()):
         since = parse_iso((value or {}).get("at")) if isinstance((value or {}).get("at"), str) else None
-        if (name not in judged and row_host(name) in ran_here) or since is None or hours_between(since, t) > PENDING_MAX_HOURS:
+        unjudged = name not in judged and row_host(name) in ran_here and part_for_row(name) in done_parts
+        if unjudged or since is None or hours_between(since, t) > PENDING_MAX_HOURS:
             state["pending"].pop(name)
-    restarted = {e["name"] for e in unconfirmed if e.get("restarted")}
-    held = {e["name"] for e in unconfirmed if e["name"] in (state.get("pending") or {}) or e["name"] in (state.get("building") or {})}
+    # A candidate's value is never a good value (review 1 of the confirm rule): it moves neither row_ok nor the
+    # baseline, so a later confirmation's range starts at the newest commit good against the reference.
+    held = candidates
     state["unconfirmed"] = no_ref + unconfirmed
     regressions = []
     for r in [r for r in regs if r["name"] in old] + confirmed:
@@ -1860,7 +1934,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             r["range"], r["first_bad"] = prev["range"], prev.get("first_bad")
         else:
             first = (r.get("first_bad") or {}).get("sha") or cur["sha"]
-            r["range"] = {"good": row_ok.get(r["name"]) or good["sha"], "bad": first, "skip": [], "steps": 0}
+            start = r.pop("range_good", None) or row_ok.get(r["name"]) or good["sha"]
+            r["range"] = {"good": start, "bad": first, "skip": [], "steps": 0}
             r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
         r["confirmed"] = True
         regressions.append(r)
@@ -1869,7 +1944,7 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # Every good value is a baseline value of its own row (see the docstring); a rebased row restarted already.
     accepted = {n: r for n, r in judged.items() if n not in now_bad and n not in all_rebased and n not in restarted}
     state["last_good"] = {**state["last_good"], "rows": {**(state["last_good"].get("rows") or {}), **accepted}}
-    remember_good(state, accepted, refresh_ms, t, good)
+    remember_good(state, accepted, refresh_ms, t, good, sha=cur["sha"])
     ran_on = {row_host(n) for n in part_rows}
     linux_classes = {row_host(n) for n in part_rows if linux_row(n)}
     class_gone = sorted(n for n in old if n not in judged and linux_row(n) and linux_classes
@@ -2043,6 +2118,9 @@ def plan(o):
     d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac,
                controller_route=bool(getattr(o, "controller", False)) and not no_mac)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
+    if state.get("current") and isinstance(tip_version, int):
+        # The measurement version its Mac rows carry (fleet_runs measures only commits of the tip's version).
+        state["current"].setdefault("measure_version", tip_version)
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
@@ -2550,6 +2628,8 @@ def report(o):
                 for row in part_rows.values():
                     row.setdefault("refresh_ms", r)
                     row.setdefault("macos", macos_minor(p.get("macos")))
+                    if isinstance(cur.get("measure_version"), int):
+                        row.setdefault("measure_version", cur["measure_version"])
             # Each part's rows carry the host that ran that part (a Mac worker, or the Linux part's runner class).
             rows.update(host_rows(part_rows, worker))
         refresh_ms = sorted(refresh)[len(refresh) // 2] if refresh else None
