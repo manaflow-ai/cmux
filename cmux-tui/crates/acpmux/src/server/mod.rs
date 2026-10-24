@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{Semaphore, broadcast, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -86,6 +86,19 @@ pub struct Conn {
 // slots so a burst of requests cannot keep a cancel from being admitted.
 const REQUEST_WORK_LIMIT: usize = 64;
 const NOTIFICATION_WORK_LIMIT: usize = 16;
+
+async fn notification_slot(
+    slots: Arc<Semaphore>,
+    reader_done: &mut Option<oneshot::Receiver<()>>,
+) -> Option<OwnedSemaphorePermit> {
+    match reader_done {
+        Some(done) => tokio::select! {
+            slot = slots.acquire_owned() => slot.ok(),
+            _ = done => None,
+        },
+        None => slots.acquire_owned().await.ok(),
+    }
+}
 
 impl Conn {
     /// Whether this connection is the person (`hub/person.rs`).
@@ -563,7 +576,11 @@ pub async fn serve_ws_with(
             {
                 return;
             }
+            let (reader_done_tx, reader_done_rx) = oneshot::channel();
             let reader = tokio::spawn(async move {
+                // Dropping this sender also signals an aborted reader (token
+                // rotation and peer revocation use that path).
+                let _reader_done = reader_done_tx;
                 while let Some(frame) = source.next().await {
                     let frame = match frame {
                         Ok(frame) => frame,
@@ -622,7 +639,8 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, Some(reader_done_rx))
+                .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -798,7 +816,7 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -809,6 +827,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    mut reader_done: Option<oneshot::Receiver<()>>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -861,8 +880,17 @@ async fn serve_connection_from(
                     let error = RpcError::new(-32000, "connection request limit reached")
                         .with_data(json!({"reason": "connection.busy", "retryable": true}));
                     // Backpressure this connection when its output is also
-                    // full; a rejected request must receive a reply.
-                    if conn.out.send(Message::err(id, error).to_line()).await.is_err() {
+                    // full; a rejected request must receive a reply while
+                    // its transport remains connected.
+                    let send = conn.out.send(Message::err(id, error).to_line());
+                    let delivered = match reader_done.as_mut() {
+                        Some(done) => tokio::select! {
+                            sent = send => sent.is_ok(),
+                            _ = done => false,
+                        },
+                        None => send.await.is_ok(),
+                    };
+                    if !delivered {
                         break;
                     }
                     continue;
@@ -886,8 +914,12 @@ async fn serve_connection_from(
             Message::Notification { method: m, params } => {
                 // Notifications have no response id, so dropping one at the
                 // limit would silently lose a cancel. Let the transport's
-                // bounded inbound channel apply backpressure instead.
-                let Ok(slot) = notification_slots.clone().acquire_owned().await else {
+                // bounded inbound channel apply backpressure instead. If the
+                // transport reader ends while handlers are stuck, continue to
+                // connection cleanup without waiting for one of their slots.
+                let Some(slot) =
+                    notification_slot(notification_slots.clone(), &mut reader_done).await
+                else {
                     break;
                 };
                 let hub = hub.clone();
@@ -1126,5 +1158,33 @@ mod nodelay_tests {
         assert!(!accepted.nodelay().unwrap(), "a fresh socket has Nagle on");
         tune_ws_socket(&accepted);
         assert!(accepted.nodelay().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod notification_limit_tests {
+    use super::{NOTIFICATION_WORK_LIMIT, notification_slot};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{Semaphore, oneshot};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_closed_reader_interrupts_notification_backpressure() {
+        let slots = Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT));
+        let held: Vec<_> = (0..NOTIFICATION_WORK_LIMIT)
+            .map(|_| slots.clone().try_acquire_owned().unwrap())
+            .collect();
+        let (reader, done) = oneshot::channel();
+        let waiting = tokio::spawn(async move {
+            let mut done = Some(done);
+            notification_slot(slots, &mut done).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished(), "all notification slots are held");
+        drop(reader);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap().unwrap().is_none()
+        );
+        drop(held);
     }
 }

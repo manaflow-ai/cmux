@@ -4,7 +4,7 @@
 use super::{ConnAuth, Hub, Origin, serve_connection_from};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 /// One daemon socket connection: newline-delimited JSON-RPC both ways.
 pub(super) async fn serve_stream(
@@ -15,7 +15,9 @@ pub(super) async fn serve_stream(
     let (rd, mut wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(256);
     let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+    let (reader_done_tx, reader_done_rx) = oneshot::channel();
     tokio::spawn(async move {
+        let _reader_done = reader_done_tx;
         let mut lines = BufReader::new(rd).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if in_tx.send(line).await.is_err() {
@@ -30,5 +32,14 @@ pub(super) async fn serve_stream(
             }
         }
     });
-    serve_connection_from(hub, in_rx, out_tx, Origin::Local, ConnAuth::LocalSocket, peer).await;
+    serve_connection_from(
+        hub,
+        in_rx,
+        out_tx,
+        Origin::Local,
+        ConnAuth::LocalSocket,
+        peer,
+        Some(reader_done_rx),
+    )
+    .await;
 }
