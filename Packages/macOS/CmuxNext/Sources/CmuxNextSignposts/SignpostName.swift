@@ -5,8 +5,8 @@
 /// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
 /// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
 ///
-/// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``stallMainTask`` and ``stallOverBudget``
-/// have an emitter today. The other cases are
+/// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``stallMainTask``, ``stallOverBudget``
+/// and ``daemonRequest`` have an emitter today. The other cases are
 /// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
 /// section 7). Until then no build records them, and no bench or report may quote them.
 ///
@@ -84,6 +84,14 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
     /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`.
     case stallOverBudget
+    // MARK: daemon (PL-telemetry, for PL-trace)
+
+    /// One request the app sends the daemon: written to the socket (with its client-minted id) to
+    /// its reply resumed in the requester. Message `method=<cmd> id=<request id>`; the id is the
+    /// `id` field of the request line, which the daemon's span carries, so a trace joins both.
+    /// One name for every kind: `os_signpost` names are compile-time strings, so the kind is the
+    /// message's `method`. High frequency: the MetricKit mirror leaves it out.
+    case daemonRequest
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
@@ -103,6 +111,7 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .cefCreateBrowser: "cef.create_browser"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
+        case .daemonRequest: "daemon.request"
         }
     }
 

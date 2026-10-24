@@ -51,6 +51,8 @@ public nonisolated struct Signposter: Sendable {
     public static let launch = Signposter(category: .launch)
     /// ``SignpostCategory/stall``.
     public static let stall = Signposter(category: .stall)
+    /// ``SignpostCategory/daemon``.
+    public static let daemon = Signposter(category: .daemon)
 
     /// Whether the log system takes this category's signposts (true unless a logging profile
     /// turns the subsystem off; it does not mean a recorder is attached). Skip work that only
@@ -102,6 +104,21 @@ public nonisolated struct Signposter: Sendable {
         let state = signposter.beginInterval(name.staticName, id: id,
                                              "class=\(taskClass, privacy: .public) owner=\(owner, privacy: .public)")
         return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
+    /// Begins a ``SignpostName/daemonRequest`` interval: `method=<cmd> id=<request id>`, formatted
+    /// by the log system only when something reads it (no string is built on the request path).
+    ///
+    /// - Parameters:
+    ///   - method: The request's `cmd`.
+    ///   - id: The request's client-minted id (its line's `id`).
+    /// - Returns: The state to pass to ``end(_:_:)`` with ``SignpostName/daemonRequest``.
+    public func beginDaemonRequest(method: String, id: UInt64) -> SignpostInterval {
+        assert(category == .daemon, "daemon.request is not in category \(category)")
+        let signpostID = signposter.makeSignpostID()
+        let state = signposter.beginInterval(SignpostName.daemonRequest.staticName, id: signpostID,
+                                             "method=\(method, privacy: .public) id=\(id, privacy: .public)")
+        return SignpostInterval(state: state, metricKitID: nil)
     }
 
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.

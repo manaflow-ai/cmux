@@ -36,6 +36,7 @@ struct SignpostMetricKitMirrorTests {
         mirror.setOn(true)
         #expect(!SignpostMetricKitMirror.mirrors(.motionFrame))
         #expect(!SignpostMetricKitMirror.mirrors(.cefPump))
+        #expect(!SignpostMetricKitMirror.mirrors(.daemonRequest))
         #expect(SignpostMetricKitMirror.mirrors(.actionPerform))
         #expect(SignpostMetricKitMirror.mirrors(.switchWorkspace))
         let frame = signposter(.motion).begin(.motionFrame)
