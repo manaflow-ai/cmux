@@ -372,6 +372,24 @@ def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> N
     assert any("newest green source commit" in note for note in out["notices"]), out["notices"]
 
 
+def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
+    older, newer, tip = "e" * 40, "d" * 40, "f" * 40
+    commits = [
+        {"sha": tip, "parents": [{"sha": newer}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": newer, "parents": [{"sha": older}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": older, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(
+        sha=tip, sourceHead=tip, onSource={tip: "identical"}, commits=commits,
+        runs=[gate_run(id=8, head_sha=older, created_at="2026-10-24T01:00:00Z"), gate_run(id=9, head_sha=newer, created_at="2026-10-24T00:59:00Z")],
+        jobs={"8": GREEN, "9": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == newer, out
+
+
 def test_admission_retries_while_the_index_lags() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"
