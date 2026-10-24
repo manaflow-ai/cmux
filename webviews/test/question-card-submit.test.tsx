@@ -182,9 +182,14 @@ test("Other with typed text answers a question: the button says Next and Enter g
 
 test("Enter in the Other field of the last open question submits the card", async () => {
   const { container, replies } = await renderCard();
-  // References first: a click answers it and the card moves to the one still open.
+  // References first: a click answers it and stays there (Submit names the one still open), then
+  // its tab goes back to the open one.
   await click(container.querySelectorAll(".acpmux-question-tab")[1]);
   await click(container.querySelector(".acpmux-question-row[data-row='1']"));
+  expect(activeTab(container)).toBe("References");
+  expect(replies).toEqual([]);
+  expect(container.querySelector(".acpmux-question-hint")?.textContent?.trim()).toBe("Answer New tab pick to submit");
+  await click(container.querySelectorAll(".acpmux-question-tab")[0]);
   expect(activeTab(container)).toBe("New tab pick");
 
   const field = await answerOther(container, "idk");
