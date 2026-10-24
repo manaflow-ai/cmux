@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 import Testing
 
@@ -23,17 +24,25 @@ struct NewChatAfterItsDockClosedTests {
             let content = try #require(window.workspaceContent)
             let pane = try #require(window.focusedPane)
             let store = services.daemon.store
-            /// The workspace's agent chats the store made (no provisional stand-in), with their panes.
+            // The launch pane can show the agent New Tab page, a conversation tab without a
+            // session: it is not a chat this test opened, so it is left out of `chats()`.
+            let launchTabs = Set(content.workspace.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            /// The agent chats Cmd-I made in the workspace (no provisional stand-in), with their panes.
             @MainActor func chats() -> [(tab: TabModel, pane: PaneModel)] {
                 content.workspace.screens.flatMap(\.panes).flatMap { model in
-                    model.tabs.filter { $0.conversation != nil && !ProvisionalTab.isProvisional($0.id) }.map { ($0, model) }
+                    model.tabs.filter { $0.conversation != nil && !ProvisionalTab.isProvisional($0.id) && !launchTabs.contains($0.id) }
+                        .map { (tab: $0, pane: model) }
                 }
+            }
+            /// Whether the pane's screen has a chat dock column.
+            @MainActor func hasChatDock() -> Bool {
+                guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return false }
+                return ChatColumnPlacement.columns(of: screen, containing: pane.layoutPaneID).contains { $0.dock?.role == .agentChat }
             }
             @MainActor func describe() -> String {
                 "chats \(chats().map { "\($0.tab.id)@\($0.pane.handle.rawValue)" }), pane \(pane.pane.handle.rawValue), "
                     + "focused \(String(describing: content.focusedPane?.pane.handle.rawValue)), on its way \(pane.pendingDock)"
             }
-            try #require(chats().isEmpty, "the launch workspace holds no chat")
 
             // Cmd-I: the chat opens hidden here, docks left, and takes the focus there (after
             // the pane is told the dock answered: `dockFinished`, then `focusWhenShown`).
@@ -43,10 +52,14 @@ struct NewChatAfterItsDockClosedTests {
                 return chat.pane !== pane.pane && content.focusedPane?.pane === chat.pane
             }, report: { describe() })
             let first = try #require(chats().first)
+            // The dock answered: the pane waits for no chat any more, under either of its ids.
+            #expect(pane.pendingDock.isEmpty, "the docked chat is still on its way: \(describe())")
 
             // The person closes the chat; its dock goes with its one tab.
             try await connection.closeTab(first.tab.surface)
             try await PasswordManagerRouteTests.until({ store.tab(id: first.tab.id) == nil && chats().isEmpty }, report: { describe() })
+            // Its dock went with it; a dock that stayed would take the next Cmd-I (``DockedAgentChat``), not a pane on its way.
+            try await PasswordManagerRouteTests.until({ !hasChatDock() }, report: { "the chat dock stayed after its one chat closed: " + describe() })
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PasswordManagerRouteTests.until({ content.focusedPane === pane }, report: { describe() })
 
