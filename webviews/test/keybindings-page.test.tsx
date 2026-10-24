@@ -503,6 +503,30 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(provider.recording).toBe(true);
   expect(choices()).toBeFalsy();
 
+  // Shared in some contexts only (Find runs in a terminal, New Tab everywhere): "Also used by",
+  // no red light, Save ↩ keeps both, New Tab keeps ⌘W (it took it above).
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+  await click(row("Find")?.querySelector(".keys-key-button"));
+  await keys("cmd+w");
+  expect(recorder()?.querySelector(".keys-recorder-shared")?.textContent).toBe(
+    strings.format("keybindings.page.recorder.alsoUsedBy", "New Tab"),
+  );
+  expect(recorder()?.textContent).toContain(strings.format("keybindings.page.recorder.keepsBoth", "Find", "New Tab"));
+  expect(recorder()?.querySelector(".keys-recorder-light.danger")).toBeNull();
+  expect(recorder()?.querySelector(".keys-recorder-keys.refused")).toBeNull();
+  const removesBefore = provider.calls.filter(({ op }) => op === KeybindingOps.remove).length;
+  await act(async () => {
+    provider.press("return");
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets().at(-1)?.params).toMatchObject({ command: "find.open", key: "cmd+w" });
+  expect(provider.calls.filter(({ op }) => op === KeybindingOps.remove)).toHaveLength(removesBefore);
+  expect(row("New Tab")?.querySelector(".keys-key-button")?.textContent).toBe("⌘W");
+
   // The fourth stroke ends the recording (the app's limit): the chord saves and the recorder closes.
   await act(async () => {
     provider.cancel();

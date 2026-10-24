@@ -59,6 +59,8 @@ export interface ConflictPrompt {
   display: string;
   /** The entries the keys would take (`cmux.keybindings.conflicts`). */
   conflicts: Binding[];
+  /** The others keep the keys where only they run: Save keeps both (else Overwrite takes them). */
+  keepBoth: boolean;
   /** After the answer: the recording goes on (a release asked), or closes (Close or Return). */
   after: "continue" | "close";
 }
@@ -319,7 +321,7 @@ export class KeybindingsStore {
   /** The recorder's answer to keys another action has: `overwrite` takes them from the other
    *  actions first, then saves them (a key that action always runs is free then); `close` saves
    *  nothing and closes. A new shortcut instead drops the question (onRecorded). */
-  async resolveConflict(choice: "overwrite" | "close"): Promise<void> {
+  async resolveConflict(choice: "overwrite" | "save" | "close"): Promise<void> {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row" || !recording.prompt) return;
     const { prompt } = recording;
@@ -338,7 +340,8 @@ export class KeybindingsStore {
     // While the writes run the recorder holds no keys of its own: Return's release (the key
     // that answered) must not commit these keys a second time.
     this.set({ recording: { ...asked, key: "" } });
-    for (const other of prompt.conflicts) {
+    // Save keeps the other actions' keys (they keep them where only they run).
+    for (const other of choice === "save" ? [] : prompt.conflicts) {
       try {
         await this.client?.call(KeybindingOps.remove, {
           command: other.command,
@@ -409,7 +412,7 @@ export class KeybindingsStore {
         return;
       }
       if (only.length === 1 && (only[0] === "return" || only[0] === "enter")) {
-        void this.resolveConflict("overwrite");
+        void this.resolveConflict(recording.prompt.keepBoth ? "save" : "overwrite");
         return;
       }
       if (event.released || !event.key) return;
@@ -472,7 +475,9 @@ export class KeybindingsStore {
   private async commit(recording: Extract<Recording, { target: "row" }>, after: "continue" | "close"): Promise<void> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
-    const { conflicts, refusal, owner } = same ? { conflicts: [] } : await this.conflictsOf(binding, key);
+    const { conflicts, refusal, owner, keepBoth } = same
+      ? { conflicts: [], keepBoth: false }
+      : await this.conflictsOf(binding, key);
     const current = this.snapshot.recording;
     // Newer keys went down (or another row records) while the app answered: they decide.
     if (current?.target !== "row" || current.row !== recording.row || current.key !== key || current.prompt) return;
@@ -485,7 +490,15 @@ export class KeybindingsStore {
     }
     if (conflicts.length) {
       // Taken: the recorder asks (Overwrite, or record a new shortcut).
-      await this.recapture({ ...current, key, display, held: "", warned, prompt: { key, display, conflicts, after } });
+      await this.recapture({
+        ...current,
+        key,
+        display,
+        held: "",
+        // The red light is for keys one of the two would lose everywhere they share.
+        warned: keepBoth ? current.warned : warned,
+        prompt: { key, display, conflicts, keepBoth, after },
+      });
       return;
     }
     const saved = await this.save({ ...current, key, display });
@@ -501,14 +514,19 @@ export class KeybindingsStore {
   private async conflictsOf(
     binding: Binding,
     key: string,
-  ): Promise<{ conflicts: Binding[]; refusal?: string; owner?: string }> {
+  ): Promise<{ conflicts: Binding[]; refusal?: string; owner?: string; keepBoth: boolean }> {
     try {
       // As `set` gets them (setParams), so the app works out the `when` the write would carry.
       const { idempotency_key: _, ...params } = this.setParams(binding, key, binding.when);
       const result = await this.client?.call<ConflictsResult>(KeybindingOps.conflicts, params);
-      return { conflicts: result?.bindings ?? [], refusal: result?.refusal, owner: result?.owner };
+      return {
+        conflicts: result?.bindings ?? [],
+        refusal: result?.refusal,
+        owner: result?.owner,
+        keepBoth: result?.keep_both === true,
+      };
     } catch {
-      return { conflicts: [] };
+      return { conflicts: [], keepBoth: false };
     }
   }
 

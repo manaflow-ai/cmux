@@ -580,6 +580,16 @@
   color: var(--keys-taken);
 }
 
+/* Shared in some contexts only: the title in the primary ink, no alarm. */
+.keys-recorder-shared {
+  display: block;
+  max-width: 280px;
+  font-size: var(--text-title);
+  font-weight: 600;
+  color: var(--ui-fg);
+}
+
+.keys-recorder-shared .keys-recorder-owner,
 .keys-recorder-refusal .keys-recorder-owner {
   font-weight: 700;
 }

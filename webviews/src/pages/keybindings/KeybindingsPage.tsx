@@ -360,7 +360,8 @@ function Recorder({
   const owners = prompt ? [...new Set(prompt.conflicts.map((other) => other.title))].join(", ") : "";
   // After a save: the saved keys' conflicts.
   const titles = prompt ? [] : [...new Set(saved.map((other) => other.title))];
-  const taken = Boolean(prompt || recording.refusal);
+  // Keys one of the two would lose wherever they share: red. Both keeping them: no alarm.
+  const taken = Boolean((prompt && !prompt.keepBoth) || recording.refusal);
   return (
     <Popover
       open
@@ -385,7 +386,16 @@ function Recorder({
         // The taken light: red, shining down through the glass as the keys turn red.
         <span key={`warned-${recording.warned}`} className="keys-recorder-light danger" aria-hidden="true" />
       )}
-      {prompt ? (
+      {prompt?.keepBoth ? (
+        // Shared in some contexts only: "Also used by <action>"; Save keeps both.
+        <output className="keys-recorder-shared">
+          {fill(t("keybindings.page.recorder.alsoUsedBy"), [
+            <strong key="owner" className="keys-recorder-owner">
+              {owners}
+            </strong>,
+          ])}
+        </output>
+      ) : prompt ? (
         // Taken: "Already used by <action>", the keys in red, "Overwrite it or record a new shortcut".
         <output className="keys-recorder-refusal">
           {fill(t("keybindings.page.recorder.alreadyUsedBy"), [
@@ -436,7 +446,11 @@ function Recorder({
           <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
         )}
       </button>
-      {prompt ? (
+      {prompt?.keepBoth ? (
+        <div className="keys-recorder-hint">
+          {strings.format("keybindings.page.recorder.keepsBoth", binding.title, owners)}
+        </div>
+      ) : prompt ? (
         <div className="keys-recorder-hint">{t("keybindings.page.recorder.overwriteOrRecord")}</div>
       ) : recording.refusal && recording.refusalOwner ? (
         <div className="keys-recorder-hint">{recording.refusal}</div>
@@ -469,15 +483,27 @@ function Recorder({
             >
               {withKeys(t("keybindings.page.recorder.closeOnly"), ["esc"])}
             </button>
-            <button
-              type="button"
-              className="keys-recorder-button keys-recorder-overwrite"
-              aria-keyshortcuts="Enter"
-              onMouseDown={keepFocus}
-              onClick={() => void store.resolveConflict("overwrite")}
-            >
-              {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
-            </button>
+            {prompt.keepBoth ? (
+              <button
+                type="button"
+                className="keys-recorder-button keys-recorder-overwrite"
+                aria-keyshortcuts="Enter"
+                onMouseDown={keepFocus}
+                onClick={() => void store.resolveConflict("save")}
+              >
+                {withKeys(t("keybindings.page.recorder.save"), ["↩"])}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="keys-recorder-button keys-recorder-overwrite"
+                aria-keyshortcuts="Enter"
+                onMouseDown={keepFocus}
+                onClick={() => void store.resolveConflict("overwrite")}
+              >
+                {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
+              </button>
+            )}
           </span>
         ) : (
           <button

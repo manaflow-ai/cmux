@@ -357,18 +357,21 @@ export class MockKeybindingsProvider implements PageClient {
   private conflicts(params: { command: string; key: string; when?: string | null }): ConflictsResult {
     const { bindings } = this.list();
     const owner = this.refused.get(normalized(params.key));
+    const taken = bindings.filter(
+      (b) =>
+        !b.removed &&
+        !b.unset &&
+        b.command !== params.command &&
+        normalized(b.key) === normalized(params.key) &&
+        whenOverlaps(b.when, params.when ?? null),
+    );
     return {
+      // As the app's recorder rules: both may keep the keys unless one is in the same place.
+      keep_both: taken.every((b) => (b.when ?? null) !== (params.when ?? null)),
       ...(owner
         ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.`, owner }
         : {}),
-      bindings: bindings.filter(
-        (b) =>
-          !b.removed &&
-          !b.unset &&
-          b.command !== params.command &&
-          normalized(b.key) === normalized(params.key) &&
-          whenOverlaps(b.when, params.when ?? null),
-      ),
+      bindings: taken,
     };
   }
 
