@@ -14,10 +14,10 @@ struct ErrorSegmentStore {
     private var sequence = 0
     private var cleanupPending = false
 
+    /// Touches no disk; ``load()`` makes the folder.
     init(directory: URL, segmentBytes: Int) {
         self.directory = directory
         self.segmentBytes = segmentBytes
-        try? Self.protectDirectory(directory)
     }
 
     private static let prefix = "segment-"
@@ -37,6 +37,7 @@ struct ErrorSegmentStore {
     /// The journal canonicalizes every snapshot before choosing the newest one
     /// per fingerprint, so a secret in shadowed history still triggers compaction.
     mutating func load() -> [ErrorEntry] {
+        try? Self.protectDirectory(directory)
         var entries: [ErrorEntry] = []
         let decoder = JSONDecoder()
         let all = segments()
