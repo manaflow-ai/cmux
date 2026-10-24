@@ -255,6 +255,35 @@ export const GitHubIssueComment = providerOp(
   "Comment on a GitHub issue or pull request as the cmux GitHub App installation."
 )
 
+const GitHubRepo = Schema.String.check(Schema.isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))
+
+/** Read the current head/base of a pull request for preview or build routing. */
+export const GitHubPullRequestGet = def({
+  name: "github.pull_request.get",
+  owner: "cloud:ConnectionDO",
+  class: "read",
+  risk: "read",
+  target: "connection",
+  principals: ["session", "install"],
+  params: Schema.Struct({ connection: ConnectionId, repo: GitHubRepo, number: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1e9 })) }),
+  result: Schema.Struct({
+    number: Schema.Int,
+    title: Schema.String,
+    state: Schema.Literals(["open", "closed"]),
+    draft: Schema.Boolean,
+    html_url: Schema.String,
+    head: Schema.Struct({ ref: Schema.String, sha: Schema.String }),
+    base: Schema.Struct({ ref: Schema.String, sha: Schema.String }),
+    mergeable: Schema.NullOr(Schema.Boolean),
+    mergeable_state: Schema.String,
+    updated_at: Schema.String
+  }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found", "integration.unavailable", "provider.error", "policy.denied"],
+  docs: "Read a pull request's head/base refs and merge state for a branch preview or cloud build.",
+  cli: { path: "github pull-request get", visible: true },
+  mcp: { expose: "default", group: "github" }
+})
+
 export const LinearIssueCreate = providerOp(
   "linear.issue.create",
   "mutate-shared",
@@ -285,7 +314,7 @@ export const LinearTeamsList = def({
 })
 
 /** Provider reads: no idempotency key, no effect; answered by the gateway with the stored token. */
-export const providerReadOpNames: ReadonlySet<string> = new Set([LinearTeamsList.name])
+export const providerReadOpNames: ReadonlySet<string> = new Set([GitHubPullRequestGet.name, LinearTeamsList.name])
 
 export const integrationOps = [
   IntegrationConnect,
@@ -295,6 +324,7 @@ export const integrationOps = [
   IntegrationPolicyGet,
   IntegrationApprovalGet,
   IntegrationPolicySet,
+  GitHubPullRequestGet,
   GitHubIssueComment,
   LinearIssueCreate,
   LinearTeamsList,
