@@ -1765,12 +1765,10 @@ svg[data-icon-fill] {
   gap: 6px;
   min-height: 50px;
   padding: 0 7px 0 8px;
-  /* No fill of its own: like the tab bar and every other page header, it shows the page's
-     backdrop. Blurred where a menu or the narrow files panel passes under it (--surface-blur is
-     none under Reduce Transparency). */
+  /* No fill and no backdrop filter, like the tab bar and every other page header: it shows the
+     page's backdrop as it is. (--surface-blur's saturate(1.4) tinted the flat color under it, so
+     the header read as a different color than the rest of the app.) */
   background: transparent;
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
 }
 /* toolbar-left is an inline-size container (the base picker's drop-order
    queries), so it cannot size to its content: it takes the header's width. */
