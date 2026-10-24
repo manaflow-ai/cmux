@@ -722,6 +722,10 @@ PACKAGE_DIR = "Packages/macOS/CmuxNext"
 # app code.
 MAPPED_KINDS = ("target", "executableTarget", "binaryTarget")
 TARGET_KINDS = MAPPED_KINDS + ("testTarget", "systemLibrary", "plugin", "macro")
+# The `type` that `swift package dump-package` writes for each kind, so a reader of the dump (arch-layers.py)
+# keeps exactly the MAPPED_KINDS targets this reader keeps.
+DUMP_TYPES = {"target": "regular", "executableTarget": "executable", "binaryTarget": "binary",
+              "testTarget": "test", "systemLibrary": "system", "plugin": "plugin", "macro": "macro"}
 UPPER_LAYERS = ("ui", "app")
 EDGE_CLASSES = ("hard", "soft", "upward")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

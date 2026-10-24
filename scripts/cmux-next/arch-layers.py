@@ -16,10 +16,14 @@ This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no n
 The inventory of singletons, broadcasts and DEBUG-only code is PL-guardrails'
 plans/cmux-next/codebase-health.md; `--counts` prints the same grep counts the design doc used.
 
-Usage: scripts/cmux-next/arch-layers.py [--dump FILE] [--json] [--counts]
-  --dump FILE  read dump-package JSON from FILE instead of running swift
-  --json       print one JSON object (for before/after rows in commit messages)
-  --counts     add the grep counts (static shared, MainActor.assumeIsolated, observers, #if DEBUG)
+Targets are the regular, executable and binary ones (arch_counts.py's MAPPED_KINDS, the same set the ratchet
+and the gate read); test targets are left out.
+
+Usage: scripts/cmux-next/arch-layers.py [--dump FILE] [--layers FILE] [--json] [--counts]
+  --dump FILE    read dump-package JSON from FILE instead of running swift
+  --layers FILE  read the layer map from FILE instead of plans/cmux-next/architecture-layers.json
+  --json         print one JSON object (for before/after rows in commit messages)
+  --counts       add the grep counts (static shared, MainActor.assumeIsolated, observers, #if DEBUG)
 """
 
 from __future__ import annotations
@@ -47,7 +51,8 @@ def load_counts():
     return module
 
 
-def load_graph(dump: str | None) -> dict[str, list[str]]:
+def load_graph(dump: str | None, mapped_types: set[str]) -> dict[str, list[str]]:
+    """Target -> dependency names for the dump's targets whose `type` is in MAPPED_TYPES."""
     if dump:
         data = json.loads(Path(dump).read_text())
     else:
@@ -56,7 +61,7 @@ def load_graph(dump: str | None) -> dict[str, list[str]]:
         data = json.loads(out)
     graph: dict[str, list[str]] = {}
     for target in data["targets"]:
-        if target["type"] not in ("regular", "binary"):
+        if target["type"] not in mapped_types:
             continue
         deps = []
         for dep in target.get("dependencies", []):
@@ -93,14 +98,15 @@ def main() -> int:
     parser.add_argument("--dump")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--counts", action="store_true")
+    parser.add_argument("--layers", default=str(LAYERS))
     args = parser.parse_args()
 
     counts = load_counts()
-    layer_map = counts.LayerMap.parse(LAYERS.read_text())
+    layer_map = counts.LayerMap.parse(Path(args.layers).read_text())
     if layer_map.error:
-        print(f"{LAYERS} does not parse: {layer_map.error}", file=sys.stderr)
+        print(f"{args.layers} does not parse: {layer_map.error}", file=sys.stderr)
         return 2
-    graph = load_graph(args.dump)
+    graph = load_graph(args.dump, {counts.DUMP_TYPES[kind] for kind in counts.MAPPED_KINDS})
 
     unplaced = sorted(name for name in graph if layer_map.placed(name) is None)
     found: dict[str, list[tuple[str, str, str, str]]] = {kind: [] for kind in counts.EDGE_CLASSES}
