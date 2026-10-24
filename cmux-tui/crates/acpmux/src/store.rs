@@ -145,6 +145,11 @@ pub struct SessionMeta {
     pub html_previews: bool,
     #[serde(default)]
     pub modes: Option<Value>,
+    /// The mode cmux itself last asked the harness for (its start default, the person's pick, a
+    /// policy's mode), never one the harness reported on its own: a chat in full access lends its
+    /// folder's trust only by this (`hub/trust_wait.rs`), so a harness that claims a mode gets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
     pub config_options: Option<Value>,
     #[serde(default)]

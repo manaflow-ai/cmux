@@ -9,7 +9,9 @@
 //! - the same chat starting outside its folder still waits on a card;
 //! - a chat that asks, in a trusted folder: a start under it still waits on a card;
 //! - a chat in full access whose own folder nobody decided: a start under it still waits on a card;
-//! - a folder the person marked untrusted under the full-access chat's folder is refused.
+//! - a folder the person marked untrusted under the full-access chat's folder is refused;
+//! - a chat whose harness reports full access on its own (no mode cmux set) still waits on a card;
+//! - a chat a Web client started still waits on a card.
 //!
 //! Stand-in agents (fake_agent.py). One test function: the settings file is read from this
 //! process's environment.
@@ -158,6 +160,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "asks/lanes",
         "undecided/lanes",
         "web/lanes",
+        "spoof/lanes",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -241,6 +244,20 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(
         start_waits_on_a_card(&hub, &mut app, &asks, &under).await,
         "no card for a chat that asks"
+    );
+
+    // A chat that asks, whose harness then reports full access on its own (the agent controls
+    // that report): it lends no trust, only a mode cmux set does.
+    decide("spoof", "trusted");
+    let spoof = app.new_session(&root.join("spoof"), "fake-ask").await;
+    let turn =
+        json!({"sessionId": spoof, "prompt": [{"type": "text", "text": "set-mode: full-access"}]});
+    app.ok("session/prompt", turn).await;
+    let info = app.ok("_acpmux/info", json!({"sessionId": spoof})).await;
+    assert_eq!(info["modes"]["currentModeId"], "full-access", "{info}");
+    assert!(
+        start_waits_on_a_card(&hub, &mut app, &spoof, &root.join("spoof/lanes")).await,
+        "a harness's own claim of full access lent its folder's trust"
     );
 
     // A chat in full access whose own folder nobody decided: a start under it waits on a card.

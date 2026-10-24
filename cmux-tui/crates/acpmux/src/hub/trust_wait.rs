@@ -308,13 +308,13 @@ impl Hub {
     /// Whether a start in `cwd` (resolved) takes the trust of `parent`'s own folder instead of a
     /// card (Leo, 2026-10-24, on a card a chat in full access raised: "why did this even happen in
     /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
-    /// access by its mode or command (`subsession_guard.rs` `Access::Full`), outside a Web turn and
-    /// never a chat a Web client started (`remote_origin`);
-    /// `cwd` is the parent's own folder or under it; a decision trusts that folder for the parent's
-    /// agent (a person's answer, the agent's own level, or a folder cmux made: never an auto-trust
-    /// rule alone); and nobody marked `cwd` untrusted. Any other start keeps its card, and the
-    /// folder walk after it (`subsession_folder_check`) still refuses a folder marked untrusted
-    /// anywhere up to `/`.
+    /// access by cmux's own doing ([`full_access_by_cmux`]: its command, or a mode cmux set, never
+    /// one the harness claimed), outside a Web turn, and is no chat a Web client started
+    /// (`remote_origin`); `cwd` is the parent's own folder or under it; a decision trusts that
+    /// folder for the parent's agent (a person's answer, the agent's own level, or a folder cmux
+    /// made: never an auto-trust rule alone); and nobody marked `cwd` untrusted. Any other start
+    /// keeps its card, and the folder walk after it (`subsession_folder_check`) still refuses a
+    /// folder marked untrusted anywhere up to `/`.
     async fn inherits_parent_trust(
         &self,
         paths: &crate::trust::Paths,
@@ -328,7 +328,7 @@ impl Hub {
         }
         let pm = parent.meta();
         // A Web client's chat stays one after a local turn: only the person's own chats lend trust.
-        if pm.remote_origin || self.caller_access(&pm) != super::subsession_guard::Access::Full {
+        if pm.remote_origin || !full_access_by_cmux(&pm) {
             return false;
         }
         let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
@@ -445,6 +445,18 @@ impl Hub {
             self.settle_permission(session, &id, outcome, None, pending.prev_status);
         }
     }
+}
+
+/// Whether chat `m` runs in full access by cmux's own doing: its profile's command skips the checks,
+/// or its mode is a full-access mode cmux set itself (`SessionMeta::mode_set_by_cmux`). A mode the
+/// harness reported on its own (`current_mode_update`) is not enough: the agent controls that.
+fn full_access_by_cmux(m: &SessionMeta) -> bool {
+    if super::subsession_guard::argv_full_access(&m.harness_argv).is_some() {
+        return true;
+    }
+    let set = m.mode_set_by_cmux.as_deref();
+    set.is_some_and(|mode| super::start_mode::FULL_ACCESS_MODES.contains(&mode))
+        && crate::web_modes::mode_of(m).as_deref() == set
 }
 
 /// Whether `read` lets a start go on: with the auto-trust rules, or in a Web turn (`web`)
