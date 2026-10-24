@@ -90,12 +90,11 @@ final class ComposeInlineAttachment: NSTextAttachment {
         redrawField()
     }
 
-    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder).
+    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder):
+    /// only its rect and no layout, with the other arrivals of this turn (`ComposeInlineRedraw`).
     private func redrawField() {
         guard let tv = drawnIn?.textView else { return }
-        tv.countInlineRedraw()
-        if let tlm = tv.textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
-        tv.needsDisplay = true
+        ComposeInlineRedraw.of(tv).arrived(self)
     }
 
     // MARK: Its own line, as in Messages
