@@ -220,11 +220,11 @@ extension ControlRouter {
     /// Returns that snapshot or the first failure.
     func settle(_ run: ControlActionRun, scope: ControlCommandScope, action: String, method: String,
                 deadline: ContinuousClock.Instant, replyBy: @Sendable () -> ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
-        await settle(opWork: [run.work], scope: scope, action: action, method: method, deadline: deadline, replyBy: replyBy).mapError { failure in
-            switch failure {
-            case .work(_, _, let failure): ControlError.actionWork(failure, action: action, method: method)
-            case .other(let error): error
-            }
+        let settled = await settle(opWork: [run.work], scope: scope, action: action, method: method, deadline: deadline, replyBy: replyBy)
+        switch settled {
+        case .success(let snapshot): return .success(snapshot)
+        case .failure(.work(_, _, let work)): return .failure(ControlError.actionWork(work, action: action, method: method))
+        case .failure(.other(let error)): return .failure(error)
         }
     }
 
