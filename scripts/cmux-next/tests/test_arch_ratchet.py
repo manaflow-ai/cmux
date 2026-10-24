@@ -1658,6 +1658,152 @@ class RatchetTests(Repo):
         return time.monotonic() - started
 
 
+ROOT_PKG = "Packages/macOS/CmuxNext"
+SHARED = "Packages/Shared/SharedKit"
+DEEP = "Packages/Shared/Deep"
+UNLINKED = "Packages/Shared/Unlinked"
+# The root links one local package (SharedKit, which links Deep: a transitive one) and one remote package.
+CLOSURE_ROOT = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    dependencies: [
+        .package(path: "../../Shared/SharedKit"),
+        .package(url: "https://example.com/remote.git", from: "1.0.0"),
+    ],
+    targets: [
+        .target(name: "CmuxNextCore", dependencies: [.product(name: "SharedKit", package: "SharedKit")]),
+        .target(name: "CmuxNextDomain", dependencies: ["CmuxNextCore", .product(name: "Remote", package: "remote")]),
+    ]
+)
+"""
+CLOSURE_SHARED = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "SharedKit",
+    products: [.library(name: "SharedKit", targets: ["SharedKit"])],
+    dependencies: [.package(path: "../Deep")%s],
+    targets: [
+        .target(name: "SharedKit", dependencies: [.product(name: "DeepKit", package: "Deep")%s]),
+        .testTarget(name: "SharedKitTests", dependencies: ["SharedKit"]),
+    ]
+)
+"""
+# The product DeepKit exposes the target DeepCore: an edge to the product is an edge to that target.
+CLOSURE_DEEP = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "Deep",
+    products: [.library(name: "DeepKit", targets: ["DeepCore"])],
+    targets: [.target(name: "DeepCore")]
+)
+"""
+CLOSURE_UNLINKED = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(name: "Unlinked", products: [.library(name: "Unlinked", targets: ["Unlinked"])],
+                      targets: [.target(name: "Unlinked")])
+"""
+CLOSURE_LAYERS = {"order": ["core", "service", "domain", "ui", "app"],
+                  "targets": {"CmuxNextCore": {"layer": "core"}, "CmuxNextDomain": {"layer": "domain"},
+                              "SharedKit": {"layer": "service"}, "DeepCore": {"layer": "domain"},
+                              "Unlinked": {"layer": "core"}}}
+HUB = "public final class Hub {\n    var n = 0\n}\npublic enum Hubs {\n    static let shared = Hub()\n}\n"
+OBSERVE = ("final class Watch {\n    func start() {\n        _ = NotificationCenter.default.addObserver(\n"
+           "            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: nil) { _ in }\n    }\n}\n")
+
+
+class ClosureTests(Repo):
+    """The count's scope is CmuxNext plus the transitive closure of its local `.package(path:)` dependencies
+    (method v5): moving code into a linked local package is not a drop."""
+
+    def setUp(self):
+        super().setUp()
+        self.write(f"{ROOT_PKG}/Package.swift", CLOSURE_ROOT)
+        self.write(f"{SHARED}/Package.swift", CLOSURE_SHARED % ("", ""))
+        self.write(f"{SHARED}/Sources/SharedKit/Hub.swift", HUB)
+        self.write(f"{SHARED}/Tests/SharedKitTests/HubTests.swift", "var testState = 0\n")
+        self.write(f"{DEEP}/Package.swift", CLOSURE_DEEP)
+        self.write(f"{DEEP}/Sources/DeepCore/Cache.swift", "var cache: [String: Int] = [:]\n")
+        self.write(f"{UNLINKED}/Package.swift", CLOSURE_UNLINKED)
+        self.write(f"{UNLINKED}/Sources/Unlinked/U.swift", "var unlinked = 0\n" + OBSERVE)
+        self.write("plans/cmux-next/architecture-layers.json", json.dumps(CLOSURE_LAYERS))
+        self.base = self.commit("a closure of local packages")
+
+    def test_a_shared_package_s_swift_is_counted_under_its_module(self):
+        _, found, _ = counts.full_count(self.repo, self.base)
+        self.assertEqual(found.rows["stateful_singletons"]["SharedKit"], 1)
+        self.assertEqual(found.rows["global_mutable_statics"]["DeepCore"], 1, "a transitive package is counted")
+        self.assertNotIn("SharedKitTests", found.rows["global_mutable_statics"], "Tests/ is not Sources/")
+        self.assertEqual(counts.package_of(f"{SHARED}/Sources/SharedKit/Hub.swift"), "SharedKit")
+        self.assertEqual(counts.package_of(f"{ROOT_PKG}/Sources/CmuxNextImport/Sources/Grants.swift"),
+                         "CmuxNextImport", "a Sources folder inside a module stays in that module")
+
+    def test_a_transitive_local_package_is_in_scope_and_a_remote_or_unlinked_one_is_not(self):
+        scope = counts.read_paths(self.repo, self.base)
+        self.assertEqual(sorted(scope.packages), sorted([ROOT_PKG, SHARED, DEEP]))
+        self.assertIn(f"{DEEP}/Package.swift", scope.manifests)
+        self.assertIn(f"{DEEP}/Sources", scope.sources)
+        for path in (counts.LAYERS_JSON, counts.RATCHET_JSON, counts.METHOD_FILE):
+            self.assertIn(path, scope.files)
+        self.assertTrue(scope.is_counted(f"{SHARED}/Package.swift"))
+        self.assertTrue(scope.is_counted(f"{DEEP}/Sources/DeepCore/Cache.swift"))
+        self.assertFalse(scope.is_counted(f"{UNLINKED}/Package.swift"))
+        self.assertFalse(scope.is_counted(f"{UNLINKED}/Sources/Unlinked/U.swift"))
+        _, found, _ = counts.full_count(self.repo, self.base)
+        self.assertFalse(any("Unlinked" in found.rows[row] for row in counts.ROW_IDS), "an unlinked package")
+        self.assertEqual(found.totals()["observer_sites"], 0)
+
+    def test_a_product_edge_to_a_local_package_is_a_classified_layer_edge(self):
+        self.assertEqual(counts.parse_manifest(CLOSURE_DEEP).products, {"DeepKit": ["DeepCore"]})
+        _, found, lay = counts.full_count(self.repo, self.base)
+        self.assertEqual(lay.upward, [("CmuxNextCore", "core", "SharedKit", "service")])
+        self.assertEqual(lay.soft, [("SharedKit", "service", "DeepCore", "domain")], "the product's target")
+        self.assertEqual(lay.hard, [])
+        self.assertEqual(lay.unplaced, [], "a remote product is no target and no edge")
+        self.assertEqual(found.totals()["layer_upward"], 1)
+        self.assertEqual({s.path for s in found.sites["layer_soft"]}, {f"{SHARED}/Package.swift"})
+
+    def test_delta_equals_full_on_a_range_that_changes_only_a_shared_package(self):
+        self.write(f"{SHARED}/Sources/SharedKit/Hub.swift", HUB + "public enum Other {\n    static let hub = Hub()\n}\n")
+        self.write(f"{SHARED}/Sources/SharedKit/Watch.swift", OBSERVE)
+        head = self.commit("a singleton and an observer in a shared package")
+        delta = counts.delta_count(self.repo, self.base, head)
+        self.assertEqual(delta.by_package("stateful_singletons"), {"SharedKit": 1})
+        self.assertEqual(delta.by_package("observer_sites"), {"SharedKit": 1})
+        self.assert_matches_full(self.base, head)
+
+    def test_delta_equals_full_on_a_range_that_changes_only_a_shared_manifest_to_link_a_package(self):
+        # Linking the unlinked package brings its sources, its target and its edge into the count.
+        self.write(f"{SHARED}/Package.swift", CLOSURE_SHARED % (', .package(path: "../Unlinked")',
+                                                                ', .product(name: "Unlinked", package: "Unlinked")'))
+        linked = self.commit("SharedKit links Unlinked")
+        delta = counts.delta_count(self.repo, self.base, linked)
+        self.assertEqual(delta.by_package("global_mutable_statics"), {"Unlinked": 1})
+        self.assertEqual(delta.by_package("observer_sites"), {"Unlinked": 1})
+        self.assertEqual(delta.by_package("layer_soft"), {}, "service -> core points down")
+        self.assert_matches_full(self.base, linked)
+
+    def test_delta_equals_full_on_a_range_that_changes_only_a_shared_manifest_to_drop_a_package(self):
+        # Dropping Deep takes its sources, its target and the soft edge out.
+        self.write(f"{SHARED}/Package.swift", CLOSURE_SHARED.replace('.package(path: "../Deep")', "")
+                   .replace('.product(name: "DeepKit", package: "Deep")', "") % ("", ""))
+        dropped = self.commit("SharedKit drops Deep")
+        delta = counts.delta_count(self.repo, self.base, dropped)
+        self.assertEqual(delta.by_package("global_mutable_statics"), {"DeepCore": -1})
+        self.assertEqual(delta.by_package("layer_soft"), {"SharedKit": -1})
+        self.assert_matches_full(self.base, dropped)
+
+    def test_a_module_name_two_packages_use_is_reported_not_merged(self):
+        self.write(f"{DEEP}/Sources/CmuxNextDomain/Dup.swift", "var dup = 0\n")
+        head = self.commit("a second CmuxNextDomain")
+        with self.assertRaises(counts.AmbiguousModule) as raised:
+            counts.full_count(self.repo, head)
+        self.assertIn(ROOT_PKG, str(raised.exception))
+        self.assertIn(DEEP, str(raised.exception))
+        with self.assertRaises(counts.AmbiguousModule):
+            counts.delta_count(self.repo, self.base, head)
+
+
 class MethodTests(unittest.TestCase):
     def test_strip_blanks_comments_and_strings_and_keeps_offsets(self):
         raw = 'let a = "x \\(f("}")) y" // static let shared = Foo()\n/* { */ let b = #"\\("{"#\n'

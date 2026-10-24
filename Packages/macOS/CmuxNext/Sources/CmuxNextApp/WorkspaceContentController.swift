@@ -202,7 +202,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
-        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.edgeDocks), rows: daemon.supports(DaemonCapabilities.rows)) || force else {
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapability.edgeDocks.rawValue), rows: daemon.supports(DaemonCapability.rows.rawValue)) || force else {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.

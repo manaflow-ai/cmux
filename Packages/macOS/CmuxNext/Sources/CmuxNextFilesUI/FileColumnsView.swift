@@ -59,14 +59,30 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     func beginRename(_ name: String) {}
 
     @objc private func clicked() {
-        guard !applying, let node = browser.item(atRow: browser.selectedRow(inColumn: browser.selectedColumn),
-                                                 inColumn: browser.selectedColumn) as? FileColumnNode else { return }
+        guard !applying else { return }
+        let column = browser.selectedColumn
+        guard hasColumn(column), let node = node(atRow: browser.selectedRow(inColumn: column), inColumn: column) else { return }
         actions.browse(node.entry.url)
     }
 
     @objc private func doubleClicked() {
-        guard let node = browser.item(atRow: browser.clickedRow, inColumn: browser.clickedColumn) as? FileColumnNode else { return }
+        guard let node = node(atRow: browser.clickedRow, inColumn: browser.clickedColumn) else { return }
         if node.entry.kind != .folder { actions.activate(node.entry) }
+    }
+
+    /// Whether `column` is a loaded column. `NSBrowser` reports -1 for "none"
+    /// (a click that leaves no selection, issue #24776) and throws
+    /// `NSRangeException` when asked about a column it does not have.
+    private func hasColumn(_ column: Int) -> Bool {
+        column >= 0 && column <= browser.lastColumn
+    }
+
+    /// The item at `row` of `column`, or nil when either is out of range.
+    private func node(atRow row: Int, inColumn column: Int) -> FileColumnNode? {
+        guard hasColumn(column), row >= 0,
+              let parent = browser.parentForItems(inColumn: column),
+              row < self.browser(browser, numberOfChildrenOfItem: parent) else { return nil }
+        return browser.item(atRow: row, inColumn: column) as? FileColumnNode
     }
 
     private func children(of node: FileColumnNode) -> [FileColumnNode] {
@@ -81,7 +97,8 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
             guard let self else { return }
             self.loading.remove(path)
             self.listings[path] = FileSortOrder().sorted(entries.filter { hidden || !$0.isHidden }).map(FileColumnNode.init)
-            for column in 0...max(0, self.browser.lastColumn) where self.browser.parentForItems(inColumn: column) as? FileColumnNode === node {
+            guard self.browser.lastColumn >= 0 else { return }
+            for column in 0...self.browser.lastColumn where self.browser.parentForItems(inColumn: column) as? FileColumnNode === node {
                 self.browser.reloadColumn(column)
             }
         }
@@ -112,7 +129,7 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     }
 
     func browser(_ browser: NSBrowser, willDisplayCell cell: Any, atRow row: Int, column: Int) {
-        guard let cell = cell as? NSBrowserCell, let node = browser.item(atRow: row, inColumn: column) as? FileColumnNode else { return }
+        guard let cell = cell as? NSBrowserCell, let node = node(atRow: row, inColumn: column) else { return }
         let image = icons.icon(for: node.entry).copy() as? NSImage
         image?.size = NSSize(width: 16, height: 16)
         cell.image = image

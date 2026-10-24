@@ -18,7 +18,6 @@ cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	4	PL-
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/standby.rs	1	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui-platform/src/host_exe.rs	2	PL-holder (cmux-pty and cmux-tui-platform migration)
-cmux-tui/crates/cmux-tui-platform/src/host_exe/macos.rs	2	PL-holder (cmux-pty and cmux-tui-platform migration)
 cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs	4	PL-holder (cmux-pty and cmux-tui-platform migration)
 cmux-tui/crates/cmux-tui/src/acp.rs	1	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/app/status_command.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)

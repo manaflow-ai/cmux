@@ -1102,6 +1102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-focus-core"
 version = "0.1.0"
 dependencies = [
@@ -1136,6 +1143,7 @@ dependencies = [
 name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "cmux-process",
  "libc",
 ]
@@ -1570,6 +1578,7 @@ dependencies = [
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1653,6 +1662,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-flow-trace",
  "cmux-git",
  "cmux-history",
  "cmux-holder",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -120,6 +121,44 @@ class ArchLayersTests(unittest.TestCase):
             (sources / "CmuxNextCompat" / "MainActorObservation.swift").write_text(WRAPPER)
             script.SOURCES = sources
             self.assertEqual(script.grep_counts()["nc_observers"], 3)
+
+    def test_the_local_package_closure_is_in_the_report(self):
+        # The arch ratchet counts CmuxNext and its local package closure (arch_counts method v5): this report reads
+        # the same scope, so a Shared target is placed, its `.product` edge is classified and its observers count.
+        manifest = ('import PackageDescription\nlet package = Package(name: "{}", products: [{}], '
+                    'dependencies: [{}], targets: [{}])\n')
+        files = {
+            "Packages/macOS/CmuxNext/Package.swift": manifest.format(
+                "CmuxNext", "", '.package(path: "../../Shared/Kit")',
+                '.target(name: "ArchLayersTestCore", dependencies: [.product(name: "Kit", package: "Kit")])'),
+            "Packages/Shared/Kit/Package.swift": manifest.format(
+                "Kit", '.library(name: "Kit", targets: ["ArchLayersTestKit"])', "",
+                '.target(name: "ArchLayersTestKit")'),
+            "Packages/Shared/Kit/Sources/ArchLayersTestKit/Watcher.swift": OBSERVERS,
+        }
+        layers = {**LAYERS, "targets": {**LAYERS["targets"], "ArchLayersTestKit": {"layer": "service"}}}
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            for rel, text in files.items():
+                (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                (repo / rel).write_text(text)
+            env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "HOME": tmp,
+                   "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@example.com"}
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
+                subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True)
+            dump = Path(tmp) / "dump.json"
+            dump.write_text(json.dumps({"targets": [target("ArchLayersTestCore", "regular")]}))
+            map_path = Path(tmp) / "layers.json"
+            map_path.write_text(json.dumps(layers))
+            out = subprocess.run([sys.executable, str(SCRIPT), "--dump", str(dump), "--repo", str(repo), "--layers",
+                                  str(map_path), "--json", "--counts"], capture_output=True, text=True, check=True,
+                                 env=env).stdout
+        report = json.loads(out)
+        self.assertEqual((report["targets"], report["unplaced"]), (2, []))
+        self.assertEqual(report["upward_violations"], 1, "core -> service through the product")
+        self.assertEqual(report["layers"]["service"]["targets"], 1)
+        self.assertEqual(report["counts"]["nc_observers"], 1, "the Shared package's raw registration is counted")
 
 
 if __name__ == "__main__":

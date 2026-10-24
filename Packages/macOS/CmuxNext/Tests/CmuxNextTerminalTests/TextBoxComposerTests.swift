@@ -92,6 +92,24 @@ struct TextBoxComposerTests {
         #expect(harness.textBox.textView.string.isEmpty)
     }
 
+    /// Issue 24912: Undo after a submit replayed typing against the cleared text and threw NSRangeException.
+    @Test func undoAfterASubmitHasNothingStaleToReplay() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        harness.textBox.show(focus: true)
+        let view = harness.textBox.textView
+        let text = String(repeating: "x", count: 74)
+        view.insertText(text, replacementRange: NSRange(location: 0, length: 0))
+        view.didChangeText()
+        #expect(harness.textBox.submit())
+        #expect(view.string.isEmpty)
+        view.insertText("a", replacementRange: NSRange(location: 0, length: 0))
+        harness.textBox.insert(paths: ["/tmp/a b"])
+        let manager = try #require(view.undoManager)
+        while manager.canUndo { manager.undo() }
+        #expect(manager.canUndo == false)
+    }
+
     @Test func shiftReturnAddsALineAndSendsNothing() throws {
         let harness = try Self.harness()
         defer { harness.close() }

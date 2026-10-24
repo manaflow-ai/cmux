@@ -107,7 +107,17 @@ impl Translator {
                         if steer {
                             // Claude Code reads it at its next tool boundary
                             // and echoes it; the echo answers this request.
-                            self.steers.lock().await.push_back((uuid, id.to_string()));
+                            let mut steers = self.steers.lock().await;
+                            steers.push_back((uuid.clone(), id.to_string()));
+                            // Named by its promptId, for a withdraw (`steer_withdraw.rs`).
+                            if let Some(prompt_id) =
+                                p.pointer("/_meta/promptId").and_then(Value::as_str)
+                            {
+                                let mut lines = self.steer_lines.lock().await;
+                                lines.retain(|_, u| steers.iter().any(|(s, _)| s == u));
+                                lines.insert(prompt_id.to_owned(), uuid);
+                            }
+                            drop(steers);
                             // Sent now (`_meta.steerNow`): the current step stops, so it
                             // reads the line at once; the turn runs on. Not while a subagent
                             // or a background shell runs (`interrupt_ends_work`).
@@ -295,6 +305,7 @@ impl Translator {
                         ])
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
+                    method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
                     // reads the steer; with none waiting, or while a subagent or a background
                     // shell runs (`interrupt_ends_work`), nothing stops.

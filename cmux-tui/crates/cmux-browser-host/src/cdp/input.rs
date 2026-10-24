@@ -180,7 +180,7 @@ impl Inner {
                     }
                     None => event["type"] = json!("rawKeyDown"),
                 }
-                let commands = mac_editing_commands(code, modifiers);
+                let commands = editing_commands(code, modifiers);
                 if !commands.is_empty() {
                     event["commands"] = json!(commands);
                 }
@@ -276,17 +276,15 @@ fn pressed_button(buttons: i64) -> &'static str {
     }
 }
 
-/// macOS Chromium runs editing shortcuts from `commands` (as Playwright does);
-/// without them Meta+A or Meta+Backspace type nothing. Other platforms handle
-/// these keys natively.
-fn mac_editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> {
-    if !cfg!(target_os = "macos") {
-        return Vec::new();
-    }
-    editing_commands(code, modifiers)
-}
-
-/// The macOS editing command table, independent of the build platform.
+/// The macOS editing command table, sent as `commands` on every platform.
+///
+/// The REPL keyboard is macOS's everywhere (the runtime maps ControlOrMeta
+/// to Meta), but Chromium runs Meta shortcuts natively nowhere: macOS
+/// Chromium needs `commands` (as Playwright sends them), and Linux and
+/// Windows Chromium bind these edits to Control. Chromium runs a key's
+/// commands only when the page did not prevent the keydown, so a page that
+/// handles the key keeps it. Meta+B/I/U format rich text as Chrome's editor
+/// does for Command+B/I/U (classic cmux: BrowserReplFrameGate+FormattingShortcut).
 pub(super) fn editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> {
     const ALT: i64 = 1;
     const CONTROL: i64 = 2;
@@ -295,6 +293,9 @@ pub(super) fn editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> 
     let shift = modifiers & SHIFT != 0;
     let command = match (modifiers & (ALT | CONTROL | META), code) {
         (META, "KeyA") => "selectAll",
+        (META, "KeyB") => "bold",
+        (META, "KeyI") => "italic",
+        (META, "KeyU") => "underline",
         (META, "KeyZ") if shift => "redo",
         (META, "KeyZ") => "undo",
         (META, "Backspace") => "deleteToBeginningOfLine",
@@ -334,5 +335,7 @@ mod tests {
         assert_eq!(editing_commands("ArrowLeft", 9), vec!["moveWordLeftAndModifySelection"]);
         assert!(editing_commands("KeyA", 0).is_empty());
         assert!(editing_commands("KeyA", 6).is_empty(), "Control+Meta+A is not select all");
+        assert_eq!(editing_commands("KeyB", 4), vec!["bold"]);
+        assert!(editing_commands("KeyB", 2).is_empty(), "Control+B stays the platform's own");
     }
 }

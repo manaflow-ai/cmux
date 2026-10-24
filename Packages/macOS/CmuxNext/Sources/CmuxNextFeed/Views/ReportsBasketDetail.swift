@@ -36,7 +36,7 @@ struct ReportsBasketDetail: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 TextField(FeedStrings.reportsReplyPlaceholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder).lineLimit(1...4)
+                    .textFieldStyle(.roundedBorder).lineLimit(1...4).focusEffectDisabled()
                 Button(FeedStrings.reportsReply, action: onSend).buttonStyle(.borderedProminent)
                     .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

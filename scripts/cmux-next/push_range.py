@@ -41,7 +41,9 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import hashlib
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -107,10 +109,24 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
 
 def commit_of(repo: Path, rev: str | None) -> str | None:
     """The full sha of commit REV, or None when this clone has no such commit."""
-    if not rev or rev == ZERO_SHA:
-        return None
-    code, out = _git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
-    return out if code == 0 and out else None
+    return commits_of(repo, [rev])[0]
+
+
+def commits_of(repo: Path, revs: list[str | None]) -> list[str | None]:
+    """commit_of for each of REVS in one `git rev-parse` (each git process costs ~0.1 s on a busy Mac); a rev that
+    is not a commit of this clone, or that git cannot read in a batch, is asked alone."""
+    asked = [r for r in dict.fromkeys(revs) if r and r != ZERO_SHA and not r.startswith("-")]
+    found: dict[str, str | None] = {}
+    if asked:
+        code, out = _git(repo, "rev-parse", *[f"{r}^{{commit}}" for r in asked])
+        lines = out.split("\n") if out else []
+        if code == 0 and len(lines) == len(asked) and all(re.fullmatch(r"[0-9a-f]{40,64}", x) for x in lines):
+            found = dict(zip(asked, lines))
+        else:  # one of them is not a commit here: ask each (rare)
+            for r in asked:
+                code, one = _git(repo, "rev-parse", "--verify", "--quiet", f"{r}^{{commit}}")
+                found[r] = one if code == 0 and one else None
+    return [found.get(r) if r else None for r in revs]
 
 
 def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
@@ -157,13 +173,49 @@ def _shallow_roots(repo: Path) -> set[str]:
         return set()
 
 
+WALK_CACHE_VERSION = "1"
+
+
+def _walk_cache(repo: Path, key: str) -> Path | None:
+    """<git common dir>/cmux-guardrails/push-range-<version>/<key>, or None (no cache: the walk runs)."""
+    code, out = _git(repo, "rev-parse", "--git-common-dir")
+    if code != 0 or not out:
+        return None
+    common = Path(out) if os.path.isabs(out) else Path(repo) / out
+    return common / "cmux-guardrails" / f"push-range-{WALK_CACHE_VERSION}" / key
+
+
 def _walk(repo: Path, tip: str, negatives: list[str], bound: str | None) -> tuple[list[str], list[str]]:
-    """(own commits, boundary commits) of `git rev-list --boundary TIP --not NEGATIVES [BOUND]`."""
+    """(own commits, boundary commits) of `git rev-list --boundary TIP --not NEGATIVES [BOUND]`.
+
+    With no BOUND every input is a commit sha, and commits never change, so the answer is cached by them (lead
+    2026-10-24: in a shallow clone git writes no commit-graph, and this walk took 0.5 s on a busy Mac; a retried or
+    re-run push of the same head asks again). A BOUND (`--remotes...`) names refs that move, so it is never cached."""
+    entry = None
+    if bound is None and all(re.fullmatch(r"[0-9a-f]{40,64}", x) for x in [tip, *negatives]):
+        key = hashlib.sha256(" ".join([tip, *sorted(negatives)]).encode()).hexdigest()
+        entry = _walk_cache(repo, key)
+        try:
+            lines = entry.read_text().split() if entry is not None and entry.is_file() else None
+        except OSError:
+            lines = None
+        if lines is not None:
+            own = [line for line in lines if not line.startswith("-")]
+            edge = list(dict.fromkeys(line[1:] for line in lines if line.startswith("-")))
+            return own, edge
     args = ["rev-list", "--boundary", tip, "--not", *negatives, *([bound] if bound else [])]
     code, out = _git(repo, *args)
     if code != 0:
         raise ValueError(f"`git {' '.join(args)}` failed")
     lines = out.split()
+    if entry is not None:
+        try:
+            entry.parent.mkdir(parents=True, exist_ok=True)
+            tmp = entry.with_name(entry.name + f".{os.getpid()}.tmp")
+            tmp.write_text("\n".join(lines) + "\n")
+            os.replace(tmp, entry)
+        except OSError:
+            pass
     own = [line for line in lines if not line.startswith("-")]
     edge = list(dict.fromkeys(line[1:] for line in lines if line.startswith("-")))
     return own, edge
@@ -178,22 +230,24 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     base. Raises ValueError when HEAD or a KNOWN revision is not a commit of this clone (the caller leaves out a
     remote head it does not have), and when nothing the remote has bounds the pushed commits.
     """
-    tip = commit_of(repo, head)
-    if tip is None:
-        raise ValueError(f"no commit {head}")
     name = remote_name(repo, remote)
     shown = name or remote or DEFAULT_REMOTE
+    tracked_ref = tracking_ref(repo, name, remote_ref) if name and remote_ref else None
+    remote_head = f"refs/remotes/{name}/HEAD" if name else None
+    # Every revision in one rev-parse (it was one each: 4 or more git processes per push).
+    resolved = commits_of(repo, [head, *known, tracked_ref, upstream_ref, remote_head])
+    tip, known_shas = resolved[0], resolved[1:1 + len(known)]
+    tracked, upstream_sha, remote_head_sha = resolved[1 + len(known):]
+    if tip is None:
+        raise ValueError(f"no commit {head}")
     pushed_before: list[str] = []  # commits the pushed ref had on the remote
-    for rev in known:
-        sha = commit_of(repo, rev)
+    for rev, sha in zip(known, known_shas):
         if sha is None:
             raise ValueError(f"no commit {rev}")
         pushed_before.append(sha)
-    tracked = commit_of(repo, tracking_ref(repo, name, remote_ref)) if name and remote_ref else None
     if tracked is not None:
         pushed_before.append(tracked)
-    shared = [sha for sha in (commit_of(repo, upstream_ref),
-                              commit_of(repo, f"refs/remotes/{name}/HEAD") if name else None) if sha is not None]
+    shared = [sha for sha in (upstream_sha, remote_head_sha) if sha is not None]
     negatives = list(dict.fromkeys(pushed_before + shared))
     every_ref = f"--remotes={name}" if name else "--remotes"
     shallow = _shallow_roots(repo)

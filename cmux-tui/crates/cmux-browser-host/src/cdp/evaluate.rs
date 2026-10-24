@@ -55,6 +55,15 @@ pub(super) struct Context {
     pub(super) id: i64,
 }
 
+/// Whether a context's page agent answers for the document it shows now. A
+/// window keeps its global when it leaves its initial about:blank for a
+/// same-origin page (a `window.open` popup with an opener), so the agent
+/// installed on about:blank is still there, bound to the old document, and
+/// Chromium runs no new-document script in that world again. The install
+/// source then installs a fresh agent (page-agent.js checks the same).
+const AGENT_CURRENT: &str = "(() => { const a = globalThis[Symbol.for('cmux.browserRepl.agent')]; \
+     return typeof globalThis.__cmuxPageAgent === 'object' && !!a && a.document === document; })()";
+
 impl Inner {
     pub(super) fn frame_or_main(
         &self,
@@ -155,7 +164,8 @@ impl Inner {
         Ok(Context { session: owner, id })
     }
 
-    /// Makes sure a reported agent-world context holds the page agent.
+    /// Makes sure a reported agent-world context holds the page agent of
+    /// its current document (see `AGENT_CURRENT`).
     /// Chromium can report two isolated contexts with the agent world's name
     /// for one new document (seen after a cross-site navigation to an http
     /// page), and the one recorded last may never have run the agent script;
@@ -179,7 +189,7 @@ impl Inner {
         let probe = self.send_on(
             &context.session,
             "Runtime.evaluate",
-            json!({"expression": "typeof globalThis.__cmuxPageAgent === 'object'", "contextId": context.id, "returnByValue": true}),
+            json!({"expression": AGENT_CURRENT, "contextId": context.id, "returnByValue": true}),
             deadline,
         )?;
         if probe["result"]["value"].as_bool() != Some(true) {

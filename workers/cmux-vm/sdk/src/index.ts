@@ -62,3 +62,5 @@ export function createCmuxVmClient(options: CmuxVmClientOptions): CmuxVmClient {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
 }
+
+export { CmuxVmError, CmuxVmPlanRequired, CmuxVmQuotaExceeded, DEFAULT_UPGRADE_URL, createCmuxVm, toCmuxVmError, type ExecResult } from "./vm.ts";

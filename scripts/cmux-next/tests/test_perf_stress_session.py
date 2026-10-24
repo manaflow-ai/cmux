@@ -282,6 +282,48 @@ class MeasuredGridTests(Case):
         self.assertEqual((summary["layout_refusals"], summary["grid_problems"], summary["pane_problems"]), ([], [], []))
 
 
+class BookkeepingTests(Case):
+    """Every tab the builder owns is in `made` (each pane's first terminal included), and busy_terminals counts
+    only ids that are still terminal tabs (review "bench-small", session cmux-1c)."""
+
+    def build(self):
+        app = FakeApp(takes_focus=True)
+        session = builder(app)
+        session.build_measured()
+        return app, session
+
+    def test_each_panes_first_terminal_is_recorded(self):
+        app, session = self.build()
+        for pane in app.panes_of(app.workspaces[-1]):
+            first = pane["tabs"][0]["id"]
+            self.assertIn(("terminal", first), [(kind, tab) for kind, tab, _ in session.made.get(pane["id"], [])],
+                          f"pane {pane['id']}'s first terminal is not in made")
+
+    def test_a_replaced_first_terminal_is_a_pane_problem(self):
+        app, session = self.build()
+        pane = app.panes_of(app.workspaces[-1])[0]
+        pane["tabs"][0] = app.tab("terminal")  # the first terminal closed, another one in its place
+        summary = session.summary()
+        self.assertTrue(any(pane["id"] in problem for problem in summary["pane_problems"]), summary["pane_problems"])
+
+    def test_a_dead_busy_terminal_is_not_counted(self):
+        app, session = self.build()
+        self.assertEqual(len(session.busy), stress.BUSY_TERMINALS)
+        dead = session.busy[0]
+        for pane in app.panes_of(app.workspaces[-1]):
+            pane["tabs"] = [t for t in pane["tabs"] if t["id"] != dead]
+        summary = session.summary()
+        self.assertEqual(summary["busy_terminals"], stress.BUSY_TERMINALS - 1)
+        with self.assertRaisesRegex(stress.StressShapeError, "busy terminals"):
+            session.check(summary)
+
+    def test_make_busy_records_the_terminal(self):
+        app, session = self.build()
+        terminal = app.panes_of(app.workspaces[-1])[0]["tabs"][0]["id"]
+        session.make_busy(terminal)
+        self.assertIn(terminal, session.busy)
+
+
 class ShapeCheckTests(Case):
     def test_uneven_rows_are_a_wrong_shape(self):
         # A grid split while hidden: rows 1/2, 1/4, 1/4 (and 1/2, 1/4, 1/8, 1/8 in the nested columns).

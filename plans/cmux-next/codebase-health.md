@@ -1,8 +1,10 @@
 # cmux-next codebase health (measured)
 
-Measured 2026-10-24 at feat-cmux-next `2086a2197d9` plus this tree's changes to `plans/cmux-next/arch-ratchet.json`, `scripts/cmux-next/arch-layers.py`, `scripts/cmux-next/arch-ratchet.py`, `scripts/cmux-next/arch_counts.py` and 6 more by `scripts/cmux-next/codebase-health.py --write` (rerun it to refresh; do not edit numbers by hand).
-Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped (section 6's perf-hot markers:
-every tracked Swift file). The pre-push guardrails
+Measured 2026-10-24 at feat-cmux-next `c30802b35f8` plus this tree's changes to `scripts/cmux-next/arch-layers.py`, `scripts/cmux-next/arch_counts.py`, `scripts/cmux-next/codebase-health.py`, `scripts/cmux-next/tests/test_arch_layers.py` by `scripts/cmux-next/codebase-health.py --write` (rerun it to refresh; do not edit numbers by hand).
+Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources` and in the Sources of every local package it links,
+directly or through another one (the arch ratchet's scope, arch_counts.py method v5), comments stripped
+(section 3's App share: CmuxNext's Sources only; section 6's perf-hot markers: every tracked Swift file).
+The pre-push guardrails
 (`scripts/cmux-next/guardrails.py`, run by `prepush-gate.py`) refuse NEW instances of the ratcheted rows;
 the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail rules: section 6.
 
@@ -10,58 +12,58 @@ the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail ru
 
 | Pattern | Lines | Files | Without the waiver comment | Why it matters |
 |---|---:|---:|---:|---|
-| stateful singletons and globals (arch_counts `stateful_singletons`) | 177 | 160 | - | runtime state behind a global, under any name; construct at the composition root and inject (CLAUDE.md Package design discipline) |
-| global mutable statics (arch_counts `global_mutable_statics`) | 279 | 175 | - | a static or file-scope var, lock or cache: state no owner injects |
-| `MainActor.assumeIsolated` | 198 | 128 | 148 (outside seam adapters) | traps off main; allowed only in a small seam adapter with `// main-proof: <why>` |
-| NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, KVO included; arch_counts `observer_sites`) | 295 | 125 | - | each one wakes on every post of its name |
-| custom `Notification.Name` declarations (arch_counts `app_broadcast_names`) | 12 | 10 | - | a broadcast signal: every observer reacts, O(all) |
-| `@unchecked Sendable` | 66 | 59 | 41 (no `crash-allow:`) | a data race the compiler cannot see; needs `// crash-allow: <safety argument>` |
-| `nonisolated(unsafe)` | 33 | 20 | 10 (no `crash-allow:`) | as above |
-| raw locks (NSLock, OSAllocatedUnfairLock, os_unfair_lock, pthread mutex) | 27 | 22 | - | CLAUDE.md: actor, or the CmuxNextCompat Mutex carve-out |
-| CmuxNextCompat `Mutex` uses (the sanctioned lock) | 241 | 168 | - | sanctioned; listed for scale |
-| `Task.sleep` | 32 | 25 | 0 (no `wakeup-allow:`) | allowed only as a bounded, cancellable delay |
-| clock sleeps `.sleep(for:/until:)` | 74 | 60 | 3 (no `wakeup-allow:`) | as above |
-| `DispatchQueue.main.async` | 14 | 9 | - | use @MainActor and await |
+| stateful singletons and globals (arch_counts `stateful_singletons`) | 204 | 180 | - | runtime state behind a global, under any name; construct at the composition root and inject (CLAUDE.md Package design discipline) |
+| global mutable statics (arch_counts `global_mutable_statics`) | 478 | 228 | - | a static or file-scope var, lock or cache: state no owner injects |
+| `MainActor.assumeIsolated` | 202 | 129 | 152 (outside seam adapters) | traps off main; allowed only in a small seam adapter with `// main-proof: <why>` |
+| NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, KVO included; arch_counts `observer_sites`) | 336 | 141 | - | each one wakes on every post of its name |
+| custom `Notification.Name` declarations (arch_counts `app_broadcast_names`) | 13 | 11 | - | a broadcast signal: every observer reacts, O(all) |
+| `@unchecked Sendable` | 154 | 112 | 104 (no `crash-allow:`) | a data race the compiler cannot see; needs `// crash-allow: <safety argument>` |
+| `nonisolated(unsafe)` | 58 | 40 | 33 (no `crash-allow:`) | as above |
+| raw locks (NSLock, OSAllocatedUnfairLock, os_unfair_lock, pthread mutex) | 120 | 82 | - | CLAUDE.md: actor, or the CmuxNextCompat Mutex carve-out |
+| CmuxNextCompat `Mutex` uses (the sanctioned lock) | 243 | 169 | - | sanctioned; listed for scale |
+| `Task.sleep` | 64 | 46 | 32 (no `wakeup-allow:`) | allowed only as a bounded, cancellable delay |
+| clock sleeps `.sleep(for:/until:)` | 164 | 125 | 92 (no `wakeup-allow:`) | as above |
+| `DispatchQueue.main.async` | 47 | 27 | - | use @MainActor and await |
 | `asyncAfter` | 0 | 0 | - | banned (check-concurrency.sh); an injected Clock |
 | `NSHostingView` / `NSHostingController` | 30 | 22 | - | a SwiftUI graph inside AppKit; costly on hot paths |
-| `#if DEBUG` blocks | 416 | 294 | - | DEBUG-only instrumentation is not in Release builds |
+| `#if DEBUG` blocks | 497 | 329 | - | DEBUG-only instrumentation is not in Release builds |
 | `ObservableObject` / `@Published` / `@StateObject` / `@ObservedObject` / `@EnvironmentObject` | 0 | 0 | - | CLAUDE.md: @Observable |
 
-<details><summary>stateful singletons and globals (arch_counts `stateful_singletons`): 177 in 160 files (top 10)</summary>
+<details><summary>stateful singletons and globals (arch_counts `stateful_singletons`): 204 in 180 files (top 10)</summary>
 
 ```
    8  CmuxNextSignposts/Signposter.swift
+   4  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+   3  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
+   2  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
+   2  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/TiledBubble.swift
    2  CmuxNextAgentActivity/AgentLaneStore.swift
    2  CmuxNextAgentPane/AgentChatPullRequestReader.swift
    2  CmuxNextAgentPane/AgentPaneSuggestedTasks.swift
    2  CmuxNextAgentPane/AgentPaneView.swift
    2  CmuxNextBrowser/Core/SiteZoomLevels.swift
-   2  CmuxNextDesign/OverlayMaterial.swift
-   2  CmuxNextDesign/PointerHover.swift
-   2  CmuxNextDesign/Toast/ToastUndoStep.swift
-   2  CmuxNextPages/WebBundleOverlay.swift
-      ... 150 more files
+      ... 170 more files
 ```
 </details>
 
-<details><summary>global mutable statics (arch_counts `global_mutable_statics`): 279 in 175 files (top 10)</summary>
+<details><summary>global mutable statics (arch_counts `global_mutable_statics`): 478 in 228 files (top 10)</summary>
 
 ```
+  29  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
+  18  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
+  16  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+  10  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+   8  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
    8  CmuxNextApp/Control/DebugTimings.swift
+   7  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
+   7  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
    7  CmuxNextApp/Control/DebugLayoutCounters.swift
    7  CmuxNextDesign/ColorTransition/ThemeRepaint.swift
-   7  CmuxNextDesign/Motion/MotionTrace.swift
-   6  CmuxNextCrashReporting/TaskExceptionPorts.swift
-   5  CmuxNextDesign/HoverReveal.swift
-   5  CmuxNextDesign/SystemScrollers.swift
-   5  CmuxNextTerminal/GhosttyRuntime+Background.swift
-   4  CmuxNextApp/RemoteView/RemoteBrowserPages.swift
-   4  CmuxNextBrowser/UI/ArrowCursorView.swift
-      ... 165 more files
+      ... 218 more files
 ```
 </details>
 
-<details><summary>`MainActor.assumeIsolated`: 198 in 128 files (top 10)</summary>
+<details><summary>`MainActor.assumeIsolated`: 202 in 129 files (top 10)</summary>
 
 ```
    9  CmuxNextTerminal/GhosttyRuntimeCallbacks.swift
@@ -74,11 +76,11 @@ the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail ru
    4  CmuxNextSidebar/Views/SidebarView.swift
    3  CmuxNextApp/Focus/InputVerificationService+NoActivateGuard.swift
    3  CmuxNextApp/NewTab/NewTabSparePool.swift
-      ... 118 more files
+      ... 119 more files
 ```
 </details>
 
-<details><summary>NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, KVO included; arch_counts `observer_sites`): 295 in 125 files (top 10)</summary>
+<details><summary>NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, KVO included; arch_counts `observer_sites`): 336 in 141 files (top 10)</summary>
 
 ```
   14  CmuxNextApp/Windows/WindowOverlayLayer.swift
@@ -90,79 +92,80 @@ the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail ru
    7  CmuxNextDesign/Motion/Motion+LiveResize.swift
    7  CmuxNextDesign/Overlay/WindowOverlayHost.swift
    7  CmuxNextDesign/WindowKeyFamily.swift
-   6  CmuxNextApp/AgentCursor/AgentCursorVisibilitySource.swift
-      ... 115 more files
+   6  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/MessagesLabHomeView.swift
+      ... 131 more files
 ```
 </details>
 
-<details><summary>custom `Notification.Name` declarations (arch_counts `app_broadcast_names`): 12 in 10 files (top 10)</summary>
+<details><summary>custom `Notification.Name` declarations (arch_counts `app_broadcast_names`): 13 in 11 files (top 10)</summary>
 
 ```
    2  CmuxNextDesign/Motion/Motion.swift
    2  CmuxNextSidebar/Store/SidebarDocStore.swift
+   1  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/MessagesLabHomeView+Motion.swift
+   1  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/CmuxSidebarView+Motion.swift
    1  CmuxNextAgentPane/AgentPaneView+ContextMenu.swift
    1  CmuxNextBrowser/CEF/CEFHostView.swift
    1  CmuxNextBrowserCore/Engine/BrowserWindowOcclusion.swift
    1  CmuxNextDesign/HoverCards/HoverCardTiming.swift
-   1  CmuxNextDesign/Toast/CmuxToastAvoidance.swift
    1  CmuxNextDesign/WindowMaterialView.swift
    1  CmuxNextSidebar/Model/SidebarModel.swift
-   1  CmuxNextTerminal/GhosttyRuntime.swift
+      ... 1 more files
 ```
 </details>
 
-<details><summary>`@unchecked Sendable`: 66 in 59 files (top 10)</summary>
+<details><summary>`@unchecked Sendable`: 154 in 112 files (top 10)</summary>
 
 ```
+   7  Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/IrxCtlListAuthOverlays.swift
+   5  Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohSystemBonjourDNSService.swift
+   5  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+   5  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStream.swift
+   3  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/AppLog.swift
+   3  Packages/Shared/CmuxVNC/Sources/CmuxVNCDemoServer/VNCDemoServer.swift
+   3  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/VNCPeerLink.swift
+   3  Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHConnection.swift
    3  CmuxNextDictation/SpeechAnalyzerAudioInput.swift
-   2  CmuxNextApp/Server/ServerHelperClient.swift
-   2  CmuxNextCompat/Mutex.swift
-   2  CmuxNextRemoteView/Decode/RemoteVideoDecoder.swift
-   2  CmuxNextRemoteView/Present/MetalYUVRenderer.swift
-   2  CmuxNextServerHelper/ServerFixPriorStore.swift
-   1  CmuxNextAgentActivity/AgentActivityLineConnection.swift
-   1  CmuxNextAgentPane/AcpmuxCheckedLine.swift
-   1  CmuxNextAgentPane/AcpmuxRemotePersonKeys.swift
-   1  CmuxNextAgentPane/AcpmuxStatusClient.swift
-      ... 49 more files
+   2  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxCredentialedHTTPSession.swift
+      ... 102 more files
 ```
 </details>
 
-<details><summary>`nonisolated(unsafe)`: 33 in 20 files (top 10)</summary>
+<details><summary>`nonisolated(unsafe)`: 58 in 40 files (top 10)</summary>
 
 ```
    6  CmuxNextCrashReporting/TaskExceptionPorts.swift
    4  CmuxNextTabs/TabAccessibilityElement.swift
+   3  Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/Transcript/AttachmentLayout.swift
+   3  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeFlightRecorder.swift
    3  CmuxNextCrashReporting/AlternateSignalStacks.swift
+   2  Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileRPCISO8601DateParser.swift
    2  CmuxNextApp/BrowserNowPlaying.swift
    2  CmuxNextPalette/PaletteRankerBridge.swift
    2  CmuxNextVSCodeServer/ServeWebProcess.swift
-   1  CmuxNextAgentPane/AcpmuxLogProgress.swift
-   1  CmuxNextAgentPane/AcpmuxVersionHandoff.swift
-   1  CmuxNextApp/Crash/AppRunMarker.swift
-   1  CmuxNextApp/Permissions/SystemPermissionProbe.swift
-      ... 10 more files
+   1  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/UserDefaultsAnalyticsConsentProvider.swift
+      ... 30 more files
 ```
 </details>
 
-<details><summary>raw locks (NSLock, OSAllocatedUnfairLock, os_unfair_lock, pthread mutex): 27 in 22 files (top 10)</summary>
+<details><summary>raw locks (NSLock, OSAllocatedUnfairLock, os_unfair_lock, pthread mutex): 120 in 82 files (top 10)</summary>
 
 ```
-   2  CmuxNextApp/DaemonTerminalIO.swift
-   2  CmuxNextApp/HostPressure/HostPressureSampling.swift
-   2  CmuxNextApp/NativeCaretAccessory.swift
-   2  CmuxNextCompat/Mutex.swift
-   2  CmuxNextServerHelper/ServerFixPriorStore.swift
-   1  CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift
-   1  CmuxNextApp/Crash/UncaughtExceptionRecorder.swift
-   1  CmuxNextApp/HostPressure/HostPressureService.swift
-   1  CmuxNextApp/Server/ServerHelperClient.swift
-   1  CmuxNextBrowser/CEF/ChromiumPageTextAccessory.swift
-      ... 12 more files
+   6  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+   4  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticLog.swift
+   4  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+   4  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
+   4  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStream.swift
+   3  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/AppLog.swift
+   2  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/OSAllocatedUnfairLock+Portable.swift
+   2  Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohReconnectBackoff.swift
+   2  Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohSystemBonjourDNSService.swift
+   2  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeMarkdownPolicy.swift
+      ... 72 more files
 ```
 </details>
 
-<details><summary>CmuxNextCompat `Mutex` uses (the sanctioned lock): 241 in 168 files (top 10)</summary>
+<details><summary>CmuxNextCompat `Mutex` uses (the sanctioned lock): 243 in 169 files (top 10)</summary>
 
 ```
   10  CmuxNextControl/Diagnostics/MainThreadWatchdog.swift
@@ -175,56 +178,58 @@ the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail ru
    3  CmuxNextDaemon/Connection/PageRelayHandshake.swift
    3  CmuxNextRemote/AddMachine/HostCLI.swift
    3  CmuxNextWakeups/MainTaskBoard.swift
-      ... 158 more files
+      ... 159 more files
 ```
 </details>
 
-<details><summary>`Task.sleep`: 32 in 25 files (top 10)</summary>
+<details><summary>`Task.sleep`: 64 in 46 files (top 10)</summary>
 
 ```
+   5  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStream.swift
    3  CmuxNextApp/AgentChatUploads.swift
    3  CmuxNextApp/AgentPeerUploads.swift
+   3  Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/TestSupport/UpdateTestSupport.swift
+   2  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/AppLog.swift
+   2  Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/IrxControlPlaneClient.swift
+   2  Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxRelayCredentialAutopilot.swift
+   2  Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKit/ScreenSession.swift
+   2  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/VNCWebRTCHost.swift
    2  CmuxNextApp/Handlers/CloudHandlers+Results.swift
-   2  CmuxNextApp/Handlers/CloudHandlers.swift
-   2  CmuxNextCompat/MainThreadEngineStart.swift
-   1  CmuxNextAgentPane/AcpmuxLogProgress.swift
-   1  CmuxNextAgentPane/AcpmuxVersionHandoff.swift
-   1  CmuxNextAgentPane/AgentPaneDeadline.swift
-   1  CmuxNextAgentPane/AgentPaneHost.swift
-   1  CmuxNextAgentPane/AgentPaneSeed.swift
-      ... 15 more files
+      ... 36 more files
 ```
 </details>
 
-<details><summary>clock sleeps `.sleep(for:/until:)`: 74 in 60 files (top 10)</summary>
+<details><summary>clock sleeps `.sleep(for:/until:)`: 164 in 125 files (top 10)</summary>
 
 ```
+   5  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStream.swift
+   4  Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Mock/MockHomeSource.swift
+   3  Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/BrowserSignIn/HostBrowserSignInFlow.swift
+   3  Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohHostRuntime+PolicyRefresh.swift
    3  CmuxNextApp/AgentChatUploads.swift
    3  CmuxNextApp/AgentPeerUploads.swift
    3  CmuxNextPhone/Live/SimulatorKitHID.swift
-   2  CmuxNextApp/Handlers/CloudHandlers+Results.swift
-   2  CmuxNextApp/Handlers/CloudHandlers.swift
-   2  CmuxNextBrowser/Omnibox/Suggest/OmniboxRemoteFetch.swift
-   2  CmuxNextCompat/MainThreadEngineStart.swift
-   2  CmuxNextComputerUse/ComputerUseHelperV2.swift
-   2  CmuxNextDaemon/Launch/ProcessRunner.swift
-   2  CmuxNextDesign/WebKitRenderRate+Reshow.swift
-      ... 50 more files
+   3  Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/TestSupport/UpdateTestSupport.swift
+   2  Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxRetryAfterPolicy.swift
+   2  Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator+PostSignInTimeout.swift
+      ... 115 more files
 ```
 </details>
 
-<details><summary>`DispatchQueue.main.async`: 14 in 9 files (top 10)</summary>
+<details><summary>`DispatchQueue.main.async`: 47 in 27 files (top 10)</summary>
 
 ```
    5  CmuxNextTerminal/GhosttyRuntimeCallbacks.swift
+   4  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
+   4  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
+   3  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
+   3  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
+   3  Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenVideoView.swift
+   2  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/SpellCheck.swift
+   2  Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+   2  Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/ScreenViewController.swift
    2  CmuxNextApp/Focus/InputVerificationService+NoActivateGuard.swift
-   1  CmuxNextApp/Focus/NoActivateKeyboardGuard.swift
-   1  CmuxNextBrowser/CEF/CEFEngine+Passwords.swift
-   1  CmuxNextBrowser/CEF/CEFRuntime+Events.swift
-   1  CmuxNextSidebar/Views/SidebarListView+PointerEnd.swift
-   1  CmuxNextTasks/SocketTasksSource.swift
-   1  CmuxNextTerminal/GhosttyRuntime+Background.swift
-   1  CmuxNextWakeups/MainDelivery.swift
+      ... 17 more files
 ```
 </details>
 
@@ -245,31 +250,31 @@ the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail ru
 ```
 </details>
 
-<details><summary>`#if DEBUG` blocks: 416 in 294 files (top 10)</summary>
+<details><summary>`#if DEBUG` blocks: 497 in 329 files (top 10)</summary>
 
 ```
+  22  Packages/iOS/CmuxMobileSupport/Sources/CmuxMobileSupport/UITestConfig.swift
+   7  CmuxNextControl/Diagnostics/BurstTrace.swift
    6  CmuxNextPages/PageWebView+Chromium.swift
    6  CmuxNextUpdater/UpdaterService+Flow.swift
    5  CmuxNextAgentPane/AgentPaneView+Loading.swift
    5  CmuxNextApp/Control/BenchSpans.swift
    5  CmuxNextApp/RemoteView/RemoteBrowserPages.swift
    5  CmuxNextDaemon/Store/DaemonStore+MirrorCheck.swift
-   4  CmuxNextApp/Focus/WindowScopedShortcutHintModifierMonitor.swift
-   4  CmuxNextApp/History/HistoryControl.swift
-   4  CmuxNextApp/RemoteView/MachineBrowserPages.swift
-   4  CmuxNextDesign/PointerHover.swift
-      ... 284 more files
+   4  Packages/iOS/CmuxMobileSupport/Sources/CmuxMobileSupport/Debug/UITestConfig+AgentFeedPreview.swift
+   4  Packages/iOS/CmuxMobileSupport/Sources/CmuxMobileSupport/Debug/UITestConfig+NotificationFeedPreview.swift
+      ... 319 more files
 ```
 </details>
 
 ## 2. NotificationCenter broadcast signals
 
-295 observer registrations; 13 custom names. A name observed by a
+336 observer registrations; 12 custom names. A name observed by a
 per-instance view or window class wakes every instance on every post: O(all), not O(changed).
 
 | Name | Observer sites | Every sender (no `object:`, or `object: nil`) | Post sites | Per-instance observer files |
 |---|---:|---:|---:|---|
-| `reduceMotionDidChange` | 5 | 5 | 1 | `AgentPaneView.swift`, `PageWebView.swift` |
+| `reduceMotionDidChange` | 7 | 7 | 1 | `AgentPaneView.swift`, `PageWebView.swift` |
 | `configDidChange` | 3 | 3 | 1 | `TerminalHostView.swift` |
 | `browserChildWindowPagesNeedUpdate` | 2 | 1 | 3 | `CEFHostView.swift` |
 | `cmuxNextInspectUIElement` | 1 | 1 | 1 | `UIInspectorController.swift` |
@@ -278,7 +283,6 @@ per-instance view or window class wakes every instance on every post: O(all), no
 | `settledNotification` | 1 | 1 | 1 | `SidebarListView.swift` |
 | `speedDidChange` | 1 | 1 | 4 | `PageWebView.swift` |
 | `accessibilityTrustChanged` | 2 | 2 | 0 | - |
-| `cmuxToastAvoidanceDidChange` | 1 | 1 | 1 | - |
 | `hoverCardsDidChange` | 1 | 1 | 2 | - |
 | `inactiveDimDidChange` | 1 | 1 | 1 | - |
 | `geometryDidChange` | 0 | 0 | 1 | - |
@@ -289,21 +293,21 @@ registers per instance: N instances = N wakes per post):
 <details><summary>Observed names</summary>
 
 ```
-139 sites   7 per-instance  name  (HostPressureIndicatorView.swift, BackdropVideoView.swift, HomeNativeTranscriptView.swift, SidebarNowPlayingControls.swift, TerminalSurfaceView.swift)
-  9 sites   6 per-instance  accessibilityDisplayOptionsDidChangeNotification  (AgentPaneView.swift, ThemedFieldBox.swift, PageWebView.swift, TerminalHostView.swift, WindowRootView.swift)
+145 sites   8 per-instance  name  (Compose.swift, HostPressureIndicatorView.swift, BackdropVideoView.swift, SidebarNowPlayingControls.swift, TerminalSurfaceView.swift)
+  7 sites   7 per-instance  boundsDidChangeNotification  (Compose.swift, NativeScroll.swift, SidebarView.swift, SidebarView.swift, TerminalScroller.swift)
+ 11 sites   6 per-instance  accessibilityDisplayOptionsDidChangeNotification  (AgentPaneView.swift, ThemedFieldBox.swift, PageWebView.swift, TerminalHostView.swift, WindowRootView.swift)
   7 sites   5 per-instance  didChangeOcclusionStateNotification  (PhoneScreenView.swift, SidebarListView.swift, SidebarNoticeCardView.swift, AgentPaneVisibilityProbe.swift, StatusIndicatorView.swift)
  13 sites   4 per-instance  willCloseNotification  (PageHostPool+Windows.swift, NewTabSparePool.swift, HoverReveal.swift, GroupCustomColor.swift)
-  4 sites   4 per-instance  boundsDidChangeNotification  (SidebarView.swift, TerminalScroller.swift, ScrollEdgeFade.swift, PaletteListView.swift)
-  7 sites   3 per-instance  didBecomeKeyNotification  (PageHostPool+Windows.swift, NewTabSparePool.swift, ActiveAppKeyPanel.swift)
- 21 sites   2 per-instance  ?  (BackdropVideoView.swift, HoverReveal.swift)
+ 27 sites   3 per-instance  ?  (BackdropVideoView.swift, HoverReveal.swift, MessagesLabHomeView.swift)
+  8 sites   3 per-instance  didBecomeKeyNotification  (PageHostPool+Windows.swift, NewTabSparePool.swift, ActiveAppKeyPanel.swift)
+  4 sites   3 per-instance  preferredScrollerStyleDidChangeNotification  (NativeScroll.swift, SidebarView.swift, NotificationsPanelView.swift)
+  9 sites   2 per-instance  n  (Materials.swift, SidebarView.swift)
   7 sites   2 per-instance  frameDidChangeNotification  (SidebarView.swift, ScrollEdgeFade.swift)
-  5 sites   2 per-instance  reduceMotionDidChange  (AgentPaneView.swift, PageWebView.swift)
-  3 sites   2 per-instance  preferredScrollerStyleDidChangeNotification  (SidebarView.swift, NotificationsPanelView.swift)
+  7 sites   2 per-instance  reduceMotionDidChange  (AgentPaneView.swift, PageWebView.swift)
   3 sites   1 per-instance  configDidChange  (TerminalHostView.swift)
   3 sites   1 per-instance  didChangeScreenParametersNotification  (ChiefPetPanel.swift)
   2 sites   1 per-instance  browserChildWindowPagesNeedUpdate  (CEFHostView.swift)
   1 sites   1 per-instance  cmuxNextInspectUIElement  (UIInspectorController.swift)
-  1 sites   1 per-instance  itemFaviconsChanged  (SidebarListView.swift)
 ```
 </details>
 
@@ -313,47 +317,49 @@ observes it and posts geometry (perf-lead.md issue 2). Fix shape: notify only th
 
 ## 3. Target sizes
 
-`CmuxNextApp`: **143,076 lines** of 621,653 in `Sources` (23 %); 804,741 lines with Tests and the package manifest.
+`CmuxNextApp`: **143,341 lines** of 623,817 in CmuxNext's `Sources` (23 %); 808,872 lines with Tests and the package manifest.
 Every edit in the App target re-emits the whole module (check-app-size.sh), so new code goes in a feature target.
 
 <details><summary>Lines per target (15 largest)</summary>
 
 ```
- 143,076  CmuxNextApp  [app]
-  42,444  CmuxNextBrowser  [ui]
+ 143,341  CmuxNextApp  [app]
+  42,757  CmuxNextBrowser  [ui]
+  36,937  MessagesLabHome  [ui]
   36,823  CmuxNextSidebar  [ui]
-  33,568  CmuxNextDaemon  [service]
-  33,520  CmuxNextDesign  [ui]
-  30,848  CmuxNextAgentPane  [ui]
+  33,662  CmuxNextDesign  [ui]
+  33,653  CmuxNextDaemon  [service]
+  30,942  CmuxNextAgentPane  [ui]
+  30,399  CmuxIrohTransport  [service]
   20,909  CmuxNextSettings  [domain]
-  19,605  CmuxNextActions  [core]
-  13,643  CmuxNextLayout  [ui]
-  13,337  CmuxNextControl  [service]
-  11,748  CmuxNextPalette  [ui]
-  11,606  CmuxNextHomeEngine  [ui]
-  11,273  CmuxNextTabs  [ui]
-   9,315  CmuxNextTerminal  [ui]
-   9,001  CmuxNextUpdater  [ui]
+  20,271  CMUXMobileCore  [core]
+  19,777  CmuxNextActions  [core]
+  13,991  CmuxIrxTransport  [service]
+  13,799  CmuxNextControl  [service]
+  13,693  CmuxNextLayout  [ui]
+  11,749  CmuxNextPalette  [ui]
 ```
 </details>
 
 ## 4. Target graph vs the 5-layer rule
 
-`Package.swift`: 148 targets (107 non-test: 1 app, 46 ui, 6 domain, 37 service, 17 core; 41 test). The App depends directly on 96 targets; 13 targets have no
-in-package dependency; the longest dependency chain is 11 targets.
+`Package.swift` and its local packages' manifests: 185 targets (144 non-test: 1 app, 51 ui, 12 domain, 50 service, 30 core; 41 test). The App depends directly on 104 targets; 32 targets have no
+dependency among them; the longest dependency chain is 11 targets.
 
 Layer per target from `plans/cmux-next/architecture-layers.json`; the rule is arch_counts.py's `layers()`,
 the one plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold: hard, a core/service/domain target
 that depends on a ui or app target; soft, a service target that depends on a domain target; upward, any
 other edge that points up a layer (core -> service/domain).
-**31 hard, 12 soft and 3 upward edges break the rule; 0 targets are unplaced:**
+**33 hard, 12 soft and 3 upward edges break the rule; 0 targets are unplaced:**
 
 <details><summary>Layer violations</summary>
 
 ```
+hard  CmuxMobileRPC (domain) -> CmuxMobileSupport (ui)
 hard  CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)
 hard  CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)
 hard  CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)
+hard  CmuxNextBridge (domain) -> CmuxAgentBrands (ui)
 hard  CmuxNextBridge (domain) -> CmuxNextIcons (ui)
 hard  CmuxNextBridge (domain) -> CmuxNextLayout (ui)
 hard  CmuxNextBridge (domain) -> CmuxNextSidebar (ui)
@@ -402,9 +408,9 @@ upward  CmuxNextWorkspaceNaming (core) -> CmuxNextDaemon (service)
 
 ## 5. Docs, scripts, workflows
 
-- `plans/cmux-next`: 589 tracked files, 402 Markdown (331 at the top level).
+- `plans/cmux-next`: 593 tracked files, 406 Markdown (335 at the top level).
 - Stale references (a `.md` named in plans/cmux-next docs or scripts/cmux-next that no tracked file has): **9** targets.
-- `scripts/cmux-next`: 590 files at the top level, 905 tracked in total.
+- `scripts/cmux-next`: 596 files at the top level, 912 tracked in total.
 - `.github/workflows`: 211 files.
 
 <details><summary>Stale references (missing doc: files that name it)</summary>
@@ -418,7 +424,7 @@ plans/cmux-next/decisions.md: plans/cmux-next/codebase-health.md, plans/cmux-nex
 plans/cmux-next/do-audit.md: plans/cmux-next/chief-done.md, plans/cmux-next/codebase-health.md
 plans/cmux-next/perf-speed-of-light.md: plans/cmux-next/codebase-health.md, scripts/cmux-next/perf-gate.py
 plans/cmux-next/remote-hosts/DESIGN.md: plans/cmux-next/codebase-health.md, plans/cmux-next/object-sync/DESIGN.md
-plans/cmux-next/threading-model.md: scripts/cmux-next/guardrails.py
+plans/cmux-next/threading-model.md: plans/cmux-next/codebase-health.md, scripts/cmux-next/guardrails.py
 ```
 </details>
 
@@ -428,7 +434,7 @@ plans/cmux-next/threading-model.md: scripts/cmux-next/guardrails.py
 lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it
 is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file
 does not count. Removed lines pay only when they were debt in the base (same context and escape rules), and an
-unchanged line counts when the push changes its context (a new loop around a sleep, `struct` -> `class`). Lines a
+unchanged line counts when the push changes its context (`struct` -> `class` around a static, a view renamed to a row) or deletes its escape comment. Lines a
 push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,
 why, the right pattern and the escape. One rule is not per line: `app-size` is a net count over the push in
 CmuxNextApp source lines (CI's lexer, as `check-app-size.sh --base` counts them), where removed App lines pay
@@ -451,17 +457,18 @@ It also warns (never refuses) when a push changes a `// perf-hot:` function (nam
 
 Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner
 marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or
-`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what
-`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and
-declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not
-read as a declaration, is flagged: an edit of that function warns nobody.
+`var`, or on the line with the body's `{` of a wrapped signature, adds no line; or a comment line right above
+the declaration). Which declaration a marker marks is what the hook's own resolver says, and whether it
+warns is what `guardrails.check` itself reports for a push that edits every line of the marked files (its own
+diff scope, not a copy), so a marker outside the hook's diff scope, or one that marks no declaration, is
+flagged: an edit of that function warns nobody.
 
-Marked: 13 of 15 path ids (22 markers); 12 of 15 warn at push; 3 of 22 markers never warn.
+Marked: 13 of 15 path ids (23 markers); 13 of 15 warn at push; 1 of 23 markers never warn.
 
 - `cef-host-input`: CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostConnection.swift:63
-- `key-dispatch`: CmuxNextActions/KeyBindingTable+Sequence.swift:27 (not on a declaration line the hook parses (a multi-line signature's last line?): no warning), CmuxNextApp/Focus/ChordTracker.swift:93 (not on a declaration line the hook parses (a multi-line signature's last line?): no warning), CmuxNextApp/Focus/KeyRouter.swift:179, CmuxNextApp/Focus/KeyRouter.swift:235, CmuxNextApp/Notifications/NotificationCenterService+Lookup.swift:46
+- `key-dispatch`: CmuxNextActions/KeyBindingTable+Sequence.swift:26, CmuxNextApp/Focus/ChordTracker.swift:92, CmuxNextApp/Focus/KeyRouter.swift:177, CmuxNextApp/Focus/KeyRouter.swift:236, CmuxNextApp/Notifications/NotificationCenterService+Lookup.swift:46
 - `terminal-key`: CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift:14
-- `home-key`: Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneHost.swift:678 (outside the pre-push hook's diff scope: no warning)
+- `home-key`: Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneHost.swift:678 (outside the pre-push hook's diff scope: no warning), CmuxNextHome/NativeTranscript/HomeNativeTranscriptView+Attachments.swift:276
 - `palette-key`: CmuxNextPalette/PaletteModel+Search.swift:109
 - `omnibar-key`: CmuxNextBrowser/Omnibox/OmnibarReducer.swift:220
 - `motion-frame`: CmuxNextLayout/Views/ScreenContentView+Motion.swift:14, CmuxNextLayout/Views/ScreenContentView+Motion.swift:90

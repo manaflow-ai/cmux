@@ -19,6 +19,7 @@ Example (vm.sh does this for you):
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import random
@@ -82,35 +83,40 @@ class Guest:
     def cmux(self, args: list[str], timeout: float = 15) -> subprocess.CompletedProcess:
         return self.sh(self._cli(args), timeout)
 
-    def ping_ms(self, timeout: float, sample_after_ms: int = 0, app_pid: int | None = None,
-                sample_file: str = "") -> int | None:
+    def ping_ms(self, timeout: float, sample_after_ms: int = 0, sample_file: str = "") -> int | None:
         """Main-thread round trip in ms, timed in the guest; None when nothing answers.
 
         A ping that runs past `timeout` returns the timeout (a hang), not None. With `sample_after_ms`,
-        a ping still unanswered then starts `sample APP_PID 5` into `sample_file` in the guest while the
-        hang lasts (sudo -n first: the hardened runtime refuses task_for_pid to a non-root sampler), so
-        the sample shows the hang itself, over 5 s, not the state after it.
+        a ping still unanswered then starts `sample PID 5` of the app into `sample_file` in the guest
+        while the hang lasts (sudo -n first: the hardened runtime refuses task_for_pid to a non-root
+        sampler), so the sample shows the hang itself, over 5 s. The PID is looked up at that moment,
+        and the file appears only complete (written to .tmp, then renamed).
         """
         # Perl, not python3: a macOS 26 guest without the Command Line Tools has only the
         # /usr/bin/python3 stub, which opens an install dialog and fails.
         ms = int(timeout * 1000)
-        limit = max(1, int(timeout + 0.999))
+        env = ""
         sampler = ""
-        if sample_after_ms and app_pid and sample_file:
-            f = shlex.quote(sample_file)
-            # Started once, detached; the ping keeps its own deadline.
-            sampler = (" my $first = " + str(sample_after_ms / 1000) + ";"
-                       " my $done = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; Time::HiRes::alarm($first); waitpid($pid, 0); Time::HiRes::alarm(0); 1 };"
-                       " if (!$done) { if (!fork) { open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null';"
-                       " exec '/bin/sh', '-c', 'sudo -n /usr/bin/sample " + str(app_pid) + " 5 -file " + f +
-                       " || /usr/bin/sample " + str(app_pid) + " 5 -file " + f + "'; exit 127 } }"
-                       " else { print $? ? -1 : int((time - $t) * 1000); exit 0 }")
-        perl = ("use Time::HiRes qw(time); my $t = time; my $pid = fork;"
+        if sample_after_ms and sample_file:
+            target = self.binary or self.app + "/Contents/MacOS/"
+            pattern = "^" + "".join("\\" + c if c in ".[]()*+?{}|^$\\" else c for c in target)
+            # Values reach the sampler through the environment, never spliced into code.
+            env = f"FUZZ_SAMPLE_FILE={shlex.quote(sample_file)} FUZZ_APP_PATTERN={shlex.quote(pattern)} "
+            sampler = (" if (!$done) { my $s = fork; if (defined $s && $s == 0) {"
+                       " open STDIN, '<', '/dev/null'; open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null';"
+                       " exec '/bin/sh', '-c', 'p=$(pgrep -nf \"$FUZZ_APP_PATTERN\") || exit 0; f=$FUZZ_SAMPLE_FILE;"
+                       " { sudo -n /usr/bin/sample \"$p\" 5 -file \"$f.tmp\" || /usr/bin/sample \"$p\" 5 -file \"$f.tmp\"; }"
+                       " && mv \"$f.tmp\" \"$f\"'; exit 127 } }")
+        first = (sample_after_ms / 1000) if sampler else timeout
+        perl = ("use Time::HiRes qw(time alarm); my $t = time; my $limit = " + str(timeout) + "; my $pid = fork;"
                 " if (!$pid) { open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null'; exec @ARGV; exit 127 }"
+                " my $wait = sub { my $s = shift; eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm $s; waitpid($pid, 0); alarm 0; 1 } };"
+                " my $done = $wait->(" + str(first) + ");"
                 + sampler +
-                " my $ok = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm " + str(limit) + "; waitpid($pid, 0); alarm 0; 1 };"
+                # One deadline for the whole ping, counted from its start.
+                " my $ok = $done || $wait->(($limit - (time - $t)) > 0.05 ? $limit - (time - $t) : 0.05);"
                 " if (!$ok) { kill 9, $pid; print " + str(ms) + " } else { print $? ? -1 : int((time - $t) * 1000) }")
-        r = self.sh(f"/usr/bin/perl -e {shlex.quote(perl)} -- {self._cli(['app', 'ping'])}", timeout + 15)
+        r = self.sh(f"{env}/usr/bin/perl -e {shlex.quote(perl)} -- {self._cli(['app', 'ping'])}", timeout + 15)
         try:
             v = int(r.stdout.strip().splitlines()[-1])
             return None if v < 0 else v
@@ -448,7 +454,8 @@ def main() -> int:
     ap.add_argument("--vnc", required=True, help="host:port[:password]")
     ap.add_argument("--app", default="/Applications/cmux NIGHTLY.app")
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--steps", type=int, default=1000)
+    ap.add_argument("--steps", type=int, default=None,
+                    help="random steps after the tour (default 1000; with --minutes: as many as the time allows)")
     ap.add_argument("--minutes", type=float, default=0,
                     help="stop the walk after this many minutes (0: run every step); the run's time bound")
     ap.add_argument("--hang-ms", type=int, default=1000)
@@ -483,7 +490,11 @@ def main() -> int:
         steps = [json.loads(l)["step"] for l in open(o.replay) if l.strip()]
     else:
         tour = [] if o.no_tour else [{"kind": "palette", "title": t} for t in TOUR]
-        steps = tour + [plan_step(rng, actions) for _ in range(o.steps)]
+        # Planned lazily from the seeded generator: the same seed gives the same sequence however
+        # long the run is. --minutes without --steps runs until the time is up.
+        count = o.steps if o.steps is not None else (None if o.minutes > 0 else 1000)
+        walk = (plan_step(rng, actions) for _ in (itertools.count() if count is None else range(count)))
+        steps = itertools.chain(tour, walk)
 
     summary_input = check_input(g, vnc)
     print("input check:", json.dumps(summary_input), flush=True)
@@ -514,7 +525,7 @@ def main() -> int:
             rec["screenshot_error"] = str(e)
 
     walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
-    app_pid = g.pid()
+    run_id = os.getpid()  # in live-sample names: a reused guest never matches an older file
     for i, step in enumerate(steps):
         if walk_end is not None and time.time() >= walk_end:
             summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
@@ -527,9 +538,8 @@ def main() -> int:
         except (ConnectionError, OSError) as e:
             note = f"vnc error {e}"
             vnc = RFB(host, int(port), pw[0] if pw else None)
-        live_sample = f"/tmp/fuzz-live-sample-{i}.txt"
-        ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5), sample_after_ms=o.hang_ms, app_pid=app_pid,
-                       sample_file=live_sample)
+        live_sample = f"/tmp/fuzz-live-sample-{run_id}-{i}.txt"
+        ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5), sample_after_ms=o.hang_ms, sample_file=live_sample)
         log.write(json.dumps({"i": i, "step": step, "note": note, "ping_ms": ms,
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
@@ -540,13 +550,11 @@ def main() -> int:
             except Exception as e:  # best effort
                 print("screenshot failed:", e, flush=True)
         pid = g.pid()
-        if pid is not None:
-            app_pid = pid
         if ms is not None and ms > o.hang_ms and pid:
             summary["hangs"] += 1
-            # The live sample (taken during the hang) needs its 5 s to finish writing.
-            text = g.sh(f"for n in 1 2 3 4 5 6 7 8; do [ -s {live_sample} ] && sleep 1 && break; sleep 1; done; "
-                        f"cat {live_sample} 2>/dev/null", timeout=30).stdout
+            # The live sample appears only complete (renamed after 5 s and symbolication): wait for it, bounded.
+            text = g.sh(f"for n in $(seq 1 20); do [ -e {live_sample} ] && break; sleep 1; done; "
+                        f"cat {live_sample} 2>/dev/null", timeout=40).stdout
             if text.strip():
                 open(os.path.join(o.out, f"hang-{i}.live-sample.txt"), "w").write(text)
             sample = os.path.join("/tmp", f"fuzz-sample-{i}.txt")

@@ -1,8 +1,8 @@
 {
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
-  "method_version": 4,
-  "measured_sha": "2086a2197d95df742a574b93a824199b26b52b68",
+  "method_version": 5,
+  "measured_sha": "98b020961a613c685cf7016ff7b295838102b89a",
   "measured_date": "2026-10-24",
   "rows": {
     "layer_hard": {
@@ -51,19 +51,36 @@
     }
   },
   "totals": {
-    "layer_hard": 31,
+    "layer_hard": 33,
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 177,
-    "global_mutable_statics": 279,
-    "assume_isolated_outside_adapters": 148,
-    "assume_isolated_total": 198,
-    "app_broadcast_names": 12,
-    "observer_sites": 295,
-    "app_lines": 143076
+    "stateful_singletons": 204,
+    "global_mutable_statics": 478,
+    "assume_isolated_outside_adapters": 152,
+    "assume_isolated_total": 202,
+    "app_broadcast_names": 13,
+    "observer_sites": 336,
+    "app_lines": 143341
   },
   "packages": {
+    "CmuxAuthRuntime": {
+      "stateful_singletons": 1
+    },
+    "CmuxHomeRender": {
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 2
+    },
+    "CmuxMobileRPC": {
+      "layer_hard": 1
+    },
+    "CmuxMobileSupport": {
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 4
+    },
     "CmuxNextActions": {
       "global_mutable_statics": 2,
       "assume_isolated_total": 1,
@@ -104,11 +121,11 @@
     },
     "CmuxNextApp": {
       "stateful_singletons": 33,
-      "global_mutable_statics": 75,
-      "assume_isolated_outside_adapters": 25,
-      "assume_isolated_total": 36,
+      "global_mutable_statics": 74,
+      "assume_isolated_outside_adapters": 22,
+      "assume_isolated_total": 33,
       "observer_sites": 104,
-      "app_lines": 143076
+      "app_lines": 143341
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -118,7 +135,7 @@
       "stateful_singletons": 1
     },
     "CmuxNextBridge": {
-      "layer_hard": 4,
+      "layer_hard": 5,
       "stateful_singletons": 5,
       "global_mutable_statics": 1
     },
@@ -200,10 +217,10 @@
     "CmuxNextDesign": {
       "stateful_singletons": 26,
       "global_mutable_statics": 66,
-      "assume_isolated_outside_adapters": 27,
-      "assume_isolated_total": 34,
-      "app_broadcast_names": 5,
-      "observer_sites": 79
+      "assume_isolated_outside_adapters": 26,
+      "assume_isolated_total": 33,
+      "app_broadcast_names": 4,
+      "observer_sites": 78
     },
     "CmuxNextDesignTokens": {
       "stateful_singletons": 2,
@@ -238,8 +255,6 @@
     "CmuxNextHome": {
       "stateful_singletons": 1,
       "global_mutable_statics": 2,
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2,
       "observer_sites": 4
     },
     "CmuxNextHomeEngine": {
@@ -395,13 +410,48 @@
     "CmuxNextWorkspaceRepair": {
       "assume_isolated_outside_adapters": 1,
       "assume_isolated_total": 1
+    },
+    "CmuxScreenKitUI": {
+      "stateful_singletons": 1
+    },
+    "CmuxUpdater": {
+      "global_mutable_statics": 1,
+      "observer_sites": 1
+    },
+    "CmuxVNCWebRTC": {
+      "stateful_singletons": 1
+    },
+    "MessagesLabHome": {
+      "stateful_singletons": 21,
+      "global_mutable_statics": 180,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "app_broadcast_names": 1,
+      "observer_sites": 29
+    },
+    "MessagesLabSidebar": {
+      "global_mutable_statics": 13,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "app_broadcast_names": 1,
+      "observer_sites": 6
+    },
+    "StackAuth": {
+      "stateful_singletons": 2,
+      "global_mutable_statics": 2
+    },
+    "cmux-vnc-host": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2
     }
   },
   "layer_edges": {
     "hard": [
+      "CmuxMobileRPC (domain) -> CmuxMobileSupport (ui)",
       "CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)",
       "CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)",
       "CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextBridge (domain) -> CmuxAgentBrands (ui)",
       "CmuxNextBridge (domain) -> CmuxNextIcons (ui)",
       "CmuxNextBridge (domain) -> CmuxNextLayout (ui)",
       "CmuxNextBridge (domain) -> CmuxNextSidebar (ui)",
@@ -492,14 +542,26 @@
         "697207923231265a321d075bd66591e377ba2b7c"
       ],
       "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "layer_hard",
+      "allow": 2,
+      "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override",
+      "applied_sha": "98b020961a613c685cf7016ff7b295838102b89a"
     }
   ],
   "observer_wrappers": [
     "AgentSubagentPanes",
+    "HomeProjection",
+    "HomeVideo",
     "LowPowerMode",
     "MainActorObservation",
     "PageHostPool",
+    "VideoPlayback",
     "start",
+    "toggle",
+    "toggleVideo",
     "watchUser"
   ]
 }
