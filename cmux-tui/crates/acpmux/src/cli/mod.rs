@@ -27,6 +27,7 @@ pub mod orchestrate;
 pub mod output;
 pub mod pairing;
 pub mod peer_status;
+pub mod place;
 pub mod process;
 pub mod run;
 pub mod sender;
