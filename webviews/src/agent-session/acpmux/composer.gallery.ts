@@ -80,7 +80,6 @@ const shot = (hue: number, width = 1440, height = 900) =>
 // Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
 const QUEUED_MESSAGE =
   "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
-("**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too");
 const QUEUED_LANE_REPORT = [
   "**cx3-s71-jank · lane report**",
   "",
