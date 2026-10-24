@@ -175,7 +175,8 @@ enum DebugLayers {
         let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
         guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
               (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
-              let contexts = unsafeBitCast(contextClass, to: QuartzLayerHostingSPI.Type.self).allContexts() else { return nil }
+              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+                  .takeUnretainedValue() as? [NSObject] else { return nil }
         for context in contexts where context.responds(to: contextIdGetter) && context.responds(to: rootLayerGetter) {
             let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
             guard spi.contextId == id else { continue }
