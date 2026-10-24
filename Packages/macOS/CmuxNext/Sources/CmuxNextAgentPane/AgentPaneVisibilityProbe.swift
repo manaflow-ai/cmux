@@ -1,13 +1,16 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextDesign
 
 /// A zero-size subview of an agent pane that says when the pane may have come into sight: it
 /// moved to a window, it or an ancestor was shown, or its window's occlusion changed. The pane's
 /// ``AgentPaneFramePacer`` then delivers the frames it held while nobody could see the pane.
-/// Kept off ``AgentPaneView``, whose type is at its size limit.
-@MainActor final class AgentPaneVisibilityProbe: NSView {
+/// Kept off ``AgentPaneView``, whose type is at its size limit. The window's ``WindowNotices``
+/// observes the occlusion notice once for every agent pane (and tab strip) in the window and calls
+/// this follower.
+@MainActor final class AgentPaneVisibilityProbe: NSView, WindowNoticesFollower {
     var onChange: (@MainActor () -> Void)?
-    private var occlusion: MainActorObservation?
+    /// The notices of the window it is in now (the window owns them).
+    private weak var notices: WindowNotices?
     /// The center the window's occlusion changes arrive on (AppKit posts them on `NotificationCenter.default`).
     private let center: NotificationCenter
 
@@ -26,20 +29,24 @@ import CmuxNextCompat
     }
 
     // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The occlusion
-    // observer (a MainActorObservation) is removed on the releasing thread.
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The window's
+    // notices hold this follower weakly, so it drops out without a call.
     nonisolated deinit {}
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        occlusion = nil
-        if let window {
-            occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: window, center: center) { [weak self] in
-                self?.onChange?()
-            }
+        let next = window.map { WindowNotices.of($0, center: center) }
+        if next !== notices {
+            notices?.remove(self)
+            next?.add(self, for: [.occlusionChanged])
+            notices = next
         }
+        onChange?()
+    }
+
+    func windowNoticed(_ notice: WindowNotice) {
         onChange?()
     }
 
