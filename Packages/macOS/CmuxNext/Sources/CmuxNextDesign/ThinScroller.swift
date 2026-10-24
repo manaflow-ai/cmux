@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxNextWakeups
 
 /// The one thin scroller of cmux NEXT's native scroll views: the sidebar's list and pinned bands,
 /// the Priority view, every scrollable card (hover cards, the update card's popover) and the
@@ -36,6 +37,8 @@ public final class ThinScroller: NSScroller {
     public static let nearDistance: CGFloat = 20
     /// How long the knob stays after the last scroll step (the web twin's `SCROLLING_HIDE_MS`).
     public static let restDelay: Duration = .milliseconds(800)
+    /// The owner the rest delay's wakeups are counted under in the ``WakeupLedger`` (`debug.wakeups`).
+    static let restWakeupOwner = "thinScroller.rest"
     /// The knob's opacity over the label color, at rest and wide.
     static let knobAlpha: CGFloat = 0.32
     static let expandedKnobAlpha: CGFloat = 0.5
@@ -63,6 +66,8 @@ public final class ThinScroller: NSScroller {
     let restingKnob = ThinScrollerKnobView()
     private(set) var presence = ThinScrollerPresence()
     private let clock: any Clock<Duration>
+    /// Where the rest delay's wakeups are counted (not used yet).
+    private let ledger: WakeupLedger
     /// The pending fade-out after the last scroll; the next scroll cancels it.
     private(set) var restTask: Task<Void, Never>?
     private var proximity: ThinScrollerProximity?
@@ -77,8 +82,10 @@ public final class ThinScroller: NSScroller {
     /// - Parameters:
     ///   - frameRect: The scroller's frame.
     ///   - clock: The clock of ``restDelay``; tests pass a manual clock.
-    public init(frame frameRect: NSRect, clock: any Clock<Duration>) {
+    ///   - ledger: Where each rest-delay wakeup is counted (`debug.wakeups`); tests pass their own.
+    public init(frame frameRect: NSRect, clock: any Clock<Duration>, ledger: WakeupLedger = .shared) {
         self.clock = clock
+        self.ledger = ledger
         super.init(frame: frameRect)
         restingKnob.wantsLayer = true
         addSubview(restingKnob)
@@ -206,6 +213,13 @@ public final class ThinScroller: NSScroller {
             do { try await clock.sleep(for: Self.restDelay) } catch { return }
             self?.update { $0.rested() }
         }
+    }
+
+    /// Waits until the rest delay armed last has settled: the knob took its rest state, or the
+    /// delay was dropped. Tests await it after they advance the clock; a dropped delay ends the
+    /// wait too, so a regression fails on the test's expectation instead of hanging it.
+    func restSettled() async {
+        await restTask?.value
     }
 
     private func placeKnob(animated: Bool) {

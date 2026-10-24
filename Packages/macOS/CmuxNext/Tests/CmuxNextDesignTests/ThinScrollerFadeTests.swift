@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
@@ -12,11 +13,12 @@ import Testing
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct ThinScrollerFadeTests {
     /// A scroll view whose content is four times its height, with the shared thin scroller on
-    /// `clock`, scrolled to the top.
-    private static func scrollView(clock: ManualClock = ManualClock()) -> (NSScrollView, ThinScroller) {
+    /// `clock` counting its wakeups in `ledger`, scrolled to the top.
+    private static func scrollView(clock: ManualClock = ManualClock(),
+                                   ledger: WakeupLedger = WakeupLedger()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
-        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock)
+        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock, ledger: ledger)
         SystemScrollers.followThin(scrollView)
         scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 800))
         scrollView.tile()
@@ -53,8 +55,27 @@ struct ThinScrollerFadeTests {
         Self.userScroll(scrollView)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await scroller.restTask?.value
+        await scroller.restSettled()
         #expect(!scroller.isKnobShown)
+    }
+
+    /// The rest delay is a one-shot deadline of the shared wakeup primitive (DemandTimer), so
+    /// `debug.wakeups` counts each fade-out under the scroller's owner, and only the one that ran:
+    /// a deadline the next scroll replaced is not a wakeup (plans/cmux-next/idle-wakeups.md).
+    @Test func eachFadeOutIsOneWakeupInTheLedger() async throws {
+        let clock = ManualClock()
+        let ledger = WakeupLedger()
+        let (_, scroller) = Self.scrollView(clock: clock, ledger: ledger)
+        scroller.flash()
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        scroller.flash() // replaces the pending deadline
+        try await clock.waitForSleeper()
+        clock.advance(by: ThinScroller.restDelay)
+        await scroller.restSettled()
+        #expect(!scroller.isKnobShown)
+        let wakeups = ledger.snapshot().filter { $0.owner == ThinScroller.restWakeupOwner }
+        #expect(wakeups.map(\.count) == [1])
     }
 
     @Test func thePointerNearTheEdgeShowsAndWidensTheKnob() throws {
@@ -108,7 +129,7 @@ struct ThinScrollerFadeTests {
         #expect(scroller.isKnobExpanded)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await scroller.restTask?.value
+        await scroller.restSettled()
         #expect(scroller.isKnobShown) // held while the pointer stays near
         scroller.pointerMoved(to: nil)
         #expect(!scroller.isKnobShown)
