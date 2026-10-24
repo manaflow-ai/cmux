@@ -1013,6 +1013,8 @@ impl Holder {
             });
             if n > 0 {
                 read += n as usize;
+                let id = terminal.id;
+                cmux_flow_trace::hop("holder.pty.read", 0, || cmux_flow_trace::hex(&id));
                 continue;
             }
             if n == 0 {
