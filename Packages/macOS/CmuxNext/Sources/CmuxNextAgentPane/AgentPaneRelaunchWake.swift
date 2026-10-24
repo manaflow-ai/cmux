@@ -14,8 +14,10 @@ public import Foundation
 /// text came back, its screenshots did not). The launch reads them back and removes both, so a chip
 /// sent or taken out later in that run is never saved again.
 public final class AgentPaneRelaunchWake {
-    public static let fileName = "agent-pane-wake-states.json"
-    public static let attachmentsDirectoryName = "agent-pane-wake-attachments"
+    public nonisolated static let fileName = "agent-pane-wake-states.json"
+    public nonisolated static let attachmentsDirectoryName = "agent-pane-wake-attachments"
+    /// The attachments' files the launch reads back, all tabs together (``maximumAttachmentBytes``'s default).
+    public nonisolated static let defaultMaximumAttachmentBytes = 128 * 1024 * 1024
     /// The JSON (shell commands, text files' text, file names): a tab holding more is not kept, and
     /// the file stops growing past ``maximumBytes`` (the launch reads it on the main actor; a larger
     /// file is not read).
@@ -24,7 +26,7 @@ public final class AgentPaneRelaunchWake {
     let file: URL?
     /// The attachments' files, all tabs together (the launch reads them back): a composer full of
     /// images (10 of at most 5 MB, `attachments.ts`) fits twice over.
-    public var maximumAttachmentBytes = 128 * 1024 * 1024
+    public var maximumAttachmentBytes = AgentPaneRelaunchWake.defaultMaximumAttachmentBytes
     /// Asks a live page what it holds, within the limit (``AgentPaneView/wakeState(limit:)``).
     public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
 
@@ -37,9 +39,16 @@ public final class AgentPaneRelaunchWake {
         self.init(file: directory?.appending(path: Self.fileName))
     }
 
+    /// The file in the tag's state directory (beside the launch snapshot).
+    public nonisolated static func file(in directory: URL?) -> URL? {
+        directory?.appending(path: fileName)
+    }
+
     /// Where the attachments' files go: beside the JSON file.
-    var attachmentsDirectory: URL? {
-        file?.deletingLastPathComponent().appending(path: Self.attachmentsDirectoryName, directoryHint: .isDirectory)
+    var attachmentsDirectory: URL? { Self.attachmentsDirectory(beside: file) }
+
+    private nonisolated static func attachmentsDirectory(beside file: URL?) -> URL? {
+        file?.deletingLastPathComponent().appending(path: attachmentsDirectoryName, directoryHint: .isDirectory)
     }
 
     /// One tab's state as saved: its attachments' contents moved out to files.
@@ -50,16 +59,25 @@ public final class AgentPaneRelaunchWake {
     }
 
     /// The last quit's states, by tab, once: the file and the attachments' files go, so a crash
-    /// later in this run never brings back chips already sent.
+    /// later in this run never brings back chips already sent. Read on the calling thread (tests,
+    /// and a tab store made with no launch read); the launch reads them off the main thread
+    /// (``takeSaved(from:maximumAttachmentBytes:)`` through the app's `LaunchFiles`, #17587).
     public func take() -> [String: AgentPaneWakeState] {
+        Self.takeSaved(from: file, maximumAttachmentBytes: maximumAttachmentBytes)
+    }
+
+    /// The states saved in `file`, by tab, with their attachments read back within
+    /// `maximumAttachmentBytes`; the file and the attachments' files go. Runs on any thread.
+    public nonisolated static func takeSaved(from file: URL?,
+                                             maximumAttachmentBytes: Int = defaultMaximumAttachmentBytes) -> [String: AgentPaneWakeState] {
         guard let file else { return [:] }
-        let folder = attachmentsDirectory
+        let folder = attachmentsDirectory(beside: file)
         defer {
             try? FileManager.default.removeItem(at: file)
             if let folder { try? FileManager.default.removeItem(at: folder) }
         }
         guard let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
-              // concurrency-allow: one capped read of a small local state file when the tab store is made
+              // concurrency-allow: one capped read of a local state file, off the main thread at launch
               let data = try? Data(contentsOf: file) else { return [:] }
         let decoder = JSONDecoder()
         let saved = (try? decoder.decode([String: Saved].self, from: data))

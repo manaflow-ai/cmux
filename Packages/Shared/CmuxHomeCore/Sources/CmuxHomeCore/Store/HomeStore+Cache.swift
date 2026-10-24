@@ -38,6 +38,14 @@ extension HomeStore {
         restoreCache()
     }
 
+    /// ``primeFromCache()`` with `snapshot`, the cache's file read and decoded elsewhere (the Mac
+    /// app reads it off the main thread from the top of `main`); nil is an empty or unreadable
+    /// cache. The file is not read again. Idempotent, like ``primeFromCache()``.
+    public func primeFromCache(_ snapshot: HomeCacheSnapshot?) {
+        guard !stopped else { return }
+        restoreCache(from: snapshot)
+    }
+
     /// Writes the coalesced cache batch now (app quit), without stopping.
     public func flushCache() {
         viewCache.flush()
@@ -46,9 +54,15 @@ extension HomeStore {
     /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
     /// before its first frame (``primeFromCache()``), `start()` again.
     func restoreCache() {
+        restoreCache(from: cache?.load())
+    }
+
+    /// ``restoreCache()`` from what `load` gives, evaluated once by the first call; later calls
+    /// do nothing (`load` is not evaluated then).
+    private func restoreCache(from load: @autoclosure () -> HomeCacheSnapshot?) {
         guard !cacheRestored else { return }
         cacheRestored = true
-        guard let snapshot = cache?.load() else { return }
+        guard let snapshot = load() else { return }
         viewCache.restore(snapshot) {
             mirror.seed(snapshot)
             seeded = Set(mirror.conversations.keys)

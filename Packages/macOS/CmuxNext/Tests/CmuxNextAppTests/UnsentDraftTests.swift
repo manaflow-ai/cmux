@@ -39,4 +39,23 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
         withExtendedLifetime(drafts) {}
     }
+
+    /// #17587: the launch reads the drafts off the main thread from the top of `main`
+    /// (`LaunchFiles.unsentDrafts`, a `LaunchRead`); the tab store, made on the main thread in
+    /// `applicationDidFinishLaunching`, only takes them and reads no file.
+    @Test func theTabStoreTakesTheDraftsTheLaunchReadOffTheMainThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = try #require(AgentUnsentDrafts.file(in: directory))
+        try JSONEncoder().encode(["tab-1": "kept text"]).write(to: file)
+
+        let read = await Task.detached { AgentUnsentDrafts.read(file) }.value
+        #expect(read == ["tab-1": "kept text"])
+        // The file is gone before the store is made: the store holds what the launch read.
+        try FileManager.default.removeItem(at: file)
+        let drafts = AgentUnsentDrafts(file: file, drafts: read)
+        let seed = try #require(drafts.seed(for: "tab-1", session: nil))
+        #expect(await seed.take()?.draft == "kept text")
+    }
 }
