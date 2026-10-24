@@ -401,6 +401,9 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The updater's own lanes: the rollback keep (an app-bundle clone, seconds on a busy disk) never holds the
+    /// stores' saves behind it on the files lane's one best-effort slot. Quit drains both.
+    let updaterWork: BackgroundWork
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -425,7 +428,9 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         self.work = work
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
-        updater = UpdaterService(work: work)
+        let updaterWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")
+        self.updaterWork = updaterWork
+        updater = UpdaterService(work: updaterWork)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork

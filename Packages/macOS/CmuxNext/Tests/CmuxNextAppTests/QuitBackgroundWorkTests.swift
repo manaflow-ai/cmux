@@ -44,7 +44,8 @@ import Testing
             endLocalSessions: { _ in [] },
             confirmFailures: { _ in .quitAnyway },
             drainBackgroundWork: {
-                let finished = await QuitCoordinator.drainBackgroundWork(work, limit: .seconds(30), clock: clock)
+                let finished = await QuitCoordinator.drainBackgroundWork([work, BackgroundWork(label: "test.quit.drain.idle")],
+                                                                       limit: .seconds(30), clock: clock)
                 drained.withLock { $0 = finished }
             },
             stopBrowserEngines: { log.withLock { $0.append("engines") } }
@@ -66,7 +67,7 @@ import Testing
         var iterator = started.makeAsyncIterator()
         _ = await iterator.next()
         let begin = ContinuousClock.now
-        #expect(await QuitCoordinator.drainBackgroundWork(work, limit: .milliseconds(100)) == false)
+        #expect(await QuitCoordinator.drainBackgroundWork([work], limit: .milliseconds(100)) == false)
         #expect(ContinuousClock.now - begin < .seconds(5))
         hang.signal()
     }

@@ -31,7 +31,7 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: file.path))
         #expect(try permissions(of: file) == 0o600)
         let rows = await history.load()
-        #expect(rows.map(\.filename) == ["download.txt"])
+        #expect(rows?.map(\.filename) == ["download.txt"])
     }
 
     @Test func newBrowserMetadataIsPrivate() async throws {
@@ -51,7 +51,7 @@ import Testing
         #expect(try permissions(of: root) == 0o700)
         #expect(try permissions(of: file) == 0o600)
         let rows = await history.load()
-        #expect(rows.map(\.filename) == ["new-download.txt"])
+        #expect(rows?.map(\.filename) == ["new-download.txt"])
     }
 
     @Test func aSymlinkedMetadataDirectoryIsRejectedWithoutTouchingItsTarget() async throws {
@@ -69,7 +69,7 @@ import Testing
 
         let rows = await BrowserDownloadHistory(url: linked.appendingPathComponent("downloads.json"), work: BackgroundWork()).load()
 
-        #expect(rows.isEmpty)
+        #expect(rows?.isEmpty == true)
         #expect(try permissions(of: external) == 0o755)
         #expect(try permissions(of: target) == 0o644)
     }
@@ -88,7 +88,7 @@ import Testing
 
         let rows = await BrowserDownloadHistory(url: linked, work: BackgroundWork()).load()
 
-        #expect(rows.isEmpty)
+        #expect(rows?.isEmpty == true)
         #expect(try permissions(of: target) == 0o644)
     }
 

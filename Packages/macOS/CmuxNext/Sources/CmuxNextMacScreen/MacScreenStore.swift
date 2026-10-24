@@ -2,6 +2,7 @@ public import Foundation
 public import Observation
 public import CmuxNextWakeups
 import Security
+import CmuxNextCompat
 
 /// What Mac Screen keeps on this Mac: the name this Mac registers with the
 /// device hub when the person renamed it, and the user's devices' names as
@@ -86,10 +87,15 @@ public final class MacScreenStore {
         if loadTask == nil {
             let file = file, remove = removeLinkPairings, work = work
             loadTask = Task { [weak self] in
-                let stored = try? await work.run(.userVisible, mayBlock: .files) { () -> File? in
-                    // concurrency-allow: runs on the BackgroundWork files lane, never the main thread or the cooperative pool
-                    guard let data = try? Data(contentsOf: file) else { return nil }
-                    return try? JSONDecoder().decode(File.self, from: data)
+                let stored: File?
+                do {
+                    stored = try await work.run(.userVisible, mayBlock: .files) { () -> File? in
+                        // concurrency-allow: runs on the BackgroundWork files lane, never the main thread or the cooperative pool
+                        guard let data = try? Data(blockingContentsOf: file) else { return nil }
+                        return try? JSONDecoder().decode(File.self, from: data)
+                    }
+                } catch {
+                    return  // the lanes refused the read (quit shut them down): not loaded, nothing saved over the file
                 }
                 guard let self else { return }
                 if let stored {
