@@ -8,7 +8,10 @@
 //!   its link (before: a LISTED without the master it lists);
 //! - a SPAWN whose custody dups cannot be made fails with `SPAWN_FAILED`,
 //!   its child is killed and reaped, and nothing it opened stays open
-//!   (before: a SPAWNED without the ring segment).
+//!   (before: a SPAWNED without the ring segment);
+//! - a daemon frame whose descriptors the holder cannot take ends the link
+//!   with an ERROR `NO_DESCRIPTORS`, and is no strike against the terminals
+//!   the link streamed (before: a silent close, counted as a daemon crash).
 //!
 //! The free count comes from the holder's own descriptor table, read at
 //! points where it is idle (after a PONG): a probe holder with one daemon
@@ -20,6 +23,8 @@
 #![cfg(unix)]
 
 use std::collections::BTreeSet;
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Child;
@@ -262,6 +267,90 @@ fn a_holder_out_of_descriptors_refuses_a_hello_and_a_spawn_and_keeps_its_link() 
     }
     client.write(2, b"after-spawn\n").unwrap();
     wait_output(&mut client, 2, "after-spawn");
+
+    for chan in 1..=TERMINALS {
+        client.close(chan, 200).unwrap();
+    }
+    drop(client);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Holder-core fix review: a daemon frame whose descriptors the holder
+/// cannot take, because it is out of descriptors (macOS fails the read with
+/// EMFILE and drops them; Linux delivers what fits and sets MSG_CTRUNC),
+/// ends the link with an ERROR `NO_DESCRIPTORS` on channel 0 after the
+/// frame the socket had taken part of, and is no strike against the
+/// terminals the link streamed: the daemon did not die parsing them. Before,
+/// the link just closed as a lost one, and two such links within the strike
+/// window poisoned every terminal they streamed, so the next restore skipped
+/// its ring (a GAP instead of the output the ring kept).
+#[test]
+fn a_frame_whose_descriptors_the_holder_cannot_take_ends_the_link_with_an_error_and_no_strike() {
+    const TERMINALS: u32 = 2;
+    const BALLAST: usize = 4;
+    let dir = temp_dir();
+    let base = base_descriptors(&dir);
+    // One free once the ballast connections are accepted: an ADOPT passes two.
+    let limit = base + 2 * TERMINALS as usize + BALLAST + 1;
+    let socket = dir.join("h.sock");
+    let holder = launch_limited(&socket, limit as u64);
+    let holder_pid = holder.id() as i32;
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    spawn_shells(&mut client, TERMINALS);
+    settle(&mut client, 1);
+    assert_eq!(open_fds(holder_pid), base + 2 * TERMINALS as usize);
+    let null = || OwnedFd::from(std::fs::File::open("/dev/null").unwrap());
+
+    // Two links in a row end on the fault while they stream both terminals.
+    for round in 0..2u64 {
+        if round > 0 {
+            let (next, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+            client = next;
+            assert_eq!(listed.len(), TERMINALS as usize, "the holder lost a terminal");
+            for entry in &listed {
+                client.attach(entry.chan, entry.end).unwrap();
+            }
+        }
+        // Connections that never say HELLO take one descriptor each. They
+        // were queued before the PING, so the holder accepted them by its PONG.
+        let ballast: Vec<UnixStream> =
+            (0..BALLAST).map(|_| UnixStream::connect(&socket).unwrap()).collect();
+        settle(&mut client, 10 + round);
+        assert_eq!(open_fds(holder_pid), limit - 1, "round {round}: not one descriptor left");
+        client.adopt_with_ring(9, &[9; 16], (0, 0, 0), &null(), &null(), b"").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            match client.next_event(deadline) {
+                Ok(Event::Error { chan: 0, code, message, .. }) => {
+                    assert_eq!(code, error_code::NO_DESCRIPTORS, "round {round}: {message}");
+                    break;
+                }
+                Ok(Event::Data { .. }) => {}
+                Ok(other) => panic!("round {round}: unexpected {other:?}"),
+                Err(error) => panic!("round {round}: the link ended without telling why: {error}"),
+            }
+        }
+        assert!(
+            client.next_event(Instant::now() + Duration::from_secs(20)).is_err(),
+            "round {round}: the link went on after the fault"
+        );
+        drop(ballast);
+    }
+
+    // The next daemon restores terminal 1 with its prologue: its ring
+    // replays from the oldest byte, no strike having counted.
+    let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let first = listed.iter().find(|entry| entry.chan == 1).expect("terminal 1 is listed");
+    client.reattach(1, first.oldest).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    match client.next_event(deadline).unwrap() {
+        Event::Data { chan: 1, offset, .. } => assert_eq!(offset, first.oldest),
+        Event::Gap { .. } => {
+            panic!("two descriptor faults poisoned the terminal: its ring was skipped")
+        }
+        other => panic!("unexpected {other:?}"),
+    }
 
     for chan in 1..=TERMINALS {
         client.close(chan, 200).unwrap();
