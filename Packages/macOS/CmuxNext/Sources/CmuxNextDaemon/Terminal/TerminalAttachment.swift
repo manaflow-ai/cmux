@@ -259,11 +259,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         guard !data.isEmpty else { return }
         let surface = surface
         let logger = logger
+        let flow = TypingLatencyProbe.shared.openFlow
         do {
             try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
                 logger.error("send failed: \(error.description, privacy: .public)")
             }) { id in
-                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data), id: id)
+                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
             TypingLatencyProbe.shared.mark(.socketSubmit)
         } catch {
