@@ -23,7 +23,8 @@ package nonisolated final class WebAuthSessionHandler: NSObject, Sendable, ASWeb
 
     @MainActor
     package init(broker: WebAuthSessionBroker) {
-        let (stream, calls) = AsyncStream.makeStream(of: MainCall.self)
+        // concurrency-allow: one call per sign-in the person starts or ends (human rate), drained at once on the main actor; a dropped begin or cancel would leave the system's request unanswered
+        let (stream, calls) = AsyncStream.makeStream(of: MainCall.self, bufferingPolicy: .unbounded)
         self.broker = broker
         self.calls = calls
         super.init()
