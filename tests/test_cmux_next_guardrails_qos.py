@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""guardrails.py rule `task-priority` (PL-qos): a new Task or dispatch queue states its priority.
+"""guardrails.py rule `task-priority` (PL-qos): a new detached Task or dispatch queue states its priority.
 
 Not on CI (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the rule:
 python3 tests/test_cmux_next_guardrails_qos.py
@@ -21,9 +21,6 @@ REFUSED = [
     "Task.detached {",
     "Task.detached { [weak self] in",
     "Task.detached(name: \"x\") {",
-    "Task {",
-    "Task { [weak self] in",
-    "let t = Task { await f() }",
     "DispatchQueue.global().async {",
     "let q = DispatchQueue(label: \"com.x.y\")",
     "let q = DispatchQueue(label: \"com.x.y\",\n        attributes: .concurrent)",
@@ -31,18 +28,18 @@ REFUSED = [
 ALLOWED = [
     "Task.detached(priority: .utility) {",
     "Task(priority: .high) {",
-    "Task(priority: WorkPriority(.background).taskPriority) { [weak self] in",
+    "Task {",
+    "Task { [weak self] in",
     "Task { @MainActor in",
-    "Task { @MainActor [weak self] in",
     "DispatchQueue.global(qos: .utility).async {",
     "let q = DispatchQueue(label: \"com.x.y\", qos: .utility)",
     "let q = DispatchQueue(label: \"com.x.y\", target: other)",
-    "Task { // qos-allow: inherits the request's priority on purpose",
+    "Task.detached { // qos-allow: inherits the request's priority on purpose",
     "let task: Task<Void, Never>? = nil",
     "group.addTask {",
     "MyTask {",
     "let q = DispatchQueue(\n        label: \"com.x.y\",\n        qos: .utility)",
-    "Task(\n        priority: .utility\n    ) {",
+    "Task.detached(\n        priority: .utility\n    ) {",
 ]
 
 
