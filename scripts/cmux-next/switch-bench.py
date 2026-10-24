@@ -9,7 +9,7 @@ Launches a tagged Debug app (no activation, scratch config; activation-perf.py's
   ws.chromium_hidden      two terminal workspaces while other workspaces hold Chromium pages (shown before)
   ws.cmd_digit            Cmd-1 / Cmd-2
   tab.terminal / tab.chromium   Ctrl-Tab in a pane of 4 tabs of that kind      debug.tab_switch
-  space.next_prev         Opt-Cmd-] / [ between two spaces                    debug.input_commit (+ workspace_switch)
+  space.next_prev         Opt-Cmd-] / [ between two spaces                    debug.workspace_switch (+ input_commit: shown in the key's turn)
   group.toggle            Ctrl-Cmd-. (collapse / expand the shown workspace's group)  debug.input_commit
 
 Per row: input_to_commit p50/p95 (the event's age at the intent plus intent to the Core Animation commit),
@@ -97,10 +97,13 @@ class Bench:
                 self.stress.add_tab(ws, pane, kind)
         return ws
 
-    def time(self, method, step, count, label):
-        """`count` inputs (`step(i)`), timed by `method`'s timer; the row's numbers."""
+    def time(self, method, step, count, label, also=None):
+        """`count` inputs (`step(i)`), timed by `method`'s timer; the row's numbers. `also`: a second timer
+        recorded over the same inputs, its rows under `also_rows` (a space switch: debug.input_commit)."""
         hot = self.sampled(step, count, label) if label in opts.sample.split(",") else None
         self.rpc("debug.frames", {"action": "start"})  # the display link ticks, so commits map to vsyncs
+        if also:
+            self.rpc(also, {"action": "start"})
         probe = self.rpc(method, {"action": "start"})
         if not isinstance(probe, dict) or "recording" not in probe:
             self.rpc("debug.frames", {"action": "stop"})
@@ -110,6 +113,7 @@ class Bench:
             time.sleep(opts.interval)  # bench pacing: one input per interval, its commit lands meanwhile
         time.sleep(0.5)  # bench: the last commit lands
         reply = self.rpc(method, {"action": "stop"}) or {}
+        also_rows = ((self.rpc(also, {"action": "stop"}) or {}).get("inputs") or []) if also else []
         self.rpc("debug.frames", {"action": "stop"})
         rows = reply.get("switches") or reply.get("inputs") or reply.get("moves") or []
         e2e = [r.get("input_ms", 0) + r["commit_ms"] for r in rows if isinstance(r.get("commit_ms"), (int, float))]
@@ -120,7 +124,7 @@ class Bench:
                "apply_p50": pct(apply, 0.5), "apply_p95": pct(apply, 0.95), "late_switches": sum(1 for v in late if v),
                "refresh_ms": rows[0].get("refresh_ms") if rows else None,
                "work_before_commit": reply.get("work_before_commit"),
-               "workspace_shown": [r.get("workspace_shown") for r in rows if "workspace_shown" in r] or None}
+               "workspace_shown": [r.get("workspace_shown") for r in rows + also_rows if "workspace_shown" in r] or None}
         stages = {}
         for stage in ("input", "park", "content", "sidebar", "root", "theme", "did_show", "focus", "strip", "withdraw", "reveal",
                       "stripSync", "view", "present", "record"):
@@ -211,7 +215,7 @@ class Bench:
             return {"label": "space.next_prev", "error": "no workspace after space.new"}
         self.action("space.previous", settle=1.0)
         step = lambda i: self.key("]" if i % 2 == 0 else "[", ["option", "command"])  # noqa: E731
-        row = self.time("debug.input_commit", step, opts.switches, "space.next_prev")
+        row = self.time("debug.workspace_switch", step, opts.switches, "space.next_prev", also="debug.input_commit")
         row["spaces_before"] = before
         return row
 

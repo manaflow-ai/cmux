@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextWakeups
 import os
 
@@ -50,6 +51,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: times a click's dispatch to its commit (`debug.input_commit`).
+    var inputCommit: InputCommitTimer?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -106,7 +109,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
-            DebugWorkspaceSwitch.inputCommit.dispatching(event, in: event.window.flatMap { Self.accessibilityWindow(for: $0) } ?? mainWindow) { BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) } }
+            let send = { BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) } }
+            if let inputCommit { inputCommit.dispatching(event, in: event.window.flatMap { Self.accessibilityWindow(for: $0) } ?? mainWindow, send) } else { send() }
         } else {
             super.sendEvent(event)
         }

@@ -284,6 +284,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
+        services.inputCommit.noteShown()
         DebugWorkspaceSwitch.shown(self, in: window)
     }
 
