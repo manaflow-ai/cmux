@@ -213,11 +213,6 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
     private(set) lazy var linkOpener = LinkOpener(services: self)
-    /// A person's quick Cmd-W presses after one that emptied its pane (``TabCloseGuard/swallowsCmdW(_:at:)``).
-    var emptiedPaneCloseRun = EmptiedPaneCloseRun()
-    /// How close such a press must follow the one before it: the double-click interval, or a held key's
-    /// first repeat when that comes later. A test lengthens it so its waits on a loaded host still fit.
-    var quickPressWindow: () -> TimeInterval = { max(NSEvent.doubleClickInterval, NSEvent.keyRepeatDelay + NSEvent.keyRepeatInterval) }
     /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
     private(set) lazy var linkDrags = LinkDragSession(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
