@@ -26,15 +26,22 @@ import Testing
       querySelectorAll: function (s) { return /video|audio/.test(s) ? media : []; },
     };
     function video(playing) {
-      return { tagName: 'VIDEO', paused: !playing, ended: false, currentTime: 12, duration: 60, muted: false, volume: 1, playbackRate: 1 };
+      return { tagName: 'VIDEO', paused: !playing, ended: false, currentTime: 12, duration: 60, muted: false, volume: 1,
+               playbackRate: 1, isConnected: true };
     }
+    var observers = [];
+    function MutationObserver(f) { this.f = f; }
+    MutationObserver.prototype.observe = function () { observers.push(this); };
+    MutationObserver.prototype.disconnect = function () { var self = this; observers = observers.filter(function (o) { return o !== self; }); };
+    function mutate() { observers.slice().forEach(function (o) { o.f([]); }); runTimeouts(); }
+    function lastReport() { return JSON.parse(posted[posted.length - 1]).report; }
     """
 
     static func context() throws -> JSContext {
         let context = try #require(JSContext())
         context.exceptionHandler = { _, exception in Issue.record("page script threw: \(exception?.toString() ?? "?")") }
         context.evaluateScript(page)
-        context.evaluateScript(BrowserMediaState.observerScript(post: "posted.push(JSON.stringify(report))", ready: "ready"))
+        context.evaluateScript(BrowserMediaState.observerScript(post: "posted.push(JSON.stringify(message))", ready: "ready"))
         context.evaluateScript("runTimeouts()")
         return context
     }
@@ -54,7 +61,7 @@ import Testing
         context.evaluateScript("var v = video(true); media = [v]; fire('play', v);")
         #expect(Self.posts(context) == 1)
         #expect(Self.timers(context) == 1)
-        // Every third look re-sends what plays (another frame's report may have replaced it).
+        // Every third look re-sends what plays (with its position, which may have drifted).
         for _ in 0..<3 { context.evaluateScript("tickSecond()") }
         #expect(Self.posts(context) == 2)
         context.evaluateScript("v.paused = true; fire('pause', v);")
@@ -79,7 +86,39 @@ import Testing
         context.evaluateScript("var v = video(true); media = [v]; fire('play', v);")
         #expect(Self.timers(context) == 1)
         context.evaluateScript("media = []; v.ended = true; fire('emptied', v);")
-        #expect(context.evaluateScript("posted[posted.length - 1]").toString() == "null")
+        #expect(context.evaluateScript("lastReport() === null").toBool())
         #expect(Self.timers(context) == 0)
+    }
+
+    /// A page that removes its paused element: the element's pause and emptied events fire on a
+    /// detached node, which the window's capture listeners never see. Before, the 1 s look sent
+    /// null; with no idle timer the stale paused card stayed for the life of the page. While a
+    /// paused report is live a DOM-removal watch looks again; no watch otherwise.
+    @Test func aPausedElementThePageRemovesReportsNull() throws {
+        let context = try Self.context()
+        context.evaluateScript("var v = video(true); media = [v]; fire('play', v);")
+        #expect(context.evaluateScript("observers.length").toInt32() == 0, "a playing report is followed by its timer")
+        context.evaluateScript("v.paused = true; fire('pause', v);")
+        #expect(context.evaluateScript("lastReport().playing === false").toBool())
+        #expect(Self.timers(context) == 0)
+        #expect(context.evaluateScript("observers.length").toInt32() == 1)
+        context.evaluateScript("mutate();")
+        #expect(Self.posts(context) == 2, "a DOM change that kept the element sends nothing")
+        context.evaluateScript("media = []; v.isConnected = false; mutate();")
+        #expect(Self.posts(context) == 3)
+        #expect(context.evaluateScript("lastReport() === null").toBool())
+        #expect(context.evaluateScript("observers.length").toInt32() == 0, "nothing reported, nothing watched")
+    }
+
+    /// Every message names its document, so the tab keeps one report per frame; a document that
+    /// goes (navigation, its iframe removed) takes its report with it.
+    @Test func reportsNameTheirFrameAndAGoingDocumentReportsNull() throws {
+        let context = try Self.context()
+        context.evaluateScript("var v = video(true); media = [v]; fire('play', v);")
+        let frame = try #require(context.evaluateScript("JSON.parse(posted[0]).frame").toString())
+        #expect(!frame.isEmpty && frame != "undefined")
+        context.evaluateScript("fire('pagehide', {});")
+        #expect(context.evaluateScript("lastReport() === null").toBool())
+        #expect(context.evaluateScript("JSON.parse(posted[posted.length - 1]).frame").toString() == frame)
     }
 }
