@@ -39,13 +39,14 @@ final class TerminalSizedForChip: NSView {
         stack.edgeInsets = NSEdgeInsets(top: 3, left: 12, bottom: 3, right: 4)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-        NSLayoutConstraint.activate([
+        // Framed by the host like ``TerminalStatusBanner``: breakable at its hidden 0x0 frame.
+        NSLayoutConstraint.activate(TerminalOverlayInsets.breakable([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
-        ])
+        ]))
         isHidden = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
