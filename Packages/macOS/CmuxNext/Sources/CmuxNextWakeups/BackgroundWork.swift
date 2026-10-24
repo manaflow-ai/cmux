@@ -108,19 +108,19 @@ public final class BackgroundWork: Sendable {
         let id = nextID()
         let scheduler = lanes[lane.rawValue]
         let start = max(priority, WorkPriority(Task.currentPriority))
+        let escalation = Escalation()
         if #available(macOS 26.0, *) {
-            defer { scheduler.forget(id) }
             return try await withTaskPriorityEscalationHandler(operation: {
-                try await enqueue(id, on: lane, at: start, shutdown: shutdown, body)
+                try await enqueue(id, on: lane, at: start, shutdown: shutdown, escalation: escalation, body)
             }, onPriorityEscalated: { _, raised in
-                scheduler.boost(id, to: WorkPriority(raised))
+                escalation.raise(to: WorkPriority(raised)) { scheduler.boost(id, to: $0) }
             })
         }
-        return try await enqueue(id, on: lane, at: start, shutdown: shutdown, body)
+        return try await enqueue(id, on: lane, at: start, shutdown: shutdown, escalation: escalation, body)
     }
 
     private func enqueue<T: Sendable>(_ id: UInt64, on lane: BlockingLane, at priority: WorkPriority,
-                                      shutdown: ShutdownBehavior,
+                                      shutdown: ShutdownBehavior, escalation: Escalation,
                                       _ body: @escaping @Sendable () throws -> T) async throws -> T {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
@@ -128,8 +128,12 @@ public final class BackgroundWork: Sendable {
                 let job = makeJob(id: id, shutdown: shutdown,
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
-                // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
-                submitted(scheduler.submit(job, at: priority, unless: { Task.isCancelled }), job, on: lane)
+                // An escalation that came before the submit raises the level it is queued at; one after it
+                // boosts the queued or running item. Checked under the lane's lock, so a cancel either finds
+                // the item queued or stops it here.
+                escalation.submit(at: priority) { level in
+                    submitted(scheduler.submit(job, at: level, unless: { Task.isCancelled }), job, on: lane)
+                }
             }
         } onCancel: {
             scheduler.remove(id)?.abandon()

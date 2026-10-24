@@ -1,5 +1,5 @@
 public import CmuxUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Network
 public import Foundation
 import Observation
@@ -19,6 +19,9 @@ import Observation
 @Observable
 public final class UpdaterService {
     public let identity: UpdateBuildIdentity
+    /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
+    /// previews get lanes of their own).
+    let work: BackgroundWork
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
@@ -200,8 +203,10 @@ public final class UpdaterService {
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(),
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
+        self.work = work
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)

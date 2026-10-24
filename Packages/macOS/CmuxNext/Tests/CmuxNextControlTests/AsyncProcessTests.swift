@@ -168,4 +168,14 @@ import Testing
         #expect(outcome.succeeded)
         #expect(spawnedOnMain.withLock { $0 } == false)
     }
+
+    @Test(arguments: [(TaskPriority.background, "9"), (.utility, "17"), (.high, "25")])
+    func theChildRunsAtItsWaitersPriority(priority: TaskPriority, qosClass: String) async throws {
+        // `ps -o qos` is not portable; the child reports its own QoS class through the shell-free tool below.
+        let outcome = try await Task(priority: priority) {
+            try await processes.run(Self.tool("/usr/bin/python3", "-c",
+                                              "import ctypes; l=ctypes.CDLL(None); print(l.qos_class_self())"))
+        }.value
+        #expect(outcome.text.trimmingCharacters(in: .whitespacesAndNewlines) == qosClass)
+    }
 }

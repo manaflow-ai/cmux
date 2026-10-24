@@ -2,7 +2,7 @@ public import Dispatch
 
 /// The priority of one piece of off-main work, as Chrome's `base::TaskPriority` states it.
 ///
-/// Every off-main task says on purpose how much a person waits for it (plans/cmux-next/threading-model.md).
+/// Every off-main task says on purpose how much a person waits for it (plans/cmux-next/PATTERNS.md P14).
 /// It is the off-main side of the one priority model whose main-thread side is ``MainWorkClass``: work that
 /// a main-thread task of class `C` starts takes `WorkPriority(C)`, so there is no second set of names.
 ///
