@@ -33,8 +33,18 @@ import Testing
 
     private static func setStatus(_ index: Int, text: String, in store: DaemonStore) throws {
         let entry = #"{"key":"build","text":"\#(text)","state":"busy","updated_at_ms":"1"}"#
+        try apply(index, entries: entry, in: store)
+    }
+
+    /// Writes workspace `index`'s `run:9` entry as `cmux status run` does: busy, or finished after a minute.
+    private static func run(_ index: Int, finished: Bool, in store: DaemonStore) throws {
+        let state = finished ? #""state":"success","exit_code":0,"duration_ms":"60000","updated_at_ms":"2""# : #""state":"busy","updated_at_ms":"1""#
+        try apply(index, entries: #"{"key":"run:9","text":"Fence","target_terminal":"term_\#(index)",\#(state)}"#, in: store)
+    }
+
+    private static func apply(_ index: Int, entries: String, in store: DaemonStore) throws {
         let line = #"{"type":"stream_item","item":{"kind":"delta","changes":[{"kind":"state_upsert","resource":"workspace_status","id":"ws_\#(index)","value":{"workspace_id":"ws_\#(index)","entries":["#
-            + entry + "]}}]}}"
+            + entries + "]}}]}}"
         store.session.apply(try #require(SessionStreamItem.decode(Data(line.utf8))), in: store)
     }
 
@@ -44,30 +54,34 @@ import Testing
         let service = NotificationCenterService()
         // Every status the follower examines asks for the notification settings once: the count
         // and the wake-up come from that injected seam, not from a counter the follower keeps.
-        let examinations = ExaminationCount()
+        let examinations = StatusExaminationCount()
         let (examined, examining) = AsyncStream<Void>.makeStream()
+        let (posted, posting) = AsyncStream<SurfaceID?>.makeStream()
         var wakes = examined.makeAsyncIterator()
+        var notices = posted.makeAsyncIterator()
         let behavior = StatusBehaviorSettings()
         let task = service.followStatusRuns(store, behavior: {
             examinations.count += 1
             examining.yield()
             return behavior
-        }, visibility: { _ in .hidden }, post: { _ in })
+        }, visibility: { _ in .hidden }, post: { posting.yield($0.surface) })
         defer { task.cancel() }
         // The first pass examines every workspace's status once (it learns the runs busy now).
         for _ in 0..<sessionSize { _ = await wakes.next() }
         #expect(examinations.count == sessionSize)
+        // The fence's run, in the last workspace, is seen busy before the measured change.
+        try Self.run(sessionSize, finished: false, in: store)
+        _ = await wakes.next()
         let before = examinations.count
         try Self.setStatus(7, text: "building", in: store)
-        // The follower examines a change in one synchronous pass, so all of it is counted by the
-        // time its first examination wakes this test.
-        _ = await wakes.next()
-        let examinedForOne = examinations.count - before
+        // The fence: the last workspace's run finishes after the measured change. Its notice is
+        // posted after every change queued before it was examined (one queue, in order), so a
+        // change that woke more watches than its own is counted by then, however many turns the
+        // follower took for it.
+        try Self.run(sessionSize, finished: true, in: store)
+        let fence = await notices.next() ?? nil
+        #expect(fence == SurfaceID(rawValue: UInt64(sessionSize)), "the fence's notice: \(String(describing: fence))")
+        let examinedForOne = examinations.count - before - 1
         #expect(examinedForOne == 1, "one status change examined \(examinedForOne) workspaces in a \(sessionSize)-workspace session")
     }
-}
-
-/// How many statuses the follower examined (main actor, written by the test's settings closure).
-@MainActor private final class ExaminationCount {
-    var count = 0
 }
