@@ -33,6 +33,9 @@ FAKE_AGENT = os.path.join(BASE, "fake_agent.py")
 def mac():
     src = glob.glob(os.path.join(BASE, "src", "*.app"))[0]
     m = Mac(os.path.join(BASE, "rig"), src)
+    # This harness tests one computer's builds (grouped by the mini's own
+    # machine id), so the rig keeps it.
+    m.own_machine_id = False
     if os.path.exists(FAKE_AGENT):
         m.launch_env = {"ACPMUX_HOME": ACPMUX_HOME}
     # MULTIMAC_DEVICE_NAME: the name phones list this Mac by (a Debug build's

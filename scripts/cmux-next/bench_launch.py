@@ -361,6 +361,39 @@ def host_facts():
 # ("low-power-mode-not-restored"). BENCH_LAUNCH_PMSET and BENCH_LAUNCH_LPM_MARKER replace pmset and the record's
 # path, and BENCH_LAUNCH_TEST_NO_SUDO runs pmset without sudo (tests only).
 
+# Sound (2026-10-23): a bench app on a fleet Mac played a video's sound out loud in a shared room. `launch()` mutes
+# this account's sound output first (`osascript set volume with output muted`; a mute, not a volume change, so the
+# owner's level stays) and `stop()` checks it is still muted. BENCH_LAUNCH_AUDIO=keep leaves the output as it is (a
+# bench of sound itself); BENCH_LAUNCH_OSASCRIPT replaces osascript (tests only).
+
+def osascript_path():
+    return os.environ.get("BENCH_LAUNCH_OSASCRIPT") or "/usr/bin/osascript"
+
+
+def output_muted():
+    """True or False: whether this account's sound output is muted; None when osascript does not answer."""
+    try:
+        out = subprocess.run([osascript_path(), "-e", "output muted of (get volume settings)"], capture_output=True,
+                             text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return {"true": True, "false": False}.get(out)
+
+
+def mute_output():
+    """Mutes the sound output unless BENCH_LAUNCH_AUDIO=keep; returns one line for the log."""
+    if os.environ.get("BENCH_LAUNCH_AUDIO") == "keep":
+        return f"sound output left as it is (BENCH_LAUNCH_AUDIO=keep; muted: {output_muted()})"
+    if output_muted() is True:
+        return "sound output muted (it was)"
+    try:
+        subprocess.run([osascript_path(), "-e", "set volume with output muted"], capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    muted = output_muted()
+    return "sound output muted" if muted else f"sound output NOT muted (osascript answered {muted})"
+
+
 def pmset_path():
     return os.environ.get("BENCH_LAUNCH_PMSET") or "/usr/bin/pmset"
 
@@ -652,6 +685,7 @@ class BenchApp:
                                           "detail": "this Mac is in Low Power Mode: its numbers are not comparable. Turn "
                                                     "it off, or pass low_power_mode_ok=True for a bench of Low Power "
                                                     "Mode itself"})
+        note(f"bench-launch: {mute_output()}")
         running = self.running_pids()
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
@@ -775,6 +809,8 @@ class BenchApp:
         processes are then another run's, and the teardown would end that live app and its daemons."""
         if self.process is None:
             return
+        if os.environ.get("BENCH_LAUNCH_AUDIO") != "keep" and output_muted() is False:
+            note("bench-launch: WARNING: the sound output was unmuted while the bench ran (it was muted at launch)")
         try:
             if self.process and self.process.poll() is None:
                 self.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)

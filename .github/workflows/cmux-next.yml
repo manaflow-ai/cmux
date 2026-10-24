@@ -1017,6 +1017,7 @@ jobs:
       # runner carries it, else gui_runner. Empty from a trusted base whose
       # placement predates it, so those jobs then read gui_runner.
       session_runner: ${{ steps.place.outputs.session_runner }}
+      nightly_runner_ready: ${{ steps.place.outputs.nightly_runner_ready }}
     steps:
       # The placement code from the base branch, as ci-macos.yml's admission-placement uses it.
       - name: Check out the trusted placement
@@ -1062,9 +1063,11 @@ jobs:
             needs.path_route.outputs.swift_canary == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'swift-canary' || '',
             (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme') || needs.path_route.outputs.scheme == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) && 'cmux-scheme-compile' || '',
             needs.path_route.outputs.native == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'release-compile' || '') }}
-          # Attempt 1 of a feat-cmux-next push compiles Release on the promotion mini; the
-          # Release compile overflows to Blacksmith only while no runner there is idle.
+          # Attempt 1 of a feat-cmux-next push prefers the dedicated cmux NEXT
+          # nightly runner; a busy or unavailable runner uses Blacksmith overflow.
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
+          NIGHTLY_POOL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL || '' }}
+          NIGHTLY_RUNNER: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER || '' }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
         run: |
@@ -3575,8 +3578,10 @@ jobs:
     concurrency:
       group: ${{ format('cmux-next-release-compile-{0}', github.run_id) }}
       cancel-in-progress: false
-    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the side
-    # label of the reserved promotion mini (glaeda-promote-side-trusted-std-xcode-26.6:
+    # Attempt 1 of a feat-cmux-next push prefers the dedicated cmux NEXT nightly
+    # runner when placement found it online and idle. Busy or unavailable dedicated
+    # capacity is sent through the Blacksmith cascade. The reserved promotion mini
+    # remains the final owned-pool fallback (glaeda-promote-side-trusted-std-xcode-26.6:
     # cmux14, hq build-fleet/mini-fleet.json poolPrefix promote-, trustedRef
     # feat-cmux-next; cmux-next chief 2026-10-14). This job gates the nightly-next
     # request and waited 11-54 min for the shared side runners. Push runs have no

@@ -51,10 +51,13 @@ contains(' <key> ') matches whole keys only:
   workflow reads it as `free_retry_runner`);
 - `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
   that label when it takes any (next_macos_cascade.py).
+- `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
+  is online and idle for this placement; an empty value keeps the Blacksmith
+  overflow route.
 
 PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
-mini's label: the Release compile overflows to Blacksmith only while no
-runner carrying it is idle (promote_busy()).
+mini's label. When the dedicated nightly labels are supplied, its idle state
+is preferred for Release compile and Blacksmith is the immediate overflow.
 """
 from __future__ import annotations
 
@@ -231,6 +234,21 @@ def promote_busy(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | 
     return pool.live_owned_free(runners, [label])[label] == 0
 
 
+def nightly_runner_ready(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether the dedicated cmux NEXT nightly runner can take this compile."""
+    pool_label = (env.get("NIGHTLY_POOL") or "").strip()
+    runner_label = (env.get("NIGHTLY_RUNNER") or "").strip()
+    if not pool_label or not runner_label or runners is None:
+        return False
+    return any(
+        runner.get("status") == "online"
+        and not runner.get("busy")
+        and pool.carries_office_pool_label(runner, pool_label)
+        and runner_label in pool.runner_labels(runner)
+        for runner in runners
+    )
+
+
 def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
@@ -253,11 +271,13 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
+    dedicated_ready = nightly_runner_ready(env, runners)
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -266,7 +286,20 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
     # queue moves, then hosted macos-26 for the jobs it can run.
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
-    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promote_busy(env, runners))
+    # The dedicated nightly runner is preferred for Release compile. When it is
+    # configured but busy/offline, send the compile to Blacksmith immediately
+    # instead of queueing it on the reserved promotion label.
+    promotion_busy = promote_busy(env, runners)
+    dedicated_configured = bool((env.get("NIGHTLY_POOL") or "").strip()
+                                and (env.get("NIGHTLY_RUNNER") or "").strip())
+    if dedicated_ready:
+        promotion_busy = False
+    elif dedicated_configured:
+        # An unreadable runner list is not evidence that the dedicated builder
+        # is free. Treat it as unavailable so the Release compile overflows to
+        # Blacksmith instead of queueing indefinitely on the promotion mini.
+        promotion_busy = True
+    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy)
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0

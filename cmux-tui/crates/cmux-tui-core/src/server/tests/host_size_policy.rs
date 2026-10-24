@@ -158,14 +158,10 @@ fn host_policy_prefer_this_mac_keeps_the_mac_grid_while_phones_claim() {
     let mac_id = rig.mux.terminal_view_participant_id(rig.surface.id, mac.client).unwrap();
     assert_eq!(read["mac_participants"], json!([mac_id]));
     // The Mac pane hidden: its view stops counting and a phone sets the grid.
-    rig.run(
-        &mac,
-        json!({"cmd":"set-size-counts","surface":rig.surface.id,"counts":false}),
-    )
-    .unwrap();
-    assert_ne!(rig.grid(), (120, 40));
-    rig.run(&mac, json!({"cmd":"set-size-counts","surface":rig.surface.id,"counts":null}))
+    rig.run(&mac, json!({"cmd":"set-size-counts","surface":rig.surface.id,"counts":false}))
         .unwrap();
+    assert_ne!(rig.grid(), (120, 40));
+    rig.run(&mac, json!({"cmd":"set-size-counts","surface":rig.surface.id,"counts":null})).unwrap();
     assert_eq!(rig.grid(), (120, 40));
 }
 
@@ -205,13 +201,18 @@ fn host_policy_priority_order_ranks_devices_and_falls_through() {
     // The order survives a mode change that omits it.
     rig.set_policy(&mac, json!({"mode":"smallest"}));
     let read = rig.run(&first, json!({"cmd":"get-host-size-policy"})).unwrap();
-    assert_eq!(read["policy"]["order"], json!(["device:p2","mac","device:p1"]));
+    assert_eq!(read["policy"]["order"], json!(["device:p2", "mac", "device:p1"]));
     let app = rig.app();
     assert!(
-        rig.run(&app, json!({"cmd":"set-host-size-policy","policy":{"mode":"priority","order":["nope"]}}))
-            .is_err()
+        rig.run(
+            &app,
+            json!({"cmd":"set-host-size-policy","policy":{"mode":"priority","order":["nope"]}})
+        )
+        .is_err()
     );
-    assert!(rig.run(&app, json!({"cmd":"set-host-size-policy","policy":{"mode":"tallest"}})).is_err());
+    assert!(
+        rig.run(&app, json!({"cmd":"set-host-size-policy","policy":{"mode":"tallest"}})).is_err()
+    );
 }
 
 #[test]
@@ -236,8 +237,7 @@ fn host_policy_is_stored_in_the_settings_file_and_followed_live() {
     assert_eq!(rig.grid(), (60, 30));
     rig.set_policy(&mac, json!({"mode":"mac"}));
     assert_eq!(rig.grid(), (120, 40));
-    let file: Value =
-        serde_json::from_str(&std::fs::read_to_string(&rig.config).unwrap()).unwrap();
+    let file: Value = serde_json::from_str(&std::fs::read_to_string(&rig.config).unwrap()).unwrap();
     assert_eq!(file["mobile"]["terminalSizing"], "mac");
     // An edit through the settings owner (the Mac's Settings page) applies too.
     rig.mux
@@ -260,8 +260,7 @@ fn host_policy_is_stored_in_the_settings_file_and_followed_live() {
     .unwrap();
     rig.set_policy(&mac, json!({"mode":"mac"}));
     assert_eq!(rig.grid(), (90, 20));
-    rig.run(&mac, json!({"cmd":"set-size-policy","surface":rig.surface.id,"policy":null}))
-        .unwrap();
+    rig.run(&mac, json!({"cmd":"set-size-policy","surface":rig.surface.id,"policy":null})).unwrap();
     assert_eq!(rig.grid(), (120, 40));
 }
 
@@ -308,7 +307,9 @@ fn host_policy_writes_come_from_the_app_or_a_phone_only() {
     let refused = rig.run(&local, json!({"cmd":"set-host-size-policy","policy":{"mode":"mac"}}));
     assert!(refused.unwrap_err().to_string().contains("forbidden"));
     let websocket = rig.connection(Via::WebSocket);
-    assert!(rig.run(&websocket, json!({"cmd":"set-host-size-policy","policy":{"mode":"mac"}})).is_err());
+    assert!(
+        rig.run(&websocket, json!({"cmd":"set-host-size-policy","policy":{"mode":"mac"}})).is_err()
+    );
     assert_eq!(rig.mux.host_size_policy().mode, crate::mux::host_policy::HostSizeMode::Smallest);
     let phone = rig.phone("p1", (60, 30));
     let answer =
