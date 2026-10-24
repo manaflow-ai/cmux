@@ -101,6 +101,10 @@ jobs:
             bun install --frozen-lockfile
           else
             cd webviews
+            if [[ ! -x node_modules/.bin/playwright ]]; then
+              echo 'setup: playwright requires Playwright dependencies in the source snapshot.' >&2
+              exit 2
+            fi
           fi
           bunx --no-install playwright install --with-deps chromium webkit
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
