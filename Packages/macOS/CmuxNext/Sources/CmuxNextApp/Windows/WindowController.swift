@@ -31,6 +31,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
     /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
     var parked: [String: WorkspaceContentController] = [:]
+    /// `showWorkspace` passes the window's own observation ran (tests: a change in another window runs none here).
+    private(set) var showPasses = 0
     /// The room whose theme the window took last (``applyRoomTheme()``).
     private var themedRoom: ProfileID?
     /// Orders `parked` by when each was parked (`mountedContents`).
@@ -165,6 +167,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let state = state
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
+                self?.showPasses += 1
                 self?.showWorkspace(requested: state.workspaceID)
                 // A parked terminal (the classic migration's background workspaces) starts on its first show.
                 if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
