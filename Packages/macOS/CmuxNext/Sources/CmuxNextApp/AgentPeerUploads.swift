@@ -43,9 +43,18 @@ struct AgentPeerUploads {
                     batches[batchToken] = (target.session, Array(batch.remaining.dropFirst()))
                 }
                 guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
+                if let manifest {
+                    guard manifest.first?.name == name, manifest.first?.size == size,
+                          manifest.allSatisfy({ $0.size >= 0 && $0.size <= AgentPaneUpload.maximumPeerFileBytes }),
+                          manifest.reduce(0) { $0 + $1.size } <= AgentPaneUpload.maximumTotalBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
+                }
                 let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(10 * 60))
+                    if let expired = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: expired.file) }
+                }
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
                 if let manifest, batchToken == nil, manifest.count > 1 { let id = UUID().uuidString.lowercased(); batches[id] = (target.session, Array(manifest.dropFirst())); reply["batchToken"] = id }
                 return AgentPaneReply.success(reply)
@@ -54,7 +63,8 @@ struct AgentPeerUploads {
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stage.received += data.count; stages[token] = stage; return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
-                guard let stage = stages.removeValue(forKey: token), stage.received == stage.size, let data = try? Data(contentsOf: stage.file) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                guard let stage = stages[token], stage.received == stage.size, let data = try? Data(contentsOf: stage.file) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                stages.removeValue(forKey: token)
                 defer { try? FileManager.default.removeItem(at: stage.file) }
                 do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, data: data); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
             case .cancel(let token):
