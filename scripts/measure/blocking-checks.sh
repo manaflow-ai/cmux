@@ -62,7 +62,11 @@ if release_build release; then
   note "release: compiled; objects: ${#objects[@]} (CmuxNextCompat: $compat)"
   [[ ${#objects[@]} -gt 0 && $compat -gt 0 ]] || fail "release: found no objects to inspect"
   if [[ ${#objects[@]} -gt 0 ]]; then
-    printf '%s\0' "${objects[@]}" | xargs -0 nm -m 2>/dev/null | swift demangle --compact >"$scratch/release-symbols.txt"
+    # nm's errors go to the log and fail the check: an unread object must never look clean.
+    if ! printf '%s\0' "${objects[@]}" | xargs -0 nm -m 2>"$OUT/release-nm-errors.log" >"$scratch/release-symbols-raw.txt"; then
+      fail "release: nm could not read every object (see release-nm-errors.log)"
+    fi
+    swift demangle --compact <"$scratch/release-symbols-raw.txt" >"$scratch/release-symbols.txt"
     count="$(grep -Ec "$DETECTOR_SYMBOL" "$scratch/release-symbols.txt")"
     note "release: detector symbols defined or referenced in any object: $count"
     [[ "$count" -eq 0 ]] || { fail "release: the detector is compiled in"; grep -E "$DETECTOR_SYMBOL" "$scratch/release-symbols.txt" | head -20 >>"$SUMMARY"; }
@@ -70,7 +74,7 @@ if release_build release; then
   # The object that defines the check (per-file or one per module, as the Release build's WMO emits).
   object=""
   while IFS= read -r -d '' candidate; do
-    if nm -U "$candidate" 2>/dev/null | grep -q 'assertBlockingAllowed'; then object="$candidate"; break; fi
+    if nm -U "$candidate" 2>>"$OUT/release-nm-errors.log" | grep -q 'assertBlockingAllowed'; then object="$candidate"; break; fi
   done < <(find "$scratch/release/Build" -name '*.o' -path '*CmuxNextCompat*' -print0)
   [[ -n "$object" ]] || fail "release: no CmuxNextCompat object defines assertBlockingAllowed"
   if [[ -n "$object" ]]; then
@@ -84,7 +88,7 @@ if release_build release; then
     fi
     # pthread_main_np is the check's only call: no CmuxNextCompat object of a Release build may need it.
     while IFS= read -r -d '' candidate; do
-      if nm -u "$candidate" 2>/dev/null | grep -q '_pthread_main_np'; then
+      if nm -u "$candidate" 2>>"$OUT/release-nm-errors.log" | grep -q '_pthread_main_np'; then
         fail "release: $(basename "$candidate") references pthread_main_np"
       fi
     done < <(find "$scratch/release/Build" -name '*.o' -path '*CmuxNextCompat*' -print0)
@@ -95,7 +99,7 @@ fi
 
 # 2. Nightly configuration
 if release_build nightly 'OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_BLOCKING_CHECKS'; then
-  count="$(find "$scratch/nightly/Build" -name '*.o' -path '*CmuxNextCompat*' -print0 | xargs -0 nm -U 2>/dev/null \
+  count="$(find "$scratch/nightly/Build" -name '*.o' -path '*CmuxNextCompat*' -print0 | xargs -0 nm -U 2>>"$OUT/nightly-nm-errors.log" \
     | swift demangle --compact | grep -Ec "$DETECTOR_SYMBOL")"
   note "nightly (-DCMUX_BLOCKING_CHECKS): compiled; detector symbols in CmuxNextCompat: $count"
   [[ "$count" -gt 0 ]] || fail "nightly: the flag did not reach CmuxNextCompat"
@@ -109,25 +113,34 @@ mkdir -p "$pkg/Sources" "$pkg/Tests/CmuxNextCompatTests"
 cp -R Packages/macOS/CmuxNext/Sources/CmuxNextCompat "$pkg/Sources/"
 cp Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/BlockingCheck*.swift "$pkg/Tests/CmuxNextCompatTests/"
 revision="$(python3 -c "import json,sys;print(next(p['state']['revision'] for p in json.load(open(sys.argv[1]))['pins'] if p['identity']=='swift-atomics'))" Packages/macOS/CmuxNext/Package.resolved)"
+# The real package's settings, read from its manifest: CmuxNextCompat builds with daemonSwiftSettings and its
+# tests with uiSwiftSettings, as in Packages/macOS/CmuxNext/Package.swift.
+settings_swift="$(python3 - Packages/macOS/CmuxNext/Package.swift <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+for name in ("uiSwiftSettings", "daemonSwiftSettings"):
+    block = re.search(r"^let " + name + r": \[SwiftSetting\] = \[.*?^\]$", text, re.S | re.M)
+    if not block:
+        sys.exit(f"blocking-checks: no `let {name}` in the manifest")
+    print(block.group(0))
+PY
+)" || { fail "nightly tests: could not read the package's Swift settings"; settings_swift=""; }
+compat_settings="$(grep -A3 'name: "CmuxNextCompat",' Packages/macOS/CmuxNext/Package.swift | grep -o 'swiftSettings: [A-Za-z]*' | awk '{ print $NF }' | head -1)"
+tests_settings="$(grep -A3 'name: "CmuxNextCompatTests"' Packages/macOS/CmuxNext/Package.swift | grep -o 'swiftSettings: [A-Za-z]*' | awk '{ print $NF }' | head -1)"
+note "nightly tests: CmuxNextCompat uses ${compat_settings:-?}, its tests ${tests_settings:-?} (from the manifest)"
 cat >"$pkg/Package.swift" <<SWIFT
 // swift-tools-version: 6.2
 import PackageDescription
-let settings: [SwiftSetting] = [
-    .swiftLanguageMode(.v6),
-    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-    .enableUpcomingFeature("InferIsolatedConformances"),
-    .enableUpcomingFeature("ExistentialAny"),
-    .enableUpcomingFeature("InternalImportsByDefault"),
-]
+$settings_swift
 let package = Package(
     name: "BlockingChecks",
     platforms: [.macOS(.v14)],
     dependencies: [.package(url: "https://github.com/apple/swift-atomics.git", revision: "$revision")],
     targets: [
         .target(name: "CmuxNextCompat", dependencies: [.product(name: "Atomics", package: "swift-atomics")],
-                swiftSettings: settings),
+                swiftSettings: ${compat_settings:-daemonSwiftSettings}),
         .testTarget(name: "CmuxNextCompatTests", dependencies: ["CmuxNextCompat"],
-                    swiftSettings: settings + [.defaultIsolation(MainActor.self)]),
+                    swiftSettings: ${tests_settings:-uiSwiftSettings}),
     ]
 )
 SWIFT

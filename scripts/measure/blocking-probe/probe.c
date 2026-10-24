@@ -2,16 +2,17 @@
 //
 // Loaded with DYLD_INSERT_LIBRARIES into a tagged Debug or bench cmux-next app on the fleet
 // (scripts/measure/blocking-probe.sh), it interposes the system calls and waits that block and records the
-// calls made on the MAIN thread only: per call stack (the first STACK_KEY frames) a count, the total and longest
-// time, and the longest call's stack. scripts/measure/blocking-probe-report.py then groups the entries by their
+// calls made on the MAIN thread only: per call stack (a hash of its first STACK_KEY frames) a count, the total
+// and longest time, and the longest call's stack. scripts/measure/blocking-probe-report.py then groups the entries by their
 // first cmux frame, so each cmux call site is its own row however many wrappers sit above the system call.
 //
 // Self-test: at load the probe queues one directory read on the main queue and records it as kind "selftest";
 // the harness fails the run when the first dump lacks it (the probe did not load, or interposing did not work).
 //
 // Output: $CMUX_BLOCKING_PROBE_OUT ("%p" becomes the pid), rewritten every DUMP_SECONDS by the probe's own
-// thread (so a run the sweep kills, or a crash, keeps what it saw until the last dump) and at a clean exit;
-// the header says which ("#final 1" only at exit).
+// thread (so a run the sweep kills, or a crash, keeps what it saw until the last dump) and at a clean exit,
+// where the dump thread is stopped and joined first, so one writer at a time; each writer writes its own
+// temporary file and renames it. The header says which ("#final 1" only at exit).
 //
 // Behavior is never changed: every interposer calls the real function on every path with the same arguments,
 // returns its result and keeps its errno. The recording path allocates nothing (a fixed table, `backtrace` into
@@ -20,17 +21,21 @@
 // helpers) never load the probe; a fork without exec keeps a copy of the parent's table, and its dumps go to
 // its own pid's file.
 //
-// Seen: open/openat (+$NOCANCEL), read/pread/write/pwrite (+$NOCANCEL), stat/lstat/fstatat/statfs/access,
-// getattrlist/getattrlistbulk, fsync, fcntl (every command: F_FULLFSYNC, F_SETLKW), flock, mkdir, unlink,
-// rename, readlink, close (only past WAIT_FLOOR_NS), recv/recvfrom/recvmsg, send/sendto/sendmsg, connect,
+// Seen: open/openat (+$NOCANCEL), read/pread/write/pwrite (+$NOCANCEL), stat/lstat/fstat/fstatat/statfs/access,
+// getattrlist/getattrlistbulk, fsync (+$NOCANCEL), fcntl (every command: F_FULLFSYNC, F_SETLKW), flock,
+// mkdir/mkdirat, unlink/unlinkat, rename/renameat, readlink, close (only past WAIT_FLOOR_NS), recv/recvfrom/recvmsg, send/sendto/sendmsg, connect,
 // select/poll, getaddrinfo, waitpid/wait4, dispatch_semaphore_wait, dispatch_group_wait, dispatch_sync(_f),
 // pthread_cond_(timed)wait, pthread_mutex_lock, os_unfair_lock_lock, usleep, nanosleep. Waits count only past
 // WAIT_FLOOR_NS; every file or socket call counts, however fast (Chrome's rule: no disk on the UI thread).
 // dispatch_sync's time includes the block's own work.
 // Not seen (known gaps): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, mach_msg (sync XPC,
-// and the main run loop's own idle wait), calls inside one system library to itself (dyld interposing sees
-// calls across images only), so the probe under-counts and never over-counts.
+// and the main run loop's own idle wait), renamex_np/renameatx_np, ftruncate, getxattr/setxattr, readv/writev,
+// getdirentries64, copyfile/clonefile, dispatch_async_and_wait, the $NOCANCEL forms of close, pwrite, connect,
+// recvmsg, sendmsg, select, waitpid and wait4, and calls inside one system library to itself (dyld interposing
+// sees calls across images only), so the probe under-counts and never over-counts.
+#include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
+#include <limits.h>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -69,11 +74,12 @@ extern ssize_t read_nocancel(int, void *, size_t) __asm("_read$NOCANCEL");
 extern ssize_t pread_nocancel(int, void *, size_t, off_t) __asm("_pread$NOCANCEL");
 extern ssize_t write_nocancel(int, const void *, size_t) __asm("_write$NOCANCEL");
 extern int fcntl_nocancel(int, int, ...) __asm("_fcntl$NOCANCEL");
+extern int fsync_nocancel(int) __asm("_fsync$NOCANCEL");
 extern int poll_nocancel(struct pollfd *, nfds_t, int) __asm("_poll$NOCANCEL");
 extern ssize_t recvfrom_nocancel(int, void *, size_t, int, struct sockaddr *, socklen_t *) __asm("_recvfrom$NOCANCEL");
 extern ssize_t sendto_nocancel(int, const void *, size_t, int, const struct sockaddr *, socklen_t) __asm("_sendto$NOCANCEL");
 
-enum { SLOTS = 8192, DEPTH = 24, STACK_KEY = 16, WAIT_FLOOR_NS = 1000000, DUMP_SECONDS = 10 };
+enum { SLOTS = 8192, MAX_PROBES = 64, DEPTH = 24, STACK_KEY = 16, WAIT_FLOOR_NS = 1000000, DUMP_SECONDS = 10 };
 
 typedef struct {
     const char *kind;  // published last (release): a dump reads only entries whose kind it sees
@@ -107,7 +113,7 @@ static void record_entry(const char *kind, uint64_t ns) {
     uint64_t key = 1469598103934665603ull ^ (uint64_t)(uintptr_t)kind;
     for (int f = 0; f < depth && f < STACK_KEY; f++) key = (key ^ (uint64_t)(uintptr_t)stack[f]) * 1099511628211ull;
     size_t slot = (size_t)(key % SLOTS);
-    for (size_t probe = 0; probe < SLOTS; probe++, slot = (slot + 1) % SLOTS) {
+    for (size_t probe = 0; probe < MAX_PROBES; probe++, slot = (slot + 1) % SLOTS) {
         Entry *e = &table[slot];
         const char *seen = __atomic_load_n(&e->kind, __ATOMIC_ACQUIRE);
         if (seen == NULL) {
@@ -194,8 +200,14 @@ static int p_getattrlistbulk(int fd, void *a, void *b, size_t n, uint64_t o) {
     TIMED("file-io:getattrlistbulk", 0, getattrlistbulk(fd, a, b, n, o));
 }
 static int p_fsync(int fd) { TIMED("file-io:fsync", 0, fsync(fd)); }
-// fcntl's third argument is an int or a pointer (the same register either way on Darwin's ABIs): read it as
-// a pointer-sized value and pass it on unchanged.
+static int p_fsync_nc(int fd) { TIMED("file-io:fsync", 0, fsync_nocancel(fd)); }
+static int p_fstat(int fd, struct stat *s) { TIMED("file-io:fstat", 0, fstat(fd, s)); }
+static int p_unlinkat(int fd, const char *p, int f) { TIMED("file-io:unlinkat", 0, unlinkat(fd, p, f)); }
+static int p_renameat(int a, const char *b, int c, const char *d) { TIMED("file-io:renameat", 0, renameat(a, b, c, d)); }
+static int p_mkdirat(int fd, const char *p, mode_t m) { TIMED("file-io:mkdirat", 0, mkdirat(fd, p, m)); }
+// fcntl's optional third argument is an int or a pointer. Each variadic argument fills one 8-byte slot on both
+// Darwin ABIs (arm64: the stack; x86_64: a register or the stack), so reading the slot as a pointer and passing
+// it on gives fcntl the same slot, which it reads back as an int or a pointer for its command.
 static int p_fcntl(int fd, int cmd, ...) {
     va_list ap; va_start(ap, cmd); void *arg = va_arg(ap, void *); va_end(ap);
     TIMED("file-io:fcntl", 0, fcntl(fd, cmd, arg));
@@ -279,6 +291,11 @@ DYLD_INTERPOSE(p_access, access)
 DYLD_INTERPOSE(p_getattrlist, getattrlist)
 DYLD_INTERPOSE(p_getattrlistbulk, getattrlistbulk)
 DYLD_INTERPOSE(p_fsync, fsync)
+DYLD_INTERPOSE(p_fsync_nc, fsync_nocancel)
+DYLD_INTERPOSE(p_fstat, fstat)
+DYLD_INTERPOSE(p_unlinkat, unlinkat)
+DYLD_INTERPOSE(p_renameat, renameat)
+DYLD_INTERPOSE(p_mkdirat, mkdirat)
 DYLD_INTERPOSE(p_fcntl, fcntl)
 DYLD_INTERPOSE(p_fcntl_nc, fcntl_nocancel)
 DYLD_INTERPOSE(p_flock, flock)
@@ -326,7 +343,7 @@ static void dump(int final) {
     } else {
         snprintf(path, sizeof path, "%s", out_pattern);
     }
-    snprintf(partial, sizeof partial, "%s.partial", path);
+    snprintf(partial, sizeof partial, "%s.%s.partial", path, final ? "final" : "periodic");
     int main = pthread_main_np();
     if (main) in_probe = 1;
     FILE *out = fopen(partial, "w");
@@ -360,28 +377,64 @@ static void dump(int final) {
     if (main) in_probe = 0;
 }
 
+// The dump thread waits on a condition with a deadline (not a sleep), so the exit path can stop it at once.
+static pthread_mutex_t dump_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t dump_wake = PTHREAD_COND_INITIALIZER;
+static int dump_stop;
+static pthread_t dump_thread;
+static pid_t dump_thread_pid;  // a fork does not inherit the thread: only its creator joins it
+
 static void *dump_loop(void *unused) {
     (void)unused;
     pthread_setname_np("cmux blocking-probe dump");
-    for (;;) {
-        sleep(DUMP_SECONDS);  // a measurement tool's own thread, never the app's main thread
+    pthread_mutex_lock(&dump_lock);
+    while (!dump_stop) {
+        struct timespec until;
+        clock_gettime(CLOCK_REALTIME, &until);
+        until.tv_sec += DUMP_SECONDS;
+        while (!dump_stop && pthread_cond_timedwait(&dump_wake, &dump_lock, &until) != ETIMEDOUT) {}
+        if (dump_stop) break;
+        pthread_mutex_unlock(&dump_lock);
         dump(0);
+        pthread_mutex_lock(&dump_lock);
     }
+    pthread_mutex_unlock(&dump_lock);
     return NULL;
 }
 
+// At exit (main thread): stop and join the dump thread, then write the final dump, so only one writer runs.
 static void dump_at_exit(void) {
+    int main = pthread_main_np();
+    if (main) in_probe = 1;
+    if (dump_thread_pid == getpid()) {
+        pthread_mutex_lock(&dump_lock);
+        dump_stop = 1;
+        pthread_cond_signal(&dump_wake);
+        pthread_mutex_unlock(&dump_lock);
+        pthread_join(dump_thread, NULL);
+        dump_thread_pid = 0;
+    }
+    if (main) in_probe = 0;
     dump(1);
 }
 
-// Proves the probe works in this process: on the main thread, a directory read through libc (a call from
-// another image, so dyld's interposing applies) must be recorded as kind "selftest", and the first periodic dump
-// must show it. scripts/measure/blocking-probe.sh fails the run when it does not.
+// Proves the probe works in this process: on the main thread, file system calls made from other images (libc,
+// CoreFoundation, so dyld's interposing applies) must be recorded as kind "selftest", and the first periodic
+// dump must show it. scripts/measure/blocking-probe.sh fails the run when it does not.
 static void run_selftest(void *unused) {
     (void)unused;
     selftest = 1;
+    // Three ways into the kernel from other images (libc, CoreFoundation), so the check does not depend on
+    // which internal entry point one of them uses on this macOS.
     DIR *dir = opendir("/");
     if (dir != NULL) closedir(dir);
+    char resolved[PATH_MAX];
+    (void)realpath("/tmp", resolved);
+    CFURLRef url = CFURLCreateWithFileSystemPath(NULL, CFSTR("/"), kCFURLPOSIXPathStyle, true);
+    if (url != NULL) {
+        (void)CFURLResourceIsReachable(url, NULL);
+        CFRelease(url);
+    }
     selftest = 0;
 }
 
@@ -396,6 +449,5 @@ __attribute__((constructor)) static void start(void) {
     unsetenv("DYLD_INSERT_LIBRARIES");
     atexit(dump_at_exit);
     if (out_pattern[0]) dispatch_async_f(dispatch_get_main_queue(), NULL, run_selftest);
-    pthread_t thread;
-    if (out_pattern[0] && pthread_create(&thread, NULL, dump_loop, NULL) == 0) pthread_detach(thread);
+    if (out_pattern[0] && pthread_create(&dump_thread, NULL, dump_loop, NULL) == 0) dump_thread_pid = getpid();
 }
