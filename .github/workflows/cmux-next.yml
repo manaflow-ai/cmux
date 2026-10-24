@@ -1508,6 +1508,7 @@ jobs:
             bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
+            bash scripts/cmux-next/tests/check-l10n-count-noun.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh
             bash scripts/cmux-next/tests/pr-autofix.test.sh
             bash tests/test_ci_generator_input_freshness.sh

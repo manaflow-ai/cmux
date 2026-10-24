@@ -12,11 +12,22 @@
 # are ratchet debt `::warning title=ratchet debt::` annotations and pass; more
 # fail. Missing or unreadable tables, wrong shapes or states and placeholder
 # mismatches always fail.
+# Count agreement (always fails): a CmuxNext key whose English writes a word
+# right after an integer count ("%lld items") needs plural variations, a label
+# before the count, or a unit written by Foundation (CmuxNextCompat
+# LocalizedArgument); a fixed word cannot agree with every count in Arabic or
+# the Slavic languages, nor in English ("1 items"). The exceptions (a
+# preposition, an invariant unit symbol, a constant limit) are listed with a
+# reason in scripts/cmux-next/l10n-count-noun-allowlist.json, which only
+# shrinks. And a key with plural variations must get its count in the lookup
+# (an interpolated String(localized:) literal or
+# Bundle.localizedString(forKey:value:table:arguments:...)), not in a
+# String(format:) after it.
 # Usage: scripts/cmux-next/check-l10n.sh [repo-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)}"
 exec python3 - "$root" <<'PY'
-import collections, json, os, pathlib, re, sys
+import collections, json, os, pathlib, re, subprocess, sys
 
 # The languages the legacy app shipped (Apple codes; README.no.md is nb).
 LANGS = ("en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
@@ -53,6 +64,7 @@ def forms(localization):
     return None
 
 errors, style, review, keys = [], [], collections.Counter(), 0
+parsed = {}  # path -> its strings, for the count agreement rule below
 for path in tables:
     rel = path.relative_to(root)
     if not path.exists():
@@ -63,6 +75,7 @@ for path in tables:
     except (ValueError, KeyError) as error:
         errors.append(f"{rel}: unreadable catalog ({error})")
         continue
+    parsed[path] = strings
     for key, entry in strings.items():
         keys += 1
         locs = entry.get("localizations", {})
@@ -96,6 +109,64 @@ for path in tables:
                     errors.append(f"{label}: placeholders {FORMAT.findall(value)} != {FORMAT.findall(english)}")
                 if value.count("\n") != english.count("\n"):
                     style.append(f"{label}: line breaks differ from English")
+
+# Count agreement: a word right after an integer count, in a key without plural variations.
+COUNT_NOUN = re.compile(r"%(?:\d+\$)?(?:ll|l|h|q|z|t|j)?[diu](?=\s?[^\W\d_])")
+next_sources = root / "Packages/macOS/CmuxNext/Sources"
+allow_rel = "scripts/cmux-next/l10n-count-noun-allowlist.json"
+allow_path = root / allow_rel
+try:
+    allow = json.loads(allow_path.read_text(encoding="utf-8")) if allow_path.exists() else {}
+except ValueError as error:
+    errors.append(f"{allow_rel}: unreadable ({error})")
+    allow = {}
+allow_used, plural_keys = set(), set()
+for path, strings in parsed.items():
+    if next_sources not in path.parents:
+        continue
+    rel = path.relative_to(root)
+    for key, entry in strings.items():
+        english = entry.get("localizations", {}).get("en", {})
+        if english.get("variations", {}).get("plural"):
+            plural_keys.add(key)
+            continue
+        value = str(english.get("stringUnit", {}).get("value", ""))
+        if not COUNT_NOUN.search(value):
+            continue
+        record = allow.get(key)
+        if record is None:
+            errors.append(f"{rel}:{key}: a word follows the count in {value!r}; give the key plural variations "
+                          f"(and a scripts/localization-plurals.json entry), put a label before the count, or let "
+                          f"Foundation write the unit (CmuxNextCompat LocalizedArgument); exceptions: {allow_rel}")
+            continue
+        allow_used.add(key)
+        if not isinstance(record, dict) or record.get("source") != value or not str(record.get("reason", "")).strip():
+            errors.append(f"{rel}:{key}: its {allow_rel} entry needs a reason and the current English {value!r}")
+for key in sorted(set(allow) - allow_used):
+    errors.append(f"{allow_rel}: {key} no longer writes a word after a count (or is gone); remove the entry")
+# A plural key's count must reach the lookup.
+if plural_keys and next_sources.exists():
+    lookup = re.compile(r'"(' + "|".join(re.escape(key) for key in sorted(plural_keys)) + r')"')
+    first_literal = re.compile(r'\s*,\s*(?:defaultValue:\s*)?"((?:\\.|[^"\\])*)"')
+    # git grep (tracked files, as a push sees them) narrows 6,000 Swift files to the few that name a
+    # plural key; a tree that is not a checkout (the script's fixture tests) reads them all.
+    needles = [arg for key in sorted(plural_keys) for arg in ("-e", f'"{key}"')]
+    found = subprocess.run(["git", "-C", str(root), "grep", "-l", "-F", *needles, "--",
+                            "Packages/macOS/CmuxNext/Sources/*.swift"], capture_output=True, text=True)
+    swift_files = ([root / line for line in found.stdout.splitlines()] if found.returncode in (0, 1)
+                   else sorted(next_sources.rglob("*.swift")))
+    for swift in swift_files:
+        text = swift.read_text(encoding="utf-8", errors="replace")
+        for match in lookup.finditer(text):
+            if re.search(r"forKey:\s*$", text[max(0, match.start() - 40):match.start()]):
+                continue
+            literal = first_literal.match(text, match.end())
+            if literal and "\\(" in literal[1]:
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            errors.append(f"{swift.relative_to(root)}:{line}: plural key {match[1]} is looked up without its count; "
+                          "interpolate the count into the String(localized:) literal or use "
+                          "Bundle.localizedString(forKey:value:table:arguments:...)")
 
 warn_max = int(os.environ.get("L10N_STYLE_WARN_MAX") or 0)
 if style and len(style) <= warn_max:
