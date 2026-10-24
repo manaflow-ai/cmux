@@ -73,6 +73,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// router, the menu gate and the action signposts read the event given to `sendEvent`, not
     /// `currentEvent` (the last dequeued one, kept after its dispatch).
     var inputDispatch: InputDispatchContext?
+    /// The `key.frame` intervals of this process's key-downs (one run-loop observer for all of them).
+    private lazy var keyFrames = KeyFrameSignpost()
 
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
@@ -82,10 +84,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         inputDispatch.dispatching(event) { route(event) }
     }
 
-    private func route(_ event: NSEvent) {
+    private func route(_ event: NSEvent) { // perf-hot: 0.5ms key-dispatch (every event of the process: its own work, not AppKit's dispatch it calls)
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
-            KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            keyFrames.begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
