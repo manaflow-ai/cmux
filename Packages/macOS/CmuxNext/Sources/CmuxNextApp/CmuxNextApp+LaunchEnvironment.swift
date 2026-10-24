@@ -19,7 +19,7 @@ extension CmuxNextApp {
         // The names only (never values), so a launch knob lost to another
         // cmux's terminal shows in the app's log.
         if !stripped.isEmpty {
-            FileHandle.standardError.write(Data("cmux: ignored inherited \(stripped.joined(separator: " "))\n".utf8))
+            try? FileHandle.standardError.write(contentsOf: Data("cmux: ignored inherited \(stripped.joined(separator: " "))\n".utf8))
         }
 #if DEBUG
         applyConfigFileArgument(environmentGuard: environmentGuard)
