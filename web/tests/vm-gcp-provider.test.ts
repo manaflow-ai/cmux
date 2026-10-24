@@ -34,7 +34,7 @@ describe("GCP Labs provider", () => {
     const parsed = gcpCredentialFromRequest(new Request("https://cmux.test", {
       headers: {
         "x-cmux-gcp-access-token": "local-token",
-        "x-cmux-gcp-access-token-expires-at": "1735689900",
+        "x-cmux-gcp-access-token-expires-at": String(Math.floor(Date.now() / 1000) + 300),
         "x-cmux-gcp-ssh-public-key": "ssh-ed25519 AAAA test",
       },
     }));
@@ -67,6 +67,7 @@ describe("GCP Labs provider", () => {
       image: "projects/manaflow-437420/global/images/cmux-linux",
       displayName: "GCP Lab",
       providerMetadata: { project: "manaflow-437420", zone: "us-west1-b" },
+      network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
       providerCredential: local,
     });
     expect(created.provider).toBe("gcp");
@@ -76,14 +77,11 @@ describe("GCP Labs provider", () => {
     expect(String(calls[0]?.init.headers)).not.toContain("gcp-test-token");
     expect(calls[0]?.init.headers).toMatchObject({ authorization: "Bearer gcp-test-token" });
 
-    const endpoint = await provider.openSSH(created.providerVmId, local);
-    expect(endpoint.host).toBe("203.0.113.4");
-    expect(endpoint.credential.kind).toBe("authorizedKey");
+    await expect(provider.openSSH(created.providerVmId, local)).rejects.toThrow(/private-network follow-up/);
     await provider.pause(created.providerVmId, local);
     await provider.destroy(created.providerVmId, local);
     expect(calls.map((call) => call.url)).toEqual([
       expect.stringContaining("/instances"),
-      expect.stringContaining("/instances/"),
       expect.stringContaining("/instances/"),
       expect.stringContaining("/instances/"),
       expect.stringContaining("/instances/"),

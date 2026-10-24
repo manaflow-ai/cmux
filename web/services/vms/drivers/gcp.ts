@@ -77,7 +77,9 @@ export class GcpApiError extends Error {
  */
 export class GcpProvider implements VMProvider {
   readonly id = "gcp" as const;
-  readonly attachTransports = ["ssh"] as const;
+  // IAP attach is layered in the network follow-up; the core provider never
+  // advertises a direct public or private address.
+  readonly attachTransports = [] as const;
   readonly capabilities = {
     snapshot: false,
     restore: false,
@@ -107,6 +109,12 @@ export class GcpProvider implements VMProvider {
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const credential = this.requireCredential(options.providerCredential);
+    if (!options.network) {
+      throw new ProviderError("gcp", "create requires a resolved private network; enable the GCP network provider first");
+    }
+    if (!credential.sshPublicKey || !credential.sshPrivateKeyPem) {
+      throw new ProviderError("gcp", "create requires a short-lived SSH public/private key pair for IAP attach");
+    }
     const context = contextFromMetadata(options.providerMetadata);
     const image = requiredText(options.image, "image");
     const name = instanceName(options.displayName);
@@ -123,9 +131,8 @@ export class GcpProvider implements VMProvider {
         },
       }],
       networkInterfaces: [{
-        network: context.network,
+        network: options.network.id,
         ...(context.subnetwork ? { subnetwork: context.subnetwork } : {}),
-        accessConfigs: [{}],
       }],
       metadata: {
         items: [
@@ -196,23 +203,8 @@ export class GcpProvider implements VMProvider {
     throw new ProviderError("gcp", `restart(${vmId}) requires a per-operation credential`);
   }
 
-  async openSSH(vmId: string, credential?: ProviderCredential): Promise<SSHEndpoint> {
-    const token = this.requireCredential(credential);
-    const privateKey = credential?.sshPrivateKeyPem;
-    if (!privateKey) throw new ProviderError("gcp", "openSSH requires a short-lived client SSH private key");
-    const context = contextFromVmId(vmId);
-    const instance = await this.instance(context, context.name, token);
-    const host = instance.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP ?? instance.networkInterfaces?.[0]?.networkIP;
-    if (!host) throw new ProviderError("gcp", `openSSH(${context.name}) has no reachable address`);
-    return {
-      transport: "ssh",
-      host,
-      port: 22,
-      username: credential.sshUsername ?? context.sshUsername,
-      publicKeyFingerprint: null,
-      credential: { kind: "authorizedKey", privateKeyPem: privateKey.utf8() },
-      identityHandle: vmId,
-    };
+  async openSSH(_vmId: string, _credential?: ProviderCredential): Promise<SSHEndpoint> {
+    throw new ProviderError("gcp", "IAP SSH attach requires the GCP private-network follow-up");
   }
 
   async revokeSSHIdentity(_identityHandle: string): Promise<void> {
