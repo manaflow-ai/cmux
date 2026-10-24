@@ -226,7 +226,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(seen.end).toBeLessThanOrEqual(0);
         expect(seen.mask).toBe("none");
 
-        // A 20-line paste shows its end: the top fades, the bottom does not.
+        // A 20-line paste shows its end: the top has more content above it, the bottom is clear.
         await page.keyboard.press("ControlOrMeta+A");
         await page.keyboard.press("Backspace");
         await paste(page, 20);
@@ -235,7 +235,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(seen.end - seen.top).toBeLessThan(2);
         expect(seen.mask).toBe("none");
 
-        // The wheel up to the top: the bottom fades, the top does not.
+        // The wheel up to the top: the bottom has more content below it, the top is clear.
         const box = (await page.locator(FIELD).boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.wheel(0, -4000);
@@ -245,13 +245,13 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(seen.top).toBe(0);
         expect(seen.mask).toBe("none");
 
-        // In the middle both edges fade.
+        // In the middle both edges have content beyond them, but neither edge masks text.
         await scrollTo(page, "middle");
         seen = await edges(page);
         expect(seen.top).toBeGreaterThan(0);
         expect(seen.mask).toBe("none");
 
-        // Back at the end, the bottom mark goes again; cut back to a short draft, both go and so does the mask.
+        // Back at the end, the bottom is clear again; cut back to a short draft with no overflow.
         await scrollTo(page, "end");
         seen = await edges(page);
         expect(seen.mask).toBe("none");
@@ -275,12 +275,12 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         await page.close();
       });
 
-      test("the caret's line, revealed at the faded top edge, sits clear of the fade", async () => {
+      test("the caret's line stays clear at the prompt edge", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         await paste(page, 20);
         // The caret on line 10, the field at the draft's end; typing there reveals the caret at the
-        // field's top edge, which has draft above it and so fades.
+        // field's top edge, which has draft above it but no prompt mask.
         await page.evaluate((selector) => {
           const editable = document.querySelector(selector)!;
           const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
@@ -329,7 +329,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
 
         const box = (await page.locator(FIELD).boundingBox())!;
         const x = box.x + box.width / 2;
-        // Nothing (no pseudo-element's host, no sibling) lies over the faded bands: a point in each
+        // Nothing (no pseudo-element's host, no sibling) lies over the prompt edges: a point in each
         // hits the prompt's own content.
         const hits = await page.evaluate(
           ({ selector, x, top, bottom }) => {
