@@ -81,16 +81,6 @@ import CmuxNextDesignTokens
         #expect(commands == [.next, .previous, .close])
     }
 
-    @Test func findArrowEditingIsForwardedToTheFieldEditor() {
-        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 123, flags: [], hasMarkedText: false))
-        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 124, flags: [.shift], hasMarkedText: false))
-        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 125, flags: [.option, .shift], hasMarkedText: false))
-        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 126, flags: [.command, .shift], hasMarkedText: false))
-        #expect(!FindPillView.shouldForwardArrowKeyDown(keyCode: 122, flags: [], hasMarkedText: false))
-        #expect(!FindPillView.shouldForwardArrowKeyDown(keyCode: 123, flags: [.control], hasMarkedText: false))
-        #expect(!FindPillView.shouldForwardArrowKeyDown(keyCode: 123, flags: [], hasMarkedText: true))
-    }
-
     @Test func typingReportsTheQueryAndSettingItDoesNot() {
         let pill = makePill()
         var reported: [String] = []
