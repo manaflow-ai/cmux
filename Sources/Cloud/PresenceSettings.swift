@@ -27,16 +27,20 @@ enum PresenceSettings {
     static let productionServiceURL = "https://presence.cmux.dev"
 
     /// Whether the heartbeat gate is on. An explicitly written value always wins.
-    /// With no stored value, presence FOLLOWS the mobile feature: announcing the
-    /// Mac's presence only makes sense once the user has enabled iOS pairing/host
-    /// (``MobileHostService/isListeningEnabled``), and a user who turns mobile on
-    /// expects their phone to see the Mac online. Default (mobile off) => off, for
-    /// privacy — the Mac announces nothing until the user opts into mobile.
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard MobileHostService.isListeningEnabled(defaults: defaults) else { return false }
+    /// With no stored value, presence FOLLOWS the hosting opt-ins: announcing the
+    /// Mac only makes sense once something may connect to it, either the iPhone
+    /// (iOS pairing, ``MobileHostService/isListeningEnabled``) or the account's
+    /// other Macs (incoming Mac access). Either opt-in alone must announce, or
+    /// peers list this Mac from discovery but always label it offline.
+    /// Default (both off) => off, for privacy: the Mac announces nothing until
+    /// the user opts into being reachable.
+    static func isEnabled(defaults: UserDefaults = .standard, cloudEnabled: Bool? = nil) -> Bool {
+        guard MobileHostService.isListeningEnabled(defaults: defaults)
+            || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: cloudEnabled)
+        else { return false }
         if defaults.object(forKey: enabledKey) != nil {
             return defaults.bool(forKey: enabledKey)
         }
-        return MobileHostService.isListeningEnabled(defaults: defaults)
+        return true
     }
 }
