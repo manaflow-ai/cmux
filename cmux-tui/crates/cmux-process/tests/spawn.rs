@@ -72,7 +72,6 @@ mod daemon_spawn {
     /// `env_clear` that sets none, in this process's `PATH`.
     #[test]
     fn a_program_name_is_found_in_the_childs_path_as_std_finds_it() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!(
             "cmux-process-path-{}-{:?}",
             std::process::id(),
@@ -80,14 +79,23 @@ mod daemon_spawn {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir(&dir).unwrap();
-        let probe = dir.join("cmux-process-path-probe");
-        std::fs::write(&probe, "#!/bin/sh\necho found-in-child-path\n").unwrap();
-        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A link to `echo`, not a script this test writes: a file still
+        // open for writing when another test thread forks cannot be run
+        // (ETXTBSY) until that child execs.
+        std::os::unix::fs::symlink("/bin/echo", dir.join("cmux-process-path-probe")).unwrap();
 
-        let output =
-            Command::new("cmux-process-path-probe").env_clear().env("PATH", &dir).output().unwrap();
+        let output = Command::new("cmux-process-path-probe")
+            .arg("found-in-child-path")
+            .env_clear()
+            .env("PATH", &dir)
+            .output()
+            .unwrap();
         assert_eq!(output.stdout, b"found-in-child-path\n");
-        let output = Command::new("cmux-process-path-probe").env("PATH", &dir).output().unwrap();
+        let output = Command::new("cmux-process-path-probe")
+            .arg("found-in-child-path")
+            .env("PATH", &dir)
+            .output()
+            .unwrap();
         assert_eq!(output.stdout, b"found-in-child-path\n");
         // Not in this process's PATH: only the child's PATH finds it.
         assert!(Command::new("cmux-process-path-probe").spawn().is_err());
@@ -175,10 +183,19 @@ mod daemon_spawn {
         let (read, write) = inheritable_pipe();
         let leaked = [read.as_raw_fd(), write.as_raw_fd()];
 
-        let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        // Read once the shell runs its script: while a program starts, the
+        // dynamic loader holds libc open on a descriptor of its own.
+        use std::io::BufRead;
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "echo ready; read line; exit 0"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
         let open = open_descriptors(child.id()).unwrap();
-        child.kill().unwrap();
-        child.wait().unwrap();
+        assert!(child.wait().unwrap().success());
         assert_eq!(
             open,
             [0, 1, 2],
@@ -186,10 +203,17 @@ mod daemon_spawn {
         );
 
         #[allow(clippy::disallowed_methods)] // the detector's control: std passes it on
-        let mut control = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let mut control = std::process::Command::new("/bin/sh")
+            .args(["-c", "echo ready; read line; exit 0"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(control.stdout.take().unwrap()).read_line(&mut line).unwrap();
         let open = open_descriptors(control.id()).unwrap();
-        control.kill().unwrap();
-        control.wait().unwrap();
+        drop(control.stdin.take());
+        assert!(control.wait().unwrap().success());
         assert!(
             leaked.iter().all(|fd| open.contains(fd)),
             "std's child should have inherited {leaked:?} (the detector sees nothing): {open:?}"
