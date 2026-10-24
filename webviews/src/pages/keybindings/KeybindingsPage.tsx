@@ -409,7 +409,11 @@ function Recorder({
         <output className="keys-recorder-refusal">{recording.refusal}</output>
       ) : (
         !binding.unset &&
-        !prompt && <div className="keys-recorder-hint">{withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}</div>
+        !prompt && (
+          <div className="keys-recorder-hint keys-recorder-delete">
+            {withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}
+          </div>
+        )
       )}
       <button
         type="button"
@@ -467,7 +471,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("close")}
             >
-              {withKeys(t("keybindings.page.recorder.closeOnly"), ["esc"])}
+              {withKeys(t("keybindings.page.recorder.closeOnly"), ["Esc"])}
             </button>
             <button
               type="button"
@@ -487,7 +491,7 @@ function Recorder({
             onMouseDown={keepFocus}
             onClick={() => store.closeRecording()}
           >
-            {withKeys(t("keybindings.page.recorder.close"), ["esc", "↩"])}
+            {withKeys(t("keybindings.page.recorder.close"), ["Esc", "↩"])}
           </button>
         )}
       </div>
@@ -509,9 +513,9 @@ interface RowProps {
 function BindingRow({ binding, strings, selected, editing, recording: rowRecording, resettable, store }: RowProps) {
   const { t } = strings;
   const recording = rowRecording !== undefined;
-  const recordingDisplay = rowRecording
-    ? [rowRecording.display, rowRecording.held].filter(Boolean).join(" ") || rowRecording.binding.display
-    : undefined;
+  // The row shows the table's keys only (what the app holds): the recorder's own keys (still
+  // going down, taken, refused) stay in the recorder; a save reaches the row with its green light.
+  const shown = binding;
   const classes = ["keys-row", selected && "selected", binding.removed && "removed", recording && "recording"];
   return (
     <tr
@@ -544,17 +548,10 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
               if (!recording) void store.changeKeybinding(binding);
             }}
           >
-            {recording ? (
-              recordingDisplay ? (
-                // The keys as they go down, then the keys a release saved.
-                <Keycaps display={recordingDisplay} />
-              ) : (
-                <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
-              )
-            ) : binding.unset ? (
+            {shown.unset ? (
               <span className="keys-placeholder">{t("keybindings.page.notSet")}</span>
             ) : (
-              <Keycaps display={binding.display} />
+              <Keycaps display={shown.display} />
             )}
           </button>
         )}

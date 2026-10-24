@@ -87,7 +87,11 @@ export function sortBindings(bindings: readonly Binding[]): Binding[] {
 }
 
 export function filterBindings(bindings: readonly Binding[], query: BindingQuery): Binding[] {
+  // A default the user replaced is not shown while its action has keys (or is unset): the new
+  // keys' row carries Reset, which brings the default back.
+  const keyed = new Set(bindings.filter((binding) => !binding.removed).map((binding) => binding.command));
   return bindings.filter((binding) => {
+    if (binding.removed && keyed.has(binding.command)) return false;
     if (query.conflictsOnly && (binding.removed || binding.conflicts.length === 0)) return false;
     if (query.keyFilter) return keyMatches(binding.key, query.keyFilter);
     return textMatches(binding, query.text);

@@ -531,6 +531,11 @@
   color: var(--ui-fg-2);
 }
 
+/* "Press ⌫ to delete" leads the recorder: brighter than the other hints, not the full ink. */
+.keys-recorder-delete {
+  color: color-mix(in srgb, var(--ui-fg) 75%, transparent);
+}
+
 .keys-recorder-hint-cap {
   display: inline-block;
   margin: 0 4px;
@@ -695,9 +700,9 @@
   gap: 4px;
 }
 
+/* The primary choice: the primary ink, no fill (the hover still fills). */
 .keys-recorder-overwrite {
   color: var(--ui-fg);
-  background: var(--ui-selected);
 }
 
 .keys-recorder-button:hover {
@@ -705,8 +710,10 @@
   color: var(--ui-fg);
 }
 
+/* A button's key boxes read in the button's own ink (grey for Close), not the primary. */
 .keys-recorder-button .keys-recorder-hint-cap {
   margin: 0 2px;
+  color: inherit;
 }
 
 /* Each key pops in as it goes down; the modifiers held before a key wait at half strength. Only

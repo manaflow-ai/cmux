@@ -160,7 +160,7 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   // Before a key comes, the recorder shows the row's own keys and how to delete them.
   expect(recorderKeys()?.textContent).toBe("⌘P");
   expect(recorder()?.textContent).toContain("⌫");
-  expect(close()?.textContent).toContain("esc");
+  expect(close()?.textContent).toContain("Esc");
   expect(recorder()?.querySelector(".keys-recorder-command")?.textContent).toBe("Go to File");
 
   // Each modifier shows the moment it goes down, before a key makes the stroke.
@@ -412,6 +412,8 @@ test("keys another action has: the recorder says who has them and offers Overwri
   await keys("cmd+shift+p");
   expect(sets()).toHaveLength(0);
   expect(choices()).toBeTruthy();
+  // Not saved: the row keeps the keys it has.
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘P");
   expect(title()).toContain("Open Command Palette");
   expect(title()).toContain("Show History");
   expect(recorder()?.querySelector(".keys-recorder-owner")).toBeTruthy();
