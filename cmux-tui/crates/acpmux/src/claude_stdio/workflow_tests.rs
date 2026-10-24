@@ -26,7 +26,7 @@ fn of_kind<'a>(out: &'a [(String, Value)], kind: &str) -> Vec<&'a Value> {
 
 fn workflow_call(id: &str) -> Value {
     json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": id, "name": "Workflow",
-        "input": {"scriptPath": "/tmp/wf.js"}}]}})
+        "input": {"scriptPath": "/tmp/wf.js", "args": {"pr": 24789}}}]}})
 }
 
 fn launched(id: &str, transcript_dir: &str) -> Value {
@@ -69,7 +69,13 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     assert_eq!(named.len(), 1, "{out:?}");
     assert_eq!(named[0]["name"], "probe");
     assert_eq!(named[0]["task"], "Two tiny agents");
+    // What a resume names again: the script path Claude Code returned and the call's args.
     assert_eq!(named[0]["runId"], "wf_4fe");
+    assert_eq!(
+        named[0]["scriptPath"],
+        "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
+    );
+    assert_eq!(named[0]["args"], json!({"pr": 24789}));
 
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "wx2", "tool_use_id": "toolu_w",
         "description": "Two tiny agents", "task_type": "local_workflow"});
@@ -251,6 +257,7 @@ async fn a_workflow_counts_only_agents_that_started() {
 async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&workflow_call("toolu_w")).await;
+    t.inbound(&launched("toolu_w", "/nonexistent")).await;
     let agent = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "done",
         "phaseTitle": "Review", "startedAt": 10, "resultPreview": "SHIP"});
     t.inbound(&snapshot(json!([phase(1, "Review"), agent]))).await;
@@ -262,6 +269,13 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     let last = &out[0].1;
     assert_eq!((last["tokens"].clone(), last["toolUses"].clone()), (json!(52000), json!(9)));
     assert_eq!(last["workflowAgentsFull"], json!(true));
+    // What a resume names comes again with the end, for a reader of recent history alone.
+    assert_eq!(last["runId"], "wf_4fe");
+    assert_eq!(
+        last["scriptPath"],
+        "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
+    );
+    assert_eq!(last["args"], json!({"pr": 24789}));
     assert_eq!(last["phases"], json!([{"index": 1, "title": "Review"}]));
     assert_eq!(
         last["workflowAgents"],
@@ -353,6 +367,26 @@ async fn a_preview_never_shows_part_of_a_secret() {
     let out = updates(&t.inbound(&snapshot(items)).await);
     let agent = &of_kind(&out, "subagent_progress")[0]["workflowAgents"][0];
     assert!(agent.get("prompt").is_none_or(|p| !p.to_string().contains("Q7ZJ")), "{agent}");
+}
+
+/// Args that may hold a secret never go to a pane: the scanner masks them, or a key is named like
+/// a credential. Such a run is resumed from the chat.
+#[tokio::test]
+async fn a_workflows_args_go_out_only_when_they_hold_no_secret() {
+    let launch = |args: Value| async move {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        t.inbound(&json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_w",
+            "name": "Workflow", "input": {"scriptPath": "/tmp/wf.js", "args": args}}]}}))
+            .await;
+        let out = updates(&t.inbound(&launched("toolu_w", "/nonexistent")).await);
+        of_kind(&out, "subagent_progress")[0].get("args").cloned()
+    };
+    assert_eq!(launch(json!({"pr": 7})).await, Some(json!({"pr": 7})));
+    assert_eq!(launch(json!({"github_token": "x"})).await, None);
+    // Built here, not written out, so the repository holds no token-shaped string.
+    let token = format!("gh{}_{}", "p", "Q7ZJ4XK2MD5P3WRT8N6C1VBH9YLFGSA0TEUI");
+    assert_eq!(launch(json!({"note": token})).await, None);
+    assert_eq!(launch(json!({"blob": "x".repeat(9000)})).await, None);
 }
 
 /// The hub's subagent model carries the run's id, phases and agent changes.

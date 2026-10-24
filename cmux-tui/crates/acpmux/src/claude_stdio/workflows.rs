@@ -42,6 +42,10 @@ const PREVIEW_CHARS: usize = 240;
 const PREVIEW_HEAD: usize = PREVIEW_CHARS * 8;
 const PREVIEW_SCAN: usize = PREVIEW_CHARS * 64;
 
+/// The largest `args` of a Workflow call sent with its launch, serialized: past it a resume
+/// cannot be offered from the pane, and a person resumes from the chat.
+const ARGS_BYTES: usize = 8 << 10;
+
 /// One running Workflow tool call (`Translator::workflows`).
 #[derive(Debug, Default)]
 pub(super) struct WorkflowRun {
@@ -59,6 +63,11 @@ pub(super) struct WorkflowRun {
     journal: JournalTail,
     /// When the last update went out.
     sent: Option<Instant>,
+    /// The Workflow call's `args`, which its launch sends: a resume names them again.
+    args: Option<Value>,
+    /// The run's id and script path from its launch, which its end sends again (`resume`).
+    run_id: Option<String>,
+    script_path: Option<String>,
 }
 
 /// What a run's `journal.jsonl` said up to `offset`: how many agents started
@@ -77,6 +86,17 @@ struct Rows {
     agents: Vec<Value>,
     /// Every agent, each whole: a client replaces what it had.
     full: bool,
+}
+
+impl WorkflowRun {
+    /// A run for a Workflow call's `input`, keeping its `args` when a pane may be sent them
+    /// (`sendable_args`).
+    pub(super) fn new(input: &Value) -> Self {
+        Self {
+            args: input.get("args").filter(|args| sendable_args(args)).cloned(),
+            ..Self::default()
+        }
+    }
 }
 
 impl Translator {
@@ -111,12 +131,26 @@ impl Translator {
         if let Some(task) = text("taskId") {
             self.subagent_tasks.lock().await.insert(task.to_owned(), tool.to_owned());
         }
-        if let Some(dir) = text("transcriptDir")
-            && let Some(run) = self.workflows.lock().await.get_mut(tool)
-        {
-            run.dir = Some(PathBuf::from(dir));
-        }
+        let args = match self.workflows.lock().await.get_mut(tool) {
+            Some(run) => {
+                if let Some(dir) = text("transcriptDir") {
+                    run.dir = Some(PathBuf::from(dir));
+                }
+                run.run_id = text("runId").map(str::to_owned);
+                run.script_path = text("scriptPath").map(str::to_owned);
+                run.args.clone()
+            }
+            None => None,
+        };
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
+        // What a resume names again (`Workflow({scriptPath, resumeFromRunId, args})`): the script
+        // path Claude Code returned, the only kind it takes back, and the call's args.
+        if let Some(path) = text("scriptPath") {
+            update.set("scriptPath", json!(path));
+        }
+        if let Some(args) = args {
+            update.set("args", args);
+        }
         if let Some(name) = text("workflowName") {
             update.set("name", json!(name));
         }
@@ -151,7 +185,7 @@ impl Translator {
         };
         let child = self.subagents.lock().await.get(&tool)?.clone();
         let snapshot = line.get("workflow_progress").and_then(Value::as_array);
-        let (workflow, journal, rows) = {
+        let (workflow, journal, rows, resume) = {
             let mut runs = self.workflows.lock().await;
             match runs.get_mut(&tool) {
                 Some(run) => {
@@ -168,11 +202,12 @@ impl Translator {
                         (None, Some(dir)) => Some((dir.clone(), run.journal.clone())),
                         _ => None,
                     };
-                    (Some(run.counts.clone()), journal, rows)
+                    let resume = ending.then(|| run.resume());
+                    (Some(run.counts.clone()), journal, rows, resume)
                 }
                 // A background agent's end is its state alone.
                 None if ending => return None,
-                None => (None, None, None),
+                None => (None, None, None, None),
             }
         };
         let usage = |key: &str| line.pointer(&format!("/usage/{key}")).and_then(Value::as_u64);
@@ -193,6 +228,10 @@ impl Translator {
         };
         if let Some(action) = action {
             update.set("action", json!(action));
+        }
+        // A run's end repeats what a resume names, for a reader of recent history alone.
+        for (key, value) in resume.unwrap_or_default() {
+            update.set(&key, value);
         }
         if let Some(rows) = rows {
             if let Some(phases) = rows.phases {
@@ -323,6 +362,22 @@ impl WorkflowRun {
         }
         self.counts = Some(counts);
         Rows { phases, agents, full: false }
+    }
+
+    /// What a resume of the run names (`runId`, `scriptPath`, `args`), as its
+    /// launch sent them: its last update repeats them.
+    fn resume(&self) -> Vec<(String, Value)> {
+        let mut out = Vec::new();
+        if let Some(run) = &self.run_id {
+            out.push(("runId".to_owned(), json!(run)));
+        }
+        if let Some(path) = &self.script_path {
+            out.push(("scriptPath".to_owned(), json!(path)));
+        }
+        if let Some(args) = &self.args {
+            out.push(("args".to_owned(), args.clone()));
+        }
+        out
     }
 
     /// Every agent as last sent, each whole, and the phases: a run's last
@@ -460,6 +515,31 @@ fn fold_word(head: &mut String, word: &mut String, chars: &mut usize) {
     *chars += taken.chars().count();
     head.push_str(&taken);
     word.clear();
+}
+
+/// Whether a Workflow call's `args` may go to a pane, which a resume names again: not null, at
+/// most `ARGS_BYTES` serialized, nothing in them the secret scanner masks, and no key named like
+/// a credential. Session updates are not masked, so args that may hold a secret are never sent;
+/// a person resumes such a run from the chat.
+fn sendable_args(args: &Value) -> bool {
+    fn credential_key(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => map.iter().any(|(key, value)| {
+                let key = key.to_ascii_lowercase();
+                ["token", "secret", "password", "passwd", "apikey", "api_key", "credential", "auth"]
+                    .iter()
+                    .any(|word| key.contains(word))
+                    || credential_key(value)
+            }),
+            Value::Array(items) => items.iter().any(credential_key),
+            _ => false,
+        }
+    }
+    if args.is_null() {
+        return false;
+    }
+    let text = args.to_string();
+    text.len() <= ARGS_BYTES && crate::secret_scan::mask(&text) == text && !credential_key(args)
 }
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
