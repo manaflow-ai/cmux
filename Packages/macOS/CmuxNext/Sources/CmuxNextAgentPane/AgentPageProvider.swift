@@ -64,8 +64,6 @@ public nonisolated struct AgentPageOps {
 @MainActor
 public final class AgentPageProvider: PageProvider {
     public typealias Prepare = @MainActor (AgentPaneRequest) -> AgentPaneModel?
-    /// The page host's transport queue bound. A caller that receives `false` from ``publish``
-    /// must recover the page/transport; the provider never silently evicts an event.
     public static let maximumBufferedEvents = 8_192
     private static let replayBatchSize = 128
 
@@ -76,8 +74,6 @@ public final class AgentPageProvider: PageProvider {
     private let prepare: Prepare
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
-    /// The socket connection whose frames last reached the page. A fresh socket is an
-    /// authoritative transport resync, so it clears an overflow latch left by the old socket.
     private var transportConnection: Int?
     private var deliveryOverflowed = false
     private var nextDeliveryID: UInt64 = 1
@@ -85,13 +81,8 @@ public final class AgentPageProvider: PageProvider {
     private var droppedPublicationIDs: Set<UInt64> = []
     private var deliveredPublicationIDs: Set<UInt64> = []
     private var pendingPublicationCounts: [UInt64: Int] = [:]
-    /// True when the provider's own gap queue, rather than a subscriber handoff, overflowed. A
-    /// replacement socket may discard only this queue after its explicit resync signal.
     private var bufferedQueueOverflowed = false
-    /// Subscribers whose replay queue reached the bound.
     private var overflowedPendingListeners: Set<UInt64> = []
-    /// A subscriber's replay is held in one queue until its subscription reply has reached the
-    /// page. Events arriving during that handoff append to the same queue instead of overtaking it.
     private final class PendingEvents {
         var events: [AgentPageEvent]
         var next = 0
@@ -135,8 +126,6 @@ public final class AgentPageProvider: PageProvider {
 
     public var eventDeliveryID: UInt64? { activeDeliveryID }
 
-    /// Marks a newly opened acpmux socket. The page keeps this subscription across socket
-    /// reconnects, so the overflow latch cannot wait for a WebView resubscribe to clear.
     public func transportDidOpen(_ connection: Int) {
         guard transportConnection != connection else { return }
         transportConnection = connection
@@ -189,9 +178,6 @@ public final class AgentPageProvider: PageProvider {
         let event = event.deliveryID == nil
             ? AgentPageEvent(kind: event.kind, value: event.value, deliveryID: publicationID)
             : event
-        // A saturated bridge still must receive the terminal transport close that causes its
-        // JavaScript socket to reconnect. It is a control envelope, not another replay payload;
-        // deliver it directly to current listeners and keep the overflow latch for all data.
         if deliveryOverflowed, event.kind == "transport", event.value["closed"] != nil {
             for id in listeners.keys.sorted() { listeners[id]?(event.data) }
             return true
@@ -241,8 +227,6 @@ public final class AgentPageProvider: PageProvider {
         if listeners.isEmpty { deliveredPublicationIDs.removeAll(keepingCapacity: true) }
         if listeners.isEmpty { pendingPublicationCounts.removeAll(keepingCapacity: true) }
         if deliveryOverflowed, listeners.isEmpty {
-            // The transport already reported backpressure; its reconnect performs the authoritative
-            // acpmux resync, while this page stream starts from current replay state.
             bufferedEvents.removeAll(keepingCapacity: true)
             deliveryOverflowed = false
             bufferedQueueOverflowed = false
@@ -255,12 +239,8 @@ public final class AgentPageProvider: PageProvider {
         let pending = PendingEvents(buffered)
         for event in buffered { addPending(event) }
         pendingEvents[id] = pending
-        // Keep replay ahead of events emitted while the current-state closure runs. Those events
-        // append to the pending queue because the subscription is already marked as handshaking.
         let replayEvents = self.replay?() ?? []
         pending.events.insert(contentsOf: replayEvents, at: pending.next)
-        // The current state and any buffered events go after the subscribe reply that names the
-        // subscription reaches the page. task-owner: one replay after the reply.
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.flushPendingEvents(for: id)
@@ -268,8 +248,6 @@ public final class AgentPageProvider: PageProvider {
         return PageSubscription { [weak self] in self?.cancel(id: id) }
     }
 
-    /// Replays in order after the page has the subscription id. Events that arrive while the
-    /// callback runs append to `pendingEvents`, so they cannot overtake older buffered events.
     private func flushPendingEvents(for id: UInt64) {
         guard let pending = pendingEvents[id] else { return }
         guard listeners[id] != nil else {
@@ -285,6 +263,7 @@ public final class AgentPageProvider: PageProvider {
             let event = pending.events[pending.next]
             pending.next += 1
             consumePending(event)
+            if let deliveryID = event.deliveryID { bufferedEvents.removeAll { $0.deliveryID == deliveryID } }
             let previousDeliveryID = activeDeliveryID
             activeDeliveryID = event.deliveryID
             if let deliveryID = event.deliveryID, pendingPublicationCounts[deliveryID] != nil {

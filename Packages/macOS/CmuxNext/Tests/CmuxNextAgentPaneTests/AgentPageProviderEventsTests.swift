@@ -203,4 +203,25 @@ struct AgentPageProviderEventsTests {
         await page.waitFor(1)
         #expect(Self.names(page.events) == ["next-sentinel"])
     }
+
+    @Test func pendingFanoutCancelAndFlushDoesNotLeaveBufferedCopy() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        provider.replay = { Array(repeating: Self.command("hold"), count: 8_192) }
+        let first = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        provider.replay = {
+            _ = provider.publish(Self.command("fanout"))
+            return [Self.command("second")]
+        }
+        let secondPage = Received()
+        let second = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { secondPage.append($0) }
+        first.cancel()
+        await secondPage.waitFor(2)
+        second.cancel()
+        provider.replay = { [Self.command("next")] }
+        let nextPage = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { nextPage.append($0) }
+        defer { next.cancel() }
+        await nextPage.waitFor(1)
+        #expect(Self.names(nextPage.events) == ["next"])
+    }
 }
