@@ -306,6 +306,12 @@ impl ReceiverCore {
                             break;
                         }
                         // Give the gap up: restart at a keyframe.
+                        tracing::debug!(
+                            next,
+                            highest,
+                            hole,
+                            "media receiver: gave a gap up; asking for a keyframe"
+                        );
                         self.stats.frames_dropped += 1;
                         self.request_keyframe();
                     }
@@ -458,6 +464,10 @@ pub(crate) async fn run(
             }
             if overflow {
                 // The consumer fell behind; restart its decoder at a keyframe.
+                tracing::info!(
+                    source,
+                    "media lane: a viewer is not reading its frames; asking for a keyframe"
+                );
                 core.request_keyframe();
             }
         }

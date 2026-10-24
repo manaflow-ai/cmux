@@ -120,7 +120,41 @@ impl MediaManager {
         let (status_tx, status) = watch::channel(MediaStatus::Off);
         let kill = Arc::new(tokio::sync::Notify::new());
         tokio::spawn(run(config, demand_rx, status_tx, Arc::clone(&kill)));
-        Self { demand: Arc::new(demand), status, kill }
+        let manager = Self { demand: Arc::new(demand), status, kill };
+        manager.spawn_dev_kills();
+        manager
+    }
+
+    /// Dev hook (simulators and rigs; a launch variable, never set on a
+    /// shipped phone): `CMUX_MOBILE_DEV_KILL_MEDIA_EVERY_S=N` kills each
+    /// session N seconds after it comes up, so the media lane switches
+    /// route (into the tunnel, then back onto the next session) while a
+    /// tab is shown (verify/browser-freeze).
+    fn spawn_dev_kills(&self) {
+        let Some(every) = std::env::var("CMUX_MOBILE_DEV_KILL_MEDIA_EVERY_S")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|s| *s > 0)
+        else {
+            return;
+        };
+        let mut status = self.status.clone();
+        let kill = Arc::downgrade(&self.kill);
+        tokio::spawn(async move {
+            loop {
+                if status.wait_for(|s| matches!(s, MediaStatus::Up { .. })).await.is_err() {
+                    return;
+                }
+                // An intentional, bounded dev delay on the runtime's clock.
+                tokio::time::sleep(Duration::from_secs(every)).await;
+                let Some(kill) = kill.upgrade() else { return };
+                tracing::info!(every_s = every, "dev: killing the media session");
+                kill.notify_waiters();
+                if status.wait_for(|s| !matches!(s, MediaStatus::Up { .. })).await.is_err() {
+                    return;
+                }
+            }
+        });
     }
 
     /// A browser tab shows video: open the session (if not open) and keep

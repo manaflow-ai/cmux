@@ -627,13 +627,40 @@ impl InInner {
     /// a newer keyframe from another source makes that one current. A source
     /// stuck behind the gate (the current one went quiet) asks for a keyframe.
     pub(crate) fn admit(&self, id: u64, frame: &ReceivedFrame) -> bool {
-        let verdict = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).admit(
-            id,
-            frame.keyframe,
-            tag::peek(&frame.access_unit),
-            frame.rtp_timestamp,
-            std::time::Instant::now(),
-        );
+        let tag = tag::peek(&frame.access_unit);
+        let mut gate = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let verdict = gate.admit(id, frame.keyframe, tag, frame.rtp_timestamp, std::time::Instant::now());
+        if verdict != Admit::Pass {
+            // Rejections are normal for a moment after a route switch; one
+            // that asks means nothing passed for 250 ms (at most 4 a second).
+            let newest = gate.newest_ts.iter().find(|(t, _)| *t == tag).map(|(_, ts)| *ts);
+            let level_ask = verdict == Admit::RejectAndAsk;
+            let current = gate.current;
+            drop(gate);
+            if level_ask {
+                tracing::info!(
+                    source = id,
+                    ?current,
+                    keyframe = frame.keyframe,
+                    tag = ?tag.map(|t| format!("{t:08x}")),
+                    ts = frame.rtp_timestamp,
+                    ?newest,
+                    carrier = ?frame.carrier.map(CarrierKind::name),
+                    "media gate: nothing passed for 250 ms; asking for a keyframe"
+                );
+            } else {
+                tracing::debug!(
+                    source = id,
+                    ?current,
+                    keyframe = frame.keyframe,
+                    ts = frame.rtp_timestamp,
+                    ?newest,
+                    "media gate: rejected a frame"
+                );
+            }
+        } else {
+            drop(gate);
+        }
         if verdict == Admit::RejectAndAsk {
             self.request_keyframe();
         }
