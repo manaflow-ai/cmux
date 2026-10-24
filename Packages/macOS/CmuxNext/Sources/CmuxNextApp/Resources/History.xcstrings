@@ -4325,132 +4325,469 @@
       }
     },
     "history.refusal.undoClosesPanes": {
+      "comment": "Refusal of an Undo that would close panes (%lld: the number of panes, 1 or more). Each plural form agrees with the count; languages that write the count as a label or without an inflected noun repeat one sentence.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التراجع يغلق %lld جزء. شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التراجع يغلق %lld جزء. شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التراجع يغلق جزءًا واحدًا (%lld). شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التراجع يغلق جزأين (%lld). شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التراجع يغلق %lld أجزاء. شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التراجع يغلق %lld جزءًا. شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التراجع يغلق %lld جزء. شغّل التراجع عن تغيير التخطيط مرة أخرى للتأكيد."
+                }
+              }
+            }
           }
         },
         "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Poništavanje zatvara %lld okno(a). Ponovo pokrenite Poništi promjenu rasporeda za potvrdu."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Poništavanje zatvara %lld okno. Ponovo pokrenite Poništi promjenu rasporeda za potvrdu."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Poništavanje zatvara %lld okna. Ponovo pokrenite Poništi promjenu rasporeda za potvrdu."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Poništavanje zatvara %lld okana. Ponovo pokrenite Poništi promjenu rasporeda za potvrdu."
+                }
+              }
+            }
           }
         },
         "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fortryd lukker %lld rude(r). Kør Fortryd layoutændring igen for at bekræfte."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Fortryd lukker %lld rude. Kør Fortryd layoutændring igen for at bekræfte."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Fortryd lukker %lld ruder. Kør Fortryd layoutændring igen for at bekræfte."
+                }
+              }
+            }
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Widerrufen schließt %lld Bereich(e). Führe „Layoutänderung widerrufen“ zur Bestätigung erneut aus."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Widerrufen schließt %lld Bereich. Führe „Layoutänderung widerrufen“ zur Bestätigung erneut aus."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Widerrufen schließt %lld Bereiche. Führe „Layoutänderung widerrufen“ zur Bestätigung erneut aus."
+                }
+              }
+            }
           }
         },
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Undo closes %lld pane. Run Undo Layout Change again to confirm."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Undo closes %lld panes. Run Undo Layout Change again to confirm."
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deshacer cierra %lld panel(es). Vuelve a ejecutar «Deshacer cambio de disposición» para confirmar."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Deshacer cierra %lld panel. Vuelve a ejecutar «Deshacer cambio de disposición» para confirmar."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Deshacer cierra %lld paneles. Vuelve a ejecutar «Deshacer cambio de disposición» para confirmar."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Deshacer cierra %lld paneles. Vuelve a ejecutar «Deshacer cambio de disposición» para confirmar."
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’annulation ferme %lld volet(s). Relancez « Annuler la modification de disposition » pour confirmer."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "L’annulation ferme %lld volet. Relancez « Annuler la modification de disposition » pour confirmer."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "L’annulation ferme %lld volets. Relancez « Annuler la modification de disposition » pour confirmer."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "L’annulation ferme %lld volets. Relancez « Annuler la modification de disposition » pour confirmer."
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Annullare chiude %lld riquadro/i. Esegui di nuovo «Annulla modifica layout» per confermare."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Annullare chiude %lld riquadro. Esegui di nuovo «Annulla modifica layout» per confermare."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Annullare chiude %lld riquadri. Esegui di nuovo «Annulla modifica layout» per confermare."
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "取り消すと%lld個のペインが閉じます。確定するにはもう一度「レイアウトの変更を取り消す」を実行してください。"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "取り消すと%lld個のペインが閉じます。確定するにはもう一度「レイアウトの変更を取り消す」を実行してください。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "取り消すと%lld個のペインが閉じます。確定するにはもう一度「レイアウトの変更を取り消す」を実行してください。"
+                }
+              }
+            }
           }
         },
         "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការមិនធ្វើវិញនឹងបិទផ្ទាំង %lld ។ ដំណើរការ មិនធ្វើការផ្លាស់ប្ដូរប្លង់វិញ ម្ដងទៀតដើម្បីបញ្ជាក់។"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ការមិនធ្វើវិញនឹងបិទផ្ទាំង %lld ។ ដំណើរការ មិនធ្វើការផ្លាស់ប្ដូរប្លង់វិញ ម្ដងទៀតដើម្បីបញ្ជាក់។"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ការមិនធ្វើវិញនឹងបិទផ្ទាំង %lld ។ ដំណើរការ មិនធ្វើការផ្លាស់ប្ដូរប្លង់វិញ ម្ដងទៀតដើម្បីបញ្ជាក់។"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실행 취소하면 창 %lld개가 닫힙니다. 확인하려면 레이아웃 변경 실행 취소를 다시 실행하세요."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "실행 취소하면 창 %lld개가 닫힙니다. 확인하려면 레이아웃 변경 실행 취소를 다시 실행하세요."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "실행 취소하면 창 %lld개가 닫힙니다. 확인하려면 레이아웃 변경 실행 취소를 다시 실행하세요."
+                }
+              }
+            }
           }
         },
         "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angre lukker %lld rute(r). Kjør Angre layoutendring igjen for å bekrefte."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Angre lukker %lld rute. Kjør Angre layoutendring igjen for å bekrefte."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Angre lukker %lld ruter. Kjør Angre layoutendring igjen for å bekrefte."
+                }
+              }
+            }
           }
         },
         "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cofnięcie zamknie paneli: %lld. Uruchom ponownie „Cofnij zmianę układu”, aby potwierdzić."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Cofnięcie zamknie paneli: %lld. Uruchom ponownie „Cofnij zmianę układu”, aby potwierdzić."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Cofnięcie zamknie paneli: %lld. Uruchom ponownie „Cofnij zmianę układu”, aby potwierdzić."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Cofnięcie zamknie paneli: %lld. Uruchom ponownie „Cofnij zmianę układu”, aby potwierdzić."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Cofnięcie zamknie paneli: %lld. Uruchom ponownie „Cofnij zmianę układu”, aby potwierdzić."
+                }
+              }
+            }
           }
         },
         "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desfazer fecha %lld painel(is). Execute “Desfazer alteração de layout” novamente para confirmar."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Desfazer fecha %lld painel. Execute “Desfazer alteração de layout” novamente para confirmar."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Desfazer fecha %lld painéis. Execute “Desfazer alteração de layout” novamente para confirmar."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Desfazer fecha %lld painéis. Execute “Desfazer alteração de layout” novamente para confirmar."
+                }
+              }
+            }
           }
         },
         "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отмена закроет панелей: %lld. Запустите «Отменить изменение макета» ещё раз для подтверждения."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Отмена закроет панелей: %lld. Запустите «Отменить изменение макета» ещё раз для подтверждения."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Отмена закроет панелей: %lld. Запустите «Отменить изменение макета» ещё раз для подтверждения."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Отмена закроет панелей: %lld. Запустите «Отменить изменение макета» ещё раз для подтверждения."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Отмена закроет панелей: %lld. Запустите «Отменить изменение макета» ещё раз для подтверждения."
+                }
+              }
+            }
           }
         },
         "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเลิกทำจะปิด %lld บานหน้าต่าง เรียกใช้เลิกทำการเปลี่ยนเลย์เอาต์อีกครั้งเพื่อยืนยัน"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "การเลิกทำจะปิด %lld บานหน้าต่าง เรียกใช้เลิกทำการเปลี่ยนเลย์เอาต์อีกครั้งเพื่อยืนยัน"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "การเลิกทำจะปิด %lld บานหน้าต่าง เรียกใช้เลิกทำการเปลี่ยนเลย์เอาต์อีกครั้งเพื่อยืนยัน"
+                }
+              }
+            }
           }
         },
         "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geri alma %lld bölmeyi kapatır. Onaylamak için Düzen değişikliğini geri al'ı yeniden çalıştırın."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Geri alma %lld bölmeyi kapatır. Onaylamak için Düzen değişikliğini geri al'ı yeniden çalıştırın."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Geri alma %lld bölmeyi kapatır. Onaylamak için Düzen değişikliğini geri al'ı yeniden çalıştırın."
+                }
+              }
+            }
           }
         },
         "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скасування закриє панелей: %lld. Запустіть «Скасувати зміну макета» ще раз для підтвердження."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Скасування закриє панелей: %lld. Запустіть «Скасувати зміну макета» ще раз для підтвердження."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Скасування закриє панелей: %lld. Запустіть «Скасувати зміну макета» ще раз для підтвердження."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Скасування закриє панелей: %lld. Запустіть «Скасувати зміну макета» ще раз для підтвердження."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Скасування закриє панелей: %lld. Запустіть «Скасувати зміну макета» ще раз для підтвердження."
+                }
+              }
+            }
           }
         },
         "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hoàn tác sẽ đóng %lld ngăn. Chạy lại Hoàn tác thay đổi bố cục để xác nhận."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Hoàn tác sẽ đóng %lld ngăn. Chạy lại Hoàn tác thay đổi bố cục để xác nhận."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Hoàn tác sẽ đóng %lld ngăn. Chạy lại Hoàn tác thay đổi bố cục để xác nhận."
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "撤销将关闭 %lld 个窗格。再次运行“撤销布局更改”以确认。"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "撤销将关闭 %lld 个窗格。再次运行“撤销布局更改”以确认。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "撤销将关闭 %lld 个窗格。再次运行“撤销布局更改”以确认。"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "還原會關閉 %lld 個窗格。再次執行「還原佈局變更」以確認。"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "還原會關閉 %lld 個窗格。再次執行「還原佈局變更」以確認。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "還原會關閉 %lld 個窗格。再次執行「還原佈局變更」以確認。"
+                }
+              }
+            }
           }
         }
       }

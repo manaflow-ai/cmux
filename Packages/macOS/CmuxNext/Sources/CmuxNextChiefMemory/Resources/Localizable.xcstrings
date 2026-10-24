@@ -526,132 +526,133 @@
       }
     },
     "chiefMemory.counts": {
+      "comment": "Memory Inspector status line (%1$lld: messages in the Chief's memory, %2$lld: summary lines built). Each count follows a label, so no noun has to agree with it; keep that shape.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld رسالة، %2$lld سطر ملخص"
+            "value": "الرسائل: %1$lld. أسطر الملخص: %2$lld."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld poruka, %2$lld redova sažetka"
+            "value": "Poruke: %1$lld. Redovi sažetka: %2$lld."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld beskeder, %2$lld resumélinjer"
+            "value": "Beskeder: %1$lld. Resumélinjer: %2$lld."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld Nachrichten, %2$lld Zusammenfassungszeilen"
+            "value": "Nachrichten: %1$lld. Zusammenfassungszeilen: %2$lld."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld messages, %2$lld summary lines"
+            "value": "Messages: %1$lld. Summary lines: %2$lld."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld mensajes, %2$lld líneas de resumen"
+            "value": "Mensajes: %1$lld. Líneas de resumen: %2$lld."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld messages, %2$lld lignes de résumé"
+            "value": "Messages : %1$lld. Lignes de résumé : %2$lld."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld messaggi, %2$lld righe di riepilogo"
+            "value": "Messaggi: %1$lld. Righe di riepilogo: %2$lld."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "メッセージ %1$lld 件、要約行 %2$lld 件"
+            "state": "needs_review",
+            "value": "メッセージ: %1$lld。要約行: %2$lld。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សារ %1$lld, បន្ទាត់សង្ខេប %2$lld"
+            "value": "សារ៖ %1$lld។ បន្ទាត់សង្ខេប៖ %2$lld។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "메시지 %1$lld개, 요약 줄 %2$lld개"
+            "value": "메시지: %1$lld. 요약 줄: %2$lld."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld meldinger, %2$lld sammendragslinjer"
+            "value": "Meldinger: %1$lld. Sammendragslinjer: %2$lld."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld wiadomości, %2$lld wierszy podsumowania"
+            "value": "Wiadomości: %1$lld. Wiersze podsumowania: %2$lld."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld mensagens, %2$lld linhas de resumo"
+            "value": "Mensagens: %1$lld. Linhas de resumo: %2$lld."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сообщений: %1$lld, строк сводки: %2$lld"
+            "value": "Сообщений: %1$lld. Строк сводки: %2$lld."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ข้อความ, %2$lld บรรทัดสรุป"
+            "value": "ข้อความ: %1$lld บรรทัดสรุป: %2$lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld mesaj, %2$lld özet satırı"
+            "value": "Mesajlar: %1$lld. Özet satırları: %2$lld."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Повідомлень: %1$lld, рядків зведення: %2$lld"
+            "value": "Повідомлень: %1$lld. Рядків зведення: %2$lld."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld tin nhắn, %2$lld dòng tóm tắt"
+            "value": "Tin nhắn: %1$lld. Dòng tóm tắt: %2$lld."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld 条消息，%2$lld 行摘要"
+            "value": "消息：%1$lld。摘要行：%2$lld。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld 則訊息，%2$lld 行摘要"
+            "value": "訊息：%1$lld。摘要行：%2$lld。"
           }
         }
       }
@@ -2491,132 +2492,133 @@
       }
     },
     "chiefMemory.rebuilding": {
+      "comment": "Memory Inspector status while summary lines are rebuilt (%lld: the number of lines). The count follows a label, so no noun has to agree with it; keep that shape.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جارٍ إعادة بناء %lld سطر"
+            "value": "أسطر قيد إعادة البناء: %lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ponovna izgradnja %lld redova"
+            "value": "Redova za ponovnu izgradnju: %lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Genopbygger %lld linjer"
+            "value": "Linjer, der genopbygges: %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld Zeilen werden neu erstellt"
+            "value": "Neu zu erstellende Zeilen: %lld"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rebuilding %lld lines"
+            "value": "Lines to rebuild: %lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reconstruyendo %lld líneas"
+            "value": "Líneas por reconstruir: %lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reconstruction de %lld lignes"
+            "value": "Lignes à reconstruire : %lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ricostruzione di %lld righe"
+            "value": "Righe da ricostruire: %lld"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "%lld 行を再構築中"
+            "state": "needs_review",
+            "value": "再構築する行: %lld"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងសាងសង់ %lld បន្ទាត់ឡើងវិញ"
+            "value": "បន្ទាត់ត្រូវសាងសង់ឡើងវិញ៖ %lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld줄 다시 만드는 중"
+            "value": "다시 만들 줄: %lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bygger %lld linjer på nytt"
+            "value": "Linjer som bygges på nytt: %lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odbudowywanie wierszy: %lld"
+            "value": "Wiersze do odbudowania: %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reconstruindo %lld linhas"
+            "value": "Linhas a reconstruir: %lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перестраивается строк: %lld"
+            "value": "Строк к перестройке: %lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังสร้างใหม่ %lld บรรทัด"
+            "value": "บรรทัดที่ต้องสร้างใหม่: %lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld satır yeniden oluşturuluyor"
+            "value": "Yeniden oluşturulacak satırlar: %lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перебудовується рядків: %lld"
+            "value": "Рядків до перебудови: %lld"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang dựng lại %lld dòng"
+            "value": "Số dòng cần dựng lại: %lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在重建 %lld 行"
+            "value": "待重建的行：%lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在重建 %lld 行"
+            "value": "待重建的行：%lld"
           }
         }
       }

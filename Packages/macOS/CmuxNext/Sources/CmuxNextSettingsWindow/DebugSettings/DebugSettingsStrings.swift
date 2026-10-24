@@ -31,7 +31,7 @@ nonisolated enum DebugSettingsStrings {
     static func didReset(_ section: String) -> String { format("debugSettings.didReset", "Reset %@.", section) }
     static func count(_ count: Int,
                       preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "debugSettings.count", value: "%lld tunables", table: nil, arguments: [.count(count)],
+        Bundle.module.localizedString(forKey: "debugSettings.count", value: "Tunables: %lld", table: nil, arguments: [.count(count)],
                                       preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
