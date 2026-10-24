@@ -281,6 +281,8 @@ export class KeybindingsStore {
       this.endRecording();
       return;
     }
+    // An empty field, so its placeholder says it records (and that Esc stops).
+    if (this.snapshot.text) this.setText("");
     await this.beginRecording({ target: "search" });
   }
 

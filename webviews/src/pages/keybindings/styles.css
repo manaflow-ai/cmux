@@ -102,11 +102,6 @@
   border-color: var(--page-text-3);
 }
 
-.keys-hint {
-  font-size: 11px;
-  color: var(--page-text-3);
-}
-
 .keys-notice {
   font: inherit;
   display: flex;

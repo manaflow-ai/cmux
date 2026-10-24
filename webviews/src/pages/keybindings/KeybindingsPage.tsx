@@ -127,8 +127,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           <input
             className="keys-search"
             type="search"
-            placeholder={t("keybindings.page.search")}
-            aria-label={t("keybindings.page.search")}
+            // Search by keys records in the field itself: its placeholder says so, and how to stop.
+            placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
+            aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
             value={snap.text}
             disabled={disconnected}
             readOnly={searchRecording}
@@ -159,7 +160,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           >
             {t("keybindings.page.conflictsOnly")}
           </button>
-          {searchRecording && <span className="keys-hint">{t("keybindings.page.recordHint")}</span>}
           <span className="keys-spacer" />
           <button
             type="button"

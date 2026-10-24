@@ -533,13 +533,20 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(sets().at(-1)?.params).toMatchObject({ command: "history.open", key: "cmd+k cmd+1 cmd+2 cmd+3" });
   expect(recorder()).toBeNull();
 
-  // Search by keys: every key up ends its recording; the keys stay the filter.
+  // Search by keys: the field empties and says it records, and how to stop; every key up ends
+  // its recording, and the keys stay the filter.
+  const field = () => doc.querySelector<HTMLInputElement>(".keys-search");
+  await act(async () => store.setText("tab"));
   await click(doc.querySelector(".keys-record"));
   expect(provider.recording).toBe(true);
+  expect(field()?.value).toBe("");
+  expect(field()?.placeholder).toBe(strings.t("keybindings.page.recordingPlaceholder"));
+  expect(field()?.getAttribute("aria-label")).toBe(strings.t("keybindings.page.recordingKeys"));
   await keys("cmd+shift+p");
   expect(provider.recording).toBe(false);
   expect(doc.querySelector(".keys-record.on")).toBeNull();
-  expect(doc.querySelector<HTMLInputElement>(".keys-search")?.value).toBe("cmd+shift+p");
+  expect(field()?.value).toBe("cmd+shift+p");
+  expect(field()?.placeholder).toBe(strings.t("keybindings.page.search"));
   expect(row("Open Command Palette")).toBeTruthy();
   expect(row("Go to File")).toBeFalsy();
   await act(async () => store.setText(""));
