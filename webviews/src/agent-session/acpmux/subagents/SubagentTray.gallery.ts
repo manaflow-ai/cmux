@@ -217,6 +217,8 @@ export default agentPaneEntry({
       theme: { subagentTrayPlacement: "after-latest-message" },
       play: async (ctx) => {
         await trayLines(1)(ctx);
+        if (!ctx.document.querySelector(".acpmux-transcript-after-latest .acpmux-running-tray"))
+          throw new Error("after-latest placement must stay in the transcript flow");
         await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__tail"));
       },
