@@ -49,6 +49,7 @@ if [[ -d "$share/ghostty" ]]; then
 elif [[ -d "$SRCROOT/Resources/ghostty" ]]; then
   sync_dir "$SRCROOT/Resources/ghostty" "$dest/ghostty"
 else
+  rm -rf "$dest/ghostty"
   echo "warning: no Ghostty resources found; themes will not resolve"
 fi
 # cmux's own themes sit next to Ghostty's, so `theme = <name>` and every
@@ -61,6 +62,7 @@ fi
 if [[ -d "$SRCROOT/ghostty-next/src/shell-integration" ]]; then
   sync_dir "$SRCROOT/ghostty-next/src/shell-integration" "$dest/ghostty/shell-integration"
 else
+  rm -rf "$dest/ghostty/shell-integration"
   echo "warning: no ghostty-next/src/shell-integration; shells start without Ghostty's integration"
 fi
 
@@ -68,6 +70,8 @@ if [[ -d "$share/terminfo" ]]; then
   sync_dir "$share/terminfo" "$dest/terminfo"
 elif [[ -d "$SRCROOT/Resources/ghostty/terminfo" ]]; then
   sync_dir "$SRCROOT/Resources/ghostty/terminfo" "$dest/terminfo"
+else
+  rm -rf "$dest/terminfo"
 fi
 if [[ -d "$SRCROOT/Resources/terminfo-overlay" ]]; then
   mkdir -p "$dest/terminfo"
@@ -76,10 +80,14 @@ fi
 
 if [[ -d "$SRCROOT/Resources/shell-integration" ]]; then
   sync_dir "$SRCROOT/Resources/shell-integration" "$dest/shell-integration"
+else
+  rm -rf "$dest/shell-integration"
 fi
 # Keeps the bundled `cmux` first on PATH after the user's startup files
 # (BundledCLIEnvironment.swift).
 if [[ -d "$SRCROOT/Resources/cmux-cli-path" ]]; then
   sync_dir "$SRCROOT/Resources/cmux-cli-path" "$dest/cmux-cli-path"
+else
+  rm -rf "$dest/cmux-cli-path"
 fi
 echo "bundled Ghostty resources into $dest"

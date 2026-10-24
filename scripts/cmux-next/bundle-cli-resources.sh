@@ -11,6 +11,17 @@ dest="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
 src="${SRCROOT:?}"
 
 mkdir -p "$bin"
+# Remove files owned by this phase before copying the current source set, so
+# deleting or renaming a helper cannot leave an obsolete executable in a
+# reused DerivedData bundle. The cmux-tui outputs are owned by another phase.
+owned_bins=(
+  cmux-code-mode-mcp cmux-code-mode-run start-cmux-profiling submit-cmux-profile
+  cmux-code-mode-runner cmux-dev-shim-install cmux-code-mode-macos-profile
+  cmux-open-url open xdg-open
+)
+for name in "${owned_bins[@]}"; do
+  rm -f "$bin/$name"
+done
 # Provider executables (codex, claude, ...) are rejected by the "Reject
 # Bundled Provider Binaries" phase, never copied from here.
 for file in "$src/Resources/bin/"*; do
