@@ -91,7 +91,8 @@ public struct ErrorReporter: Sendable {
     func report(_ event: ErrorEvent, logText: String) -> Task<Void, Never> {
         // Redacted, so public: Console.app shows it as the journal keeps it.
         logger.log(level: event.level == .fault ? .fault : .error, "\(logText, privacy: .public)")
-        // task-owner: red-commit stub, records nothing (the log harvest is the only path, as for Logger.error)
-        return Task {}
+        let recorder = recorder
+        // task-owner: one record; the journal folds it and appends it in its next batched write
+        return Task { await recorder.record(event) }
     }
 }

@@ -5,13 +5,14 @@ import Foundation
 
 /// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log, the
 /// Chief's acpmux `daemon.log`, `host.log` and `client.log`, the app's own acpmux log, and cmux
-/// crash reports. Page console errors are not harvested: ``ConsoleErrorCapture`` records them
-/// when they happen.
+/// crash reports. Errors reported through an ``ErrorReporter`` (cmux's own) and page console
+/// errors (``ConsoleErrorCapture``) are not harvested: they are recorded when they happen, so a
+/// crash keeps them.
 ///
 /// It harvests at launch (crash reports and log lines written while the app was not running),
-/// at quit (``stop()``: what this run logged, since a later launch cannot read an ended process's
-/// log store) and before every `errors.list`. Never on a timer: an idle app wakes for nothing
-/// (plans/cmux-next/idle-wakeups.md); a periodic harvest read `OSLogStore` every 300 s.
+/// at quit (``stop()``, under the quit's deadline: what frameworks and the cmux sites still on
+/// `Logger` logged in this run, which no later launch can read) and before every `errors.list`.
+/// Never on a timer: an idle app wakes for nothing (plans/cmux-next/idle-wakeups.md).
 ///
 /// The journal lives in `~/Library/Application Support/<bundle id>/errors`, one per build.
 @MainActor
