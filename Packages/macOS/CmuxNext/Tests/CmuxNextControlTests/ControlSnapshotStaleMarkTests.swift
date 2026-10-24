@@ -22,7 +22,7 @@ import Testing
         store.setRefresher {
             model.builds.withLock { $0 += 1 }
             let focused = model.pane.withLock { $0 }
-            store.publish { $0.topology.focus = ControlFocus(paneID: focused) }
+            store.publish(coversMainActorState: true) { $0.topology.focus = ControlFocus(paneID: focused) }
         }
         return router
     }
@@ -44,5 +44,8 @@ import Testing
         let snapshot = await router.snapshots.fresh()
         #expect(model.builds.withLock { $0 } == 1, "the read after the \(writer) publish built nothing")
         #expect(snapshot.topology.focus.paneID == "after", "the read answered the focus from before the frame")
+        #expect(!router.snapshots.isStale, "the build that covers the frame left the snapshot stale")
+        _ = await router.snapshots.fresh()
+        #expect(model.builds.withLock { $0 } == 1, "a second read with nothing changed built again")
     }
 }
