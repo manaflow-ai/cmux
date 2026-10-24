@@ -60,6 +60,7 @@ extension LayoutRootView {
     /// window frame as they are (no conversion, no strip notice). The hosts that changed are
     /// ``panesMovedInLastOverlaySync`` for the observers (`observeOverlaySync`).
     private func syncOverlay() {
+        overlaySyncs += 1
         overlayIsStale = false
         let plane = overlayPlane
         let inWindow = window == nil ? nil : convert(bounds, to: nil)
