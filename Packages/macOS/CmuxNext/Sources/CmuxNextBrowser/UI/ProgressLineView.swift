@@ -24,7 +24,11 @@ final class ProgressLineView: NSView {
         // progress opens no transaction and lays nothing out.
         guard progress != self.progress || visible != self.visible else { return }
         let wasVisible = self.visible
-        self.progress = visible ? progress : (wasVisible ? 1 : 0)
+        let next = visible ? progress : (wasVisible ? 1 : 0)
+        // The chrome renders on every observed change of its tab: a bar that would not move opens
+        // no transaction (each reads its spring's timing).
+        guard next != self.progress || visible != wasVisible else { return }
+        self.progress = next
         self.visible = visible
         let apply = {
             self.layoutBar()
