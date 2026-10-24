@@ -174,6 +174,21 @@ struct SignpostsTests {
         pollingTurn()
     }
 
+    @Test("Key-frame intervals all end at the end of their turn, and a later turn ends nothing more")
+    func keyFramesEndAtTheTurnsCommit() throws {
+        try #require(Signposter.key.isEnabled, "the key category is off in this process's logging profile")
+        let keyFrames = KeyFrameSignpost()
+        keyFrames.begin(target: .view, eventTimestamp: 0)
+        keyFrames.begin(target: .terminal, eventTimestamp: 1, now: 1.5)
+        #expect(keyFrames.pendingCount == 2)
+        pollingTurn()
+        #expect(keyFrames.pendingCount == 0)
+        keyFrames.begin(target: .view, eventTimestamp: 0)
+        let log = Log()
+        waitingTurn(log)
+        #expect(keyFrames.pendingCount == 0, "a key begun in a later turn did not end at that turn's commit")
+    }
+
     @Test("An interval runs its body and returns its value, with a text or an action message")
     func intervalReturnsTheBodyValue() throws {
         let value = Signposter.action.interval(.actionPerform, "id=test") { 42 }
