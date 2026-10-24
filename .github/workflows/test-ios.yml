@@ -928,6 +928,12 @@ jobs:
           else
             XCODEBUILD_ARGS+=(-testPlan cmux)
           fi
+          # The focused App Store UI proof must exercise the same compile-time
+          # feature gate as the public binary. Keep ordinary Debug and beta /
+          # internal simulator builds on their normal System VPN behavior.
+          if [[ "${TEST_FILTER:-}" == "cmuxUITests/cmuxUITests/testAppStoreCloudUIHasNoSystemVPN" ]]; then
+            XCODEBUILD_ARGS+=(SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) DEBUG CMUX_DEV_AUTH CMUX_APPSTORE')
+          fi
           set +e
           xcodebuild "${XCODEBUILD_ARGS[@]}" -showBuildTimingSummary build-for-testing \
             2>&1 | tee "$IOS_DERIVED_DATA/logs/build-for-testing.log"

@@ -869,7 +869,9 @@ def test_the_request_title_names_its_commit() -> None:
 
     data = yaml.safe_load(WORKFLOW)
     # guard.evictedPromotions() parses this title (REQUEST_TITLE).
-    assert data["run-name"] == "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}"
+    run_name = data["run-name"]
+    assert run_name.startswith("${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)")
+    assert "github.event_name == 'schedule'" in run_name
     assert data["jobs"]["promote-nightly-next"]["permissions"]["checks"] == "read"
 
 
@@ -889,9 +891,9 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
 
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     wait, move, decide_job = jobs["await-release-surface-ack"], jobs["promote-nightly-next-acked"], jobs["promote-nightly-next"]
-    # The waiter: one shared cancel-in-progress group (a per-run group when the
+    # The waiter: one shared non-cancelling group (a per-run group when the
     # scan failed), the approval environment only for needs-ack, no secrets.
-    assert wait["concurrency"]["cancel-in-progress"] is True
+    assert wait["concurrency"]["cancel-in-progress"] is False
     assert wait["concurrency"]["group"].startswith("nightly-next-promote-ack${{")
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
