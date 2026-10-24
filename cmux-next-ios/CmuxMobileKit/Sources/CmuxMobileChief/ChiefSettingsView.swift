@@ -59,7 +59,6 @@ public struct ChiefSettingsView: View {
 
     public var body: some View {
         Form {
-            header
             engineSection
             if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
             notificationsSection
@@ -127,8 +126,9 @@ public struct ChiefSettingsView: View {
         return max(0, windowSafeTop - restRowTop)
     }
 
+    /// The engine card's section header, so the gap to the first card is the
+    /// list's header gap whatever that section's footer holds.
     private var header: some View {
-        Section {
             VStack(spacing: 0) {
                 ChiefAvatar(text: session.avatar, size: ChiefInfoGeometry.avatarSize)
                     .accessibilityElement(children: .ignore)
@@ -138,6 +138,7 @@ public struct ChiefSettingsView: View {
                     .padding(.bottom, ChiefInfoGeometry.titleTopFromAvatar - ChiefInfoGeometry.avatarSize)
                 Text(name)
                     .font(.title.bold())
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .accessibilityAddTraits(.isHeader)
@@ -164,12 +165,8 @@ public struct ChiefSettingsView: View {
                 restRowTop = top
                 Self.lastRestRowTop = top
             }
+            .textCase(nil)
             .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-        }
-        // The header's bottom padding and the list's own gap make Messages'
-        // 20 pt to the first card.
-        .listSectionSpacing(0)
     }
 
     /// Messages' call / video / mail circles, with Chief's own real actions:
@@ -279,6 +276,8 @@ public struct ChiefSettingsView: View {
             if let stopNote {
                 Text(stopNote).font(.footnote).foregroundStyle(.secondary)
             }
+        } header: {
+            header
         } footer: {
             if hasControl {
                 Text("Changes apply to Chief's next turn, on every device.")
@@ -509,9 +508,9 @@ enum ChiefInfoGeometry {
     static let quickActionSpacing: CGFloat = 20
     static let quickActionsBelowTitle: CGFloat = 16
     static let sectionGap: CGFloat = 20
-    /// What the inset grouped list still adds after the header's section
-    /// with its spacing at 0 (measured: 9 pt, iOS 26.5).
-    static let listGapAfterHeader: CGFloat = 9
+    /// What the inset grouped list adds between a section header and its
+    /// first row (measured on iOS 26.5).
+    static let listGapAfterHeader: CGFloat = 0
     /// Scrolled this far, the cards reach the bar and its edge blur returns.
     static let edgeEffectAfter: CGFloat = 40
 }
