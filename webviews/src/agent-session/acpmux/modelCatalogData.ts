@@ -486,9 +486,7 @@ const nameKey = (name: string | undefined) =>
 function reportedNames(probes: readonly AcpmuxModel[], options: ConfigOptions | undefined): Map<string, string> {
   const names = new Map<string, string>();
   for (const probe of probes) if (probe.name) names.set(probe.id, probe.name);
-  const option = options?.find(
-    (candidate) => candidate.category === "model" || candidate.id === "model",
-  );
+  const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   for (const choice of option?.options ?? [])
     if (choice.name && !names.has(choice.value)) names.set(choice.value, choice.name);
   return names;
@@ -696,9 +694,7 @@ function hiddenReleaseIds(
   const source = join.sourceCatalog.harnesses.find((harness) => harness.id === sourceHarnessId);
   const hidden = new Set<string>();
   for (const model of source?.models ?? []) {
-    const hiddenById = [...(model.aliases ?? []), model.id].some((id) =>
-      isHiddenByUser(harnessId, id, join),
-    );
+    const hiddenById = [...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(harnessId, id, join));
     const hiddenByReportedAlias = [...reported].some(
       ([id, name]) => isHiddenByUser(harnessId, id, join) && namesRelease(name, model, join),
     );

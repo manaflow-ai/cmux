@@ -1,11 +1,8 @@
 // l10n-allow-file: test fixtures.
-// Fast mode per harness (Leo 2026-10-21: "the lightning (fast mode) symbol: REMOVE it for Claude, where
-// Fast mode lives inside the menu. KEEP it for Codex"). At the composer's boundary: the real composer
+// Fast mode per harness (Leo 2026-10-21: one model button owns the model-related choices). At the composer's boundary: the real composer
 // with the real chips, a stand-in mic, and a host that records what the pane sends.
-//   - Claude: the composer draws no bolt; the model button's menu ends on a Fast mode checkbox,
+//   - every harness: the composer draws no bolt; the model button's menu ends on a Fast mode checkbox,
 //     checked while any tier past off runs, and a click sends the option's on or off value;
-//   - Codex: the bolt sits in the box just left of the mic, and the menu has no Fast mode row (the
-//     bolt is its one control); a click steps through the offered tiers and back to off;
 //   - neither draws an effort control of its own (#20946 brought one back): only the model button
 //     names the effort;
 //   - the button never says Fast;
@@ -201,10 +198,6 @@ const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: 
 const claude = { harness: "claude", model: "claude-opus-5-5" };
 const codex = { harness: "codex", model: "gpt-6-astra" };
 const bolt = () => host.querySelector<HTMLButtonElement>(".acpmux-fast");
-async function clickBolt() {
-  await act(async () => bolt()!.click());
-  await settle();
-}
 
 test("Claude: the composer draws no bolt; the model button's menu ends on Fast mode, which toggles the speed option", async () => {
   sent.length = 0;
@@ -229,43 +222,39 @@ test("Claude: the composer draws no bolt; the model button's menu ends on Fast m
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("Codex: the bolt sits just left of the mic, and the model button's menu has no Fast mode row", async () => {
+test("Codex: the model button owns Fast mode instead of the action row", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, codex));
   const actions = host.querySelector<HTMLElement>(".acpmux-composer-actions")!;
-  expect(bolt()).not.toBeNull();
-  expect(actions.contains(bolt())).toBe(true);
-  // Left of the mic: the bolt comes before the mic in the box's trailing cluster.
-  const mic = actions.querySelector(".acpmux-mic")!;
-  expect(bolt()!.compareDocumentPosition(mic) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(bolt()!.getAttribute("aria-pressed")).toBe("false");
-  // A plain outline glyph: no filled bolt, no disc.
-  expect(bolt()!.querySelector("svg")!.getAttribute("fill")).toBe("none");
-  await clickBolt();
-  expect(sent).toEqual(["fast-mode=on"]);
+  expect(bolt()).toBeNull();
+  expect(actions.querySelector(".acpmux-mic")).not.toBeNull();
   await open();
-  expect(fastRow()).toBeNull();
-  expect(rows()).not.toContain("Fast mode");
+  expect(rows().at(-1)).toBe("Fast modeOff");
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
+  await toggleFast();
+  expect(sent).toEqual(["fast-mode=on"]);
 
   await render(snapshot({ options: twoState, current: "on" }, codex));
-  expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
-  expect(bolt()!.querySelector("svg")!.getAttribute("fill")).toBe("none");
+  expect(bolt()).toBeNull();
   expect(chip().textContent).not.toMatch(/fast/i);
-  await clickBolt();
+  await open();
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
+  await toggleFast();
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("Codex: with a tier past Fast, the bolt steps Fast, Ultrafast, then back to off", async () => {
+test("Codex: with a tier past Fast, the menu checks any tier and turns it off", async () => {
   sent.length = 0;
   await render(snapshot({ options: threeTier, current: "standard" }, codex));
-  await clickBolt();
-  await render(snapshot({ options: threeTier, current: "fast" }, codex));
-  expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
-  await clickBolt();
+  await open();
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
+  await toggleFast();
+  expect(sent).toEqual(["fast-mode=fast"]);
   await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
-  expect(bolt()!.dataset.tier).toBe("ultrafast");
-  await clickBolt();
-  expect(sent).toEqual(["fast-mode=fast", "fast-mode=ultrafast", "fast-mode=standard"]);
+  await open();
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
+  await toggleFast();
+  expect(sent).toEqual(["fast-mode=fast", "fast-mode=standard"]);
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {
