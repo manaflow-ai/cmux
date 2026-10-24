@@ -42,7 +42,26 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
             }
         }
     }
+    // Nor in `_acpmux/peer_status`, which asks each peer live: a peer's row
+    // says whether it answered, how fast and on which build, not its numbers.
+    // This machine's own row is `_acpmux/host_health`'s, which it may read.
+    if method == "_acpmux/peer_status"
+        && let Some(hosts) = reply.get_mut("hosts").and_then(Value::as_array_mut)
+    {
+        for row in hosts.iter_mut().filter(|r| r.get("self") != Some(&Value::Bool(true))) {
+            if let Some(row) = row.as_object_mut() {
+                for key in PEER_RESOURCES {
+                    row.remove(key);
+                }
+            }
+        }
+    }
 }
+
+/// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
+/// are its resources.
+const PEER_RESOURCES: [&str; 8] =
+    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs"];
 
 /// A harness catalog without values that shape its process. The app and Web
 /// clients need the picker metadata, not literal argv or environment values.
