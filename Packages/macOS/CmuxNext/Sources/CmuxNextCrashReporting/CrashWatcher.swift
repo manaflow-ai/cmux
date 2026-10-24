@@ -103,7 +103,15 @@ struct CrashWatcher: Sendable {
         for target: Int32 in 0...2 {
             posix_spawn_file_actions_addopen(&actions, target, "/dev/null", target == 0 ? O_RDONLY : O_WRONLY, 0)
         }
-        posix_spawn_file_actions_adddup2(&actions, readEnd, 3)
+        // dup2 onto a different descriptor clears close-on-exec on fd 3; when the pipe's read end
+        // is fd 3 itself, dup2(3, 3) would keep it, and the watcher would start with no fd 3.
+        let source = fcntl(readEnd, F_DUPFD_CLOEXEC, 10)
+        guard source >= 0 else {
+            close(writeEnd)
+            throw .pipe(errno)
+        }
+        defer { close(source) }
+        posix_spawn_file_actions_adddup2(&actions, source, 3)
 
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
