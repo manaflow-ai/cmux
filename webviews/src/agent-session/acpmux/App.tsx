@@ -3464,15 +3464,20 @@ export function VirtualTranscript({
     // A chat change ends any drag first (`gutterRelease`, below), so a hold is always this chat's.
     const gutter =
       node && thread.current
-        ? installGutterSelect(node, thread.current, reader, (held) =>
-            setHeldRows(
-              held
-                ? {
-                    session: heldSession.current,
-                    rows: held.map((row) => ({ ...row, fromEnd: rowsRef.current.length - row.index })),
-                  }
-                : undefined,
-            ),
+        ? installGutterSelect(
+            node,
+            thread.current,
+            reader,
+            (held) =>
+              setHeldRows(
+                held
+                  ? {
+                      session: heldSession.current,
+                      rows: held.map((row) => ({ ...row, fromEnd: rowsRef.current.length - row.index })),
+                    }
+                  : undefined,
+              ),
+            main,
           )
         : undefined;
     gutterRelease.current = gutter?.release;
