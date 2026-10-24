@@ -39,14 +39,25 @@ final class TabCell {
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
     var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
     /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
-    /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
-    /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
-    /// came while hidden runs when the strip shows again.
+    /// app-wide indicator resync (the app coming back to the front) reaches the cell only then (it
+    /// follows resyncs only while shown, TabCell+StatusIndicator), so an activation costs the tabs
+    /// on screen, not every busy tab of the session; a resync that came while hidden runs when the
+    /// strip shows again.
     var isStripShown = true {
-        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
+        didSet {
+            guard isStripShown != oldValue else { return }
+            if isStripShown, hasStatusIndicator, indicatorSyncedMoment != StatusIndicatorAppearance.shared.resyncMoment {
+                owesIndicatorResync = true
+            }
+            if isStripShown, owesIndicatorResync { statusIndicatorResync() }
+            updateIndicatorResyncMembership()
+        }
     }
-    /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
+    /// A resync is owed: one was asked for while the strip was hidden, or a resync moment passed
+    /// while the cell was off screen and not reached (TabCell+StatusIndicator).
     var owesIndicatorResync = false
+    /// The resync moment the cell last checked its indicator at (`StatusIndicatorAppearance.resyncMoment`).
+    var indicatorSyncedMoment: UInt64 = 0
     /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
     /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
     var fillsSelection: Bool { isSelected || isLifted }
@@ -158,6 +169,7 @@ final class TabCell {
 
     init(item: TabItem) {
         self.item = item
+        indicatorSyncedMoment = StatusIndicatorAppearance.shared.resyncMoment
         layer.actions = Self.noActions
         // Anchored at the leading edge: a strip move of the width never moves the tab's x, so a
         // dragged tab whose width still moves keeps its edge under the pointer.

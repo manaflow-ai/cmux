@@ -47,14 +47,29 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     private var occlusionObserver: (token: any NSObjectProtocol, center: NotificationCenter)?
     private weak var observedWindow: NSWindow?
+    /// The shared config and its resync moments (``StatusIndicatorAppearance/shared`` in the
+    /// app; a test passes its own).
+    private let appearance: StatusIndicatorAppearance
+    /// The resync moment this view last checked itself at (``StatusIndicatorAppearance/resyncMoment``):
+    /// a view off screen at a moment is not reached, and catches up when it shows.
+    private var syncedMoment: UInt64
 
-    public override init(frame: NSRect) {
+    public override convenience init(frame: NSRect) {
+        self.init(frame: frame, appearance: .shared)
+    }
+
+    /// - Parameters:
+    ///   - frame: The view's frame.
+    ///   - appearance: Where the config and the resync moments come from (`.shared` in the app).
+    public init(frame: NSRect, appearance: StatusIndicatorAppearance) {
+        self.appearance = appearance
+        syncedMoment = appearance.resyncMoment
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(indicator.layer)
         indicator.hostIsFlipped = isFlipped
         isHidden = true
-        StatusIndicatorAppearance.shared.register(self)
+        appearance.register(self)
     }
 
     @available(*, unavailable)
@@ -91,39 +106,61 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         superview?.needsLayout = true
     }
 
-    /// A resync arrived while the view was out of a window or hidden (its own flag or an
-    /// ancestor's: a parked workspace, a collapsed group); it runs when the view shows again.
-    private var owesResync = false
-
-    /// Checks the indicator again (the app came back, a window became main, the Mac woke). Only
-    /// an indicator on screen does the work now: an activation costs what shows, not every row
-    /// and tab of the session (user 2026-10-21, Cmd-Tab lag with many workspaces).
+    /// Checks the indicator again (the app came back, a window became main, the Mac woke). The
+    /// appearance calls only an indicator on screen (``followsResyncs``): an
+    /// activation costs what shows, not every row and tab of the session (user 2026-10-21,
+    /// Cmd-Tab lag with many workspaces). One off screen at the moment checks itself when it shows.
     public func statusIndicatorResync() {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else {
-            owesResync = true
-            return
-        }
-        owesResync = false
+        syncedMoment = appearance.resyncMoment
+        guard let window, !isHiddenOrHasHiddenAncestor else { return }
         StatusIndicatorAppearance.resyncs &+= 1
-        if let window { isWindowVisible = window.occlusionState.contains(.visible) }
+        isWindowVisible = window.occlusionState.contains(.visible)
         refresh()
     }
 
     public override func viewDidHide() {
         super.viewDidHide()
         observeOcclusion()
+        updateResyncMembership()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         guard !isHiddenOrHasHiddenAncestor else { return }
         if observeOcclusion(), let window { isWindowVisible = window.occlusionState.contains(.visible) }
-        if owesResync { statusIndicatorResync() }
+        // A moment passed while it was hidden (a parked workspace, a collapsed group): catch up once.
+        if syncedMoment != appearance.resyncMoment { statusIndicatorResync() }
+        updateResyncMembership()
     }
 
-    private func refresh() {
-        var config = StatusIndicatorAppearance.shared.config
+    /// A move inside the same window (a row going from a hidden container to a shown one) posts
+    /// no hide or unhide notice: the view checks whether it shows now, and catches up if so.
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if followsResyncs, syncedMoment != appearance.resyncMoment { statusIndicatorResync() }
+        updateResyncMembership()
+    }
+
+    /// The config this view draws with.
+    private var drawnConfig: StatusIndicatorConfig {
+        var config = appearance.config
         if ignoresScaleSetting { config.settings.scale = 1 }
+        return config
+    }
+
+    /// Whether the resync moments reach this view: on screen (in a window, no hidden flag of its
+    /// own or an ancestor's; an idle indicator hides itself).
+    private var followsResyncs: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
+    private func updateResyncMembership() {
+        appearance.setFollowsResyncs(self, followsResyncs)
+    }
+
+    /// Applies the plan for the state, config and window visibility. Lays out and redraws only
+    /// when the plan or config changed (`force`: the view moved to another window): a resync of
+    /// an indicator that already shows the right thing costs no layout and no redraw.
+    private func refresh(force: Bool = false) {
+        let config = drawnConfig
         // A host's hidden flag that went stale (its "visible" notice missed this row) cannot keep a
         // row on a visible window still: the window's own state wins when it says visible.
         let visible = isWindowVisible || window?.occlusionState.contains(.visible) == true
@@ -131,12 +168,15 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
                                             isStatic: config.isStatic, staticShapes: config.staticShapes,
                                             working: config.workingLook)
+        let changed = force || plan != indicator.plan || config != indicator.config
         let showed = showsGlyph
         nameState()
         indicator.apply(plan, config: config)
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.
         if showed != showsGlyph { superview?.needsLayout = true }
+        updateResyncMembership()
+        guard changed else { return }
         needsLayout = true
         needsDisplay = true
     }
@@ -154,16 +194,17 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func updateLayer() {
         performWithTheme {
-            indicator.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color)
+            indicator.colors = .current(loading: appearance.config.settings.color)
         }
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        owesResync = false
+        // Reads its new window's state now: nothing owed from before.
+        syncedMoment = appearance.resyncMoment
         observeOcclusion()
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
-        refresh()
+        refresh(force: true)
     }
 
     /// Watches the current window's occlusion while `tracksWindowOcclusion` is on and the view

@@ -25,15 +25,15 @@ import Testing
             parked = NSView(frame: content.bounds)
             parked.isHidden = true // a parked workspace's sidebar and strips
             content.addSubview(parked)
-            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: NotificationCenter())
+            let appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: NotificationCenter())
+            self.appearance = appearance
             let parked = parked
-            shown = (0..<shownCount).map { _ in Self.indicator(in: content) }
-            hidden = (0..<hiddenCount).map { _ in Self.indicator(in: parked) }
-            for view in shown + hidden { appearance.register(view) }
+            shown = (0..<shownCount).map { _ in Self.indicator(in: content, appearance: appearance) }
+            hidden = (0..<hiddenCount).map { _ in Self.indicator(in: parked, appearance: appearance) }
         }
 
-        static func indicator(in parent: NSView) -> StatusIndicatorView {
-            let view = StatusIndicatorView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        static func indicator(in parent: NSView, appearance: StatusIndicatorAppearance) -> StatusIndicatorView {
+            let view = StatusIndicatorView(frame: NSRect(x: 0, y: 0, width: 16, height: 16), appearance: appearance)
             parent.addSubview(view)
             view.configure(.working)
             return view

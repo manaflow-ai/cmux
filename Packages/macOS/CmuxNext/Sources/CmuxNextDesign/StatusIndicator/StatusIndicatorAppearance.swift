@@ -97,6 +97,7 @@ public protocol StatusIndicatorConfigClient: AnyObject {
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig)
     /// Checks the indicator against what it should show now (its window's visibility, a loop it
     /// lacks) when the app comes back: to the front, unhidden, a window made main, or after sleep.
+    /// Called only for clients that joined the resync set (``StatusIndicatorAppearance/setFollowsResyncs(_:_:)``).
     func statusIndicatorResync()
 }
 
@@ -119,6 +120,13 @@ public final class StatusIndicatorAppearance {
     /// moment's own cost, which must follow what shows, not every indicator the app made.
     public static var resyncVisits: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
+    /// The clients a resync moment reaches: the ones on screen. Each client keeps its own
+    /// membership as it shows, hides or changes state, so a moment costs what shows, not every
+    /// indicator the app made (every sidebar row of every workspace, idle ones included).
+    private let resyncClients = NSHashTable<AnyObject>.weakObjects()
+    /// Counts resync moments. A client off screen at a moment is not reached; when it shows again
+    /// it compares the moment it last synced at with this one and catches up once.
+    public private(set) var resyncMoment: UInt64 = 0
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
@@ -148,7 +156,8 @@ public final class StatusIndicatorAppearance {
     /// Indicators pause while their window is hidden and resume on its occlusion notice; a notice
     /// that never comes (a row out of the list when it was posted, a wake that posts none) used to
     /// leave every row's spinner still until its state changed (Leo 2026-10-20). Whenever the app
-    /// comes back, every indicator checks itself again.
+    /// comes back, every indicator on screen checks itself again; one off screen then
+    /// checks itself when it shows (``resyncMoment``).
     private func observeResyncMoments(app: NotificationCenter, workspace: NotificationCenter) {
         let moments: [(NotificationCenter, Notification.Name)] = [
             (app, NSApplication.didBecomeActiveNotification), (app, NSApplication.didUnhideNotification),
@@ -160,12 +169,20 @@ public final class StatusIndicatorAppearance {
         }
     }
 
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
-    public func resync() {
-        for case let client as any StatusIndicatorConfigClient in clients.allObjects {
+    /// Starts a resync moment: tells every client of the resync set to check its indicator again
+    /// (`statusIndicatorResync`). A client off screen catches up when it shows (``resyncMoment``).
+    public func resync() { // perf-hot: 0.5ms cmd-tab (didBecomeActive and didBecomeMain: the indicators on screen only)
+        resyncMoment &+= 1
+        for case let client as any StatusIndicatorConfigClient in resyncClients.allObjects {
             Self.resyncVisits &+= 1
             client.statusIndicatorResync()
         }
+    }
+
+    /// Adds `client` to the resync set (`follows`) or takes it out: a client follows resyncs while
+    /// it is on screen (a tab cell: while its strip shows and it has an indicator). Weakly held; idempotent.
+    public func setFollowsResyncs(_ client: any StatusIndicatorConfigClient, _ follows: Bool) {
+        if follows { resyncClients.add(client) } else { resyncClients.remove(client) }
     }
 
     /// Adds `client`; it is told about every later change (weakly held).

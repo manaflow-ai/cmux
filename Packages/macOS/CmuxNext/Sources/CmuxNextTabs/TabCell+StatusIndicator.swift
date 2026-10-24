@@ -26,6 +26,7 @@ extension TabCell: StatusIndicatorConfigClient {
         // Registered while busy even when the style draws nothing (`none`),
         // so switching the style back shows the indicator.
         if item.isBusy { StatusIndicatorAppearance.shared.register(self) }
+        updateIndicatorResyncMembership()
         let plan = spinnerPlan
         if plan.glyph != .none {
             let spinner = makeSpinner()
@@ -148,8 +149,18 @@ extension TabCell: StatusIndicatorConfigClient {
             return
         }
         owesIndicatorResync = false
+        indicatorSyncedMoment = StatusIndicatorAppearance.shared.resyncMoment
         StatusIndicatorAppearance.resyncs &+= 1
         statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
+    }
+
+    /// The cell draws a busy indicator or a status badge: what a resync checks.
+    var hasStatusIndicator: Bool { item.isBusy || item.status != .none }
+
+    /// The resync moments reach the cell only while its strip shows and it has an indicator: a
+    /// parked workspace's busy tabs are not walked on every activation.
+    func updateIndicatorResyncMembership() {
+        StatusIndicatorAppearance.shared.setFollowsResyncs(self, isStripShown && hasStatusIndicator)
     }
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
