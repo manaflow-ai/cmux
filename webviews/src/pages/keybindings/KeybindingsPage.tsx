@@ -9,6 +9,7 @@ import {
   displayStrokes,
   identity,
   isReadOnly,
+  keyMatches,
   moveSelection,
   sameKeys,
   sourceLabel,
@@ -329,8 +330,13 @@ function Recorder({
     ...strokesShown.map((stroke) => ({ caps: strokeCaps(stroke), held: false })),
     ...(held.length ? [{ caps: held, held: true }] : []),
   ];
-  // The keys it shows: the ones going down, else the row's own (the saved keys after a save).
-  const others = sameKeys(bindings, binding, live ? recording.key : binding.key);
+  // Conflicts show only for keys this recorder saved, while it shows them: not on open (the keys
+  // the row had), and not while new keys go down; the next save shows its own.
+  const showsSaved =
+    recording.confirmed > 0 &&
+    !recording.held &&
+    (!recording.key || keyMatches(recording.key, { key: binding.key, exact: true }));
+  const others = showsSaved ? sameKeys(bindings, binding, binding.key) : [];
   return (
     <Popover
       open

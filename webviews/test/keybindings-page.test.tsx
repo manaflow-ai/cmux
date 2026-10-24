@@ -177,29 +177,24 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   });
   expect(caps()).toEqual(["⇧", "⌘"]);
 
-  // Keys another action has: the recorder names it before anything is saved.
+  // Keys another action has: no warning while they go down; the save names it.
   await act(async () => {
     provider.press("cmd+shift+p");
     await Promise.resolve();
   });
   expect(caps()).toEqual(["⇧", "⌘", "P"]);
   expect(recorderKeys()?.querySelector(".keys-recorder-stroke.held")).toBeNull();
-  expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Command Palette");
+  const conflict = () => recorder()?.querySelector(".keys-recorder-conflict")?.textContent;
+  expect(conflict()).toBeUndefined();
+  await act(async () => {
+    provider.release();
+    await Promise.resolve();
+  });
+  await act(async () => store.reload());
+  expect(conflict()).toContain("Open Command Palette");
   // The row shows the keys as they go down too, not only the recorder.
   expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘P");
 
-  // A click on the keys starts over; Close (as Return) saves the keys recorded.
-  await click(recorderKeys());
-  expect(provider.recording).toBe(true);
-  expect(recorderKeys()?.textContent).toBe("⌘P");
-  await act(async () => {
-    provider.press("cmd+shift+p");
-    await Promise.resolve();
-  });
-  await click(close());
-  await act(async () => store.reload());
-  expect(provider.recording).toBe(false);
-  expect(recorder()).toBeNull();
   expect(lastSet()).toEqual({
     command: "palette.files",
     key: "cmd+shift+p",
@@ -208,10 +203,35 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     idempotency_key: "key",
   });
 
+  // A click on the keys starts over (the saved keys show, the warning goes); Close (as Return)
+  // saves the keys recorded.
+  await click(recorderKeys());
+  expect(provider.recording).toBe(true);
+  expect(recorderKeys()?.textContent).toBe("⇧⌘P");
+  await act(async () => {
+    provider.press("cmd+y");
+    await Promise.resolve();
+  });
+  expect(conflict()).toBeUndefined();
+  await click(close());
+  await act(async () => store.reload());
+  expect(provider.recording).toBe(false);
+  expect(recorder()).toBeNull();
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+y", replaces: { key: "cmd+shift+p" } });
+
+  // Opened again on keys another action has: no warning until a save in this recorder.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  expect(row("Go to File")?.querySelector(".keys-conflict")).toBeTruthy();
+  expect(conflict()).toBeUndefined();
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+
   // Return in the app's recorder saves too.
   await click(row("Go to File")?.querySelector(".keys-key-button"));
   await record("cmd+j");
-  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+shift+p" } });
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+y" } });
 
   // Every key up saves at once, the recorder stays open and its light confirms; the next key
   // starts a new shortcut that replaces it; a chord is typed with a modifier held between its
