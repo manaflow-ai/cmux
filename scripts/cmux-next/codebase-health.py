@@ -3,10 +3,10 @@
 
 Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: singletons, MainActor.assumeIsolated,
 @unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops, NotificationCenter
-broadcast names and their observers (a `MainActorObservation(` wrapper site is an observer too),
-NSHostingView, #if DEBUG, plus target sizes, the Package.swift
-target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl with
-stale references, and script and workflow counts. Reads the working tree's tracked files only.
+broadcast names and their observers (arch_counts.py's observer sites, the arch ratchet's own counter: a
+`MainActorObservation(` wrapper site is an observer too, and a call may span lines), NSHostingView, #if DEBUG,
+plus target sizes, the Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor
+architecture"), docs sprawl with stale references, and script and workflow counts. Reads the working tree's tracked files only.
 
   scripts/cmux-next/codebase-health.py           # print the report
   scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md
@@ -55,9 +55,9 @@ CATEGORIES = (
     ("clock_sleep", "clock sleeps `.sleep(for:/until:)`", r"\.sleep\((for|until):", r"wakeup-allow:", "as above"),
     ("main_async", "`DispatchQueue.main.async`", r"\bDispatchQueue\.main\.async\b", None, "use @MainActor and await"),
     ("async_after", "`asyncAfter`", r"\basyncAfter\(", None, "banned (check-concurrency.sh); an injected Clock"),
-    ("observers", "NotificationCenter observers (`MainActorObservation(` wrapper sites included)",
-     r"\.addObserver\(|\.notifications\(named:|\.publisher\(for:|\bMainActorObservation\(", None,
-     "each one wakes on every post of its name; the wrapper is still an observer"),
+    # No pattern here: the sites are arch_counts.py's `observer_calls` (its observer_sites row), never a second copy.
+    ("observers", "NotificationCenter observers (call sites, `MainActorObservation(` wrapper included)", None, None,
+     "each one wakes on every post of its name; the wrapper is still an observer (arch-ratchet.json `observer_sites`)"),
     ("notification_names", "custom `Notification.Name` declarations", r"\b(NS)?Notification\.Name\(\s*\"", None,
      "a broadcast signal: every observer reacts, O(all)"),
     ("hosting_view", "`NSHostingView` / `NSHostingController`", r"\bNSHosting(View|Controller)\b", None,
@@ -131,7 +131,10 @@ def scan(repo: Path) -> dict:
     unwaived: dict[str, collections.Counter] = {c[0]: collections.Counter() for c in CATEGORIES}
     lines_per_module: collections.Counter = collections.Counter()
     texts: dict[str, list[str]] = {}
-    compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES]
+    compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES if c[2]]
+    counter = load_arch_counts()
+    sites: dict[str, list[ObserverSite]] = {}
+    blanked: dict[str, str] = {}
     for path in files:
         try:
             text = (repo / path).read_text(encoding="utf-8", errors="replace")
@@ -139,6 +142,10 @@ def scan(repo: Path) -> dict:
             continue
         lines = text.split("\n")
         texts[path] = lines
+        blanked[path] = counter.strip(text)
+        sites[path] = observer_sites(counter, blanked[path])
+        if sites[path]:
+            hits["observers"][path] = len(sites[path])
         lines_per_module[module_of(path)] += text.count("\n") + (0 if text.endswith("\n") or not text else 1)
         for index, line in enumerate(lines):
             code = strip_comment(line)
@@ -149,77 +156,107 @@ def scan(repo: Path) -> dict:
                     hits[cid][path] += 1
                     if marker is not None and not waived(lines, index, marker):
                         unwaived[cid][path] += 1
-    return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts}
+    return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts,
+            "sites": sites, "blanked": blanked}
 
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
-OBSERVE = re.compile(r"addObserver|notifications\(named|publisher\(for|\bMainActorObservation\(")
-OBSERVED_NAME = re.compile(r"(?:forName|named|for):\s*([\w.]+)")
-# CmuxNextCompat's main-actor NotificationCenter observer: the name is its first, unlabeled argument, and it
-# observes every sender unless the call passes `object:`.
-WRAPPED = re.compile(r"\bMainActorObservation\(\s*([\w.]+)")
+OBSERVED_NAME = re.compile(r"\b(?:forName|named|name|for):\s*([\w.]+)")
+# CmuxNextCompat's main-actor NotificationCenter observer: the name is its first, unlabeled argument.
+WRAPPED = re.compile(r"\s*([\w.]+)")
 
 
-def observed_name(lines: list[str]) -> str:
-    """The notification name the registration on LINES[0] observes (its arguments may continue on the next
-    lines); "?" when unreadable."""
-    pattern = WRAPPED if "MainActorObservation(" in lines[0] else OBSERVED_NAME
-    m = pattern.search(" ".join(lines))
-    return m.group(1).split(".")[-1] if m else "?"
+def load_arch_counts():
+    """arch_counts.py next to this file: the arch ratchet's counter. Sections 1 and 2 take their observer sites from
+    it (`observer_calls` over its comment- and string-blanked text), so this report, arch-ratchet.json's
+    observer_sites and `arch-layers.py --counts` count one set."""
+    spec = importlib.util.spec_from_file_location("cmux_next_arch_counts_for_health",
+                                                  Path(__file__).resolve().parent / "arch_counts.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses resolve their module by name
+    spec.loader.exec_module(module)
+    return module
 
 
-def observes_every_sender(code: list[str], index: int) -> bool:
-    """Whether the registration that names a notification on CODE[INDEX] observes every sender: `object: nil`
-    near it, or a wrapper call (on that line or up to two above) without `object:` before its handler."""
-    if re.search(r"object:\s*nil", " ".join(code[max(0, index - 2):index + 3])):
-        return True
-    start = next((i for i in range(index, max(-1, index - 3), -1) if "MainActorObservation(" in code[i]), None)
-    if start is None:
-        return False
-    call = " ".join(code[start:index + 3])
-    call = call[call.index("MainActorObservation("):].split("{", 1)[0]
-    return "object:" not in call
+class ObserverSite(NamedTuple):
+    """One observer call: its first and last 0-based line, the notification name it observes ("?" when the
+    arguments do not name one), whether that name is a variable (a bare identifier such as a loop's `name`, not
+    `.paneMoved` or `Type.member`) and whether it observes every sender (no `object:` argument, or `object: nil`)."""
+    first: int
+    last: int
+    name: str
+    variable: bool
+    every_sender: bool
 
 
-def notification_report(texts: dict[str, list[str]]) -> tuple[list, list]:
-    """Custom names: (name, observer sites, `object: nil` sites, post sites, per-instance observer files);
-    every observed name: (name, sites, per-instance observer files)."""
+def observer_sites(counter, code: str) -> list[ObserverSite]:
+    """The observer sites arch_counts counts in CODE (`counter.strip`'s text: comments and string contents
+    blanked, same length, so a call's parentheses balance and offsets keep their lines)."""
+    found = []
+    for match in counter.observer_calls(code):
+        open_paren = code.index("(", match.start())
+        depth, close = 0, len(code)
+        for i in range(open_paren, len(code)):
+            depth += {"(": 1, ")": -1}.get(code[i], 0)
+            if depth == 0:
+                close = i
+                break
+        arguments = code[open_paren + 1:close]
+        named = (WRAPPED.match(arguments) if match.group(0).startswith("MainActorObservation")
+                 else OBSERVED_NAME.search(arguments))
+        # NotificationCenter's `object:` defaults to nil (every sender) in every form that may omit it.
+        every = "object:" not in arguments or re.search(r"\bobject:\s*nil\b", arguments) is not None
+        raw = named.group(1) if named else "?"
+        found.append(ObserverSite(code.count("\n", 0, match.start()), code.count("\n", 0, close),
+                                  raw.split(".")[-1], raw != "?" and "." not in raw, every))
+    return found
+
+
+def attributed_names(site: ObserverSite, code: list[str], names: set[str], any_name) -> list[str]:
+    """The names SITE observes: its own name; for a call that passes a variable (`for name in [.a, .b] {
+    addObserver(forName: name, ...) }`), the custom names on the two lines above it, where such a binding sits."""
+    if not site.variable or any_name is None:
+        return [site.name]
+    above = " ".join(code[max(0, site.first - 2):site.first + 1])
+    bound = list(dict.fromkeys(m.group(1) for m in any_name.finditer(above)))
+    return bound or [site.name]
+
+
+def notification_report(code_of: dict[str, str], sites_of: dict[str, list[ObserverSite]]) -> tuple[list, list]:
+    """Custom names: (name, observer sites, every-sender sites, post sites, per-instance observer files);
+    every observed name: (name, sites, per-instance observer files). CODE_OF is each file's blanked text and
+    SITES_OF its observer sites (section 1's count)."""
     decl = re.compile(r"static\s+(?:let|var)\s+(\w+)\s*(?::\s*(?:NS)?Notification\.Name)?\s*=\s*(?:NS)?Notification\.Name\(")
-    names = set()
-    code_of: dict[str, list[str]] = {}
-    is_view: dict[str, bool] = {}
-    for path, lines in texts.items():
-        code = [strip_comment(l) for l in lines]
-        code_of[path] = code
-        is_view[path] = any(VIEW_CLASS.search(l) for l in code)
-        for line in code:
-            m = decl.search(line)
-            if m:
-                names.add(m.group(1))
-    any_name = re.compile(r"\.(" + "|".join(re.escape(n) for n in sorted(names)) + r")\b") if names else None
+    lines_of = {path: text.split("\n") for path, text in code_of.items()}
+    names = {m.group(1) for lines in lines_of.values() for line in lines for m in [decl.search(line)] if m}
+    is_view = {path: any(VIEW_CLASS.search(l) for l in lines) for path, lines in lines_of.items()}
     stats = {n: [0, 0, 0, []] for n in names}
     observed: dict[str, list] = {}
-    for path, code in code_of.items():
-        for index, line in enumerate(code):
-            window = " ".join(code[max(0, index - 2):index + 3])
-            if OBSERVE.search(line):
-                key = observed_name(code[index:index + 3])
-                entry = observed.setdefault(key, [0, []])
+    any_name = re.compile(r"\.(" + "|".join(re.escape(n) for n in sorted(names)) + r")\b") if names else None
+    for path, sites in sites_of.items():
+        for site in sites:
+            for name in attributed_names(site, lines_of[path], names, any_name):
+                entry = observed.setdefault(name, [0, []])
                 entry[0] += 1
                 if is_view[path] and path not in entry[1]:
                     entry[1].append(path)
-            if any_name is None:
-                continue
-            for m in any_name.finditer(line):
-                row = stats[m.group(1)]
-                if OBSERVE.search(window) and "post(" not in line:
+                if name in stats:
+                    row = stats[name]
                     row[0] += 1
-                    if observes_every_sender(code, index):
-                        row[1] += 1
+                    row[1] += site.every_sender
                     if is_view[path] and path not in row[3]:
                         row[3].append(path)
-                elif "post(" in window:
-                    row[2] += 1
+    for path, code in lines_of.items():
+        if any_name is None:
+            break
+        inside = {i for site in sites_of.get(path, ()) for i in range(site.first, site.last + 1)}
+        for index, line in enumerate(code):
+            if index in inside:  # the name an observer call passes: counted above
+                continue
+            window = " ".join(code[max(0, index - 2):index + 3])
+            for m in any_name.finditer(line):
+                if "post(" in window:
+                    stats[m.group(1)][2] += 1
     rows = [(n, *v) for n, v in stats.items()]
     rows.sort(key=lambda r: (-len(r[4]), -r[1], r[0]))
     top = sorted(((n, c, f) for n, (c, f) in observed.items()), key=lambda r: (-len(r[2]), -r[1], r[0]))
@@ -409,11 +446,14 @@ def git_env(repo: Path, env: dict[str, str], *args: str, stdin: str | None = Non
 
 
 def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> list[tuple[str, int, str]]:
-    """(path, declaration line, path id) per perf-hot warning `guardrails.check` gives a push over HEAD that edits
-    every line of each file in TEXTS (path: its working-tree text).
+    """(path, declaration line, path id) per perf-hot warning `guardrails.check` gives a push that edits every line
+    of each file in TEXTS (path: its working-tree text).
 
-    The hook itself decides, with its own diff scope and declaration parser. The edited tree goes to a throwaway
-    object directory that borrows the repository's objects, so the report writes nothing into the repository.
+    Both sides of that push are the working tree: the base tree is HEAD with TEXTS as they are, the edited tree
+    the same with a trailing space on every line. The only change the hook sees is that space, so an uncommitted
+    edit (a marker removed or retagged) is part of both sides, never a change the hook reports. The hook itself
+    decides, with its own diff scope and declaration parser. Both trees go to a throwaway object directory that
+    borrows the repository's objects, so the report writes nothing into the repository.
     """
     objects = git(repo, "rev-parse", "--path-format=absolute", "--git-path", "objects").strip()
     paths = sorted(texts)
@@ -427,20 +467,26 @@ def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> li
             if entry:
                 meta, _, path = entry.partition("\t")
                 modes[path] = meta.split()[0]
-        edited = []
-        for number, path in enumerate(paths):
-            copy = os.path.join(tmp, f"{number}.swift")
-            # A trailing space on every line: the same code, every line touched.
-            Path(copy).write_text("\n".join(line + " " for line in texts[path].split("\n")), encoding="utf-8")
-            edited.append(copy)
-        oids = git_env(repo, env, "hash-object", "-w", "--no-filters", "--stdin-paths", stdin="\n".join(edited) + "\n").split()
-        git_env(repo, indexed, "update-index", "--add", "--index-info",
-                stdin="".join(f"{modes.get(path, '100644')} {oid}\t{path}\n" for path, oid in zip(paths, oids)))
-        tree = git_env(repo, indexed, "write-tree").strip()
+
+        def tree_of(suffix: str) -> str:
+            """The tree of HEAD with every path in TEXTS replaced by its text, SUFFIX appended to every line."""
+            copies = []
+            for number, path in enumerate(paths):
+                copy = os.path.join(tmp, f"{number}{suffix and '-edited'}.swift")
+                Path(copy).write_text("\n".join(line + suffix for line in texts[path].split("\n")), encoding="utf-8")
+                copies.append(copy)
+            oids = git_env(repo, env, "hash-object", "-w", "--no-filters", "--stdin-paths",
+                           stdin="\n".join(copies) + "\n").split()
+            git_env(repo, indexed, "update-index", "--add", "--index-info",
+                    stdin="".join(f"{modes.get(path, '100644')} {oid}\t{path}\n" for path, oid in zip(paths, oids)))
+            return git_env(repo, indexed, "write-tree").strip()
+
+        base = tree_of("")
+        tree = tree_of(" ")  # a trailing space on every line: the same code, every line touched
         saved = {key: os.environ.get(key) for key in env}
-        os.environ.update(env)  # guardrails' git processes read the edited tree from the throwaway objects
+        os.environ.update(env)  # guardrails' git processes read both trees from the throwaway objects
         try:
-            _, warnings = guardrails.check(repo, "HEAD", tree)
+            _, warnings = guardrails.check(repo, base, tree)
         finally:
             for key, value in saved.items():
                 if value is None:
@@ -529,7 +575,7 @@ def report(repo: Path) -> str:
     app_deps = len([d for d in graph.get(APP, {}).get("deps", []) if d in graph])
     leaves = [n for n, i in non_test.items() if not [d for d in i["deps"] if d in graph]]
     max_depth = max((depth(non_test, n, memo) for n in non_test), default=0)
-    notes, observed = notification_report(data["texts"])
+    notes, observed = notification_report(data["blanked"], data["sites"])
     d = docs(repo)
     scripts_top = [p for p in tracked(repo, "scripts/cmux-next/") if "/" not in p[len("scripts/cmux-next/"):]]
     scripts_all = tracked(repo, "scripts/cmux-next/")
@@ -572,7 +618,7 @@ def report(repo: Path) -> str:
     w(f"{sum(data['hits']['observers'].values())} observer registrations; {len(notes)} custom names. A name observed by a")
     w("per-instance view or window class wakes every instance on every post: O(all), not O(changed).")
     w("")
-    w("| Name | Observer sites | `object: nil` | Post sites | Per-instance observer files |")
+    w("| Name | Observer sites | Every sender (no `object:`, or `object: nil`) | Post sites | Per-instance observer files |")
     w("|---|---:|---:|---:|---|")
     for name, obs, broad, posts, per in notes:
         files = ", ".join(f"`{Path(p).name}`" for p in per) or "-"

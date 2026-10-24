@@ -563,6 +563,15 @@ def _own_state(code: str, braces: Braces, open_pos: int, kind: str, owner: str) 
     return own, (() if own else tuple(dict.fromkeys(held)))
 
 
+def observer_calls(code: str) -> list[re.Match[str]]:
+    """The observer_sites row's matches in CODE (text as `strip` returns it): NotificationCenter and KVO
+    registrations and `MainActorObservation(` wrapper calls. A `func addObserver(` declaration is not one.
+
+    This is the one observer counter: codebase-health.py and arch-layers.py `--counts` read these matches too.
+    """
+    return [m for m in OBSERVER.finditer(code) if not re.search(r"\bfunc\s+$", code[max(0, m.start() - 40):m.start()])]
+
+
 def analyze(path: str, raw: str) -> FileFacts:
     """The per-file facts of PATH with content RAW."""
     code = strip(raw)
@@ -623,9 +632,7 @@ def analyze(path: str, raw: str) -> FileFacts:
         if not adapter:
             site("assume_isolated_outside_adapters", m.start())
 
-    for m in OBSERVER.finditer(code):
-        if re.search(r"\bfunc\s+$", code[max(0, m.start() - 40):m.start()]):
-            continue
+    for m in observer_calls(code):
         site("observer_sites", m.start())
 
     parens: set[int] = set()

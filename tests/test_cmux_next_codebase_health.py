@@ -95,6 +95,26 @@ final class MoveWatcher {
 """
 
 
+# SidebarListView's shape: one registration in a loop binds two custom names.
+LOOP = """import AppKit
+extension Notification.Name {
+    static let refused = Notification.Name("refused")
+    static let settled = Notification.Name("settled")
+}
+final class Settler {
+    var tokens: [NSObjectProtocol] = []
+    func watch() {
+        for name in [Notification.Name.refused, .settled] {
+            tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in })
+        }
+        let first = Notification.Name.refused
+        tokens.append(NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification,
+                                                             object: nil, queue: .main) { _ in _ = first })
+    }
+}
+"""
+
+
 def two_markers(first: str, second: str) -> str:
     """Two marked functions in one file; an empty id leaves that function unmarked."""
     def mark(path_id: str) -> str:
@@ -211,6 +231,21 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
         self.assertIn("| `paneMoved` | 2 | 2 | 0 |", report)
         observed = report.split("<details><summary>Observed names</summary>", 1)[1].split("</details>", 1)[0]
         self.assertRegex(observed, r"2 sites\s+0 per-instance\s+paneMoved")
+
+    def test_a_loop_over_names_is_one_observer_of_each_name_it_binds(self):
+        # SidebarListView's shape: one registration in a loop over two custom names is one observer site
+        # (section 1) that observes both names (section 2), not a name called `name`. A system name passed
+        # as `Type.member` keeps its own name even with a custom name on the line above.
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextKit/Settler.swift", LOOP)
+        self.commit("a loop over two names")
+        report = health.report(self.repo)
+        row = next(line for line in report.splitlines() if line.startswith("| NotificationCenter observers"))
+        self.assertEqual([c.strip() for c in row.strip("|").split("|")][1], "4", row)
+        self.assertIn("| `refused` | 1 | 1 | 0 |", report)
+        self.assertIn("| `settled` | 1 | 1 | 0 |", report)
+        observed = report.split("<details><summary>Observed names</summary>", 1)[1].split("</details>", 1)[0]
+        self.assertNotRegex(observed, r"\bname\b")
+        self.assertRegex(observed, r"1 sites\s+0 per-instance\s+didResignKeyNotification")
 
     def test_the_header_cites_the_feat_cmux_next_merge_base_not_a_local_commit(self):
         self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
