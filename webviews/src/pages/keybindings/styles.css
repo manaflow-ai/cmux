@@ -488,6 +488,42 @@
    glass, centered: "Press ⌫ to delete", the keys as large caps (a click starts over), "or click
    keys to edit further", a same-keys warning, then Close with its keys. Fills are tints over the
    glass, never opaque. */
+/* Liquid glass, more of it than a menu (Lucas 2026-10-24: "a blur in the background"): a clearer
+   tint over a stronger blur and colour lift, so the rows under it show soft through it; the
+   lens's top-lit specular rim and a faint sheen from above; a rounder corner. Tokens only, so
+   Reduce Transparency (glass.css, !important) still makes it the opaque surface. */
+:root .ui-popup.ui-glass.keys-recorder {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) 38%, transparent);
+  --glass-backdrop: blur(28px) saturate(1.9);
+  --glass-rim-shadow:
+    inset 0 1px 0 0 var(--glass-specular), inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  border-radius: 12px;
+}
+
+.ui-popup.keys-recorder::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--cmux-tone-light, #fff) 9%, transparent) 0%,
+    transparent 40%
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .ui-popup.keys-recorder::before {
+    display: none;
+  }
+}
+
+:root[data-reduce-transparency] .ui-popup.keys-recorder::before {
+  display: none;
+}
+
 .ui-popup.keys-recorder {
   display: flex;
   flex-direction: column;
@@ -560,10 +596,12 @@
   font: inherit;
   font-size: var(--text-title);
   color: inherit;
-  background: var(--ui-hover);
+  /* Glass keys: a light tint, lit from above, a shade under. */
+  background: color-mix(in srgb, var(--ui-fg) 9%, transparent);
   box-shadow:
-    inset 0 0 0 0.5px var(--ui-line),
-    inset 0 -1px 0 var(--ui-line);
+    inset 0 0.5px 0 color-mix(in srgb, var(--cmux-tone-light, #fff) 22%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, black 18%, transparent),
+    inset 0 0 0 0.5px var(--ui-line);
 }
 
 /* The saved keys' conflicts, one line of text in the primary ink: "ⓘ Conflicts with: A, B". */
@@ -673,23 +711,42 @@
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
+  transform-origin: 50% 0;
   background: radial-gradient(
-    120% 100% at 50% 0%,
-    color-mix(in srgb, var(--cmux-app-success, #34c759) 55%, transparent) 0%,
-    transparent 70%
+    60% 100% at 50% 0%,
+    color-mix(in srgb, var(--cmux-app-success, #34c759) 42%, transparent) 0%,
+    transparent 72%
   );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cmux-app-success, #34c759) 80%, transparent);
 }
 
+/* The light itself: a bright line on the rim, strongest at the middle. */
+.keys-recorder-light::before {
+  content: "";
+  position: absolute;
+  inset: 0 10% auto;
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--cmux-app-success, #34c759) 70%, var(--cmux-tone-light, #fff)) 50%,
+      transparent
+    )
+    1;
+}
+
+/* It spreads out from the middle of the rim as it brightens, then fades. */
 @keyframes keys-recorder-light {
   0% {
     opacity: 0;
+    transform: scaleX(0.4);
   }
   35% {
     opacity: 1;
+    transform: scaleX(1);
   }
   100% {
     opacity: 0;
+    transform: scaleX(1);
   }
 }
 
