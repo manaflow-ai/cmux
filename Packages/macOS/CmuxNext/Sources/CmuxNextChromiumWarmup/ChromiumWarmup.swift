@@ -74,6 +74,9 @@ public final class ChromiumWarmup {
     /// Whether a Chromium page is being created: it builds its own window,
     /// and a spare built meanwhile would race it (os-smoke 2026-10-18).
     private var pagesPending: @MainActor () -> Bool = { false }
+    /// The spare's idle moment came while a page was being made: it is made once the pages
+    /// settle (`pagesSettled`), not at a later idle check.
+    private var spareWaitsForPages = false
     private var stopped = false
 
     public init(
@@ -155,11 +158,22 @@ public final class ChromiumWarmup {
         guard !stopped, engine.isRunning else { return }
         waitForIdle { [weak self] in
             guard let self else { return }
-            // A page being made builds its own window: the spare waits for the next idle moment
-            // instead of never coming (it raced that window, os-smoke 2026-10-18).
-            if pagesPending() { return warmStarted() }
+            // A page being made builds its own window: the spare waits until the pages settle
+            // (`pagesSettled`) instead of racing that window (os-smoke 2026-10-18).
+            if pagesPending() {
+                spareWaitsForPages = true
+                return
+            }
             engine.prepareSpareWindow()
         }
+    }
+
+    /// No Chromium page is being made any more (the cache's pending set emptied): a spare that
+    /// waited for that is made at the next idle moment.
+    public func pagesSettled() {
+        guard spareWaitsForPages else { return }
+        spareWaitsForPages = false
+        warmStarted()
     }
 
     /// Runs `action` at the next idle moment (no input for `idleInput`, no

@@ -31,7 +31,8 @@ import Testing
     /// cef-tab-bench), so the key's frame shows the tab selected on its themed pane, and the
     /// page follows in the next pass, with no asynchronous task in between.
     @Test func aStandInOnAnyAddressHasItsChromeRightAfterTheKeysFrame() throws {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        var afterFrame: [@MainActor () -> Void] = []
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil), afterFrame: { afterFrame.append($0) })
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
@@ -39,14 +40,16 @@ import Testing
         let tab = TabModel(TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id), kind: .browser,
                                        url: "https://example.com/", browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(tab.id) }
-        var afterFrame: [@MainActor () -> Void] = []
-        cache.afterFrame = { afterFrame.append($0); return nil }
         var ready: [String] = []
         cache.onBrowserReady = { ready.append($0) }
+        var settled = 0
+        cache.onPagesSettled = { settled += 1 }
         #expect(cache.browser(for: tab) == nil, "the key's turn makes no page or chrome")
         #expect(afterFrame.count == 1)
+        #expect(settled == 0, "a page is pending: the warmup's spare window waits")
         afterFrame.forEach { $0() }
         #expect(ready == [tab.id], "the pane asks again once the key's frame committed")
+        #expect(settled == 1, "no page pending any more: the warmup may make its spare window")
         let entry = try #require(cache.browser(for: tab), "the stand-in's page exists in that pass")
         #expect(entry.tab.state.url?.absoluteString == "https://example.com/")
     }
@@ -55,7 +58,8 @@ import Testing
     /// under the daemon tab's id, never closed or rebuilt (a rebuild cost a second chrome, about
     /// 65 ms, and a page view remount on the fleet).
     @Test func aStandInsPageAndChromeMoveToTheDaemonsTab() throws {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        // The key's frame committed: the work runs at once.
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil), afterFrame: { $0() })
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
@@ -65,7 +69,6 @@ import Testing
         let daemonTab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 43), tabResourceID: ResourceID(rawValue: "tab_43"), kind: .browser,
                                              url: BrowserNewTabPage.chromiumURL, browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(daemonTab.id) }
-        cache.afterFrame = { $0(); return nil } // the key's frame committed
         _ = cache.browser(for: standIn)
         let entry = try #require(cache.browser(for: standIn))
         let page = try #require(entry.tab as? MockBrowserTab)

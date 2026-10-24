@@ -14,6 +14,7 @@ extension AppServices {
         let machines = machines
         let preference = cache.browserTabs.preference
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium }, pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false })
+        cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
             // default engine the launch warm start covers every tab (ChromiumWarmup.start), so the
