@@ -3,12 +3,14 @@ public import Foundation
 /// This process's own unified-log errors and faults (`Logger.error`, `Logger.fault`). Reads
 /// `OSLogStore` scoped to the current process, after the last harvested entry of this launch; the
 /// store returns only errors and faults (``errorsAndFaults``), so other entries are never decoded
-/// in this process. Page console errors are left out: ``ConsoleErrorCapture`` records them in the
-/// journal when they happen, and logs them for Console.app only.
+/// in this process. The subsystems whose errors are recorded when they happen are left out
+/// (``ErrorReporter/recordedSubsystems``: cmux's reported errors and the page consoles), since
+/// the reporter logs them for Console.app only.
 ///
-/// The log store of a process that ended cannot be read (only the current process's is), so the
-/// app harvests this source at quit and on `errors.list`; a crash keeps what it recorded directly
-/// and its crash report (``CrashReportErrorSource``, read at the next launch).
+/// The log store of a process that ended cannot be read (only the current process's is), so what
+/// this source finds is best effort: frameworks logging in-process (WebKit, AppKit), and cmux
+/// sites that still log through `Logger` instead of an ``ErrorReporter``. The app harvests it at
+/// launch, at quit (under the quit's deadline) and on `errors.list`.
 ///
 /// Sources: `page:<page>` for the page console subsystem (the capture's events), `app` for
 /// `com.cmuxterm` subsystems, `system:<subsystem>` for frameworks logging in-process (WebKit, AppKit).
@@ -50,7 +52,7 @@ public struct OSLogErrorSource: ErrorHarvestSource {
         var events: [ErrorEvent] = []
         var newest = start
         for entry in entries where entry.date > start {
-            guard entry.level == .error || entry.level == .fault, entry.subsystem != ConsoleErrorCapture.subsystem else { continue }
+            guard entry.level == .error || entry.level == .fault, !ErrorReporter.recordedSubsystems.contains(entry.subsystem) else { continue }
             newest = max(newest, entry.date)
             events.append(Self.event(subsystem: entry.subsystem, category: entry.category,
                                      isFault: entry.level == .fault, message: entry.message, date: entry.date))
@@ -61,10 +63,10 @@ public struct OSLogErrorSource: ErrorHarvestSource {
     }
 
     /// The log store predicate for errors and faults (`messageType`, as `log show --predicate` takes
-    /// it), without the page console subsystem the capture already recorded.
+    /// it), without the subsystems a reporter already recorded.
     static var errorsAndFaults: NSPredicate {
-        NSPredicate(format: "(messageType == 'error' OR messageType == 'fault') AND subsystem != %@",
-                    ConsoleErrorCapture.subsystem)
+        NSPredicate(format: "(messageType == 'error' OR messageType == 'fault') AND NOT (subsystem IN %@)",
+                    ErrorReporter.recordedSubsystems.sorted())
     }
 
     /// Maps one log entry to an event: the first line is the message, a following `at …`

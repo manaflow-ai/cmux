@@ -32,7 +32,8 @@ import Testing
     @Test func aValueWithoutPrivacyIsPrivateAndNumbersArePublic() async throws {
         let journal = ErrorJournal(directory: directory, limits: ErrorJournalLimits(flushBatch: 1))
         let path = "/Users/someone/secret-project"
-        await ErrorReporter(category: "files", recorder: journal).fault("open \(path) failed after \(3) tries").value
+        let tries = 3
+        await ErrorReporter(category: "files", recorder: journal).fault("open \(path) failed after \(tries) tries").value
         let entry = try #require(await journal.entries().first)
         #expect(entry.level == .fault)
         #expect(entry.sample == "open <private> failed after 3 tries")

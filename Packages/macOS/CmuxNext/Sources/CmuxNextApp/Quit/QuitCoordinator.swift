@@ -7,6 +7,7 @@ import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
+import CmuxNextErrorJournal
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
@@ -158,8 +159,8 @@ final class QuitCoordinator {
                 guard let settings = services.settings,
                       let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
                 do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                        .error("quit setting write failed: \(String(describing: error), privacy: .public)")
+                    ErrorReporter(category: "app.quit", recorder: services.errorJournal.journal)
+                        .error("quit setting write failed: \(error, privacy: .public)")
                 }
             },
             prepareWindows: {
