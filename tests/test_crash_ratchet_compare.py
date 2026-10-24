@@ -250,5 +250,99 @@ class WaivedHitsCount(unittest.TestCase):
         self.assertIn("count(s) went down", out.stdout)
 
 
+class FixtureRepo:
+    """A throwaway git repository with the real crash_ratchet.py and crash_ratchet_compare.py."""
+
+    def make_repo(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", self.tmp]))
+        self.repo = os.path.join(self.tmp, "repo")
+        for rel, src in (("scripts/cmux-next/crash_ratchet.py", RATCHET), ("scripts/ci/crash_ratchet_compare.py", COMPARE)):
+            with open(src) as f:
+                self.write(rel, f.read())
+        self.write("cmux-tui/crates/x/src/lib.rs", "pub fn f() {}\n")
+        self.git("init", "-q")
+        self.ratchet = os.path.join(self.repo, "scripts", "cmux-next", "crash_ratchet.py")
+        self.baseline_path = os.path.join(self.repo, "scripts", "cmux-next", "crash-safety-baseline.json")
+
+    def write(self, rel, text):
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def run_ratchet(self, *flags):
+        self.git("add", "-A")
+        out = subprocess.run([sys.executable, self.ratchet, "--repo", self.repo, *flags], capture_output=True, text=True)
+        return out.returncode, out.stdout + out.stderr
+
+    def commit(self, message, update_baseline=False):
+        self.git("add", "-A")
+        if update_baseline:
+            rc, out = self.run_ratchet("--update-baseline")
+            self.assertEqual(rc, 0, out)
+            self.git("add", "-A")
+        self.git("commit", "-qm", message)
+        return self.git("rev-parse", "HEAD")
+
+    def baseline(self):
+        with open(self.baseline_path) as f:
+            return json.load(f)
+
+
+SELECTOR = "let {name} = NSSelectorFromString(\"{name}\")\n"
+
+
+class CrashRatchetCIStepTests(FixtureRepo, unittest.TestCase):
+    """scripts/ci/crash-ratchet-against-base.sh, the workflow step, on throwaway repositories with
+    the real ratchet and compare scripts."""
+
+    STEP = os.path.join(HERE, "..", "scripts", "ci", "crash-ratchet-against-base.sh")
+    SOURCE = "Packages/macOS/CmuxNext/Sources/M/A.swift"
+
+    def setUp(self):
+        self.make_repo()
+
+    def step(self, event, before=""):
+        runner = os.path.join(self.tmp, f"runner-{event}")
+        os.makedirs(runner, exist_ok=True)
+        env = {**os.environ, "EVENT_NAME": event, "BEFORE": before, "RUNNER_TEMP": runner}
+        out = subprocess.run(["bash", self.STEP], cwd=self.repo, env=env, capture_output=True, text=True)
+        return out.returncode, out.stdout + out.stderr
+
+    def green_base(self):
+        self.write(self.SOURCE, SELECTOR.format(name="run"))
+        return self.commit("baseline", update_baseline=True)
+
+    def red_base(self):
+        """A baseline commit with one ratchet-class hit, then a push that added a second one past
+        the baseline (the red tip)."""
+        self.green_base()
+        self.write(self.SOURCE, SELECTOR.format(name="run") + SELECTOR.format(name="stop"))
+        return self.commit("adds a hit past the baseline")
+
+    def test_a_pull_request_merged_with_a_red_base_is_excused(self):
+        self.red_base()
+        # The checkout of a pull request is its merge commit; HEAD^1 is the base.
+        self.write("notes.txt", "the pull request's change\n")
+        self.commit("the pull request's merge")
+        rc, out = self.step("pull_request")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::warning::the crash ratchet is already red on the base", out)
+
+    def test_a_push_that_adds_a_hit_on_a_green_base_is_red(self):
+        green = self.green_base()
+        self.write("Packages/macOS/CmuxNext/Sources/M/B.swift", SELECTOR.format(name="stop"))
+        self.commit("adds a hit")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("turns the crash ratchet red", out)
+
+
 if __name__ == "__main__":
     unittest.main()
