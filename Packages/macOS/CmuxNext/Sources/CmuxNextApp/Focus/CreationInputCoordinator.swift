@@ -89,6 +89,14 @@ final class CreationInputCoordinator {
         guard let buffer = buffers[shell.windowNumber] else { return false }
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
+        // A close of a pending creation of this hold (the focus it asked for is still on its way):
+        // the keys typed for it go with it, the others keep waiting in order, and the close runs now
+        // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
+        if closes, let controller, case .tab(let tab)? = controller.focus.state.expectation?.key, buffer.isCreating(tab: tab) {
+            _ = buffer.cancel(tab: tab)
+            scheduleFlush(in: shell)
+            return false
+        }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
         guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
@@ -99,7 +107,18 @@ final class CreationInputCoordinator {
         }
         // A pending creation's early view has the keyboard: held keys first, then this one.
         if let controller, case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
-            for held in buffer.take() { replaying = true; NSApp.sendEvent(held); replaying = false }
+            let held = buffer.take(), opened = buffer.openedCount
+            for (index, key) in held.enumerated() {
+                replaying = true
+                NSApp.sendEvent(key)
+                replaying = false
+                // A key run again started another creation: the rest, and this key, wait for it, in order.
+                if buffer.openedCount != opened {
+                    buffer.prepend(held.dropFirst(index + 1))
+                    buffer.capture(event)
+                    return true
+                }
+            }
             return false
         }
         buffer.capture(event)
