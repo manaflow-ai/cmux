@@ -430,9 +430,12 @@ public final class AgentPaneDraftAttachments {
         }
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+            // moveOut can refuse a chip whose contents were never retained. Repair before writing
+            // while its original id and mark position are still available.
+            let keptText = hasText ? repairMarks(text ?? "", original: attachments, restored: moved.attachments) : nil
             let list = try JSONEncoder().encode(Saved(attachments: moved.attachments,
                                                       files: moved.files.isEmpty ? nil : moved.files,
-                                                      text: hasText ? text : nil))
+                                                      text: keptText))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             try? manager.removeItem(at: folder)
