@@ -43,9 +43,13 @@ impl Mux {
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
         let waiting = || {
-            self.agent_records.lock().unwrap().get(&terminal_id).is_some_and(|record| {
-                record.source == AgentSource::Hook && record.state == AgentState::Blocked
-            })
+            self.agent_records
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&terminal_id)
+                .is_some_and(|record| {
+                    record.source == AgentSource::Hook && record.state == AgentState::Blocked
+                })
         };
         // A tool hook of an agent that does not wait changes nothing; it never queues a retry.
         if kind_state.is_none() && !waiting() {
@@ -446,7 +450,7 @@ impl Mux {
         // session's start waiting in the pending-hook queue), and an end that names the old
         // session would leave the roster's live one spinning.
         let (agent, session) = {
-            let host = self.agent_roster.lock().unwrap();
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(entry) = host.roster.entries.get(terminal_id.as_str()) else { return };
             if entry.agent_source() != AgentSource::Hook
                 || !matches!(entry.agent_state(), AgentState::Working | AgentState::Blocked)
