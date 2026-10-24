@@ -1,4 +1,6 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Files the person drops or pastes into a chat on this Mac that the composer can't attach as a
@@ -37,11 +39,13 @@ struct AgentChatUploads {
     static func uploader(tab: String, services: AppServices) -> AgentPaneUploader? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
         let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil }
+        let work = services.work
         return { files in
             let chat = session.map { chatFolder($0, in: root) } ?? root
             let folder = chat.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
             do {
-                let paths = try await Task.detached { try write(files, in: folder) }.value
+                // A person waits for the upload: the copy runs on the files lane at userBlocking.
+                let paths = try await work.run(.userBlocking, mayBlock: .files) { try write(files, in: folder) }
                 let uploads = zip(files, paths).map { file, path -> [String: Any] in ["name": file.name, "path": path] }
                 return AgentPaneReply.success(["uploads": uploads])
             } catch {
@@ -53,6 +57,7 @@ struct AgentChatUploads {
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
         let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil } ?? "new"
+        let work = services.work
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -77,7 +82,8 @@ struct AgentChatUploads {
                     // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder)
+                        stages.removeValue(forKey: token)
+                        work.post(.bestEffort, mayBlock: .files) { try? FileManager.checked.removeItem(at: expired.folder) }
                     }
                 }
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
@@ -100,7 +106,8 @@ struct AgentChatUploads {
                     // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder)
+                        stages.removeValue(forKey: token)
+                        work.post(.bestEffort, mayBlock: .files) { try? FileManager.checked.removeItem(at: expired.folder) }
                     }
                 }
                 return AgentPaneReply.success(["offset": stage.received])

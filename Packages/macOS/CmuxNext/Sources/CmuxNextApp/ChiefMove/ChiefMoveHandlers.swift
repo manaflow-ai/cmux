@@ -7,6 +7,8 @@ import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSidebar
 import Foundation
+import CmuxNextCompat
+import CmuxNextWakeups
 
 /// "Move Chief To…" (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): lists This Mac, the
 /// SSH and server remote groups and cmux Cloud (`ChiefMoveTargets`), then runs the bundled
@@ -102,9 +104,11 @@ enum ChiefMoveHandlers {
         let window = CloudHandlers.window(context)
         let cloud = context.services.cloud
         let title = name(target)
+        let lanes = context.services.work
         let work: ActionWork = Task {
             var tokenDir: URL?
-            defer { if let tokenDir { try? FileManager.default.removeItem(at: tokenDir) } }
+            // The token folder goes on the files lane (this task runs on main), after the move used it.
+            defer { if let tokenDir { lanes.post(.bestEffort, mayBlock: .files) { try? FileManager.checked.removeItem(at: tokenDir) } } }
             var tokenFile: String?
             if case .cloud = target.kind {
                 do {

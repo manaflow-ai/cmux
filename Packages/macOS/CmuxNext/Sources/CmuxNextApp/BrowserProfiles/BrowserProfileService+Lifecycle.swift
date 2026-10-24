@@ -1,6 +1,8 @@
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDaemon
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Deleting a browser profile with its data, removing that data once no
@@ -64,14 +66,18 @@ extension BrowserProfileService {
         guard !ready.isEmpty else { return }
         let cleanup = BrowserProfileStorageCleanup(chromiumRoot: cef.storageRoot)
         let bundleID = services.environment.launch.bundleID
+        let work = services.work
         // task-owner: one-shot removal of deleted profiles' files; reports back once
         Task { [weak self] in
-            let removed = await Task.detached { cleanup.removeChromiumData(for: ready) }.value
+            // Nobody waits for the removal: the files lane at bestEffort, never the cooperative pool or main.
+            guard let removed = try? await work.run(.bestEffort, mayBlock: .files, { cleanup.removeChromiumData(for: ready) })
+            else { return }  // the lanes are shut down (quit): the next launch removes them
             var done: [String] = []
             for id in removed {
                 guard let profile = BrowserProfileRecord.engineProfile(for: id) else { continue }
                 await webKit.clearData(for: profile)
-                try? FileManager.default.removeItem(at: SiteSettingsRegistry.defaultFile(for: profile, bundleIdentifier: bundleID))
+                let settings = SiteSettingsRegistry.defaultFile(for: profile, bundleIdentifier: bundleID)
+                _ = try? await work.run(.bestEffort, mayBlock: .files) { try FileManager.checked.removeItem(at: settings) }
                 done.append(id)
             }
             try? self?.edit { $0.finishCleanup(done) }
