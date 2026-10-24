@@ -218,6 +218,8 @@ public struct AgentRestorePlanner: Sendable {
         if request.mode == .resumeAgent,
            routedClaudeResume == nil,
            let checkpointID = normalized(request.checkpointID),
+           !(kind == "codex" && subrouterCodexRoutedPrefix(request: request, checkpointID: checkpointID)
+               .map { routedArguments.starts(with: $0) } == true),
            !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
                launcher: request.launchCommand?.launcher,
                sessionId: checkpointID,
