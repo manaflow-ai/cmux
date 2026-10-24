@@ -278,6 +278,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
 
+    /// The host's opt-in system spell checking preference for the native composer.
+    public var composerSpellCheckingEnabled: Bool {
+        get { transcript.composerSpellCheckingEnabled }
+        set { transcript.composerSpellCheckingEnabled = newValue }
+    }
+
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }
