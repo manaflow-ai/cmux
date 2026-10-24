@@ -314,6 +314,38 @@ class RuleTests(Fixture):
         self.commit("a comment above old unescaped debt")
         self.assertEqual(self.refused(), [], "base debt the push only comments on is not new")
 
+    def test_an_edit_next_to_the_comment_block_above_old_debt_adds_none(self):
+        # Old unescaped debt under a two-line doc comment, a code line above that. The head side reaches the edit
+        # through the comment block; the base side must judge the same unchanged line, or old debt reads as new.
+        start = self.base
+        for rule, (text, escape) in self.ESCAPED.items():
+            indent = escape.split("//")[0]
+            code = f"{indent}func g() {{}}\n" if indent else "let y = 2\n"
+            old = text.replace(escape, f"{code}{indent}/// doc\n{indent}/// more doc\n")
+            edits = {
+                "deletes the code line above the block": old.replace(code, ""),
+                "replaces the code line above the block with a comment": old.replace(code, f"{indent}// gone\n"),
+                "inserts a comment line inside the block": old.replace(f"{indent}/// doc\n",
+                                                                     f"{indent}/// doc\n{indent}/// inserted\n"),
+                "inserts a code line above the block": old.replace(code, f"{code}{code.replace('g', 'h').replace('y', 'z')}"),
+            }
+            for how, after in edits.items():
+                with self.subTest(rule=rule, how=how):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.rebase_on({f"{KIT}/OldDebt.swift": old}, "old unescaped debt")
+                    self.write(f"{KIT}/OldDebt.swift", after)
+                    self.commit(how)
+                    self.assertEqual(self.refused(), [], "the push only edits next to old debt")
+
+    def test_a_new_block_opened_around_old_debt_adds_none(self):
+        # A context rule judges an unchanged line again when one of its openers changed. The base copy of that
+        # line is judged too: a static of a class that a new nested class now wraps was debt before and after.
+        body = "    let a = 0\n    let b = 0\n    static let live = 1\n}\n"
+        self.rebase_on({f"{KIT}/Cache.swift": "final class Cache {\n" + body}, "old debt")
+        self.write(f"{KIT}/Cache.swift", "final class Cache {\nfinal class Store {\n" + body + "}\n")
+        self.commit("a nested class around the old static")
+        self.assertEqual(self.refused(), [])
+
     def test_a_struct_that_becomes_a_class_around_a_named_static_is_refused(self):
         start = self.base
         for name, after in (
