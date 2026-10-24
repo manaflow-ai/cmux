@@ -116,6 +116,8 @@ public final class ControlIdempotencyCache: Sendable {
 
     var count: Int { state.withLock { $0.entries.count } }
 
-    /// Whether the run under `key` recorded its outcome (a retry then replays it at once).
-    func hasOutcome(_ key: String) -> Bool { state.withLock { $0.entries[key]?.outcome != nil } }
+    /// The outcome the run under `key` records, once it does (a retry then replays it at once);
+    /// nil when no run holds the key (it never ran, or was forgotten). Waits as a joining retry
+    /// does, on the recording itself.
+    func outcome(of key: String) async -> Outcome? { await Joiner(cache: self, key: key).outcome() }
 }
