@@ -97,6 +97,50 @@ import Testing
         #expect(tracker.reads.last == CEFHostGeometry(of: host.hostView), "the shown page is placed over the pane's view")
     }
 
+    /// The Codex review's P1 at 132e71cd: the pane's first tab closes while its Chromium window is
+    /// built and a second tab waits for that window. The late browser of the closed tab is closed,
+    /// never shown, and the waiting tab asks for a window of its own: it gets its browser, is
+    /// Chromium's active tab and is placed over the pane's view (it waited forever, the pane blank).
+    @Test func aTabQueuedForAWindowWhoseFirstTabClosedGetsAWindowOfItsOwn() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.host(runtime)
+        var endOfTurn: [@MainActor @Sendable () -> Void] = []
+        host.endOfTurn = { endOfTurn.append($0) }
+        func endTurn() { while !endOfTurn.isEmpty { endOfTurn.removeFirst()() } }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(first)
+        host.present(first, in: container)
+        host.createDeferred()
+        let firstRequest = try #require(runtime.pendingWindows.keys.first)
+
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+        #expect(link.browserID == nil && link.isCreationPending, "waits for the window")
+        first.close()
+        runtime.handle(.afterCreated(browser: 10, request: firstRequest, window: 1))
+        #expect(TabSpyShim.closed == [10], "the closed tab's late browser closes")
+        endTurn()
+
+        #expect(TabSpyShim.createWindowCalls == 2, "the waiting tab asked for a window of its own")
+        let secondRequest = try #require(runtime.pendingWindows.keys.first)
+        let tracker = PageTracker(host.hostView)
+        runtime.handle(.afterCreated(browser: 12, request: secondRequest, window: 2))
+        endTurn()
+        runtime.handle(.beforeClose(browser: 10))
+
+        #expect(host.isLive)
+        #expect(link.browserID == 12)
+        #expect(host.lastActivated == 12, "the new window's own tab is its active one")
+        #expect(TabSpyShim.added.isEmpty)
+        #expect(host.hostView.layerHosting.browser == 12, "layer hosting shows the waiting tab")
+        #expect(tracker.reads.last == CEFHostGeometry(of: host.hostView), "the page is placed over the pane's view")
+        #expect(TabSpyShim.closed == [10], "only the late browser closed")
+    }
+
     /// A link opened from an agent chat into a new right pane: the pane grows in on its split spring
     /// while the window is built, its content held at the rest size, so only its ancestors move. When
     /// the window comes up, and again when the spring lands, the page is placed at the pane's frame.
@@ -212,23 +256,30 @@ import Testing
 /// Stand-in shim functions: `cmux_shim_create_window` reports the browser started,
 /// `cmux_shim_tab_add` records the window's browser it joins and its activate flag and, as
 /// production's shim does, runs the new tab's OnAfterCreated before it returns `addedBrowser`;
-/// `cmux_shim_tab_activate` records the browser; `cmux_shim_fork_api_version` reports layer hosting
+/// `cmux_shim_tab_activate` and `cmux_shim_close` record the browser, `cmux_shim_create_window` its calls; `cmux_shim_fork_api_version` reports layer hosting
 /// (API 27, so a host's `CEFLayerHosting` follows the shown browser); every other function does
 /// nothing and returns 0.
 private nonisolated enum TabSpyShim {
     static let addedBrowser: Int32 = 11
     nonisolated(unsafe) static var added: [(anchor: Int32, activate: Int32)] = []
     nonisolated(unsafe) static var activated: [Int32] = []
+    nonisolated(unsafe) static var closed: [Int32] = []
+    nonisolated(unsafe) static var createWindowCalls = 0
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
 
     static func reset() {
         added = []
         activated = []
+        closed = []
+        createWindowCalls = 0
         runtime = nil
     }
 
     static func library() throws -> CEFShimLibrary {
-        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
+        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in
+            TabSpyShim.createWindowCalls += 1
+            return 1
+        }
         let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { anchor, _, _, activate in
             TabSpyShim.added.append((anchor, activate))
             MainActor.assumeIsolated {
@@ -240,6 +291,7 @@ private nonisolated enum TabSpyShim {
             TabSpyShim.activated.append(browser)
             return 1
         }
+        let close: @convention(c) (Int32) -> Void = { browser in TabSpyShim.closed.append(browser) }
         let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
@@ -247,6 +299,7 @@ private nonisolated enum TabSpyShim {
             case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_tab_add": unsafeBitCast(tabAdd, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_tab_activate": unsafeBitCast(tabActivate, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_close": unsafeBitCast(close, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
