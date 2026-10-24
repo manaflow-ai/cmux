@@ -42,7 +42,9 @@ private final class OneReplyServer: Sendable {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            _ = path.utf8CString.withUnsafeBytes { raw.copyMemory(from: $0.prefix(raw.count - 1)) }
+            path.utf8CString.withUnsafeBytes { bytes in
+                raw.copyMemory(from: UnsafeRawBufferPointer(rebasing: bytes.prefix(raw.count - 1)))
+            }
         }
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
