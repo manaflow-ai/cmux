@@ -12,9 +12,10 @@ real key waits in the event queue) into:
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
 
-each in two phases:
+each in two phases, every idle round of a launch before its first load round (the load is made once and keeps
+running, so an idle row measured after it would be a load row; each row records `load_running`):
 
-  idle       nothing else runs
+  idle       nothing else runs (in STRESS: the session's own printing terminals still print)
   load       --busy terminals print without pause (three of them visible next to the typed surface, the rest in
              other workspaces), --chats mock agent chats stream (debug.agent_pane stream), and for home the
              fixture's Chief streams a reply into the transcript at 30 tokens/s
@@ -23,6 +24,10 @@ Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
 frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
+
+The omnibar surface is a Chromium tab's: before it is measured, `debug.cef` must show Chromium running with no
+`unavailable` reason and no WebKit `fallback` (perf-lead brief, measurement validity); else the surface is skipped
+with the reason in the log and the report (`chromium_invalid`), never measured as a WebKit page.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
@@ -52,7 +57,8 @@ parser.add_argument("--stress", action="store_true",
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
                          "Uses scripts/cmux-next/perf-stress-session.py when present, else the builder here")
 parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
-parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
+parser.add_argument("--rounds", type=int, default=3,
+                    help="every phase this many times per launch (the noise shows); all idle rounds run before the load")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
 opts = parser.parse_args()
@@ -383,6 +389,9 @@ def measure(surface, phase, params, column, pid, streams=()):
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
         "frames": frames, "streams": [s.calls for s in streams], "round": ROUND, "focus": LOAD.get("focus"),
+        # Whether the load phase's load ran beside the keys (made once per launch, never stopped; STRESS's own
+        # printing terminals run in every row of that session, see "session").
+        "load_running": bool(LOAD.get("made")),
         "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
                                                    "total_ms": round(sum(publishes), 1)},
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
@@ -493,6 +502,17 @@ def surface_dock(phase, pid):
     return measure("dock", phase, {"probe": "commit"}, "commit_ms", pid, [])
 
 
+def chromium_invalid():
+    """Why Chromium numbers would not be Chromium's (debug.cef: no CEF, an `unavailable` reason, a WebKit
+    `fallback`), or None when Chromium runs."""
+    cef = rpc("debug.cef", timeout=20)
+    if not isinstance(cef, dict) or cef.get("error"):
+        return f"debug.cef: {json.dumps(cef)[:200]}"
+    if cef.get("unavailable") is not None or cef.get("fallback") is not None:
+        return f"unavailable={json.dumps(cef.get('unavailable'))[:120]} fallback={json.dumps(cef.get('fallback'))[:120]}"
+    return None
+
+
 def surface_omnibar(phase, pid):
     if phase == "load":
         make_load(None)
@@ -500,6 +520,12 @@ def surface_omnibar(phase, pid):
         reply = action("openBrowser.chromium", {"url": "about:blank"}, settle=4.0, timeout=120)
         note(f"omnibar: chromium tab {json.dumps(reply)[:120]}")
         LOAD["omnibar_open"] = True
+    invalid = chromium_invalid()
+    if invalid:
+        note(f"{SESSION} omnibar.{phase}: not measured, the tab is not Chromium ({invalid})")
+        results.setdefault("chromium_invalid", []).append({"session": SESSION, "phase": phase, "round": ROUND,
+                                                           "reason": invalid})
+        return None
     action("focusBrowserAddressBar", settle=0.5)
     bar = rpc("debug.omnibar") or {}
     if not bar.get("field_editor_active"):
@@ -541,8 +567,10 @@ def run_session(session):
             time.sleep(5)  # the grid settles
         surfaces = opts.surfaces.split(",")
         global ROUND
-        for ROUND in range(opts.rounds):
-            for phase in opts.phases.split(","):
+        # Phase-major: the load, once made, runs until the app quits, so every idle round goes first.
+        phases = sorted(opts.phases.split(","), key=lambda phase: phase != "idle")
+        for phase in phases:
+            for ROUND in range(opts.rounds):
                 for surface in surfaces:
                     if surface == "dock" and phase != "idle":
                         continue
