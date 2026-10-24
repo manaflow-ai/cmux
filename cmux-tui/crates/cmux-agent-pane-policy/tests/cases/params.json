@@ -1502,5 +1502,45 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "prompt inline display descriptors use the allowlisted metadata key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "inlineParts": []
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "inline display descriptors do not allow other acpmux metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "inlineParts": [],
+      "harness": "codex"
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]
