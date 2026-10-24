@@ -23,8 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let daemonPrestart: DaemonPrestart?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
-    /// Launch work that starts after the first window frame (perf-launch-memory).
-    let firstFrame = FirstFrameGate()
+    /// Launch work that starts after the first window frame (perf-launch-memory): one waiter per
+    /// display frame, so the frame after the first never stalls for all of it (#17587).
+    let firstFrame = FirstFrameGate(step: { [frames = FrameBatcher(owner: "FirstFrameGate")] next in frames.scheduleFrame(next) })
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
@@ -130,6 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
+        // WebKit's process-wide start first, in a frame of its own, so a deferred chat's web view
+        // (a later frame each, through the presentation budget) pays only its own init.
+        firstFrame.whenOpen { [weak services] in services?.startWebKitWarmup() }
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
