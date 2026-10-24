@@ -73,6 +73,7 @@ filter = '''
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled))
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host))
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=restart_with_many_live_terminals_answers_within_budget))
+| (binary_id(acpmux::perf_ops) & test(=acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress))
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
@@ -81,4 +82,9 @@ threads-required = 'num-test-threads'
 # on stderr; a fleet step shows them only when a passing test's output is kept.
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
+success-output = "final"
+
+# The acpmux budget bench prints its ACPMUX-PERF lines on stderr (tests/perf_ops.rs).
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::perf_ops)'
 success-output = "final"
