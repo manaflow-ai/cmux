@@ -280,13 +280,18 @@ mod tests {
         let (mine, rx) = pending(&session, false);
         let (other, _other_rx) = pending(&session, false);
         {
-            let mut state = session.permissions.lock().unwrap();
-            state.pending.get_mut(&mine).unwrap().agent_request = Some(json!(1007));
-            state.pending.get_mut(&other).unwrap().agent_request = Some(json!(1008));
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(entry) = state.pending.get_mut(&mine) {
+                entry.agent_request = Some(json!(1007));
+            }
+            if let Some(entry) = state.pending.get_mut(&other) {
+                entry.agent_request = Some(json!(1008));
+            }
         }
         hub.withdraw_permission(&session, &json!(1007));
-        assert_eq!(rx.await.unwrap(), json!({"outcome": "cancelled"}));
-        let state = session.permissions.lock().unwrap();
+        let outcome = rx.await.unwrap_or(Value::Null);
+        assert_eq!(outcome, json!({"outcome": "cancelled"}));
+        let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         assert!(!state.pending.contains_key(&mine));
         assert!(state.pending.contains_key(&other));
     }
@@ -313,7 +318,12 @@ mod tests {
             )
             .await;
         assert_eq!(outcome, json!({"outcome": {"outcome": "cancelled"}}));
-        assert!(session.permissions.lock().unwrap().pending.is_empty());
+        assert!(session
+            .permissions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pending
+            .is_empty());
     }
 
     /// The withdrawal record is replayed for the same host incarnation, so a
