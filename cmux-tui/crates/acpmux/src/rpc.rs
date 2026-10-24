@@ -252,6 +252,11 @@ pub mod method {
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// One of a session's subagents' transcripts, a page at a time, from the
+    /// files Claude Code writes (a workflow agent's, a background agent's):
+    /// `{sessionId, runId?, agentId, before?, after?, limit?}`
+    /// (`claude_stdio/agent_transcript.rs`).
+    pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
     /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
