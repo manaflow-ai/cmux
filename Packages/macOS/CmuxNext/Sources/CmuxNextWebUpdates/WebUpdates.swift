@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
@@ -41,6 +42,8 @@ public final class WebUpdates {
     @ObservationIgnored var resignedAt: ContinuousClock.Instant?
     /// Counts handoffs, so a look's page answers apply only to the update they were asked for.
     @ObservationIgnored var pendingGeneration = 0
+    /// The note of a swap made while cmux was behind other apps, shown when it comes back.
+    @ObservationIgnored var unseenNote: String?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
@@ -109,6 +112,7 @@ public final class WebUpdates {
                 self?.resignedAt = nil
                 self?.updater?.noteActivation()
                 self?.scheduleSafePoint()
+                self?.showUnseenNote()
             }
         })
     }
@@ -152,10 +156,26 @@ public final class WebUpdates {
         pending = nil
         heldBy = nil
         safePoint.cancel()
-        swapped = .some(pendingVersion)
+        let version = pendingVersion
+        swapped = .some(version)
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
-        return WebBundleServedViews.shared.reloadServed()
+        let reloaded = WebBundleServedViews.shared.reloadServed()
+        if reloaded > 0, let version { note(WebUpdateStrings.updated(toCommit: version.commit)) }
+        return reloaded
+    }
+
+    /// A quiet "Updated to <commit>" toast that dismisses itself (CmuxToastCenter), in the front
+    /// window now, or once cmux comes back to the front.
+    private func note(_ message: String) {
+        unseenNote = message
+        showUnseenNote()
+    }
+
+    private func showUnseenNote() {
+        guard let message = unseenNote, NSApp.isActive, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        unseenNote = nil
+        _ = CmuxToastCenter.shared.show(CmuxToast(id: "web-update", message: message, duration: .seconds(4)), in: window)
     }
 }

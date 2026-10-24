@@ -52,3 +52,11 @@ struct WebSwapGateTests {
         #expect(WebUpdater.delay(after: 900, interval: .seconds(600)) == .zero)
     }
 }
+
+/// The quiet note after a swap names the update by its short commit.
+struct WebUpdateNoteTests {
+    @Test func theNoteNamesTheShortCommit() {
+        #expect(WebUpdateStrings.updated(toCommit: "1a2b3c4d5e6f7a8b9c0d").hasSuffix("1a2b3c4"))
+        #expect(!WebUpdateStrings.updated(toCommit: "1a2b3c4d5e6f7a8b9c0d").contains("1a2b3c4d"))
+    }
+}
