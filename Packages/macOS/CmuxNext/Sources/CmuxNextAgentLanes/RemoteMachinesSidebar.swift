@@ -124,7 +124,7 @@ public final class RemoteMachinesSidebar {
     /// page change re-yields.
     public func rows() -> [SidebarTransientItem] {
         // A capture shows the first sample machine unfolded until a click folds or unfolds one.
-        let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["huge-blue"] : expanded
+        let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["linux-box"] : expanded
         return Self.rows(machines: machines, expanded: shown, pages: pages, displayName: { [host] in host?.displayName($0) })
     }
 
@@ -153,13 +153,13 @@ public final class RemoteMachinesSidebar {
     }
 
     /// Three machines for captures: two reachable with chats in each state, one offline.
-    static let fixturePeers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true), AcpmuxPeerList.Peer(name: "cmux16", connected: true),
-                               AcpmuxPeerList.Peer(name: "big-red", connected: false)]
+    static let fixturePeers = [AcpmuxPeerList.Peer(name: "linux-box", connected: true), AcpmuxPeerList.Peer(name: "build-mac", connected: true),
+                               AcpmuxPeerList.Peer(name: "gpu-box", connected: false)]
     static var fixtureLanes: [AgentActivityLane] {
         let chats: [(String, String, AgentActivityLane.State, String)] = [
-            ("huge-blue", "nx-sidebar", .working, "Sidebar rows keep their place"), ("huge-blue", "cx-rev-241", .input, "Review the peer list"),
-            ("huge-blue", "cl-rev-242", .idle, "Land the composer fix"), ("cmux16", "fleet-cache", .working, "Prune DerivedData on the minis"),
-            ("cmux16", "nightly", .idle, "Nightly 1.0.312 published"),
+            ("linux-box", "sidebar", .working, "Sidebar rows keep their place"), ("linux-box", "review-1", .input, "Review the peer list"),
+            ("linux-box", "review-2", .idle, "Land the composer fix"), ("build-mac", "cache", .working, "Prune DerivedData on the minis"),
+            ("build-mac", "nightly", .idle, "Nightly 1.0.312 published"),
         ]
         return chats.enumerated().map { i, chat in
             AgentActivityLane(id: "fixture-remote:\(chat.0)/\(chat.1)", name: "\(chat.0)/\(chat.1)", title: chat.3, peer: chat.0, parent: nil,
@@ -171,7 +171,7 @@ public final class RemoteMachinesSidebar {
     // MARK: - Model
 
     /// The groups: every peer the daemon lists (none listed yet: every peer a lane names), each
-    /// with its live chats newest first. A peer the daemon cannot reach has no chats.
+    /// with its live chats newest first, reachable machines first. A peer the daemon cannot reach has no chats.
     static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
         var byPeer: [String: [AgentActivityLane]] = [:]
         for lane in lanes {
@@ -180,11 +180,13 @@ public final class RemoteMachinesSidebar {
         }
         let online = Dictionary((peers ?? []).map { ($0.name, $0.connected) }, uniquingKeysWith: { first, _ in first })
         let names = peers.map { $0.map(\.name) } ?? Array(byPeer.keys)
-        return Set(names).sorted().map { peer in
+        return Set(names).map { peer in
             let isOnline = online[peer] ?? true
             let chats = isOnline ? (byPeer[peer] ?? []).sorted(by: newer).map(chat) : []
             return Machine(peer: peer, online: isOnline, chats: chats)
         }
+        // Reachable machines first, each part by name.
+        .sorted { ($0.online ? 0 : 1, $0.peer) < ($1.online ? 0 : 1, $1.peer) }
     }
 
     /// Newest first by when it last changed state (a step leaves the order alone), then by name.
