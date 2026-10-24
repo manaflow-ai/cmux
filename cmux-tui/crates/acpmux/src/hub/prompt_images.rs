@@ -236,6 +236,9 @@ pub(super) fn inline_parts(
                 }
                 "resource_link" => {
                     let uri = block.get("uri").and_then(Value::as_str)?;
+                    if uri.is_empty() {
+                        return None;
+                    }
                     let name = block.get("name").and_then(Value::as_str).unwrap_or(uri);
                     let mut part = json!({"kind": "file", "name": name, "uri": uri});
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
@@ -600,5 +603,9 @@ mod tests {
         assert!(validated_display_parts(Some(&wrong_kind), &blocks).is_empty());
         let out_of_bounds = json!([{"kind": "pasted", "blockIndex": 0, "start": 1, "end": 5}]);
         assert!(validated_display_parts(Some(&out_of_bounds), &blocks).is_empty());
+        let empty_resource = json!([{"kind": "file", "blockIndex": 0, "name": "archive.zip"}]);
+        let resource_block =
+            vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
+        assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
     }
 }
