@@ -48,6 +48,11 @@ export function WorkflowSummaryRow({
             : t("plan.status.pending");
   const state =
     workflow.state === "running" ? <Spinner size={12} loading /> : <Icon name="agent.session" size={12} row />;
+  const canPause = workflow.state === "running" && actions.onPause;
+  const canStop = (workflow.state === "running" || workflow.state === "paused") && actions.onStop;
+  const canSave = actions.onSave;
+  const hasLifecycleAction = canPause || canStop || canSave;
+  const controlsUnavailable = (workflow.state === "running" || workflow.state === "paused") && !hasLifecycleAction;
   return (
     <section className="acpmux-summary-section acpmux-workflow" aria-label={workflow.title} data-state={workflow.state}>
       <button
@@ -133,7 +138,7 @@ export function WorkflowSummaryRow({
                       <button
                         type="button"
                         className="acpmux-workflow__transcript"
-                        aria-label={`Open transcript for ${agent.name}`}
+                        aria-label={`${t("transcript.label")}: ${agent.name}`}
                         onClick={() => actions.onOpenTranscript?.(agent.transcriptRowId!)}
                       >
                         <Icon name="disclosure.collapsed" size={11} />
@@ -145,26 +150,26 @@ export function WorkflowSummaryRow({
               {selected && <span className="acpmux-workflow__selected">{selected.name}</span>}
             </div>
           </div>
-          {(actions.onPause || actions.onStop || actions.onSave) && (
+          {hasLifecycleAction && (
             <div className="acpmux-workflow__actions">
-              {actions.onPause && (
-                <button type="button" onClick={actions.onPause}>
+              {canPause && (
+                <button type="button" onClick={() => actions.onPause?.()}>
                   {t("replay.pause")}
                 </button>
               )}
-              {actions.onStop && (
-                <button type="button" onClick={actions.onStop}>
+              {canStop && (
+                <button type="button" onClick={() => actions.onStop?.()}>
                   {t("subagents.stop", { name: workflow.title })}
                 </button>
               )}
-              {actions.onSave && (
-                <button type="button" onClick={actions.onSave}>
+              {canSave && (
+                <button type="button" onClick={() => actions.onSave?.()}>
                   {t("artifact.save")}
                 </button>
               )}
             </div>
           )}
-          {!actions.onPause && !actions.onStop && !actions.onSave && (
+          {controlsUnavailable && (
             <div className="acpmux-workflow__actions" aria-label={t("summary.empty")}>
               <button type="button" disabled aria-disabled="true">
                 {t("replay.pause")}
