@@ -1053,6 +1053,12 @@ class ControllerRouteTests(unittest.TestCase):
                     self.result(state="maybe"), self.result(sha="short")):
             self.assertIsNone(cron.controller_result(raw), raw)
 
+    def test_a_repeated_result_is_dropped(self):
+        state = self.state_with(["motion"])
+        state["current"]["parts"]["motion"] = {"state": "yielded", "step_id": "s1", "yields": 1}
+        self.assertEqual(self.plan(state, self.result())["action"], "none", "step s1 was stored already")
+        self.assertEqual(self.plan(state, self.result(step_id="s2"))["action"], "result", "a new step of the same part")
+
     def test_result_files_for_record_part(self):
         failed_build = cron.result_files(json.loads(self.result(part="build", state="failed", error="no app")))
         self.assertTrue(failed_build["build_failed"])

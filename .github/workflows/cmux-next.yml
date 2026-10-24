@@ -825,7 +825,10 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # DEV is a cutting-edge app channel: if this head's daemon tree is
+          # still publishing, build the exact app head against the newest
+          # published compatible tree instead of waiting on nightly's tree.
+          CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           # A same-repository PR with its own merge tree waits (read-only, the
           # script's 90s default) for the artifacts run main's
           # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
@@ -3153,6 +3156,7 @@ jobs:
         env:
           # Published before this job starts (probe or same-tree mode): a download.
           CMUX_TUI_TREE_WAIT_SECONDS: "120"
+          CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
@@ -3681,9 +3685,23 @@ jobs:
 
       - name: Release compile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
+        env:
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/release
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           scripts/cmux-next/check-release-compile.sh "$derived_data"
+
+      - name: Upload Release compile timing
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-release-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/release
+          if-no-files-found: ignore
+          retention-days: 3
 
       # On a mini, the CEF glue (CEF's C++ wrapper, the CEFShim dylib and the
       # helper binary) is also compiled against the pinned Chromium engine
@@ -4017,6 +4035,10 @@ jobs:
 
       - name: Compile the cmux scheme
         if: inputs.dev_daily != true
+        env:
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/scheme
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/scheme/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/scheme/summary.md
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
@@ -4036,6 +4058,16 @@ jobs:
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
 
+      - name: Upload Debug scheme timing
+        if: ${{ always() && inputs.dev_daily != true }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-scheme-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/scheme
+          if-no-files-found: ignore
+          retention-days: 3
+
       # A current feat-cmux-next push also produces the Release app consumed by
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
@@ -4050,6 +4082,9 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
         run: |
           set -euo pipefail
@@ -4061,6 +4096,16 @@ jobs:
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
           /usr/bin/ditto -c -k --keepParent "$app" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DEV daily compile timing
+        if: ${{ always() && steps.compile-cmux-next-dev-release.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Upload the cmux NEXT DEV Release app
         if: steps.compile-cmux-next-dev-release.outcome == 'success'

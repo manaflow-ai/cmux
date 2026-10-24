@@ -56,13 +56,13 @@ public final class BrowserContextMenuBuilder {
             for item in extra { menu.addItem(item) }
         }
         let point = view.isFlipped ? request.location : CGPoint(x: request.location.x, y: view.bounds.height - request.location.y)
-        // The page's rows highlight as the rest of cmux's menus do: a wash of the tab's theme accent.
+        // A standard macOS menu in the tab's light or dark look, as every cmux right-click menu is.
         menu.themeRows(in: view.themeScope.fullStrength)
         presentedMenu = menu
         menu.popUp(positioning: nil, at: point, in: view)
         presentedMenu = nil
-        // A chosen engine row completes the request with its id once tracking has ended; this then
-        // ends a dismissed menu (or one where a host item ran).
+        // A chosen engine row completed the request with its id inside popUp; this then ends a
+        // dismissed menu (or one where a host item ran).
         menu.afterThemedRowRuns { request.complete(nil) }
     }
 

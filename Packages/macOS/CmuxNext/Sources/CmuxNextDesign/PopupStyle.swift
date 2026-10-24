@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// One look for every native popover and menu (hover cards, group editors,
 /// the icon picker, page info, the palette's actions menu): the web's popup
@@ -11,9 +12,9 @@ public struct PopupStyle: Sendable {
     /// The style every native popover uses.
     public static let standard = PopupStyle()
 
-    public let cornerRadius: CGFloat = 8
-    public let padding: CGFloat = 4
-    public let rowHeight: CGFloat = 28
+    public let cornerRadius: CGFloat = DesignTokens.radiusPopup
+    public let padding: CGFloat = DesignTokens.space1
+    public let rowHeight: CGFloat = DesignTokens.controlRow
     public let rowCornerRadius: CGFloat = 5
     public let openDuration: TimeInterval = 0.12
 

@@ -36,6 +36,14 @@ import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
+    /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
+    let themeStore = ThemeScope.app.store
+    /// The recovery-draft backstop of unsaved documents (R96).
+    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    /// The open files' quit documents, shared by the markdown and editor pages.
+    private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
@@ -68,7 +76,11 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
+    private(set) lazy var feed: FeedService = FeedService(
+        auth: cloud.auth,
+        showcase: environment.showcase,
+        acpmuxEnvironment: QuitAgents.environment(self)
+    )  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
@@ -88,6 +100,8 @@ final class AppServices {
     let registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming())
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
+    /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
+    let openPanel = MadeAheadOpenPanel()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
@@ -157,6 +171,12 @@ final class AppServices {
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
+    /// Mac Screen: paired Macs' screens and Share This Mac.
+    private(set) lazy var macScreenPages = AppServices.makeMacScreenPages(self)
+    /// Mac Screen page tabs (`InternalPageID.macScreen`).
+    private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
+    /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
+    private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
