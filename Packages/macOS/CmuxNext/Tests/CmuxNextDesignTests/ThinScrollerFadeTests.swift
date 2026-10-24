@@ -15,7 +15,7 @@ struct ThinScrollerFadeTests {
     private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
-        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock)
+        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock, notificationCenter: NotificationCenter())
         SystemScrollers.followThin(scrollView)
         scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 800))
         scrollView.tile()
@@ -33,8 +33,8 @@ struct ThinScrollerFadeTests {
     }
 
     /// What AppKit posts while the user scrolls a scroll view (wheel, trackpad, a knob drag).
-    private static func userScroll(_ scrollView: NSScrollView) {
-        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+    private static func userScroll(_ scrollView: NSScrollView, center: NotificationCenter) {
+        center.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
     }
 
     @Test func scrollingShowsTheKnobAndItFadesAfterTheRestDelay() async throws {
@@ -42,14 +42,14 @@ struct ThinScrollerFadeTests {
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.doubleValue = 0.5 // the app or a layout moved it: no knob
         #expect(!scroller.isKnobShown)
-        Self.userScroll(scrollView)
+        Self.userScroll(scrollView, center: scroller.notificationCenter)
         #expect(scroller.isKnobShown)
         #expect(!scroller.isKnobExpanded) // thin while it only scrolls
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(400))
         #expect(scroller.isKnobShown) // not yet
         // A new scroll step restarts the rest delay.
-        Self.userScroll(scrollView)
+        Self.userScroll(scrollView, center: scroller.notificationCenter)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
         await scroller.restTask?.value
@@ -98,7 +98,7 @@ struct ThinScrollerFadeTests {
         let near = CGPoint(x: scrollView.bounds.maxX - 3, y: 100)
         scroller.pointerMoved(to: near)
         #expect(!scroller.isKnobShown)
-        Self.userScroll(scrollView) // the terminal shows it only for moves through its scrollback
+        Self.userScroll(scrollView, center: scroller.notificationCenter) // the terminal shows it only for moves through its scrollback
         #expect(!scroller.isKnobShown)
         scroller.pointerMoved(to: nil)
         scroller.flash() // a move through the scrollback

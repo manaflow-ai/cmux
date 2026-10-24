@@ -57,6 +57,18 @@ name: cmux-next perf cron
 on:
   workflow_dispatch:
     inputs:
+      tip_sha:
+        description: "Exact feat-cmux-next SHA for a direct Blacksmith macOS measurement"
+        required: false
+        default: ""
+      parts:
+        description: "Comma-separated GUI parts (transcript-scroll,sidebar,startup); manual Blacksmith mode only"
+        required: false
+        default: ""
+      runner_class:
+        description: "Blacksmith macOS runner class; rows are compared only within this class"
+        required: false
+        default: "blacksmith-6vcpu-macos-26"
       yield_mode:
         description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
         required: false
@@ -75,10 +87,92 @@ concurrency:
 env:
   YIELD_MODE: ${{ inputs.yield_mode || vars.CMUX_NEXT_PERF_CRON_YIELD || 'queued' }}
 
+# A manual tip_sha+parts dispatch is a direct, warning-only Blacksmith macOS
+# measurement. It bypasses the opportunistic cmux20-bench plan; receipts carry
+# runner_class so rows from unlike hardware are never compared.
 jobs:
+  blacksmith-mac:
+    name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    permissions:
+      contents: read
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tip_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Run the exact tip's GUI parts
+        env:
+          TIP_SHA: ${{ inputs.tip_sha }}
+          PARTS: ${{ inputs.parts }}
+          RUNNER_CLASS: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/tipguard-blacksmith"
+          mkdir -p "$out"
+          [[ "$TIP_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "tip_sha must be a full lowercase commit SHA" >&2; exit 2; }
+          actual="$(git rev-parse HEAD)"
+          [ "$actual" = "$TIP_SHA" ] || { echo "checkout SHA $actual differs from requested $TIP_SHA" >&2; exit 2; }
+          git fetch --no-tags --depth=50 origin feat-cmux-next
+          branch_tip="$(git rev-parse FETCH_HEAD)"
+          git merge-base --is-ancestor "$actual" "$branch_tip" || { echo "requested SHA is not an ancestor of feat-cmux-next" >&2; exit 2; }
+          started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          scripts/measure/split-spring.sh --build-only >"$out/build.log" 2>&1
+          python3 - "$out" "$actual" "$RUNNER_CLASS" "$started" <<'PY2'
+          import json, pathlib, sys
+          out, sha, runner, started = sys.argv[1:]
+          pathlib.Path(out, "receipt.json").write_text(json.dumps({
+              "sha": sha, "runner_class": runner, "started_at": started,
+              "build_log": "build.log", "parts": []}, indent=2) + "\n")
+          PY2
+          IFS=',' read -r -a requested <<<"$PARTS"
+          for part in "${requested[@]}"; do
+            case "$part" in
+              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=panes) ;;
+              sidebar) args=(--app-cache --vdisplay=120 --suite=budgets --only=sidebar) ;;
+              startup) args=(--app-cache --vdisplay=120 --suite=launch --profile empty --mode warm --runs 5 --timeout 20) ;;
+              *) echo "unsupported part: $part" >&2; exit 2 ;;
+            esac
+            part_dir="$out/$part"
+            mkdir -p "$part_dir"
+            part_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            scripts/measure/split-spring.sh "${args[@]}" >"$part_dir/run.log" 2>&1
+            cp artifacts/split-spring/report.json "$part_dir/report.json"
+            part_finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            PART="$part" PART_STARTED="$part_started" PART_FINISHED="$part_finished" python3 - "$out/receipt.json" "$part_dir" <<'PY2'
+          import json, os, pathlib, sys
+          receipt = pathlib.Path(sys.argv[1]); part_dir = pathlib.Path(sys.argv[2])
+          doc = json.loads(receipt.read_text())
+          doc["parts"].append({"name": os.environ["PART"], "started_at": os.environ["PART_STARTED"],
+                               "finished_at": os.environ["PART_FINISHED"],
+                               "report": str(part_dir.relative_to(receipt.parent) / "report.json"),
+                               "log": str(part_dir.relative_to(receipt.parent) / "run.log")})
+          receipt.write_text(json.dumps(doc, indent=2) + "\n")
+          PY2
+          done
+          echo "### manual Blacksmith GUI perf" >>"$GITHUB_STEP_SUMMARY"
+          echo "SHA: $TIP_SHA" >>"$GITHUB_STEP_SUMMARY"
+          echo "runner class: $RUNNER_CLASS" >>"$GITHUB_STEP_SUMMARY"
+          cat "$out/receipt.json" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Keep exact receipts and rows
+        if: always()
+        uses: actions/upload-artifact@043fb46a1d93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/tipguard-blacksmith
+          retention-days: 90
+          if-no-files-found: warn
+
   plan:
     name: perf cron plan
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read

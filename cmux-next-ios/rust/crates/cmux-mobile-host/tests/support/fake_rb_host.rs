@@ -178,6 +178,8 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
                                     history.push(std::mem::replace(&mut url, body["url"].as_str().unwrap_or_default().to_owned()));
                                     out.extend(page(&url));
                                 }
+                                // A hung page (tests of the phone's watchdog): nothing is read or answered again.
+                                Some("rb.find") if body["query"] == "hang" => std::future::pending::<()>().await,
                                 // A link the page follows by itself (a click inside it).
                                 Some("rb.find") if body["query"].as_str().is_some_and(|q| q.starts_with("goto:")) => {
                                     let to = body["query"].as_str().unwrap_or_default()["goto:".len()..].to_owned();

@@ -117,6 +117,32 @@ Swift/Rust builds and tests stay on the fleet.
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
+- Copy Chrome's performance model (Lawrence 2026-10-24). Before you design a fast path, find how Chromium
+  does the same job and do that, or write in the commit why cmux differs:
+  - The main thread never blocks: no sync daemon, disk, network or lock wait on it (Chrome's UI-thread
+    rule, `ScopedBlockingCall`). Input changes the model in the same turn; the backend reconciles later.
+  - One frame per display refresh: input and changes coalesce to the frame (Chrome aligns input to the
+    begin-frame), animation runs off the main thread where it can (compositor-driven), and an animation
+    is interruptible from its current value. A layout or a reflow per animation frame is a bug.
+  - Measure from the input to the frame shown, as distributions (p50, p95, p99, max), in lab benches and
+    in opt-in field data (Chrome's EventLatency histograms and UMA). A mean alone proves nothing.
+  - Memory: hidden pages are discarded by Memory Saver rules (never one with form input, audio, capture,
+    a running download or a `beforeunload` handler; it reloads when shown), and renderer processes are
+    shared per site above a limit set from physical memory, as Chrome does.
+  - Process work by priority: what the person sees and touches first; hidden windows, background tabs
+    and idle work are throttled (Chrome's background-tab timer throttling and task priorities).
+    Throttling is only for work the person cannot see. It is never the fix for a slow visible action:
+    remove that work, do not delay, debounce or throttle it.
+- Go past Chrome where cmux is scripted. Scripts, the CLI, MCP and agents drive cmux far more than
+  extensions drive Chrome, so automation must never compete with the person:
+  - A scripted or agent change goes through the same action pipeline as a key press, and its local model
+    change is O(changed items), never O(session).
+  - Changes to hidden or background workspaces update the model only: no layout, no animation, no view
+    work until the workspace shows, then one layout to its final state.
+  - A burst of scripted changes (reorders, moves, splits) coalesces to one model update and at most one
+    frame per window; batch requests apply as one transaction.
+  - Input from the person always goes before automation (separate queues, the person's first), and the
+    socket server parses, validates and coalesces off the main thread.
 - The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). When the
   hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
   checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
@@ -176,6 +202,14 @@ RFCs or progress updates. Fill the PR's `## Changelog` section with one
 Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 ## CI, review and merge
+
+For `feat-cmux-next` compile and build work, use fast checks first, then any
+free compatible owned Mac through the controller, and Blacksmith macOS only as
+the last resort. A compile or build must never depend on a single-host
+reservation without a fallback. The nightly app builder remains dedicated;
+Release gates do not share it. Signing, notarization and GUI steps that truly
+require macOS run on owned Macs first and Blacksmith macOS last, in parallel
+with the fast checks. Keep the target at zero queue.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).

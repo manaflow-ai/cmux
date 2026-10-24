@@ -57,6 +57,10 @@ Fleet (an owned mini's console; the allowlisted entry builds the tagged app at t
     --script scripts/measure/split-spring.sh --ref SHA --key KEY --timeout 10800 \\
     --artifact artifacts/split-spring/report.json --arg=--suite=every-action [--arg=--sessions=light,stress]
   (also artifacts/split-spring/every-action.md in a second step with that --artifact)
+  The controller returns --artifact files only when the step passes. A run with a failed session exits
+  FAILED_SESSION_EXIT and prints its whole report into the step log (every-action.md, then the JSON as
+  EVERY-ACTION-REPORT lines); get it back with
+  cmux-ci log STEP_ID > step.log && every-action-sweep.py --merge OUT/every-action.json step.log
 
 On the fleet pass --vdisplay=120 to split-spring.sh: a 1920x1080 120 Hz virtual display, so frames are judged at
 full ProMotion refresh and the STRESS grid (4 columns) fits; a 1024x768 console refuses the splits. The window
@@ -66,15 +70,22 @@ Pass --vdisplay-hold=SECONDS longer than the run (the helper ends itself after 1
 Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sessions light,stress] [--repeat 3]
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
---merge OUT/every-action.json SHARD.json... (writes the merged JSON and the ranked markdown).
+--merge OUT/every-action.json SHARD.json... (writes the merged JSON and the ranked markdown). A SHARD may also be the
+step log of a failed step (the EVERY-ACTION-REPORT lines it printed).
+Exit status FAILED_SESSION_EXIT (3) when a session failed (its error is in failed_sessions and every-action.md; a
+session that failed partway keeps its rows, marked `failed`); a --merge that holds a shard's failure exits the same.
+A STRESS session of another shape (perf-stress-session's StressShapeError at the build, SessionShapeError at a
+mid-session rebuild or tab restore) is such a failure: another layout is never measured as `stress`. So is an app that
+does not come back after a crash (bench_launch's LaunchError at a relaunch): the session is recorded with its rows and
+the next session runs on a fresh launch.
 """
-import argparse, csv, signal, threading, glob, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time
+import argparse, base64, csv, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import LaunchError, launch_app  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -110,6 +121,16 @@ WINDOW = (40, 40, 1600, 1000)
 
 TARGET_COMMIT_MS = 10.0
 TARGET_TURN_MS = 4.0
+# The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
+# failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
+FAILED_SESSION_EXIT = 3
+# How long a closed-history entry may take to reach the app after the topology shows its close (the daemon's
+# closed history and the topology are two event streams). restore() waits this long for the input's own entries,
+# and mark_closed() for the sweep's own cleanup entries.
+CLOSED_LAND_S = 3.0
+# A failed run prints its report into the step log as `EVERY-ACTION-REPORT k/N <gzip+base64 chunk>` lines.
+REPORT_LINE = "EVERY-ACTION-REPORT"
+REPORT_LINE_CHARS = 4000  # base64 characters per line: short enough for any line-based log store
 
 
 def uptime():
@@ -305,6 +326,53 @@ def tab_kinds(topo):
     return {t["id"]: t.get("kind") for w in topo.get("workspaces") or [] for p in panes_of(w) for t in p.get("tabs") or []}
 
 
+def layout(topo):
+    """What a restore must bring back exactly when ids change (a reopened pane or tab has new ids): the windows, and
+    per workspace each screen's panes in order, each as its column and the multiset of its tab kinds."""
+    return {"windows": sorted(w.get("id") or "" for w in topo.get("windows") or []),
+            "workspaces": {w["id"]: [[[p.get("column"), sorted(t.get("kind") or "?" for t in p.get("tabs") or [])]
+                                      for p in s.get("panes") or [] if not p.get("dock")] for s in w.get("screens") or []]
+                           for w in topo.get("workspaces") or [] if w.get("id")}}
+
+
+def pane_position(topo, workspace, pane):
+    """[screen index, pane index] of `pane` in `workspace`, or None."""
+    ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == workspace), {})
+    for screen_index, screen in enumerate(ws.get("screens") or []):
+        for pane_index, info in enumerate(p for p in screen.get("panes") or [] if not p.get("dock")):
+            if info.get("id") == pane:
+                return [screen_index, pane_index]
+    return None
+
+
+def pane_at(topo, workspace, position):
+    """The id of the pane at `position` ([screen index, pane index]) in `workspace`, or None."""
+    ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == workspace), {})
+    screens = ws.get("screens") or []
+    if not position or position[0] >= len(screens):
+        return None
+    panes = [p for p in screens[position[0]].get("panes") or [] if not p.get("dock")]
+    return panes[position[1]].get("id") if position[1] < len(panes) else None
+
+
+def terminals(topo):
+    """tab id -> terminal id of every terminal tab (a reopen inside the reap grace attaches the same terminal)."""
+    return {t["id"]: t.get("terminal") for w in topo.get("workspaces") or [] for p in panes_of(w)
+            for t in p.get("tabs") or [] if t.get("kind") == "terminal" and t.get("terminal")}
+
+
+def closed_ids():
+    """The closed-history ids (`history.list`, newest first): each one a group `history.reopen` brings back by id.
+    [] only for a history the app read as empty; None when the read failed (an error or unreachable reply, a
+    timeout, a reply without an `entries` list): then nobody knows which entries a measured input made."""
+    reply = rpc("history.list", {"kind": "closed", "range": "all", "limit": 5000})
+    entries = reply.get("entries") if isinstance(reply, dict) and not error_of(reply) else None
+    if not isinstance(entries, list):
+        note(f"every-action: history.list did not answer: {error_of(reply) or type(reply).__name__}")
+        return None
+    return [e["closed_id"] for e in entries if isinstance(e, dict) and e.get("closed_id")]
+
+
 # ----------------------------------------------------------------------------------------------------------
 # Classification: what runs, through which entrypoint, and what it is checked against.
 
@@ -421,12 +489,41 @@ def argument_values(action, base):
 # ----------------------------------------------------------------------------------------------------------
 # One session's sweep.
 
+class SessionShapeError(RuntimeError):
+    """The STRESS session has another shape after a restore (Stress.check refused it): the session fails, another
+    layout is never measured as `stress`. Only the sweep's shape check raises it. perf-stress-session raises its own
+    StressShapeError for a builder step that timed out too (focus never reached a pane, a workspace never showed);
+    in a restore that is a harness row of the action (or the interaction's restore_error), then relaunch_session():
+    a relaunch and build(), whose own check fails the session on a real deviation."""
+
+
+def tab_key(tab):
+    """What still names a tab after a reopen gives it a new id: its url (each STRESS page has its own), else its
+    terminal (a reopen inside the reap grace attaches the same one); None when neither is known."""
+    if tab.get("url"):
+        return "url:" + tab["url"]
+    if tab.get("terminal"):
+        return "terminal:" + tab["terminal"]
+    return None
+
+
+def tabs_at(topo, workspace, pane):
+    """The tabs of `pane` in `workspace` (topology dicts, in order); [] when the pane is not there."""
+    ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == workspace), {})
+    return next((p.get("tabs") or [] for p in panes_of(ws) if p.get("id") == pane), [])
+
+
 class Sweep:
     def __init__(self, app, session, stress_module):
         self.app, self.session, self.stress_module = app, session, stress_module
         self.rows, self.interactions = [], []
         self.base = {}
         self.builder = None
+        # The closed-history ids just before the measured input (mark_closed); restore() reopens only newer ones.
+        self.closed_mark = None
+        self.mark_problem = None  # why the mark is None (mark_closed), for the restore's drift
+        # The sweep's own closes since the last mark (cleanup_close), and the history ids read before the first.
+        self.cleanup_owed, self.cleanup_since = 0, None
 
     # Session building.
 
@@ -435,29 +532,20 @@ class Sweep:
         # A session starts from one workspace: anything a restore brought back is closed first.
         leftover = [w["id"] for w in topology().get("workspaces") or [] if w.get("id")][1:]
         for workspace in leftover:
-            act("closeWorkspace", f"workspace:{workspace}", origin="script")
+            self.cleanup_close("closeWorkspace", f"workspace:{workspace}")
         if leftover:
             note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
                  f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
-            summary = self.builder.build(check=False) if "check" in self.builder.build.__code__.co_varnames else self.builder.build()
-            # The builder's own shape check (PL-motion-core): a deviation is quoted with every number, not a failed run.
-            try:
-                checker = getattr(type(self.builder), "check", None)
-                if checker:
-                    checker(summary)
-            except Exception as error:  # StressShapeError
-                summary["shape_error"] = str(error)[:400]
+            # STRESS or nothing (P12): the builder's own shape check raises StressShapeError on any other layout, which
+            # fails this session (failed_sessions, exit FAILED_SESSION_EXIT); another layout is never measured as it.
+            summary = self.builder.build()
             note("STRESS-SESSION " + json.dumps(summary))
             self.summary = summary
             workspace = summary.get("measured")
         else:
-            workspace = self.builder.new_workspace()
-            self.builder.action("splitRight", settle=0.6)
-            panes = [p["id"] for p in self.stress_module.Stress.panes(self.builder.workspace(workspace))]
-            self.builder.focus_pane(panes[0])
-            for kind in ["chromium", "chromium", "webkit", "chat", "terminal"]:
-                self.builder.add_tab(workspace, panes[0], kind)
+            # Shown, and split by pane id (the builder's light session): focus may not follow a new workspace.
+            workspace, panes = self.builder.build_light()
             self.builder.new_workspace()
             self.builder.action("goToWorkspace", {"workspace": workspace})
             wait(lambda: self.builder.focused_workspace() == workspace, 20)
@@ -476,7 +564,14 @@ class Sweep:
         ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == workspace), {})
         pane_info = next((p for p in panes_of(ws) if p.get("id") == pane), (panes_of(ws) or [{}])[0])
         tabs = pane_info.get("tabs") or []
-        made = getattr(self.builder, "made_kinds", {})
+        # The kind the builder asked for each tab it made (perf-stress-session's `made`: webkit and chromium apart,
+        # chat even when the New Tab page stood in); the topology says only `browser` for both engines.
+        asked = {tab: kind for entries in (getattr(self.builder, "made", None) or {}).values()
+                 for kind, tab, *_ in entries if tab}
+        places = {p["id"]: [w["id"], pane_position(topo, w["id"], p["id"])]
+                  for w in topo.get("workspaces") or [] if w.get("id") for p in panes_of(w) if p.get("id")}
+        keys = {t["id"]: tab_key(t) for w in topo.get("workspaces") or [] for p in panes_of(w) for t in p.get("tabs") or []
+                if t.get("id") and tab_key(t)}
         kinds = {"terminal": [t["id"] for t in tabs if t.get("kind") == "terminal"],
                  "browser": [t["id"] for t in tabs if t.get("kind") == "browser"],
                  "chat": [t["id"] for t in tabs if t.get("kind") == "conversation"]}
@@ -486,10 +581,15 @@ class Sweep:
                 [t["id"] for t in tabs if t.get("kind") == "page"]
         selected = next((t["id"] for t in tabs if t.get("selected")), pane_info.get("selected_tab"))
         other = next((w["id"] for w in topo.get("workspaces") or [] if w.get("id") != workspace), None)
-        self.base = {"workspace": workspace, "pane": pane_info.get("id"), "tab": selected, "kinds": kinds, "made": made,
+        # The busy terminals (STRESS: 10 printing a line every 20 ms) by terminal id: a reopened pane must bring back
+        # the same running terminals, not new idle shells.
+        by_tab = terminals(topo)
+        busy = sorted(by_tab[t] for t in getattr(self.builder, "busy", None) or [] if t in by_tab)
+        self.base = {"workspace": workspace, "pane": pane_info.get("id"), "tab": selected, "kinds": kinds, "asked": asked,
                      "window": focus.get("window"), "other_workspace": other, "shape": shape(topo), "tab_kinds": tab_kinds(topo),
-                     "settings": self.settings()}
-        note(f"every-action: {self.session} base {json.dumps({k: v for k, v in self.base.items() if k not in ('shape', 'settings', 'tab_kinds')})}")
+                     "layout": layout(topo), "pane_at": pane_position(topo, workspace, pane_info.get("id")), "busy": busy,
+                     "places": places, "tab_keys": keys, "settings": self.settings()}
+        note(f"every-action: {self.session} base {json.dumps({k: v for k, v in self.base.items() if k not in ('shape', 'settings', 'tab_kinds', 'layout', 'asked', 'places', 'tab_keys')})}")
 
     def settings(self):
         reply = rpc("settings.get", {"path": []})
@@ -522,6 +622,43 @@ class Sweep:
 
     # Restore.
 
+    def cleanup_close(self, action, target):
+        """A close the sweep sends itself: a restore's cleanup, a damaged measured workspace, a workspace left over
+        from an earlier session. Its closed-history group reaches the app on the daemon's event stream, so it can land
+        after the topology shows the close, and even after the next input's mark. This counts it, and mark_closed()
+        waits until every counted group is in the history before it takes the mark. Then a cleanup group is never
+        read as a group of the next input."""
+        if not self.cleanup_owed:
+            ids = closed_ids()
+            self.cleanup_since = None if ids is None else set(ids)
+        self.cleanup_owed += 1
+        return act(action, target, origin="script")
+
+    def mark_closed(self):
+        """Records the closed history just before a measured input: restore() reopens only the entries that input made.
+        The mark first waits until the groups of the sweep's own closes since the last mark (``cleanup_close``) are in
+        the history: one new entry per close, counted against the history read before the first of them. When the
+        history cannot be read, or those groups do not all land within CLOSED_LAND_S, the mark stays None. restore()
+        then reopens nothing (any entry could be a cleanup group or an older one) and takes the tab or rebuild path.
+        A limit: an input group that lands later than restore()'s own wait is counted as a cleanup group here."""
+        owed, since = self.cleanup_owed, self.cleanup_since
+        self.cleanup_owed, self.cleanup_since = 0, None
+        self.mark_problem = None
+        if not owed:
+            ids = closed_ids()
+            if ids is None:
+                self.mark_problem = "closed history unread before the input"
+        else:
+            def landed():
+                now = closed_ids()
+                return now if now is not None and len(set(now) - since) >= owed else None
+            ids = wait(landed, CLOSED_LAND_S) if since is not None else None
+            if ids is None:
+                self.mark_problem = ("closed history unread before the input" if since is None else
+                                     f"the closed groups of the sweep's own {owed} close(s) never landed before the input")
+                note(f"every-action: {self.session}: {self.mark_problem}")
+        self.closed_mark = None if ids is None else set(ids)
+
     def restore(self, action_id, toggled):
         if self.app.process and self.app.process.poll() is not None:
             # The app is gone (it quit or crashed): rebuilding through a dead socket would only time out.
@@ -533,15 +670,42 @@ class Sweep:
             reply = rpc("action.run", {"action": action_id, "focus": True})
             if error_of(reply):
                 key = None
-        before, after = self.base["shape"], shape(topology())
+        mark, self.closed_mark = self.closed_mark, None
+        problem, self.mark_problem = self.mark_problem, None
+        closed = []
+        drift = []
+        if self.lost(self.base["shape"], shape(topology())):
+            if mark is None:
+                # No entry can be told apart as the input's own (mark_closed says why).
+                drift.append(f"{problem or 'closed history unread before the input'}: no reopen")
+            else:
+                # The groups the input closed, read before this restore's own closes add theirs. The daemon's closed
+                # history reaches the app on its own event stream, so an entry can land after the topology shows
+                # the close: wait for it. A move (a pane into another workspace) closes nothing, and the bound runs
+                # out. A failed read here is no ids, never "everything".
+                closed = wait(lambda: [i for i in closed_ids() or [] if i not in mark], CLOSED_LAND_S) or []
+        drift += self.close_new(self.base["shape"])
+        lost = self.lost(self.base["shape"], shape(topology()))
+        if lost:
+            drift.append(f"lost {lost}")
+            self.rebuild(lost, closed)
+        changed = self.restore_settings()
+        if changed:
+            drift.append(f"settings {','.join(changed)[:80]}")
+        self.home()
+        return drift
+
+    def close_new(self, before):
+        """Closes every window, workspace, pane and tab that `before` (a shape) does not have; returns what it closed."""
+        after = shape(topology())
         drift = []
         for window in after["windows"]:
             if window not in before["windows"]:
-                act("closeWindow", f"window:{window}", origin="script")
+                self.cleanup_close("closeWindow", f"window:{window}")
                 drift.append("window+")
         for workspace in list(after["workspaces"]):
             if workspace not in before["workspaces"]:
-                act("closeWorkspace", f"workspace:{workspace}", origin="script")
+                self.cleanup_close("closeWorkspace", f"workspace:{workspace}")
                 drift.append("workspace+")
         for workspace, panes in after["workspaces"].items():
             old = before["workspaces"].get(workspace)
@@ -549,21 +713,13 @@ class Sweep:
                 continue
             for pane, tabs in panes.items():
                 if pane not in old:
-                    act("closePane", f"pane:{pane}", origin="script")
+                    self.cleanup_close("closePane", f"pane:{pane}")
                     drift.append("pane+")
                     continue
                 for tab in tabs:
                     if tab not in old[pane]:
-                        act("closeTab", f"tab:{tab}", origin="script")
+                        self.cleanup_close("closeTab", f"tab:{tab}")
                         drift.append("tab+")
-        lost = self.lost(before, shape(topology()))
-        if lost:
-            drift.append(f"lost {lost}")
-            self.rebuild(lost)
-        changed = self.restore_settings()
-        if changed:
-            drift.append(f"settings {','.join(changed)[:80]}")
-        self.home()
         return drift
 
     def lost(self, before, after):
@@ -581,53 +737,160 @@ class Sweep:
                 missing["tabs"] += sum(1 for t in tabs if t not in now[pane])
         return {k: v for k, v in missing.items() if v}
 
-    def rebuild(self, lost):
-        """Removed objects come back: tabs of the base pane by kind; otherwise the session's measured workspace is rebuilt."""
-        before, after = self.base["shape"], shape(topology())
-        base_ws = self.base["workspace"]
-        only_tabs = set(lost) == {"tabs"} and base_ws in after["workspaces"]
-        if only_tabs:
-            for pane, tabs in before["workspaces"][base_ws].items():
-                now = after["workspaces"][base_ws].get(pane)
-                if now is None:
-                    only_tabs = False
-                    break
-                for tab in tabs:
-                    if tab not in now:
-                        kind = self.base["tab_kinds"].get(tab)
-                        self.builder.focus_pane(pane)
-                        self.builder.add_tab(base_ws, pane, {"terminal": "terminal", "browser": "chromium"}.get(kind, "chat"))
-            if only_tabs:
-                self.builder.focus_pane(self.base["pane"])
+    def restored(self):
+        """True when the topology is the base again: the same layout (``layout``) and every busy terminal running."""
+        topo = topology()
+        return layout(topo) == self.base["layout"] and set(self.base["busy"]) <= set(terminals(topo).values())
+
+    def reopen(self, closed):
+        """Reopens exactly `closed` (closed-history ids the measured input made, newest first: the undo order) by id
+        (`history.reopen`, the Recently Closed list's path), never the newest entry of the history (Cmd-Shift-T),
+        which this sweep's own cleanup closes fill. True once the topology is the base again (``restored``); then
+        the base pane is the pane at the base pane's place. Otherwise whatever came back is closed and False."""
+        if not closed:
+            return False
+        for item in closed:
+            reply = act("history.reopen", args={"id": item}, origin="script")
+            if error_of(reply):
+                note(f"every-action: {self.session}: history.reopen {item}: {error_of(reply)}")
+                break
+        else:
+            # action.run answers when the reopen's work settled; the store lays the reopened tabs over later.
+            if wait(self.restored, 10.0):
+                topo = topology()
+                base_ws = self.base["workspace"]
+                pane = pane_at(topo, base_ws, self.base.get("pane_at")) or self.base["pane"]
+                busy = set(self.base["busy"])
+                if busy:
+                    self.builder.busy = [tab for tab, terminal in terminals(topo).items() if terminal in busy]
+                self.carry_made(topo)
+                self.builder.focus_pane(pane)
                 self.snapshot_base(base_ws)
-                return
-        # Reopen Closed (Cmd-Shift-T) brings closed panes and tabs back in one step each: much cheaper than a
-        # rebuild of the STRESS grid. The reopened ones have new ids, so the base is taken again by counts.
-        if base_ws in after["workspaces"] and not lost.get("workspaces") and not lost.get("windows"):
-            want = counts({"windows": [], "workspaces": {base_ws: before["workspaces"][base_ws]}, "focus": {}})
-            for _ in range(6):
-                now = counts({"windows": [], "workspaces": {base_ws: shape(topology())["workspaces"].get(base_ws, {})}, "focus": {}})
-                if now["panes"] >= want["panes"] and now["tabs"] >= want["tabs"]:
-                    note(f"every-action: {self.session}: Reopen Closed brought back {lost}")
-                    self.builder.focus_pane(next(iter(shape(topology())["workspaces"][base_ws])))
-                    self.snapshot_base(base_ws)
-                    return
-                act("reopenClosedBrowserPanel", origin="script")
-                time.sleep(0.3)  # test script: the reopened pane or tab lands before the next count
+                return True
+        note(f"every-action: {self.session}: reopening {closed} did not give the base back; closing what came back")
+        self.close_new(self.base["shape"])
+        return False
+
+    def carry_made(self, topo):
+        """After a reopen gave the base back with new ids: the builder's record of the kind it asked for each tab
+        (`made`) moves to the reopened panes (by place) and tabs (by url or terminal, ``tab_key``), so the shape
+        check and a later tab restore still read the engine each tab was made with. A terminal or chat entry with
+        neither falls back to an unclaimed tab of its topology kind (the check tells only terminal from not); a
+        page entry never does (WebKit and Chromium are both `browser`): it is left unknown, and the check names it."""
+        made = self.builder.made
+        keys = self.base.get("tab_keys") or {}
+        for old_pane, (workspace, place) in list((self.base.get("places") or {}).items()):
+            entries = made.get(old_pane)
+            if not entries:
+                continue
+            new_pane = old_pane if pane_position(topo, workspace, old_pane) else pane_at(topo, workspace, place)
+            tabs = tabs_at(topo, workspace, new_pane)
+            present = {t.get("id") for t in tabs}
+            by_key = {tab_key(t): t["id"] for t in tabs if tab_key(t)}
+            # An entry is (kind, id, *rest): perf-stress-session adds fields after the id (whether a chat fell back).
+            moved = [(kind, tab if tab is None or tab in present else by_key.get(keys.get(tab)), *rest)
+                     for kind, tab, *rest in entries]
+            claimed = {entry[1] for entry in moved if entry[1]}
+            for index, (kind, tab, *rest) in enumerate(moved):
+                if tab is None and entries[index][1] is not None and kind in ("terminal", "chat"):
+                    want = ("terminal",) if kind == "terminal" else ("conversation", "page")
+                    tab = next((t["id"] for t in tabs if t.get("kind") in want and t["id"] not in claimed), None)
+                    if tab:
+                        claimed.add(tab)
+                        moved[index] = (kind, tab, *rest)
+            if new_pane != old_pane:
+                made.pop(old_pane, None)
+            if new_pane:
+                made[new_pane] = moved
+
+    def check_stress_shape(self):
+        """In STRESS, the session is STRESS again after a restore rebuilt part of it, or SessionShapeError fails the
+        session (run() and interaction() pass it up; main() records it in failed_sessions, exit FAILED_SESSION_EXIT)."""
+        if self.session != "stress":
+            return
+        summary = self.builder.summary()
+        try:
+            self.stress_module.Stress.check(summary)
+        except self.stress_module.StressShapeError as error:
+            raise SessionShapeError(str(error)) from error
+
+    def rebuild(self, lost, closed=()):
+        """Removed objects come back: the closed groups the input made, reopened by id; else tabs of the base
+        workspace, each of the kind the builder asked for it; otherwise the session's measured workspace is
+        rebuilt. A rebuilt STRESS session passes the shape check, or the session fails."""
+        if not lost.get("workspaces") and not lost.get("windows") and self.reopen(list(closed)):
+            note(f"every-action: {self.session}: reopened {len(closed)} closed group(s) by id; the base is back ({lost})")
+            return
+        before, after = self.base["shape"], shape(topology())
+        lost = self.lost(before, after) or lost
+        base_ws = self.base["workspace"]
+        missing = self.lost_tabs(before, after) if set(lost) == {"tabs"} and base_ws in after["workspaces"] else None
+        if missing:
+            for pane, tab, kind in missing:
+                self.replace_tab(base_ws, pane, tab, kind)
+            self.builder.focus_pane(self.base["pane"])
+            self.check_stress_shape()
+            self.snapshot_base(base_ws)
+            return
         note(f"every-action: {self.session}: rebuilding after {lost}")
         if self.session == "stress":
             workspace = self.builder.build_measured()
         else:
-            workspace = self.builder.new_workspace()
-            self.builder.action("splitRight", settle=0.6)
-            panes = [p["id"] for p in self.stress_module.Stress.panes(self.builder.workspace(workspace))]
-            self.builder.focus_pane(panes[0])
-            for kind in ["chromium", "chromium", "webkit", "chat", "terminal"]:
-                self.builder.add_tab(workspace, panes[0], kind)
-            if base_ws in shape(topology())["workspaces"]:
-                act("closeWorkspace", f"workspace:{base_ws}", origin="script")
+            workspace, _ = self.builder.build_light()
+        # The damaged measured workspace goes: in STRESS it would stay a second grid of pages and busy terminals.
+        if base_ws in shape(topology())["workspaces"]:
+            self.cleanup_close("closeWorkspace", f"workspace:{base_ws}")
+            # The store applies the close after the reply, and the shape check counts workspaces (exactly 60):
+            # wait for it to go. If it never goes, the check fails the session with 61.
+            wait(lambda: base_ws not in shape(topology())["workspaces"], 10.0)
+        self.check_stress_shape()
         time.sleep(2)  # test script: rebuilt pages load
         self.snapshot_base(workspace)
+
+    def replace_tab(self, workspace, pane, tab, kind):
+        """A new tab of `kind` in `pane` in place of the lost `tab`, in the builder's books too:
+          * `made`: the new tab takes the lost tab's entry (same index). A lost tab with no entry is the pane's first
+            terminal, which perf-stress-session's summary() counts by itself; its replacement gets no entry either, so
+            the pane still counts 2 terminals, not 3.
+          * `busy`: when the lost tab was a busy terminal, the new one runs perf-stress-session's BUSY_COMMAND and takes
+            its place. When the new tab's id is unknown, the dead id leaves `busy`: the shape check then counts 9 busy
+            terminals and fails the session. A dead id never stays and gets counted as busy."""
+        made = self.builder.made.setdefault(pane, [])
+        index = next((i for i, entry in enumerate(made) if entry[1] == tab), None)
+        self.builder.focus_pane(pane)
+        self.builder.add_tab(workspace, pane, kind)
+        entry = made.pop()  # add_tab appended the new tab's entry: (kind, id, ...), the id None when unknown
+        if index is not None:
+            made[index] = entry
+        busy = getattr(self.builder, "busy", None)
+        if busy and tab in busy:
+            at = busy.index(tab)
+            if entry[1]:
+                self.builder.send(entry[1], self.stress_module.BUSY_COMMAND)
+                busy[at] = entry[1]
+            else:
+                busy.pop(at)
+
+    def lost_tabs(self, before, after):
+        """[(pane, tab, kind)] for each base-workspace tab gone from a pane that is still there, with the kind the
+        builder asked for it (``made``: webkit, chromium, chat), or terminal for an unrecorded terminal (a pane's
+        first tab); None when a pane is gone or a lost tab's kind is unknown: then only a rebuild is exact."""
+        base_ws = self.base["workspace"]
+        asked = self.base.get("asked") or {}
+        missing = []
+        for pane, tabs in before["workspaces"][base_ws].items():
+            now = after["workspaces"][base_ws].get(pane)
+            if now is None:
+                return None
+            for tab in tabs:
+                if tab in now:
+                    continue
+                kind = asked.get(tab) or ("terminal" if self.base["tab_kinds"].get(tab) == "terminal" else None)
+                if kind is None:
+                    note(f"every-action: {self.session}: lost tab {tab} ({self.base['tab_kinds'].get(tab)}) has no recorded kind")
+                    return None
+                missing.append((pane, tab, kind))
+        return missing
 
     def restore_settings(self):
         now = self.settings()
@@ -716,6 +979,7 @@ class Sweep:
         expect = expectation(ident)
         toggled = bool(re.search(TOGGLES, ident)) and not expect
         for attempt in range(opts.repeat):
+            self.mark_closed()
             if not self.show(plan["context"]):
                 row["skipped"] = f"no {plan['context']} tab in the base pane"
                 return row
@@ -735,6 +999,7 @@ class Sweep:
                         if isinstance(sample["reply"], dict) else sample["reply"]
                     key_runs = sample["runs"]
                     drift = self.restore(ident, False) if key_runs else []
+                    self.mark_closed()
                     if not self.show(plan["context"]):
                         break
                     before = shape(topology())
@@ -813,6 +1078,7 @@ class Sweep:
     # Non-catalog interactions.
 
     def interaction(self, name, run, **extra):
+        self.mark_closed()
         try:
             result = run()
         except Exception as error:  # a harness failure is a row, not a crash of the sweep
@@ -822,8 +1088,11 @@ class Sweep:
         note(f"every-action: {self.session} interaction {name}: {json.dumps({k: v for k, v in row.items() if k in ('commit_ms', 'key_to_frame_ms', 'frames', 'error', 'turn_ms')})[:300]}")
         try:
             self.restore("", False)
-        except Exception:  # restore failures show in the next row's drift
-            pass
+        except SessionShapeError:
+            raise  # the rebuilt session is not STRESS: the session fails
+        except Exception as error:  # the row keeps it; the next row runs on a fresh build, as after an action's
+            row["restore_error"] = f"{error!r}"[:240]
+            self.relaunch_session(f"the restore after interaction {name} failed")
 
     def frames_during(self, body, settle=0.4):
         rpc("debug.hangs", {"clear": True})
@@ -847,7 +1116,7 @@ class Sweep:
         return window
 
     def run_interactions(self):
-        base = self.base
+        # Each interaction reads self.base when it runs: a restore or relaunch_session() gives the session new ids.
         # Typing in a terminal: the typing probe's key to frame (send time is the event's timestamp).
         def typing():
             self.show("terminal")
@@ -908,7 +1177,7 @@ class Sweep:
                         if sidebar:
                             rpc("debug.sidebar_wheel", {"dy": -40 if index < 20 else 40})
                         else:
-                            rpc("debug.mouse", {"action": "scroll", "pane": base["pane"], "dy": -40 if index < 20 else 40,
+                            rpc("debug.mouse", {"action": "scroll", "pane": self.base["pane"], "dy": -40 if index < 20 else 40,
                                                 "phase": "began" if index in (0, 20) else ("ended" if index in (19, 39) else "changed"),
                                                 "hover": index in (0, 20)})
                         time.sleep(1 / 120)  # test harness: one wheel event per 120 Hz frame
@@ -921,8 +1190,8 @@ class Sweep:
 
         def click_pane():
             topo = topology()
-            ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == base["workspace"]), {})
-            other = next((p["id"] for p in panes_of(ws) if p["id"] != base["pane"]), None)
+            ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == self.base["workspace"]), {})
+            other = next((p["id"] for p in panes_of(ws) if p["id"] != self.base["pane"]), None)
             if not other:
                 return {"skipped": "one pane only"}
             rpc("debug.pane_focus", {"action": "start"})
@@ -937,7 +1206,7 @@ class Sweep:
 
         def click_tab():
             window = self.pane_chrome()
-            pane = next((p for p in window.get("panes") or [] if p.get("pane") == base["pane"]), None)
+            pane = next((p for p in window.get("panes") or [] if p.get("pane") == self.base["pane"]), None)
             if not pane or not pane.get("strip") or not pane.get("tab_slots"):
                 return {"skipped": "no tab strip geometry (debug.pane_chrome)"}
             sx, sy, sw, sh = pane["strip"]
@@ -958,10 +1227,10 @@ class Sweep:
         def click_sidebar_row():
             reply = rpc("debug.sidebar_rows") or {}
             rows = ((reply.get("windows") or [{}])[0].get("rows") or []) if isinstance(reply, dict) else []
-            key = next((w.get("key") for w in topology().get("workspaces") or [] if w.get("id") == base["other_workspace"]), None)
+            key = next((w.get("key") for w in topology().get("workspaces") or [] if w.get("id") == self.base["other_workspace"]), None)
             row = next((r for r in rows if str(r.get("key", "")) == f"workspace({key})" and r.get("window_frame")), None) \
                 or next((r for r in rows if str(r.get("key", "")).startswith("workspace(") and r.get("window_frame")
-                         and str(r.get("key")) != f"workspace({next((w.get('key') for w in topology().get('workspaces') or [] if w.get('id') == base['workspace']), '')})"), None)
+                         and str(r.get("key")) != f"workspace({next((w.get('key') for w in topology().get('workspaces') or [] if w.get('id') == self.base['workspace']), '')})"), None)
             if not row:
                 return {"skipped": "no sidebar row geometry (debug.sidebar_rows)"}
             f = row["window_frame"]  # window points, top-left origin, as debug.mouse
@@ -972,7 +1241,7 @@ class Sweep:
             switches = timer.get("switches") or timer.get("samples") or []
             out["commit_ms"] = stat([s.get("commit_ms") for s in switches])
             out["input_ms"] = stat([s.get("input_ms") for s in switches])
-            out["check"] = "ok" if (topology().get("focus") or {}).get("workspace") != base["workspace"] else "wrong"
+            out["check"] = "ok" if (topology().get("focus") or {}).get("workspace") != self.base["workspace"] else "wrong"
             return out
         self.interaction("click.sidebar_row", click_sidebar_row)
 
@@ -1022,7 +1291,7 @@ class Sweep:
 
         def hover():
             window = self.pane_chrome()
-            pane = next((p for p in window.get("panes") or [] if p.get("pane") == base["pane"]), None)
+            pane = next((p for p in window.get("panes") or [] if p.get("pane") == self.base["pane"]), None)
             if not pane or not pane.get("strip") or not pane.get("tab_slots"):
                 return {"skipped": "no tab strip geometry"}
             sx, sy, sw, sh = pane["strip"]
@@ -1056,8 +1325,8 @@ class Sweep:
         def tab_drag():
             window = self.pane_chrome()
             panes = window.get("panes") or []
-            src = next((p for p in panes if p.get("pane") == base["pane"]), None)
-            dst = next((p for p in panes if p.get("pane") != base["pane"] and p.get("cell")), None)
+            src = next((p for p in panes if p.get("pane") == self.base["pane"]), None)
+            dst = next((p for p in panes if p.get("pane") != self.base["pane"] and p.get("cell")), None)
             if not src or not dst or not src.get("tab_slots"):
                 return {"skipped": "no two panes with geometry"}
             sx, sy, sw, sh = src["strip"]
@@ -1068,9 +1337,9 @@ class Sweep:
                 rpc("debug.mouse", {"action": "drag", "x": sx + slot[0] + slot[1] / 2, "y": sy + sh / 2,
                                     "to_x": cx + cw / 2, "to_y": cy + ch / 2, "steps": 30})
             out = self.frames_during(body, settle=0.8)
-            moved = [p for p in panes_of(next((w for w in topology().get("workspaces") or [] if w.get("id") == base["workspace"]), {}))
-                     if p.get("id") == base["pane"]]
-            out["check"] = "ok" if moved and len(moved[0].get("tabs") or []) < len(self.base["shape"]["workspaces"][base["workspace"]][base["pane"]]) else "wrong"
+            moved = [p for p in panes_of(next((w for w in topology().get("workspaces") or [] if w.get("id") == self.base["workspace"]), {}))
+                     if p.get("id") == self.base["pane"]]
+            out["check"] = "ok" if moved and len(moved[0].get("tabs") or []) < len(self.base["shape"]["workspaces"][self.base["workspace"]][self.base["pane"]]) else "wrong"
             out["counts_before"] = before
             return out
         self.interaction("drag.tab_to_pane", tab_drag)
@@ -1089,7 +1358,9 @@ class Sweep:
                 continue
             try:
                 row = self.run_action(action)
-            except Exception as error:  # a harness failure is this action's row; the session goes on
+            except SessionShapeError:
+                raise  # a restore rebuilt another layout: the session fails, it is never measured as STRESS
+            except Exception as error:  # a harness failure (a builder step's timeout too) is this action's row; the session goes on
                 row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
                        "frames": {"missed": None}, "check": "n/a"}
             self.rows.append(row)
@@ -1097,21 +1368,28 @@ class Sweep:
                  + (f"skipped ({row['skipped']})" if row.get("skipped") else
                     f"commit {(row.get('commit_ms') or {}).get('p95')} turn {(row.get('turn_ms') or {}).get('p95')} "
                     f"missed {row['frames']['missed']} errors {row['errors'][:2]} check {row['check']}"))
-            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True or any(e.startswith("harness:") for e in row.get("errors") or []):
-                note(f"every-action: the app stopped answering after {action['id']}; relaunching")
-                if not any(e.startswith("harness:") for e in row.get("errors") or []):
-                    self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
-                self.app.relaunch()
-                self.build()
+            if any(e.startswith("harness:") for e in row.get("errors") or []):
+                self.relaunch_session(f"a harness failure in {action['id']} (its restore or a builder step)")
+            elif (rpc("system.ping", timeout=10) or {}).get("pong") is not True:
+                self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
+                self.relaunch_session(f"the app stopped answering after {action['id']}")
         if not opts.no_interactions and (not opts.shard or "1" in opts.shard.split("/")[0].split(",")):
             self.run_interactions()
         for action in later:
             row = self.run_action(action)
             row["note"] = "ran last; the app relaunched after it"
             self.rows.append(row)
-            self.app.relaunch()
-            self.build()
+            self.relaunch_session(f"{action['id']} closed the windows")
         return self
+
+    def relaunch_session(self, why):
+        """The one way back to a known session, after an action's or an interaction's restore failed (a builder step
+        timed out, the app stopped answering) and after a window-closing action: relaunch the app, then build(). In
+        STRESS, build() runs perf-stress-session's shape check, so a session that does not come back as STRESS fails
+        there. The next row is never measured on a half-restored layout."""
+        note(f"every-action: {self.session}: {why}; relaunching and building the session again")
+        self.app.relaunch()
+        self.build()
 
     def check_validity(self):
         """Chromium really runs (PL-engine): no unavailable reason, no WebKit fallback, Chromium the default engine,
@@ -1316,15 +1594,28 @@ def score(row):
     return (max(values) if values else 0) + 50 * ((row.get("frames") or {}).get("missed") or 0) + (500 if [e for e in row.get("errors") or [] if not refusal(e)] or row.get("error") else 0)
 
 
+def failure_line(failure):
+    shard = f" (shard {failure['shard']})" if failure.get("shard") else ""
+    return f"- {failure['name']}{shard}, after {failure.get('rows', 0)} rows: {failure.get('error', '')[:600]}"
+
+
 def markdown(report):
     lines = [f"# every-action sweep: {report['env']['host']} macOS {report['env']['macos']} build {report['env']['sha'][:12]}", ""]
     lines.append(f"Targets: commit p95 <= {TARGET_COMMIT_MS} ms, turn p95 <= {TARGET_TURN_MS} ms, 0 missed frames, no errors, right result.")
+    failed = report.get("failed_sessions") or []
+    if failed:
+        lines += ["", f"## FAILED: {len(failed)} session(s) did not finish", ""] + [failure_line(f) for f in failed]
+    if not report["sessions"]:
+        lines += ["", "No session finished."]
     for session in report["sessions"]:
         rows = session["rows"] + session["interactions"]
         ran = [r for r in session["rows"] if not r.get("skipped")]
         missed = [r for r in rows if misses(r)]
-        lines += ["", f"## {session['name']}", "",
-                  f"Session: {json.dumps(session['summary'])[:400]}", "",
+        lines += ["", f"## {session['name']}", ""]
+        if session.get("failed"):
+            lines += ["FAILED partway: the rows below cover only the actions before the failure.", ""] + \
+                [failure_line(f) for f in session["failed"]] + [""]
+        lines += [f"Session: {json.dumps(session['summary'])[:400]}", "",
                   f"Validity: Chromium ok {session['validity'].get('chromium_ok')} (flags {session['validity'].get('cef_flags')}), "
                   f"refresh {session['idle']['frames'].get('refresh_ms')} ms, idle 3 s missed {session['idle']['frames'].get('missed')} frames.", "",
                   f"Actions: {len(session['rows'])} listed, {len(ran)} ran, {len(session['rows']) - len(ran)} skipped; "
@@ -1388,18 +1679,28 @@ def main():
     report_path = opts.json or os.path.join(OUT, "every-action.json")
     try:
         for index, name in enumerate([s for s in opts.sessions.split(",") if s]):
-            if index:
-                app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
+            failure = None
             try:
+                if index:
+                    app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
                 sweep.run(actions)
-            except Exception as error:  # one session failing still returns the other's rows (the step must pass to return them)
+            # The session failed: the other sessions still run, each from its own fresh launch, and the run exits
+            # FAILED_SESSION_EXIT. LaunchError is a SystemExit (an app that crashed and did not come back at a
+            # relaunch): it is this session's failure too, not an exit that skips its rows and the report.
+            except (Exception, LaunchError) as error:
                 note(f"every-action: the {name} session failed: {error!r}")
-                report.setdefault("failed_sessions", []).append({"name": name, "error": repr(error)[:400]})
+                failure = {"name": name, "error": repr(error)[:2000], "rows": len(sweep.rows)}
+                if opts.shard:
+                    failure["shard"] = opts.shard
+                report.setdefault("failed_sessions", []).append(failure)
                 if not getattr(sweep, "validity", None):
-                    continue
-            report["sessions"].append({"name": name, "summary": getattr(sweep, "summary", {}), "validity": sweep.validity,
-                                       "idle": getattr(sweep, "idle", {"frames": {}}), "rows": sweep.rows, "interactions": sweep.interactions})
+                    continue  # failed before it measured anything: failed_sessions is its whole record
+            entry = {"name": name, "summary": getattr(sweep, "summary", {}), "validity": sweep.validity,
+                     "idle": getattr(sweep, "idle", {"frames": {}}), "rows": sweep.rows, "interactions": sweep.interactions}
+            if failure:
+                entry["failed"] = [failure]  # its rows cover only the actions before the failure
+            report["sessions"].append(entry)
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:
@@ -1409,7 +1710,7 @@ def main():
             with open(os.path.join(OUT, "every-action.json"), "w") as f:
                 json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
-            f.write(markdown(report) if report["sessions"] else "# every-action sweep: no session finished\n")
+            f.write(markdown(report))
         SIGNPOSTS.stop()
         try:
             intervals = SIGNPOSTS.intervals()
@@ -1422,24 +1723,79 @@ def main():
         with open(report_path, "w") as f:
             json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
-            f.write(markdown(report) if report["sessions"] else "# every-action sweep: no session finished\n")
+            f.write(markdown(report))
         if not opts.keep:
             app.stop()
     note(f"every-action: wrote {report_path} and {os.path.join(OUT, 'every-action.md')}")
+    if report.get("failed_sessions"):
+        report_to_log(report)
+    fail_on_failed_sessions(report)
+
+
+def report_to_log(report):
+    """Prints `report` into the step log, for a run that exits FAILED_SESSION_EXIT. The controller returns --artifact
+    files only when the step passes (`cmux-ci run --help`), so without this a failed STRESS session would also lose
+    the finished light session's rows. Prints every-action.md as it is, then the JSON (gzip, base64) in
+    REPORT_LINE_CHARS pieces, `EVERY-ACTION-REPORT k/N <piece>`. report_from() reads them back (--merge OUT STEP.log)."""
+    note("every-action: the step fails, so its artifacts do not come back; the report follows in the step log")
+    print(markdown(report), flush=True)
+    data = base64.b64encode(gzip.compress(json.dumps(report, default=str).encode())).decode()
+    pieces = [data[i:i + REPORT_LINE_CHARS] for i in range(0, len(data), REPORT_LINE_CHARS)]
+    for index, piece in enumerate(pieces):
+        print(f"{REPORT_LINE} {index + 1}/{len(pieces)} {piece}")
+    sys.stdout.flush()
+
+
+def report_from(path):
+    """The report in `path`: an every-action JSON file, or a step log holding report_to_log()'s lines (any prefix the
+    log store adds before them is ignored). A log without all N pieces of one report is an error, never a partial
+    report."""
+    with open(path) as f:
+        text = f.read()
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    pieces, totals = {}, set()
+    for match in re.finditer(rf"{REPORT_LINE} (\d+)/(\d+) ([A-Za-z0-9+/=]+)", text):
+        pieces[int(match.group(1))] = match.group(3)
+        totals.add(int(match.group(2)))
+    if len(totals) != 1 or sorted(pieces) != list(range(1, max(totals) + 1)):
+        raise SystemExit(f"every-action: {path} is not a report, and not a step log with one whole report "
+                         f"(pieces {sorted(pieces)[:8]} of {sorted(totals)})")
+    return json.loads(gzip.decompress(base64.b64decode("".join(pieces[k] for k in sorted(pieces)))))
+
+
+def fail_on_failed_sessions(report):
+    """Exits FAILED_SESSION_EXIT when a session of `report` failed (after the report is written)."""
+    failed = report.get("failed_sessions") or []
+    if failed:
+        note(f"every-action: FAILED: {len(failed)} session(s) failed: {', '.join(f['name'] for f in failed)}")
+        raise SystemExit(FAILED_SESSION_EXIT)
 
 
 def merge(out, paths):
     """One report from shard reports (same host and build): sessions joined by name, rows by action id."""
-    reports = [json.load(open(p)) for p in paths]
+    reports = [report_from(p) for p in paths]
     merged = {"env": dict(reports[0]["env"], shards=[r["env"].get("shard") for r in reports]), "sessions": []}
     for report in reports:
+        shard = report["env"].get("shard")
+        # A shard's failure stays a failure of the merged run (its missing rows are not covered actions).
+        for failure in report.get("failed_sessions") or []:
+            merged.setdefault("failed_sessions", []).append(dict(failure, shard=failure.get("shard") or shard))
         for session in report["sessions"]:
+            failures = [dict(f, shard=f.get("shard") or shard) for f in session.get("failed") or []]
             into = next((s for s in merged["sessions"] if s["name"] == session["name"]), None)
             if into is None:
-                merged["sessions"].append(json.loads(json.dumps(session)))
+                first = json.loads(json.dumps(session))
+                if failures:
+                    first["failed"] = failures
+                merged["sessions"].append(first)
                 continue
             into["rows"] += session["rows"]
             into["interactions"] += session["interactions"]
+            if failures:
+                into.setdefault("failed", []).extend(failures)
     for session in merged["sessions"]:
         session["rows"].sort(key=lambda r: r["id"])
     with open(out, "w") as f:
@@ -1447,6 +1803,7 @@ def merge(out, paths):
     with open(os.path.splitext(out)[0] + ".md", "w") as f:
         f.write(markdown(merged))
     print(f"every-action: merged {len(paths)} shards into {out}")
+    fail_on_failed_sessions(merged)
 
 
 if __name__ == "__main__":

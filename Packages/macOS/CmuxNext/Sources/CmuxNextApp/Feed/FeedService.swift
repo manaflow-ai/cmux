@@ -205,6 +205,7 @@ final class FeedService {
         let client = reportsClient
         reportsTask = Task { [weak self] in
             guard let self else { return }
+            // wakeup-allow: mailbox wait is event-driven and ends on cancellation.
             while !Task.isCancelled {
                 do {
                     let page = try await client.wait(
@@ -219,6 +220,7 @@ final class FeedService {
                     // The daemon may not be running yet or may be handing off.
                     // Retry with a bounded delay; the next mailbox wait remains
                     // the normal event-driven path.
+                    // wakeup-allow: one-shot retry backoff after a failed mailbox request.
                     try? await ContinuousClock().sleep(for: .seconds(5))
                 }
             }

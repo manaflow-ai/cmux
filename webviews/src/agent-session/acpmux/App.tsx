@@ -383,7 +383,8 @@ import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
-import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
+import { type FolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
+import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
@@ -1481,6 +1482,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
+      data-floating-copy={copyable ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -3954,6 +3956,9 @@ function AcpmuxPane() {
     sessionId?: string;
     error?: string;
   }>();
+  const folderConfirmGeneration = useRef(0);
+  const folderConfirmInFlight = useRef(false);
+  const [folderConfirming, setFolderConfirming] = useState(false);
   const [importError, setImportError] = useState<string | undefined>();
   // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
   // composer says why, with Retry; opening it clears the notice.
@@ -5204,6 +5209,10 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  const [sessionSelection, setSessionSelection] = useState<
+    { sessionId: string; state: "pending" | "failed" } | undefined
+  >();
+  const sessionSelectionToken = useRef(0);
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
@@ -5229,7 +5238,25 @@ function AcpmuxPane() {
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab, markContextKnown);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
-    void callNative("chat.select", { sessionId });
+    const token = ++sessionSelectionToken.current;
+    setSessionSelection({ sessionId, state: "pending" });
+    void callNative("chat.select", { sessionId }).then(
+      (selected) => {
+        if (sessionSelectionToken.current !== token) return;
+        if (selected !== sessionId) {
+          setSessionSelection({ sessionId, state: "failed" });
+          return;
+        }
+        // Keep the New Tab mounted until the accepted selection has a matching attach summary.
+        // This preserves its geometry during the hold and restores it on stale or malformed opens.
+        setSessionSelection(undefined);
+        setNewTab(undefined);
+        setNewSession(false);
+      },
+      () => {
+        if (sessionSelectionToken.current === token) setSessionSelection({ sessionId, state: "failed" });
+      },
+    );
   }, []);
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
@@ -5852,6 +5879,9 @@ function AcpmuxPane() {
   shownSession.current = snapshot.sessionId;
   const requestFolder = useCallback((cwd: string, use: (folder: string) => void, cancel?: () => void) => {
     const pick = ++folderPick.current;
+    folderConfirmGeneration.current += 1;
+    folderConfirmInFlight.current = false;
+    setFolderConfirming(false);
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeCreating(false);
@@ -5889,6 +5919,9 @@ function AcpmuxPane() {
   const startInWorktree = useCallback((cwd: string) => {
     // A newer folder pick wins over this worktree, as between two picks.
     const pick = ++folderPick.current;
+    folderConfirmGeneration.current += 1;
+    folderConfirmInFlight.current = false;
+    setFolderConfirming(false);
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeError(undefined);
@@ -6513,7 +6546,10 @@ function AcpmuxPane() {
           },
           "chat.select": async ({ sessionId }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.select(String(sessionId)));
+            const selected = await client.select(String(sessionId));
+            if (!selected || client.attachedSession() !== selected) return undefined;
+            await persistSession(selected);
+            return selected;
           },
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
@@ -7325,7 +7361,7 @@ function AcpmuxPane() {
   // chat view's error card with Retry shows, as before.
   const showNewTab =
     newTab !== undefined &&
-    !snapshot.sessionId &&
+    (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
@@ -7356,9 +7392,12 @@ function AcpmuxPane() {
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
-    setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
+        // Keep the New Tab on screen while the host confirms a picked folder. Clearing it before
+        // that async handoff mounted the empty chat hero for a frame, then replaced it again when
+        // the first prompt landed.
+        setNewTab(undefined);
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -7722,6 +7761,50 @@ function AcpmuxPane() {
     send: (text) => addressThread(text),
     focusComposer: () => composerHandle.current?.focus(),
   });
+  // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
+  // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
+  // the ask there would strand the prompt with no Use or Cancel action.
+  const confirmPendingFolder = useCallback(() => {
+    if (!pendingFolder || folderConfirming || folderConfirmInFlight.current) return;
+    const pending = pendingFolder;
+    const generation = ++folderConfirmGeneration.current;
+    const use = (cwd: string) => {
+      if (generation === folderConfirmGeneration.current) pending.use(cwd);
+    };
+    folderConfirmInFlight.current = true;
+    setFolderConfirming(true);
+    setFolderAsk(undefined);
+    void confirmFolder(callNative, pending.ask, use).then(
+      () => {
+        if (generation !== folderConfirmGeneration.current) return;
+        folderConfirmInFlight.current = false;
+        setFolderConfirming(false);
+      },
+      (error: unknown) => {
+        if (generation !== folderConfirmGeneration.current) return;
+        folderConfirmInFlight.current = false;
+        setFolderConfirming(false);
+        setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) });
+      },
+    );
+  }, [folderConfirming, pendingFolder]);
+  const cancelPendingFolder = useCallback(() => {
+    folderConfirmGeneration.current += 1;
+    folderConfirmInFlight.current = false;
+    setFolderConfirming(false);
+    pendingFolder?.cancel?.();
+    setFolderAsk(undefined);
+  }, [pendingFolder]);
+  const folderAskView = pendingFolder ? (
+    <NewTabFolderAsk
+      ask={pendingFolder.ask}
+      current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
+      error={pendingFolder.error}
+      confirming={folderConfirming}
+      onUse={confirmPendingFolder}
+      onCancel={cancelPendingFolder}
+    />
+  ) : null;
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
@@ -7937,25 +8020,8 @@ function AcpmuxPane() {
             }}
           />
         </Notice>
-        {pendingFolder ? (
-          <StartFolderAsk
-            ask={pendingFolder.ask}
-            current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
-            error={pendingFolder.error}
-            onUse={() => {
-              // The question closes on the click, so a second click cannot use the folder twice.
-              const pending = pendingFolder;
-              setFolderAsk(undefined);
-              void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
-                setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
-              );
-            }}
-            onCancel={() => {
-              pendingFolder.cancel?.();
-              setFolderAsk(undefined);
-            }}
-          />
-        ) : (
+        {!showNewTab && folderAskView}
+        {!pendingFolder && !showNewTab && (
           <Notice
             id="folder-choice"
             tier="hint"
@@ -8496,6 +8562,7 @@ function AcpmuxPane() {
               command={(action) => callNative("chat.send", { text: `/goal ${action}`, attachments: [] })}
             />
           )}
+          {showNewTab && folderAskView}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}
@@ -8614,10 +8681,7 @@ function AcpmuxPane() {
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
-              onOpenSession={(sessionId) => {
-                setNewTab(undefined);
-                selectSession(sessionId);
-              }}
+              onOpenSession={selectSession}
               onShowAll={showAllChats}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse")

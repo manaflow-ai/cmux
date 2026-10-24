@@ -1766,6 +1766,20 @@ pre.cv-math-source {
   margin-left: -4px;
   color: var(--cv-text-dim);
 }
+/* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
+   action slot before the chevron so the hover actions read duration, Copy, expand
+   at every width; the Shell card has its own in-flow actions and is unaffected. */
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool,
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool {
+  padding-right: 8px;
+}
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
+.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
+  margin-left: 34px;
+}
+.acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
+  right: 24px;
+}
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
    fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:

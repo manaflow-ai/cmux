@@ -26,6 +26,7 @@ let package = Package(
         .library(name: "CmuxMobileArtifacts", targets: ["CmuxMobileArtifacts"]),
         .library(name: "CmuxMobileBrowserStream", targets: ["CmuxMobileBrowserStream"]),
         .library(name: "CmuxMobileVoice", targets: ["CmuxMobileVoice"]),
+        .library(name: "CmuxMobileRealtime", targets: ["CmuxMobileRealtime"]),
         .library(name: "CmuxMobileNotifications", targets: ["CmuxMobileNotifications"]),
     ],
     dependencies: [
@@ -91,7 +92,7 @@ let package = Package(
             dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding"]),
+        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime"]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport"]),
@@ -123,11 +124,22 @@ let package = Package(
             // portable parts (session, detector, extractor, input) without it.
             dependencies: ["CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
         ),
-        // The Action Button Chief call: recorder, on-device transcriber, call screen, delivery to Chief.
+        // Live Chief calls, portable part: the Realtime API's events and session config, the call's
+        // state machine and tools, the OpenAI key in the Keychain (Foundation and Security only).
+        .target(name: "CmuxMobileRealtime"),
+        // libwebrtc for live Chief calls (the build CmuxVNCWebRTC and the CmuxLink lanes pin).
+        .binaryTarget(
+            name: "WebRTC",
+            url: "https://github.com/stasel/WebRTC/releases/download/154.0.0/WebRTC-M154.xcframework.zip",
+            checksum: "a2bcdda93578c82452ceb6e49d54a2746e1bcb4caf7c2fa601ffac8028b58c16"
+        ),
+        // Chief calls: the Action Button voice note (recorder, on-device transcriber, delivery to Chief)
+        // and the live call (WebRTC link to the Realtime API, call screen, Chief's tools).
         .target(
             name: "CmuxMobileVoice",
             dependencies: [
-                "CmuxMobileChief",
+                "CmuxMobileChief", "CmuxMobileModel", "CmuxMobileDesign", "CmuxMobileRealtime",
+                .target(name: "WebRTC", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
                 .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             ],
@@ -138,17 +150,18 @@ let package = Package(
             dependencies: [
                 "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileSettings",
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
-                "CmuxMobileBrowserStream", "CmuxMobileNotifications",
+                "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ]
         ),
+        .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel"]),
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileTerminalTests", dependencies: ["CmuxMobileTerminal"]),
         .testTarget(name: "CmuxMobileBrowserStreamTests", dependencies: ["CmuxMobileBrowserStream", "CmuxMobileTransport"]),
-        .testTarget(name: "CmuxMobileWorkspacesTests", dependencies: ["CmuxMobileWorkspaces", "CmuxMobileModel", "CmuxMobileAgentChat"]),
+        .testTarget(name: "CmuxMobileWorkspacesTests", dependencies: ["CmuxMobileWorkspaces", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
             "CmuxMobileLive", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

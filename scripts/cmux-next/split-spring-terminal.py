@@ -122,6 +122,32 @@ if "--suite=perf-gate" in sys.argv:
     print(f"split-spring --suite=perf-gate: perf-gate.py exited {code}; report {report_path}"
           f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
+# `--suite=cef-resize-sync`: Chromium layer hosting and its resize wait (plans/cmux-next/cef-layer-hosting-DESIGN.md) on
+# the step's app: cef-layer-verify.py --mode on and --mode off (debug input; hosted.fork, show.again, pixels, input),
+# then cef-resize-sync-bench.py (off, on, on0; light and STRESS). `--label=NAME` names the bench run (api26, api27),
+# `--no-bench` runs only the verify. Every part runs; <out>/cef-resize-sync.json records each part's exit, and the
+# step fails when a part failed.
+if "--suite=cef-resize-sync" in sys.argv:
+    here = os.path.dirname(os.path.abspath(__file__))
+    argv = sys.argv[1:]
+    value = lambda name: next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == name), None)
+    app, tag, out = value("--app"), value("--tag"), value("--out") or "/tmp/cmux-next-cef-resize-sync"
+    label = next((a.split("=", 1)[1] for a in argv if a.startswith("--label=")), "")
+    parts = [("verify-on", ["cef-layer-verify.py", "--mode", "on"]), ("verify-off", ["cef-layer-verify.py", "--mode", "off"])]
+    if "--no-bench" not in argv:
+        parts.append(("bench", ["cef-resize-sync-bench.py", "--label", label]))
+    results = {}
+    for name, (script, *extra) in parts:
+        part_out = os.path.join(out, name)
+        os.makedirs(part_out, exist_ok=True)
+        verify_input = ["--input", "debug"] if script == "cef-layer-verify.py" else []
+        print(f"== cef-resize-sync {name}", flush=True)
+        results[name] = subprocess.call([sys.executable, os.path.join(here, script), "--app", app, "--tag", tag,
+                                         "--out", part_out] + verify_input + extra)
+        print(f"== cef-resize-sync {name} exit {results[name]}", flush=True)
+    with open(os.path.join(out, "cef-resize-sync.json"), "w") as f:
+        json.dump(results, f, indent=1)
+    sys.exit(0 if all(code == 0 for code in results.values()) else 1)
 # `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
 # CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
 # The step passes whenever the JSON was written (an over-budget launch is in it).

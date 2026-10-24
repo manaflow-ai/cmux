@@ -176,15 +176,19 @@ public struct ChiefSettingsView: View {
     }
 
     /// Messages' call / video / mail circles, with Chief's own real actions:
-    /// Message (back to the conversation, keyboard up) and Stop (Chief's
-    /// running turn; dimmed while there is none, as Messages dims an action
-    /// a contact cannot take).
+    /// Message (back to the conversation, keyboard up), Call (a live voice
+    /// call) and Stop (Chief's running turn; dimmed while there is none, as
+    /// Messages dims an action a contact cannot take).
     private var quickActions: some View {
         HStack(spacing: ChiefInfoGeometry.quickActionSpacing) {
             if let onMessage {
                 ChiefQuickAction(symbol: "message.fill", title: String(localized: "Message"), enabled: true) { onMessage() }
                     .accessibilityIdentifier("chief.settings.message")
             }
+            ChiefQuickAction(symbol: "phone.fill", title: String(localized: "Call"), enabled: true) {
+                ChiefCallLauncher.shared.call()
+            }
+            .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
                 ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
                                  enabled: hasControl && session.isTyping && !stopping,
@@ -248,7 +252,8 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.effort")
                 }
             } else if session.engineProblem == nil {
-                HStack { ProgressView(); Text("Asking Chief on the Mac…").foregroundStyle(.secondary) }
+                // The spinner trails, as on Try Again: the text keeps the rows' x (no icons here).
+                HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); ProgressView() }
             }
             // A failed read never replaces the model: it is said under it,
             // with Try Again (the page also retries on its own).

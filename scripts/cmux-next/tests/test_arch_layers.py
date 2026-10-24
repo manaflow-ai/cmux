@@ -7,6 +7,7 @@ and the pre-push layer gate judge. Each case writes a dump and a layer map to a 
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -16,6 +17,30 @@ from collections.abc import Sequence
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "arch-layers.py"
+
+# Two wrapper observers and a call whose `named:` is on the next line: both NotificationCenter observers.
+OBSERVERS = """import Foundation
+final class Watcher {
+    var tokens: [MainActorObservation] = []
+    func watch() async {
+        tokens.append(MainActorObservation(.paneMoved) { })
+        tokens.append(MainActorObservation(NSWindow.didBecomeKeyNotification, object: nil) { })
+        let changes = NotificationCenter.default.notifications(
+            named: .paneMoved
+        )
+        // NotificationCenter.default.addObserver(forName: .paneMoved, object: nil, queue: nil) { _ in }
+        for await _ in changes { }
+    }
+}
+"""
+
+
+def load_script():
+    spec = importlib.util.spec_from_file_location("cmux_next_arch_layers_for_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 LAYERS = {
     "order": ["core", "service", "domain", "ui", "app"],
@@ -68,6 +93,18 @@ class ArchLayersTests(unittest.TestCase):
         self.assertEqual(report["targets"], 3)
         self.assertEqual(report["layers"]["service"]["targets"], 1)
         self.assertEqual(report["hard_violations"], 0)
+
+
+    def test_counts_observers_are_the_arch_ratchets_observer_sites(self):
+        # `--counts` nc_observers is arch_counts' observer_sites (the ratchet's row), not a third regex: the wrapper
+        # counts, a multi-line call counts, a commented-out one does not.
+        script = load_script()
+        with tempfile.TemporaryDirectory() as tmp:
+            sources = Path(tmp)
+            (sources / "CmuxNextKit").mkdir()
+            (sources / "CmuxNextKit" / "Watcher.swift").write_text(OBSERVERS)
+            script.SOURCES = sources
+            self.assertEqual(script.grep_counts()["nc_observers"], 3)
 
 
 if __name__ == "__main__":

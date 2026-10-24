@@ -201,8 +201,8 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
     }
     let id = uuid::Uuid::now_v7().to_string();
     let path = part_path(session, &id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
-    crate::config::private_state_dir(path.parent().unwrap())
-        .map_err(|e| RpcError::internal(e.to_string()))?;
+    let parent = path.parent().ok_or_else(|| RpcError::internal("upload path has no parent"))?;
+    crate::config::private_state_dir(parent).map_err(|e| RpcError::internal(e.to_string()))?;
     crate::agent_tools::write_private(&path, &[])
         .map_err(|e| RpcError::internal(format!("cannot start upload: {e}")))?;
     let meta =

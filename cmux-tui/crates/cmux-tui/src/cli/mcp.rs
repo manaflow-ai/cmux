@@ -162,7 +162,7 @@ pub(super) trait Backend {
         Err(CallFailure::local(
             FailureKind::NotRun,
             "acpmux.unavailable",
-            "this server cannot reach the acpmux dispatch surface",
+            "this server cannot reach acpmux agent dispatch",
         ))
     }
     /// Holds the session daemon's `session.events` stream open until

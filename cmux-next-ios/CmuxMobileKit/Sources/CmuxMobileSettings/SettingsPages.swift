@@ -55,38 +55,41 @@ struct AccountPage: View {
             Section {
                 switch methods {
                 case .loading:
-                    HStack(spacing: 10) {
+                    CmuxMobileGutterRow {
                         ProgressView()
+                    } content: {
                         Text("Loading").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
                     SettingsLoadError(message: message) { Task { await loadMethods() } }
                 case .loaded(let list) where list.isEmpty:
-                    Text("No sign-in methods are linked.").foregroundStyle(theme.colors.label2)
+                    Text("No sign-in methods are linked.").foregroundStyle(theme.colors.label2).cmuxMobileTextColumn()
                 case .loaded(let list):
                     ForEach(list) { method in
-                        HStack(spacing: 14) {
+                        CmuxMobileGutterRow {
                             SignInMethodGlyph(method, size: min(signInGlyph, 34))
                                 .foregroundStyle(theme.colors.label)
-                                .frame(width: min(signInGlyph + 4, theme.metrics.settingsIconFrame * 2))
-                            UnbrokenText(method.title)
-                            if let detail = method.detail(accountEmail: auth.user?.email) {
-                                Spacer(minLength: 8)
-                                EmailText(detail).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                        } content: {
+                            HStack {
+                                UnbrokenText(method.title)
+                                if let detail = method.detail(accountEmail: auth.user?.email) {
+                                    Spacer(minLength: 8)
+                                    EmailText(detail).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                                }
                             }
                         }
                         .accessibilityElement(children: .combine)
                     }
                 }
             } header: {
-                Text("Sign-in methods")
+                Text("Sign-in methods").cmuxMobileTextColumn()
             }
             Section {
                 Button(role: .destructive) {
                     confirmsDeletion = true
                 } label: {
                     HStack {
-                        Text("Delete Account").foregroundStyle(theme.colors.danger)
+                        Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
                         if deleting {
                             Spacer()
                             ProgressView()
@@ -97,6 +100,7 @@ struct AccountPage: View {
                 .accessibilityIdentifier("settings.deleteAccount")
             } footer: {
                 Text("Deletes your cmux account and its data for every cmux app, and removes your Macs and phones from the cmux service. This can't be undone.")
+                    .cmuxMobileTextColumn()
             }
         }
         .settingsPage("Account")
@@ -153,11 +157,14 @@ struct SettingsLoadError: View {
     let retry: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle").foregroundStyle(theme.colors.label2)
-            Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2)
-            Spacer(minLength: 8)
-            Button("Retry", action: retry).font(theme.type.rowTitle)
+        CmuxMobileGutterRow {
+            SettingsIcon("exclamationmark.triangle").foregroundStyle(theme.colors.label2)
+        } content: {
+            HStack {
+                Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                Spacer(minLength: 8)
+                Button("Retry", action: retry).font(theme.type.rowTitle)
+            }
         }
     }
 }
@@ -168,57 +175,60 @@ struct TeamPage: View {
     let edit: () -> Void
     let invite: () -> Void
     @State private var members: SettingsLoad<[TeamMember]> = .loading
-    /// The 28 pt avatar column every row's text starts after (it grows with
-    /// Dynamic Type as the avatars do), so all titles share one x.
-    @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     var body: some View {
         List {
             Section {
                 Button(action: edit) {
-                    HStack(spacing: 14) {
+                    // Avatars centered on the icon column: every title, header
+                    // and footer on the page starts at one x.
+                    CmuxMobileGutterRow {
                         SettingsTeamAvatar(team: team, size: 28)
-                        Text("Color and icon").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.colors.label3)
+                    } content: {
+                        HStack {
+                            Text("Color and icon").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.colors.label3)
+                        }
                     }
                 }
             } footer: {
-                Text("Color and icon are yours only; teammates choose their own.")
+                Text("Color and icon are yours only; teammates choose their own.").cmuxMobileTextColumn()
             }
-            Section("Members") {
+            Section {
                 switch members {
                 case .loading:
-                    HStack(spacing: 10) {
+                    CmuxMobileGutterRow {
                         ProgressView()
+                    } content: {
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
                     SettingsLoadError(message: message) { Task { await loadMembers() } }
                 case .loaded(let list):
                     ForEach(list) { member in
-                        HStack(spacing: 14) {
+                        CmuxMobileGutterRow {
                             UserInitials(member.initials, size: 28)
-                            Text(member.name).font(theme.type.rowTitle)
-                            Spacer()
-                            if member.isYou {
-                                Text("You").font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                        } content: {
+                            HStack {
+                                Text(member.name).font(theme.type.rowTitle)
+                                Spacer()
+                                if member.isYou {
+                                    Text("You").font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                                }
                             }
                         }
                         .accessibilityElement(children: .combine)
                     }
                 }
+            } header: {
+                Text("Members").cmuxMobileTextColumn()
             }
             // The personal space is just you: nobody to invite.
             if !team.isPersonalSpace {
             Section {
                 Button(action: invite) {
-                    HStack(spacing: 14) {
-                        SettingsIcon("person.badge.plus")
-                            .foregroundStyle(theme.colors.label)
-                            .frame(width: 28 * min(scale, 2))
-                        Text("Invite to team").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                    }
+                    SettingsLabel("Invite to team", symbol: "person.badge.plus")
                 }
             }
             }
@@ -257,7 +267,7 @@ struct TerminalPage: View {
                     .background(Color.black, in: .rect(cornerRadius: 12, style: .continuous))
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             } footer: {
-                Text("Applies to open terminals at once.")
+                Text("Applies to open terminals at once.").cmuxMobileTextColumn()
             }
             Section {
                 NavigationLink(value: SettingsRoute.terminalSizing) {
@@ -271,9 +281,9 @@ struct TerminalPage: View {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
-                Text("Code")
+                Text("Code").cmuxMobileTextColumn()
             } footer: {
-                Text("Key clicks sound when you tap the keys above the keyboard. They follow the ring/silent switch.")
+                Text("Key clicks sound when you tap the keys above the keyboard. They follow the ring/silent switch.").cmuxMobileTextColumn()
             }
         }
         .settingsPage("Terminal")
@@ -297,7 +307,7 @@ struct ComposerPage: View {
                 }
                 .pickerStyle(.menu)
             } footer: {
-                Text("Queue sends after the current turn. Steer interrupts the agent.")
+                Text("Queue sends after the current turn. Steer interrupts the agent.").cmuxMobileTextColumn()
             }
         }
         .settingsPage("Composer")
@@ -337,15 +347,16 @@ struct NotificationsPage: View {
                 .accessibilityIdentifier("settings.notifications.allow")
             } footer: {
                 if !push {
-                    Text("For Chief's replies, while cmux is open or still running in the background.")
+                    Text("For Chief's replies, while cmux is open or still running in the background.").cmuxMobileTextColumn()
                 }
             }
             if push {
                 kindsSection(settings: $settings)
             } else {
                 Section {
-                    HStack(spacing: 14) {
+                    CmuxMobileGutterRow {
                         SettingsIcon("bell.slash").foregroundStyle(theme.colors.label2)
+                    } content: {
                         UnbrokenText(String(localized: "Notifications from your Macs need the TestFlight build."))
                             .foregroundStyle(theme.colors.label2)
                     }
@@ -372,6 +383,8 @@ struct NotificationsPage: View {
                             Text(level.title)
                             Text(level.detail).font(.footnote).foregroundStyle(theme.colors.label2)
                         }
+                        // No icon: the text still starts at the page's text column.
+                        .cmuxMobileTextColumn()
                         .tag(level)
                         .accessibilityIdentifier("settings.notifications.level.\(level.rawValue)")
                     }
@@ -381,9 +394,9 @@ struct NotificationsPage: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } header: {
-                Text("Notify me")
+                Text("Notify me").cmuxMobileTextColumn()
             } footer: {
-                if off { Text("Turn on notifications in iOS Settings to choose what you get.") }
+                if off { Text("Turn on notifications in iOS Settings to choose what you get.").cmuxMobileTextColumn() }
             }
             if !macs.isEmpty {
                 Section {
@@ -395,7 +408,7 @@ struct NotificationsPage: View {
                         .accessibilityIdentifier("settings.notifications.mac.\(mac.id)")
                     }
                 } header: {
-                    Text("Macs")
+                    Text("Macs").cmuxMobileTextColumn()
                 }
             }
             Section {
@@ -405,6 +418,7 @@ struct NotificationsPage: View {
                 Text(self.settings.notifyPreviews
                     ? "Notifications show the question, the command or the last lines, so you can answer from the notification."
                     : "The lock screen shows only who needs you and on which Mac.")
+                    .cmuxMobileTextColumn()
             }
         }
         .disabled(off)
@@ -464,20 +478,21 @@ struct TransportPage: View {
                 }
             }
             #if DEBUG
+            // No icons, as the transport choices above: the page keeps one text column.
             Section {
                 Toggle(isOn: $relayOnly) {
-                    SettingsLabel("Relay only", symbol: "point.3.connected.trianglepath.dotted")
+                    Text("Relay only")
                 }
                 // Turning off stays possible when the relay goes away while on.
                 .disabled(relayAvailable == false && !relayOnly)
                 .accessibilityIdentifier("settings.transport.relayOnly")
                 Toggle(isOn: $blockUDP) {
-                    SettingsLabel("Block UDP", symbol: "network.slash")
+                    Text("Block UDP")
                 }
                 .disabled(relayAvailable == false && !blockUDP)
                 .accessibilityIdentifier("settings.transport.blockUDP")
                 Toggle(isOn: $browserVideoOnChannel) {
-                    SettingsLabel("Browser video on channel", symbol: "film")
+                    Text("Browser video on channel")
                 }
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
             } header: {
