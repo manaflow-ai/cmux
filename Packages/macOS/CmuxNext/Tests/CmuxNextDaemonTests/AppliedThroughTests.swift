@@ -32,6 +32,10 @@ struct AppliedThroughTests {
         await Task.yield()
         #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the end")
         store.markFailed("the link ended")
+        #expect(store.appliedWaiters.isEmpty, "a connection marked failed left the wait waiting")
+        // Cancelled before it is awaited, so a wait that outlives the end fails the check above instead of
+        // hanging the run (an unstructured task's value does not end on the time limit's cancellation).
+        waiting.cancel()
         #expect(await waiting.value == false, "a connection marked failed counted as a held barrier")
         await connection.close()
         await running.value
@@ -49,6 +53,8 @@ struct AppliedThroughTests {
         #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the end")
         await connection.close()
         await running.value
+        #expect(store.appliedWaiters.isEmpty, "a run ended by close() left the wait waiting")
+        waiting.cancel()
         #expect(await waiting.value == false, "a closed connection counted as a held barrier")
     }
 
