@@ -14,6 +14,7 @@ use super::GUARDED_BROWSER_POINTER_CAPABILITY;
 use super::MarkedClientAttach;
 use super::MessageWriter;
 use super::RenderClientState;
+use super::RequestAcceptance;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
@@ -243,7 +244,17 @@ pub(super) fn attach_surface(
     expected_terminal_id: Option<String>,
     snapshot: terminal_snapshot::SnapshotAttachParams,
     stream: Option<ClientStreamId>,
+    acceptance: Option<&RequestAcceptance>,
 ) -> anyhow::Result<Value> {
+    // The attach is accepted once its view is registered (lease and initial
+    // size, `mark_client_attached`): a later request of the surface needs no
+    // more of it. Only this reply waits for a hosted resize to settle; what a
+    // later request changes meanwhile is in the replay or snapshot taken after.
+    let accept = || {
+        if let Some(acceptance) = acceptance {
+            acceptance.accept();
+        }
+    };
     let framing = stream_framing(mux, client, stream)?;
     let initial_size = match (cols, rows) {
         (Some(cols), Some(rows)) => Some((cols, rows)),
@@ -305,7 +316,7 @@ pub(super) fn attach_surface(
         && mode.as_deref().unwrap_or("bytes") == "bytes"
         && snapshot.wants_snapshot()?
     {
-        return snapshot.attach(mux, client, surface, writer, initial_size, framing);
+        return snapshot.attach(mux, client, surface, writer, initial_size, framing, &accept);
     }
     let lifecycle = AttachLifecycle::default();
     let outbound_stream = writer.start_framed_stream(&attach_overflow_json(surface_id), framing)?;
@@ -318,6 +329,7 @@ pub(super) fn attach_surface(
         require_pty(&surface)?;
         let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
             mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+        accept();
         let attach = match surface.attach_render_stream() {
             Ok(attach) => attach,
             Err(error) => {
@@ -414,6 +426,7 @@ pub(super) fn attach_surface(
             resize_reservation,
             resize_completion,
         } = mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+        accept();
         if let Some(reservation) = resize_reservation
             && let Err(error) = match resize_completion.as_ref() {
                 Some(completion) => {
@@ -523,6 +536,7 @@ pub(super) fn attach_surface(
     }
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+    accept();
     if initial_size.is_some() {
         // A hosted PTY applies the attach's resize when its host answers. Build
         // the replay after that, so this view gets one replay at the grid it
