@@ -208,5 +208,6 @@
       "uk": { "stringUnit": {"state": "translated", "value": "Введіть режим…"} },
       "vi": { "stringUnit": {"state": "translated", "value": "Nhập chế độ…"} }
     } }
-  }
+  },
+  "version" : "1.0"
 }
