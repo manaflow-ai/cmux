@@ -34,7 +34,7 @@ describe("GCP Labs provider", () => {
     const parsed = gcpCredentialFromRequest(new Request("https://cmux.test", {
       headers: {
         "x-cmux-gcp-access-token": "local-token",
-        "x-cmux-gcp-access-token-expires-at": "1735689900",
+        "x-cmux-gcp-access-token-expires-at": String(Math.floor(Date.now() / 1000) + 300),
         "x-cmux-gcp-ssh-public-key": "ssh-ed25519 AAAA test",
       },
     }));
@@ -51,7 +51,7 @@ describe("GCP Labs provider", () => {
     const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       calls.push({ url: String(input), init: init ?? {} });
       if (calls.length === 1) return json({ name: "insert-op", status: "DONE" });
-      if (calls.length === 2) return json({
+      if (calls.length === 2 || calls.length === 3) return json({
         name: "cmux-abc",
         status: "RUNNING",
         networkInterfaces: [{ networkIP: "10.0.0.4", accessConfigs: [{ natIP: "203.0.113.4" }] }],
@@ -75,9 +75,19 @@ describe("GCP Labs provider", () => {
     expect(JSON.stringify(created)).not.toContain("gcp-test-token");
     expect(String(calls[0]?.init.headers)).not.toContain("gcp-test-token");
     expect(calls[0]?.init.headers).toMatchObject({ authorization: "Bearer gcp-test-token" });
+    const createBody = JSON.parse(String(calls[0]?.init.body));
+    expect(createBody.networkInterfaces[0]).not.toHaveProperty("accessConfigs");
+    expect(createBody.tags.items).toContain("cmux-vm");
 
     const endpoint = await provider.openSSH(created.providerVmId, local);
-    expect(endpoint.host).toBe("203.0.113.4");
+    expect(endpoint.host).toBe("gcp-iap");
+    expect(endpoint.proxy).toEqual({
+      kind: "gcp-iap",
+      project: "manaflow-437420",
+      zone: "us-west1-b",
+      instance: expect.any(String),
+      port: 22,
+    });
     expect(endpoint.credential.kind).toBe("authorizedKey");
     await provider.pause(created.providerVmId, local);
     await provider.destroy(created.providerVmId, local);

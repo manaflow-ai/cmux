@@ -13,9 +13,11 @@ import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vm
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   capabilityList,
+  gcpCredentialFromRequest,
   optionalClientIdentifier,
   optionalString,
   parseLenientObjectBody,
+  providerCredentialLifetime,
 } from "../../../../../services/vms/routeInput";
 
 // Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
@@ -58,6 +60,37 @@ export async function POST(
       // legacy WebSocket PTY/RPC endpoint only if a future provider advertises one;
       // a cmux-tui-only machine answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);
+      if (transport === "ssh") {
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "ssh" });
+        const providerCredential = gcpCredentialFromRequest(request);
+        const credentialLifetime = providerCredentialLifetime(providerCredential);
+        const run = await (async () => {
+          try {
+            return await runVmRoute(openAttachEndpoint({
+              userId: user.id,
+              billingTeamId: account.entitlements.billingTeamId,
+              maxActiveVms: account.entitlements.maxActiveVms,
+              callerPlanId: account.entitlements.planId,
+              teamIds: user.teamIds,
+              providerVmId: id,
+              transport: "ssh",
+              providerCredential,
+              modelPlane: vmModelPlaneRevoker(),
+            }), {
+              request,
+              deadline: {
+                operation: "attach",
+                continuationKey: `attach:${id}`,
+                continueInBackground: credentialLifetime.continueInBackground,
+              },
+            });
+          } finally {
+            credentialLifetime.finish();
+          }
+        })();
+        if (!run.ok) return run.response;
+        return jsonResponse(run.value);
+      }
       if (transport === "cmux-remote") {
         let deviceFingerprint: string | undefined;
         try {
@@ -89,7 +122,7 @@ export async function POST(
       if (transport && transport !== "websocket") {
         return jsonResponse({
           error: "invalid_request",
-          message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
+          message: `Unknown attach transport "${transport}". Use "ssh", "websocket", or "cmux-remote".`,
         }, 400);
       }
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });

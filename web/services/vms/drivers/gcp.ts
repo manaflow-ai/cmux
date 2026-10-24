@@ -4,10 +4,13 @@ import {
   type ExecOptions,
   type ExecResult,
   type ProviderCredential,
+  type EnsureProviderNetworkOptions,
+  type ProviderNetwork,
   type ProviderReadOptions,
   type SSHEndpoint,
   type SnapshotRef,
   type VMHandle,
+  type VMPrivateNetworking,
   type VMProvider,
   type VMStatus,
   type VmPauseState,
@@ -43,6 +46,7 @@ type GcpOperation = {
   readonly name?: string;
   readonly status?: "PENDING" | "RUNNING" | "DONE";
   readonly zone?: string;
+  readonly region?: string;
   readonly error?: { readonly errors?: readonly { readonly code?: string; readonly message?: string }[] };
 };
 
@@ -78,6 +82,7 @@ export class GcpApiError extends Error {
 export class GcpProvider implements VMProvider {
   readonly id = "gcp" as const;
   readonly attachTransports = ["ssh"] as const;
+  readonly privateNetworkingTunnels = false;
   readonly capabilities = {
     snapshot: false,
     restore: false,
@@ -92,6 +97,15 @@ export class GcpProvider implements VMProvider {
     sizing: false,
     persistentHome: false,
   } as const;
+  readonly privateNetworking: VMPrivateNetworking = {
+    ensureNetwork: (options) => this.ensureNetwork(options),
+    getNetwork: (networkIdOrSlug) => this.getNetwork(networkIdOrSlug),
+    deleteNetwork: async () => undefined,
+    createTunnel: async () => { throw new ProviderError("gcp", "tailnet enrollment is not available in the GCP Labs provider"); },
+    getTunnel: async () => { throw new ProviderError("gcp", "tailnet enrollment is not available in the GCP Labs provider"); },
+    rotateTunnelKey: async () => { throw new ProviderError("gcp", "tailnet enrollment is not available in the GCP Labs provider"); },
+    deleteTunnel: async () => undefined,
+  };
 
   private readonly request: typeof fetch;
   private readonly now: () => number;
@@ -107,13 +121,19 @@ export class GcpProvider implements VMProvider {
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const credential = this.requireCredential(options.providerCredential);
+    if (!credential.sshPublicKey || !credential.sshPrivateKeyPem) {
+      throw new ProviderError("gcp", "create requires a short-lived SSH public/private key pair for IAP attach");
+    }
     const context = contextFromMetadata(options.providerMetadata);
     const image = requiredText(options.image, "image");
+    const network = options.network?.id ?? context.network;
+    const subnetRegion = context.zone.replace(/-[a-z]$/, "");
     const name = instanceName(options.displayName);
     const body = {
       name,
       machineType: `zones/${context.zone}/machineTypes/${context.machineType}`,
       labels: { cmux: "cloud", cmux_labs: "gcp" },
+      tags: { items: ["cmux-vm"] },
       disks: [{
         boot: true,
         autoDelete: true,
@@ -123,9 +143,8 @@ export class GcpProvider implements VMProvider {
         },
       }],
       networkInterfaces: [{
-        network: context.network,
-        ...(context.subnetwork ? { subnetwork: context.subnetwork } : {}),
-        accessConfigs: [{}],
+        network,
+        subnetwork: context.subnetwork ?? `regions/${subnetRegion}/subnetworks/cmux-vms`,
       }],
       metadata: {
         items: [
@@ -201,17 +220,16 @@ export class GcpProvider implements VMProvider {
     const privateKey = credential?.sshPrivateKeyPem;
     if (!privateKey) throw new ProviderError("gcp", "openSSH requires a short-lived client SSH private key");
     const context = contextFromVmId(vmId);
-    const instance = await this.instance(context, context.name, token);
-    const host = instance.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP ?? instance.networkInterfaces?.[0]?.networkIP;
-    if (!host) throw new ProviderError("gcp", `openSSH(${context.name}) has no reachable address`);
+    await this.instance(context, context.name, token);
     return {
       transport: "ssh",
-      host,
+      host: "gcp-iap",
       port: 22,
       username: credential.sshUsername ?? context.sshUsername,
       publicKeyFingerprint: null,
       credential: { kind: "authorizedKey", privateKeyPem: privateKey.utf8() },
       identityHandle: vmId,
+      proxy: { kind: "gcp-iap", project: context.project, zone: context.zone, instance: context.name, port: 22 },
     };
   }
 
@@ -230,6 +248,115 @@ export class GcpProvider implements VMProvider {
 
   async restore(_snapshotId: string): Promise<VMHandle> {
     throw new ProviderError("gcp", "restore is not available in the Labs provider");
+  }
+
+  private async ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork> {
+    const credential = this.requireCredential(options.providerCredential);
+    const project = options.providerProject ?? process.env.CMUX_VM_GCP_PROJECT ?? DEFAULT_PROJECT;
+    const region = options.providerRegion ?? process.env.CMUX_VM_GCP_REGION ?? DEFAULT_ZONE.replace(/-[a-z]$/, "");
+    assertSegment(project, "project");
+    assertSegment(region, "region");
+    const name = "cmux-vms";
+    const networkPath = `/projects/${project}/global/networks/${name}`;
+    let network: { readonly selfLink?: string };
+    try {
+      network = await this.api("GET", networkPath, credential);
+    } catch (error) {
+      if (!(error instanceof GcpApiError && error.status === 404)) throw error;
+      let operation: GcpOperation | undefined;
+      try {
+        operation = await this.api<GcpOperation>("POST", `/projects/${project}/global/networks`, credential, { name, autoCreateSubnetworks: false });
+      } catch (createError) {
+        if (!isAlreadyExists(createError)) throw createError;
+      }
+      if (operation) {
+        await this.waitForOperation({ project, zone: `${region}-b`, machineType: DEFAULT_MACHINE_TYPE, network: networkPath, sshUsername: "cmux", idleStopMinutes: 30, name }, operation, credential);
+      }
+      network = await this.api("GET", networkPath, credential);
+    }
+    const subnetPath = `/projects/${project}/regions/${region}/subnetworks/${name}`;
+    let subnet: { readonly ipCidrRange?: string };
+    try {
+      subnet = await this.api("GET", subnetPath, credential);
+    } catch (error) {
+      if (!(error instanceof GcpApiError && error.status === 404)) throw error;
+      let operation: GcpOperation | undefined;
+      try {
+        operation = await this.api<GcpOperation>("POST", `/projects/${project}/regions/${region}/subnetworks`, credential, {
+          name,
+          network: network.selfLink ?? `projects/${project}/global/networks/${name}`,
+          ipCidrRange: options.cidr ?? "10.240.0.0/16",
+          region,
+        });
+      } catch (createError) {
+        if (!isAlreadyExists(createError)) throw createError;
+      }
+      if (operation) {
+        await this.waitForOperation({ project, zone: `${region}-b`, machineType: DEFAULT_MACHINE_TYPE, network: networkPath, sshUsername: "cmux", idleStopMinutes: 30, name }, operation, credential);
+      }
+      subnet = await this.api("GET", subnetPath, credential);
+    }
+    await this.ensureFirewall(project, network.selfLink ?? networkPath, credential);
+    await this.ensureNat(project, region, network.selfLink ?? networkPath, credential);
+    return { id: network.selfLink ?? networkPath, slug: name, cidr: subnet.ipCidrRange ?? "10.240.0.0/16", cidrV6: null };
+  }
+
+  private async getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null> {
+    if (networkIdOrSlug !== "cmux-vms" && !networkIdOrSlug.endsWith("/cmux-vms")) return null;
+    return { id: networkIdOrSlug, slug: "cmux-vms", cidr: "10.240.0.0/16", cidrV6: null };
+  }
+
+  private async ensureFirewall(project: string, network: string, credential: ProviderCredential): Promise<void> {
+    const rules = [
+      { name: "cmux-vms-deny-ingress", priority: 1000, denied: [{ IPProtocol: "all" }] },
+      { name: "cmux-vms-iap-ssh", priority: 900, allowed: [{ IPProtocol: "tcp", ports: ["22"] }], sourceRanges: ["35.235.240.0/20"] },
+    ];
+    for (const rule of rules) {
+      try {
+        await this.api("GET", `/projects/${project}/global/firewalls/${rule.name}`, credential);
+      } catch (error) {
+        if (!(error instanceof GcpApiError && error.status === 404)) throw error;
+        let operation: GcpOperation | undefined;
+        try {
+          operation = await this.api<GcpOperation>("POST", `/projects/${project}/global/firewalls`, credential, {
+            ...rule,
+            network,
+            direction: "INGRESS",
+            targetTags: ["cmux-vm"],
+          });
+        } catch (createError) {
+          if (!isAlreadyExists(createError)) throw createError;
+        }
+        if (operation) {
+          await this.waitForOperation({ project, zone: `${DEFAULT_ZONE}`, machineType: DEFAULT_MACHINE_TYPE, network, sshUsername: "cmux", idleStopMinutes: 30, name: rule.name }, operation, credential);
+        }
+      }
+    }
+  }
+
+  private async ensureNat(project: string, region: string, network: string, credential: ProviderCredential): Promise<void> {
+    const routerPath = `/projects/${project}/regions/${region}/routers/cmux-vms`;
+    try {
+      await this.api("GET", routerPath, credential);
+    } catch (error) {
+      if (!(error instanceof GcpApiError && error.status === 404)) throw error;
+      let operation: GcpOperation | undefined;
+      try {
+        operation = await this.api<GcpOperation>("POST", `/projects/${project}/regions/${region}/routers`, credential, { name: "cmux-vms", network, bgp: { asn: 64514 } });
+      } catch (createError) {
+        if (!isAlreadyExists(createError)) throw createError;
+      }
+      if (operation) {
+        await this.waitForOperation({ project, zone: `${region}-b`, machineType: DEFAULT_MACHINE_TYPE, network, sshUsername: "cmux", idleStopMinutes: 30, name: "cmux-vms" }, operation, credential);
+      }
+    }
+    const operation = await this.api<GcpOperation>("PATCH", routerPath, credential, {
+      name: "cmux-vms",
+      network,
+      bgp: { asn: 64514 },
+      nats: [{ name: "cmux-vms", natIpAllocateOption: "AUTO_ONLY", sourceSubnetworkIpRangesToNat: "ALL_SUBNETWORKS_ALL_IP_RANGES", minPortsPerVm: 64 }],
+    });
+    await this.waitForOperation({ project, zone: `${region}-b`, machineType: DEFAULT_MACHINE_TYPE, network, sshUsername: "cmux", idleStopMinutes: 30, name: "cmux-vms" }, operation, credential);
   }
 
   private async transition(vmId: string, operationName: "stop" | "start", credential: ProviderCredential): Promise<void> {
@@ -252,8 +379,10 @@ export class GcpProvider implements VMProvider {
       return;
     }
     const deadline = this.now() + this.operationTimeoutMs;
-    const path = operation.zone
-      ? `/projects/${context.project}/zones/${context.zone}/operations/${operation.name}`
+    const path = operation.region
+      ? `/projects/${context.project}/regions/${resourceName(operation.region)}/operations/${operation.name}`
+      : operation.zone
+        ? `/projects/${context.project}/zones/${resourceName(operation.zone)}/operations/${operation.name}`
       : `/projects/${context.project}/global/operations/${operation.name}`;
     for (;;) {
       if (this.now() >= deadline) throw new ProviderError("gcp", `operation ${operation.name} timed out`);
@@ -392,6 +521,14 @@ function text(value: unknown): string | undefined {
 
 function positiveInt(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && (value as number) > 0 ? value as number : undefined;
+}
+
+function resourceName(value: string): string {
+  return value.split("/").filter(Boolean).at(-1) ?? value;
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return error instanceof GcpApiError && error.status === 409;
 }
 
 function assertSegment(value: string, name: string): void {

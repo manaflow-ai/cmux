@@ -1,5 +1,6 @@
 import { isProviderId, SecretBytes, type ProviderCredential, type ProviderId } from "./drivers/types";
 import { jsonResponse, vmErrorResponse } from "./routeHelpers";
+import { continueAfterResponse } from "./routeDeadline";
 
 export type ParsedOptionalObjectBody =
   | { readonly ok: true; readonly body: Record<string, unknown> }
@@ -143,22 +144,42 @@ export function gcpCredentialFromRequest(request: Request): ProviderCredential |
   if (token.length > 16_384) return undefined;
   const expiryHeader = request.headers.get("x-cmux-gcp-access-token-expires-at");
   const expiresAt = expiryHeader ? Number(expiryHeader) : Number.NaN;
+  if (!Number.isFinite(expiresAt)) return undefined;
   const sshPrivateKey = request.headers.get("x-cmux-gcp-ssh-private-key") ?? undefined;
   const sshPublicKey = request.headers.get("x-cmux-gcp-ssh-public-key")?.trim() || undefined;
+  const sshUsername = request.headers.get("x-cmux-gcp-ssh-username")?.trim() || undefined;
   if (sshPrivateKey && sshPrivateKey.length > 32_768) return undefined;
   if (sshPublicKey && (sshPublicKey.length > 16_384 || /[\r\n]/.test(sshPublicKey))) return undefined;
+  if (sshUsername && (sshUsername.length > 128 || !/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(sshUsername))) return undefined;
   return {
     provider: "gcp",
     accessToken: new SecretBytes(new TextEncoder().encode(token)),
-    expiresAtUnix: Number.isFinite(expiresAt) ? expiresAt : Math.floor(Date.now() / 1000) + 300,
+    expiresAtUnix: expiresAt,
     ...(sshPublicKey ? { sshPublicKey } : {}),
     ...(sshPrivateKey ? { sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode(sshPrivateKey)) } : {}),
+    ...(sshUsername ? { sshUsername } : {}),
   };
 }
 
 export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
   credential?.accessToken.wipe();
   credential?.sshPrivateKeyPem?.wipe();
+}
+
+/** Keeps a request credential alive when a mutation continues after its HTTP answer. */
+export function providerCredentialLifetime(credential: ProviderCredential | undefined): {
+  readonly continueInBackground: (work: Promise<unknown>, label: string) => void;
+  readonly finish: () => void;
+} {
+  let detached = false;
+  const wipe = () => wipeProviderCredential(credential);
+  return {
+    continueInBackground: (work, label) => {
+      detached = true;
+      continueAfterResponse(work.finally(wipe), label);
+    },
+    finish: () => { if (!detached) wipe(); },
+  };
 }
 
 /** Non-secret GCP placement knobs handed off by the local Labs UI. */
