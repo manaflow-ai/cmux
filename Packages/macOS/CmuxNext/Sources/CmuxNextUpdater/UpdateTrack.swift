@@ -4,7 +4,8 @@
 /// and feeds; RC shares stable's identity with its own feed. Tagged DEV
 /// and staging builds are `development`: they never run Sparkle against a
 /// public feed (they are not on the release train), but they may probe it
-/// read-only.
+/// read-only. The one exception is the tip app (cmux NEXT DEV stamped with
+/// the tip feed, ``UpdateBuildIdentity/isTipBuild``), which is `nightly`.
 nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     case stable
     case nightly

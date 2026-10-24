@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+@testable import CmuxNextLayout
 import CmuxNextSidebar
 import Testing
 
@@ -92,5 +93,63 @@ import Testing
         #expect(!layer.dividerAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(layer.dividerAreas)")
         let band = try #require(layer.sidebarResizeArea)
         #expect(layer.catcherAreas == layer.dividerAreas + [band], "catchers \(layer.catcherAreas)")
+    }
+
+    /// With a Chromium page focused, a move from the page straight onto the band's part beside it
+    /// (over the sidebar, out of the page window) showed the arrow: the catcher set the resize
+    /// cursor on its enter, then AppKit put the arrow back for the key page window in the same
+    /// event turn, and the panel, never key, got no cursor update or move after that (real
+    /// pointer on a fleet capture mini, 2026-10-22). The catcher sets its cursor once more on the
+    /// next turn while the pointer is still over it.
+    @Test func theCatcherSetsItsCursorAgainAfterTheEnterTurn() async throws {
+        let catcher = try enteredCatcher(pointerOver: true)
+        NSCursor.arrow.set() // AppKit's reset for the key page window, later in the enter's turn.
+        let pending = catcher.pendingCursorSet
+        #expect(pending != nil, "the enter queues a cursor set")
+        await pending?.value
+        #expect(isColumnResize(NSCursor.current), "cursor hot spot \(NSCursor.current.hotSpot), size \(NSCursor.current.image.size)")
+    }
+
+    /// A pointer that left the catcher again keeps the cursor it has.
+    @Test func anExitedCatcherLeavesTheCursorAlone() async throws {
+        let catcher = try enteredCatcher(pointerOver: true)
+        catcher.mouseExited(with: try enterExit(.mouseExited))
+        NSCursor.arrow.set()
+        await catcher.pendingCursorSet?.value
+        #expect(!isColumnResize(NSCursor.current), "cursor hot spot \(NSCursor.current.hotSpot), size \(NSCursor.current.image.size)")
+    }
+
+    /// The panel was parked, hidden or moved off the pointer before the queued set ran (no exit
+    /// comes then): the cursor stays as it is.
+    @Test func aCatcherNoLongerUnderThePointerLeavesTheCursorAlone() async throws {
+        let catcher = try enteredCatcher(pointerOver: false)
+        NSCursor.arrow.set()
+        await catcher.pendingCursorSet?.value
+        #expect(!isColumnResize(NSCursor.current), "cursor hot spot \(NSCursor.current.hotSpot), size \(NSCursor.current.image.size)")
+    }
+
+    /// Out of a window (or in one that does not show) the pointer is never over the catcher.
+    @Test func aCatcherOutOfAShownPanelIsNeverUnderThePointer() {
+        _ = NSApplication.shared
+        #expect(!DividerMouseCatcherView(frame: CGRect(x: 0, y: 0, width: 10, height: 200)).isPointerOver())
+    }
+
+    func enteredCatcher(pointerOver: Bool) throws -> DividerMouseCatcherView {
+        _ = NSApplication.shared
+        let catcher = DividerMouseCatcherView(frame: CGRect(x: 0, y: 0, width: 10, height: 200))
+        catcher.isPointerOver = { pointerOver }
+        catcher.mouseEntered(with: try enterExit(.mouseEntered))
+        return catcher
+    }
+
+    func enterExit(_ type: NSEvent.EventType) throws -> NSEvent {
+        try #require(NSEvent.enterExitEvent(with: type, location: CGPoint(x: 5, y: 100), modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+    }
+
+    func isColumnResize(_ cursor: NSCursor) -> Bool {
+        let resize: NSCursor
+        if #available(macOS 15, *) { resize = .columnResize } else { resize = .resizeLeftRight }
+        return cursor.hotSpot == resize.hotSpot && cursor.image.size == resize.image.size
     }
 }

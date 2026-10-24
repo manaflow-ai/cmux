@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// hq#1957 status glyph thunderdome: the static status glyphs come in competing sets (the default
 /// Static set from #20410, the quiet Dots, the bold Pictograms). Each set draws the six states apart

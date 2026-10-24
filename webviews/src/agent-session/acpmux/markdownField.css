@@ -3,9 +3,11 @@
    user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
-     leaves the transcript and location shelf anchored while the draft grows. */
-  max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
+  /* Keep long drafts inside the composer: it grows to 40% of the pane, never less than eight
+     lines, and leaves the transcript and location shelf anchored while the draft grows (Leo,
+     2026-10-24: "I think we can afford to expand the composer text area a bit more than we do right
+     now. When there's lots of text."). A short pane still gives up height (bottomStack.css). */
+  max-height: max(calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px)), 40vh);
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
@@ -25,6 +27,14 @@
   --acpmux-md-fade-top: 0px;
   --acpmux-md-fade-bottom: 0px;
   --acpmux-md-scrollbar-lane: 8px;
+  /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
+  --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Under the scrollbar fade its thumb paces with the pane's other fades (conversation.css). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+  /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
+     draft keeps the same width, and never rewraps, whether or not it overflows. */
+  padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
 }
 .acpmux-md-field[data-fade-top] {
   --acpmux-md-fade-top: var(--acpmux-md-fade-band);

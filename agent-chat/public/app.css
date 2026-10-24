@@ -416,6 +416,13 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   border-left: 2px solid var(--accent); padding: 2px 0 2px 12px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--text-dim);
 }
+.msg.agent-message .agent-message-toggle {
+  appearance: none; border: 0; border-radius: 5px; padding: 3px 8px;
+  background: transparent; color: var(--accent); cursor: pointer; font: inherit;
+  font-size: calc(var(--font-size-base) - 2px); margin: 4px 0 0 12px;
+}
+.msg.agent-message .agent-message-toggle:hover,
+.msg.agent-message .agent-message-toggle:focus-visible { background: var(--bg-hover); }
 .agent-messages-queued { max-width: 760px; margin: 0 auto 8px; padding: 0 24px; max-height: 30vh; overflow-y: auto; }
 .agent-messages-queued .msg { padding: 0 0 8px; }
 .agent-messages-queued-label { font-size: calc(var(--font-size-base) - 2.5px); color: var(--text-faint); margin-bottom: 6px; }

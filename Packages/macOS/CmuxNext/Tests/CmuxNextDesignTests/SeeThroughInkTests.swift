@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Sidebar sweep 2026-10-21: glass at Opacity 0.6 in light mode over a dark desktop left the
 /// sidebar's secondary glyphs (App Store, the footer's chevron and search) and the Home page's

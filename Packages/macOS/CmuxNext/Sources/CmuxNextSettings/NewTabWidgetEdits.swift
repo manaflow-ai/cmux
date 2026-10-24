@@ -8,7 +8,7 @@ import os
 /// ```
 ///
 /// A widget's place does not turn it on; its own key does. Widgets left out follow in Settings'
-/// order, and a bad or repeated item is dropped with a diagnostic. The greeting stays over the
+/// order, and a bad or repeated item is dropped with a diagnostic. The headline stays over the
 /// composer, and the template dots stay where they are.
 nonisolated extension NewTabWidgetSettings {
     public static let orderPath = ["tabs", "newTabWidgets", "order"]
@@ -76,6 +76,17 @@ extension SettingsController {
             throw SettingNotInSchema(key: path.joined(separator: "."))
         }
         try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? .bool(false) : nil, by: .caller("page"))
+    }
+
+    /// The New Tab page's second dot (Claude Minimal with the quick actions, webviews
+    /// newtab/tabDots.ts): turns the widget on as its Settings switch does (a widget that is on by
+    /// default leaves the file).
+    public func showNewTabWidget(_ widget: String) async throws {
+        let path = ["tabs", "newTabWidgets", widget]
+        guard let descriptor = SettingsSchema.descriptor(for: path), descriptor.kind == .toggle else {
+            throw SettingNotInSchema(key: path.joined(separator: "."))
+        }
+        try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? nil : .bool(true), by: .caller("page"))
     }
 
     /// The New Tab page's drag in edit mode: the movable widgets it shows, in their new order. A

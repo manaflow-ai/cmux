@@ -284,6 +284,27 @@ pub(crate) fn path_has_own_team(path: &std::path::Path) -> Result<bool, String> 
     Ok(true)
 }
 
+unsafe extern "C" {
+    /// libproc: the path of the process `token` names, failing (`<= 0`) when
+    /// its pid no longer carries the token's pid version.
+    fn proc_pidpath_audittoken(token: *mut [u32; 8], buffer: *mut c_void, size: u32)
+    -> libc::c_int;
+}
+
+/// `app_caller::executable_path`.
+pub(crate) fn executable_path(token: &[u32; 8]) -> Option<std::path::PathBuf> {
+    let mut token = *token;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: both pointers are valid; the call writes at most `path.len()`
+    // bytes and returns the count written (`<= 0` on failure).
+    let written = unsafe {
+        proc_pidpath_audittoken(&raw mut token, path.as_mut_ptr().cast(), path.len() as u32)
+    };
+    let written = usize::try_from(written).ok().filter(|written| *written > 0)?;
+    let path = std::str::from_utf8(&path[..written]).ok()?;
+    Some(std::path::PathBuf::from(path))
+}
+
 pub(crate) fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
     let mut token = [0u32; 8];
     let mut length = size_of_val(&token) as libc::socklen_t;

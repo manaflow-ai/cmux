@@ -9,7 +9,7 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
-import { shortCommand } from "./conversation/shortCommand";
+import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
 import type { AcpmuxActivity } from "./model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -61,7 +61,8 @@ export function toolLabel(
   const command = tool.command?.trim();
   if (tool.kind === "execute" && tool.description) return tool.description;
   // Without its setup, a leading `cd <folder> &&` included: the opened Shell block names the folder (#20456).
-  if (tool.kind === "execute" && command) return commandLabel(shortCommand(command));
+  // Never cut by length: the line it draws on ends in a CSS ellipsis at its right edge.
+  if (tool.kind === "execute" && command) return commandLabel(shortCommand(command, ROW_WIDTH));
   if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
   // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
   const call = mcpCall(tool);

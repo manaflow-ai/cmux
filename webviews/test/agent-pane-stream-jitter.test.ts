@@ -5,12 +5,14 @@
 // opens the turn's working line over the reply, a queued prompt's card comes into the bottom stack
 // and goes, and a queued prompt is sent as the next turn. On every painted frame the text the reader
 // is reading only moves up, and the view rests at the latest line. Sampled per frame on base
-// 6fe9ab414ee: the reply dropped 35px and slid back when the tool call came (the glide moved the
-// whole thread by what grew, also above the reply), and the view dropped 54px when the queue card
-// left the stack, then rose again as its prompt arrived.
-// A turn that ends leaves its reply still: its footer takes the running line's place, and the reply
-// keeps its gap over them (it slid 4px down as its gap went from the message gap to the meta gap; a
-// queued prompt arriving a frame later in WebKit showed it as a 1.5px drop, on #22827's shards).
+// 6fe9ab414ee: the reply dropped 35px and slid back when the tool call came (a glide, since removed,
+// moved the whole thread by what grew, also above the reply), and the view dropped 54px when the
+// queue card left the stack, then rose again as its prompt arrived. Growth now moves the view in the
+// frame that draws it (#23807), so nothing waits on a glide.
+// A turn that ends leaves its reply and composer still: its footer takes the running line's place at
+// the same height, and a live activity line under a plan reserves that footer slot too. The turn is
+// read once its reply has been drawn to its end (`rest`); the end-of-turn frame strip asserts no edge
+// moves for short, long, or tool-ending replies.
 // A queued prompt deleted from the queue never comes in as a row: the view goes back to its end at
 // once, with no card-high gap held under the last row (held for a second after #22858).
 // A chat whose history is rich (headings, code blocks, tables, lists, each laid out at its own height
@@ -262,16 +264,26 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     return page;
   }
 
-  /// Resolves once the view is at rest: the transcript's offset has held, with no glide on the
-  /// thread, for 6 painted frames.
+  /// Resolves once the view is at rest: the transcript's offset has held, with nothing in it
+  /// animating, for 6 painted frames. A streamed reply is drawn over frames after its last chunk
+  /// (StreamReveal), each step fading in (`.cv-fresh`): while one fades, the reply can still grow a
+  /// line. The offset alone holds for 6 frames between two wrapped lines, and a reply that grew a
+  /// line then moved the view up 23px in the frames read after it (#23807's first CI run).
+  /// Infinite animations (a spinner, the running line's shimmer) never end and do not count.
   const rest = (page: Page) =>
     page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+      const moving = () =>
+        scroller
+          .getAnimations({ subtree: true })
+          .some(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
       let last = NaN;
       for (let held = 0, frames = 0; held < 6 && frames < 600; frames += 1) {
         await window.cmuxPaintFrame();
-        const still = scroller.scrollTop === last && !thread?.getAnimations().length;
+        const still = scroller.scrollTop === last && !moving();
         held = still ? held + 1 : 0;
         last = scroller.scrollTop;
       }
@@ -290,7 +302,13 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     }, marker);
 
   /// One frame: where the row holding `marker` is drawn (transforms included).
-  type Frame = { t: number; marker?: number };
+  type Frame = {
+    t: number;
+    marker?: number;
+    messageBottom?: number;
+    composerTop?: number;
+    settled?: boolean;
+  };
   /// Samples every painted frame until `stop`.
   const sample = (page: Page, marker: string) =>
     page.evaluate((marker) => {
@@ -301,7 +319,15 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((each) =>
           each.textContent?.includes(marker),
         );
-        w.__frames.push({ t: Math.round(frame), marker: row?.getBoundingClientRect().top });
+        const message = row?.querySelector<HTMLElement>(".cv-md");
+        const composer = document.querySelector<HTMLElement>(".acpmux-dock");
+        w.__frames.push({
+          t: Math.round(frame),
+          marker: row?.getBoundingClientRect().top,
+          messageBottom: message?.getBoundingClientRect().bottom,
+          composerTop: composer?.getBoundingClientRect().top,
+          settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
+        });
       });
     }, marker);
   const stop = (page: Page) =>
@@ -440,6 +466,53 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
   });
 
   test.each(engines.map(([name]) => name))(
+    "%s: settling short, long, and tool-ending replies does not move the message or composer",
+    async (name) => {
+      const page = await open(name);
+      for (const scenario of [
+        { label: "short", chunks: 1, toolEnding: false },
+        { label: "long", chunks: 90, toolEnding: false },
+        { label: "tool", chunks: 18, toolEnding: true },
+      ]) {
+        const turn = events.length;
+        const marker = `Settle ${scenario.label} marker ${turn}`;
+        await sample(page, marker);
+        await stream(`settle-${turn}`, `Settle ${scenario.label}`, marker, scenario.chunks, (index) => {
+          if (scenario.toolEnding && index === scenario.chunks - 1) toolCall(`settle-tool-${turn}`);
+        });
+        if (scenario.toolEnding) toolDone(`settle-tool-${turn}`);
+        endTurn();
+        await ended(page, marker);
+        await rest(page);
+        const frames = await stop(page);
+        const measured = frames.filter(
+          (frame) =>
+            frame.messageBottom !== undefined &&
+            frame.composerTop !== undefined &&
+            Number.isFinite(frame.messageBottom) &&
+            Number.isFinite(frame.composerTop),
+        );
+        const before = measured.filter((frame) => !frame.settled).at(-1);
+        const after = measured.find((frame) => frame.settled);
+        expect({
+          scenario: scenario.label,
+          samples: measured.length,
+          before: Boolean(before),
+          after: Boolean(after),
+        }).toEqual({
+          scenario: scenario.label,
+          samples: expect.any(Number),
+          before: true,
+          after: true,
+        });
+        expect(Math.abs(after!.messageBottom! - before!.messageBottom!)).toBeLessThanOrEqual(1);
+        expect(Math.abs(after!.composerTop! - before!.composerTop!)).toBeLessThanOrEqual(1);
+      }
+      await page.close();
+    },
+  );
+
+  test.each(engines.map(([name]) => name))(
     "%s: a queued prompt sent as the next turn moves the view up only",
     async (name) => {
       const page = await open(name);
@@ -528,8 +601,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
   );
 
   /// How far the last row sits above the bottom stack's top, once the transcript is at rest. A new row
-  /// rises in (cv-enter) and growth glides in (GLIDE_MS); a read mid-way put the row up to 41px low
-  /// in Chromium on a loaded machine, though scrollTop never moved. Infinite ones (a spinner) aside.
+  /// rises in (cv-enter); a read mid-way put the row up to 41px low in Chromium on a loaded machine,
+  /// though scrollTop never moved. Infinite ones (a spinner) aside.
   const gapAbove = (page: Page) =>
     page.evaluate(async () => {
       const scroller = document.querySelector(".acpmux-scroll")!;
@@ -620,7 +693,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       toolDone(`t-${turn}`);
       endTurn();
       // The last row rests on the stack's top again, a card's height lower, well before a second:
-      // the room held for the withdrawn prompt (250ms) goes within 600ms and its glide (180ms) ends.
+      // the room held for the withdrawn prompt (250ms) goes within 600ms. The 180ms on top was the
+      // growth glide's, which #23807 removed; it stays as slack for a loaded runner.
       expect({ after: after <= 600 + 180, atEnd: (await fromEnd(page)) <= 4 }).toEqual({ after: true, atEnd: true });
       await page.close();
     },

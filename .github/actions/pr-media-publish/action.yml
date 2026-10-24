@@ -18,7 +18,9 @@ inputs:
     description: secrets.PR_MEDIA_PRIVATE_TERMS, which only the pr-media environment holds.
     required: true
   agent-authors:
-    description: vars.PR_MEDIA_AGENT_AUTHORS, the logins whose PR folders a hit refuses.
+    description: >-
+      vars.PR_MEDIA_AGENT_AUTHORS. The pre-push check no longer reads it: a hit
+      refuses in every pull request's folder (#24193). Kept so callers need no change.
     required: false
     default: ""
   github-token:

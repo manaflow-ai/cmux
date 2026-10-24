@@ -77,6 +77,9 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // it same-origin with the pane.
         if !mainFrame {
             if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
+            // A question's HTML option preview (question/HtmlPreview.tsx): the pane's own
+            // document, written into a sandboxed frame with no scripts. It loads nothing itself.
+            if url.absoluteString == "about:srcdoc" { return .allow }
             return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
         }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }

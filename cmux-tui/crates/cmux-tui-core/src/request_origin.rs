@@ -131,6 +131,11 @@ pub(crate) struct ConnectionOrigin {
     /// Kernel-bound local peer class fixed at accept. It never widens after
     /// the peer exits, changes session, or passes its connected descriptor.
     pub(crate) local_peer: LocalPeer,
+    /// The socket peer at accept was this build's own bundled
+    /// `cmux-mobile-host` (the executable beside the daemon's): a phone's
+    /// spliced lane (`host-size-policy-v1`). Fixed at accept from the
+    /// kernel's peer PID, never declared.
+    pub(crate) mobile_host: bool,
     /// Role main plus a proof (P8: install-key hello on DEV builds, the
     /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,

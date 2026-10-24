@@ -132,6 +132,25 @@ import Testing
         #expect(offer?.mac.name == "On")
         #expect(store().teamWithMacsElsewhere() == nil)
     }
+
+    /// The account-wide look keeps each Mac's machine id (and says the caller owns
+    /// it), so two builds on one Mac stay one listed Mac after it, and an older
+    /// Worker's look (no machine id) keeps the one the team list had.
+    @Test func discoveryKeepsTheMachineID() {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let s = AppStore(teams: [Team(id: "b", name: "B", macs: [])], activeTeamID: "b", workspaces: [], feed: [], tabMemory: .inMemory())
+        s.mergeDiscoveredMacs([
+            DiscoveredMac(id: "m1", name: "Mini", isOnline: true, teamID: "b", ownerUserID: "me", machineID: machine),
+            DiscoveredMac(id: "m2", name: "Mini", isOnline: true, teamID: "b", ownerUserID: "me", machineID: machine),
+        ])
+        #expect(MacRoster(s.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
+        s.mergeDiscoveredMacs([
+            DiscoveredMac(id: "m1", name: "Mini", isOnline: true, teamID: "b"),
+            DiscoveredMac(id: "m2", name: "Mini", isOnline: true, teamID: "b"),
+        ])
+        #expect(s.activeTeam?.macs.map(\.machineID) == [machine, machine])
+        #expect(MacRoster(s.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
+    }
 }
 
 @MainActor @Suite struct SignOutResetTests {

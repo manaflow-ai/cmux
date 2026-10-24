@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// What one pane draws for its background (plans/cmux-next/pane-backgrounds-DESIGN.md): the
 /// shared window art, its own copy, its own pick, a plain cover, and the marker tint.

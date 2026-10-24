@@ -11,4 +11,7 @@ nonisolated struct ShortcutIndex {
     /// Whether `bindingTable` holds the workspaces-as-tabs keys: a table built with the other answer
     /// is rebuilt (`ActionRegistry.includesWorkspaceTabKeys` follows a Debug tunable).
     var bindingTableHasWorkspaceTabKeys = false
+    /// Tables derived from `bindingTable` by a filter (`RegistryKeyBindings.subtable`), by name;
+    /// dropped with it.
+    var subtables: [String: KeyBindingTable] = [:]
 }

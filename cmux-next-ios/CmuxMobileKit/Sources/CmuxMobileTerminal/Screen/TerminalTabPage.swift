@@ -63,6 +63,12 @@ public struct TerminalTabPage: View {
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
+            // Only a page on screen, settled and taking input sizes the Mac's
+            // terminal; the grid, a swipe away, another tab or leaving the
+            // workspace release it (PROTOCOL.md, "Terminal size claims").
+            .onAppear { host.model.setPageShown(isInteractive) }
+            .onChange(of: isInteractive) { _, interactive in host.model.setPageShown(interactive) }
+            .onDisappear { host.model.setPageShown(false) }
             .ignoresSafeArea()
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.

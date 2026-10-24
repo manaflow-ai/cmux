@@ -159,7 +159,7 @@ const diffActions: LatencyAction[] = [
   {
     name: "sidebar toggle",
     async prepare(page) {
-      // The panel slides at once; the diff column changes width when the slide ends.
+      // The panel slides at once; the diff column changes width two frames after the toggle.
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
       const target = hidden === "true" ? "open" : "closed";
@@ -622,4 +622,68 @@ export const AGENT_PANE_PAGE: LatencyPageSpec = {
   actions: agentPaneActions,
 };
 
-export const PAGES: LatencyPageSpec[] = [DIFF_PAGE, MARKDOWN_PAGE, PICKER_PAGE, EMPTY_PAGE, AGENT_PANE_PAGE];
+// Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
+// to the first painted frame that shows the new section complete (its title and the host-read
+// buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
+// clicks at once (no time to preload); "hover, then click" rests on the link first, as a person
+// does before a click, so the router's intent preload can read the section ahead.
+const SETTINGS_CYCLE = ["advanced", "general"] as const;
+const settingsTarget = new WeakMap<Page, number>();
+const nextSettingsSection = (page: Page) => {
+  const index = ((settingsTarget.get(page) ?? -1) + 1) % SETTINGS_CYCLE.length;
+  settingsTarget.set(page, index);
+  return SETTINGS_CYCLE[index]!;
+};
+const settingsComplete = (section: string) =>
+  `document.querySelector('[data-section=${js(section)}] h1') !== null && ` +
+  `document.querySelector('[data-section-actions=${js(section)}] button') !== null`;
+const settingsLink = (section: string) => `[data-section-link=${js(section)}]`;
+
+const settingsActions: LatencyAction[] = [
+  {
+    name: "section switch (click)",
+    async prepare(page) {
+      await page.mouse.move(1, 1);
+      const section = nextSettingsSection(page);
+      targets.set(page, section);
+      return settingsComplete(section);
+    },
+    async input(page) {
+      await page.click(settingsLink(targetOf(page)));
+    },
+    settle: quiet,
+  },
+  {
+    name: "section switch (hover, then click)",
+    async prepare(page) {
+      await page.mouse.move(1, 1);
+      const section = nextSettingsSection(page);
+      targets.set(page, section);
+      await page.hover(settingsLink(section));
+      // fixed-wait: a person's pointer rests on a link about this long before the click (not measured)
+      await page.waitForTimeout(150);
+      return settingsComplete(section);
+    },
+    async input(page) {
+      await page.mouse.down();
+      await page.mouse.up();
+    },
+    settle: quiet,
+  },
+];
+
+export const SETTINGS_PAGE: LatencyPageSpec = {
+  name: "settings",
+  path: "/test/latency/settings.html?hostDelay=40#/settings/general",
+  ready: `document.querySelector('[data-section="general"] [data-section-actions="general"] button') !== null`,
+  actions: settingsActions,
+};
+
+export const PAGES: LatencyPageSpec[] = [
+  DIFF_PAGE,
+  MARKDOWN_PAGE,
+  PICKER_PAGE,
+  EMPTY_PAGE,
+  AGENT_PANE_PAGE,
+  SETTINGS_PAGE,
+];

@@ -40,6 +40,7 @@ use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
+mod browser_profile_proxy;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -56,6 +57,7 @@ mod public_fold;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
+pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
 pub(crate) use registry_intent::{
@@ -2391,7 +2393,7 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default()).map(crate::debug_spans::traced)
+    open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
@@ -2526,7 +2528,7 @@ impl WorkspaceRegistry {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
+             PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
@@ -2899,7 +2901,7 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         Ok(Self {
-            connection: RegistryConnection::new(connection),
+            connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
             registry_id,
             generation: try_new_uuid_v4()?,

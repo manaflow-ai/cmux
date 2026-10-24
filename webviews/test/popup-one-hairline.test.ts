@@ -158,7 +158,6 @@ describe("web popups draw one hairline edge", () => {
   const GLASS_POPUPS = [
     ".ui-popup",
     ".ui-context-menu",
-    ".acpmux-context-pop",
     ".acpmux-menu",
     ".acpmux-slash-menu",
     ".acpmux-mp",

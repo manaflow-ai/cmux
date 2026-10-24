@@ -191,6 +191,12 @@ impl HostLivenessLease {
         file.sync_all()?;
         Ok(Self { file, path })
     }
+
+    /// The Unix side defers its lease sync past the host's Ready; Windows
+    /// syncs at once (no deferred file).
+    pub(crate) fn acquire_deferring_sync(path: PathBuf) -> anyhow::Result<(Self, Option<File>)> {
+        Ok((Self::acquire(path)?, None))
+    }
 }
 
 impl Drop for HostLivenessLease {
@@ -220,7 +226,8 @@ pub(crate) fn process_definitely_gone(pid: u32) -> bool {
 
 /// The ProcessTree seam, Windows side: the terminal's child tree runs in
 /// the host's terminal Job Object (`cmux_pty::windows_jobs`). Windows has no
-/// group hangup: `Hangup` does nothing and `terminate_and_wait` goes on to
+/// group hangup or terminate: `Hangup` and `Terminate` do nothing and
+/// `terminate_and_wait` goes on to
 /// the child kill and the escalation; `Kill` ends every process in the job.
 impl super::super::super::shared::host_shared::HostShared {
     pub(crate) fn signal_terminal_process_groups(&self, signal: super::super::GroupSignal) {

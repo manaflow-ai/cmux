@@ -28,11 +28,20 @@
 //! until the next command starts (`C`). A shell without integration never
 //! publishes it. `cmux terminal <t> wait --until prompt|idle` waits on these
 //! facts (cx-6so.14).
+//!
+//! `last_output` is when the terminal last printed anything, with or
+//! without shell integration. Reads (`terminal.list`, `terminal.show`) and
+//! every other publish carry the exact time; output on its own pushes an
+//! upsert at most once per `OUTPUT_PUBLISH_INTERVAL_MS`, so a streaming
+//! command does not commit a revision per chunk.
 
 use crate::shell_history::ShellMark;
 use serde_json::{Value, json};
 
 pub(crate) const CAPABILITY: &str = "terminal-activity-v1";
+
+/// How stale a pushed `last_output` may get while output keeps arriving.
+const OUTPUT_PUBLISH_INTERVAL_MS: u64 = 5_000;
 
 /// DEC private mouse tracking modes (X10, normal, button, any-event). The
 /// prompt resets them, so a command that has one on turned it on itself.
@@ -101,7 +110,10 @@ pub(crate) struct ShellActivity {
     line_modes_armed: bool,
     /// When the shell drew the prompt it sits at (`A`, until the next `C`).
     prompt_since_ms: Option<u64>,
+    /// When the terminal last printed anything.
+    last_output_ms: Option<u64>,
     published: (Option<u64>, bool, Option<u64>),
+    published_output_ms: Option<u64>,
 }
 
 impl ShellActivity {
@@ -166,6 +178,16 @@ impl ShellActivity {
         self.prompt_since_ms
     }
 
+    /// Notes output seen at `now_ms`.
+    pub(crate) fn note_output(&mut self, now_ms: u64) {
+        self.last_output_ms = Some(now_ms);
+    }
+
+    /// When the terminal last printed anything, if it did.
+    pub(crate) fn last_output(&self) -> Option<u64> {
+        self.last_output_ms
+    }
+
     /// The state a terminal host hands to the daemon that adopts it.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn snapshot(&self) -> ShellActivitySnapshot {
@@ -186,12 +208,29 @@ impl ShellActivity {
         self.prompt_since_ms = snapshot.prompt_since_ms;
     }
 
-    /// Whether the command or prompt fact changed since the last call (marks
+    /// Keeps `previous`'s last output (the host's state does not carry it),
+    /// so a reconnect neither drops it nor pushes it again.
+    pub(crate) fn keep_output_of(&mut self, previous: &ShellActivity) {
+        self.last_output_ms = previous.last_output_ms;
+        self.published_output_ms = previous.published_output_ms;
+    }
+
+    /// Whether the command or prompt fact changed, or the last output moved
+    /// a whole interval past the one published, since the last call (marks
     /// it taken).
     pub(crate) fn take_change(&mut self) -> bool {
         let current = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
-        let changed = current != self.published;
-        self.published = current;
+        let output_moved = match (self.last_output_ms, self.published_output_ms) {
+            (Some(last), Some(published)) => {
+                last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
+            }
+            (last, published) => last != published,
+        };
+        let changed = current != self.published || output_moved;
+        if changed {
+            self.published = current;
+            self.published_output_ms = self.last_output_ms;
+        }
         changed
     }
 }
@@ -206,7 +245,87 @@ pub(crate) fn prompt_json(since_ms: u64) -> Value {
     json!({"since_ms": since_ms.to_string()})
 }
 
+/// The `last_output` field of a terminal record.
+pub(crate) fn last_output_json(at_ms: u64) -> Value {
+    json!({"at_ms": at_ms.to_string()})
+}
+
 /// The older `busy` field of a terminal record (a `running` command only).
 pub(crate) fn busy_json(since_ms: u64) -> Value {
     json!({"since_ms": since_ms.to_string()})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_output_publishes_and_a_burst_publishes_at_most_once_per_interval() {
+        let mut activity = ShellActivity::default();
+        assert_eq!(activity.last_output(), None);
+        assert!(!activity.take_change());
+
+        activity.note_output(10_000);
+        assert_eq!(activity.last_output(), Some(10_000));
+        assert!(activity.take_change(), "the first output publishes");
+
+        // More output inside the interval is read on demand, not pushed.
+        activity.note_output(10_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
+        assert_eq!(activity.last_output(), Some(10_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1));
+        assert!(!activity.take_change());
+
+        activity.note_output(10_000 + OUTPUT_PUBLISH_INTERVAL_MS);
+        assert!(activity.take_change(), "output a whole interval later publishes");
+        assert!(!activity.take_change());
+    }
+
+    #[test]
+    fn a_prompt_publish_carries_the_latest_output_and_restarts_the_interval() {
+        let mut activity = ShellActivity::default();
+        activity.note_output(1_000);
+        assert!(activity.take_change());
+        activity.note_output(2_000);
+        assert!(!activity.take_change());
+
+        // The command ends at a new prompt: that publish names 2_000, so
+        // output just after it waits a whole interval from there.
+        activity.observe(ShellMark::PromptStart, 2_000);
+        assert!(activity.take_change());
+        activity.note_output(2_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
+        assert!(!activity.take_change());
+    }
+
+    #[test]
+    fn restoring_a_host_state_keeps_the_last_output() {
+        let mut previous = ShellActivity::default();
+        previous.note_output(7_000);
+        assert!(previous.take_change());
+
+        let mut restored = ShellActivity::default();
+        restored.restore(previous.snapshot());
+        restored.keep_output_of(&previous);
+        assert_eq!(restored.last_output(), Some(7_000));
+        // The output was already published: no push now, and the next one
+        // still waits a whole interval from 7_000.
+        assert!(!restored.take_change());
+        restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
+        assert!(!restored.take_change());
+        restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS);
+        assert!(restored.take_change());
+    }
+
+    #[test]
+    fn a_clock_that_steps_back_still_records_the_output() {
+        let mut activity = ShellActivity::default();
+        activity.note_output(50_000);
+        assert!(activity.take_change());
+        activity.note_output(40_000);
+        assert_eq!(activity.last_output(), Some(40_000));
+        assert!(activity.take_change(), "a time before the published one publishes");
+    }
+
+    #[test]
+    fn last_output_json_names_the_time_as_a_decimal_string() {
+        assert_eq!(last_output_json(1_792_000_000_123), json!({"at_ms": "1792000000123"}));
+    }
 }

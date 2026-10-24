@@ -1,6 +1,7 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxHomeCore
+public import CmuxNextDesign
 
 /// DEBUG ONLY. A fixture for screenshots and dogfood: the real
 /// `HomeNativeTranscriptView` (MessagesLab's code) over a
@@ -27,9 +28,12 @@ public final class HomeNativeFixture {
     /// With `attachments`, the conversation also gets a photo, a video and a
     /// PDF from me (prepared and sent through the store like a drop).
     private let attachments: Bool
+    /// The app's made-ahead file picker for the fixture's "+"; nil opens none.
+    private let openPanel: MadeAheadOpenPanel?
 
-    public init(attachments: Bool = false) {
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
         self.attachments = attachments
+        self.openPanel = openPanel
         store = HomeStore(source: source)
         store.start()
         loading = Task { [weak self] in await self?.load() }
@@ -48,7 +52,7 @@ public final class HomeNativeFixture {
               let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
                   ?? inbox.conversations.first)?.id else { return }
         let me = inbox.me.id
-        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)

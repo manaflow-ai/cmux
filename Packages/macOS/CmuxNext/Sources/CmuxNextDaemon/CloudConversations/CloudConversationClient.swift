@@ -49,12 +49,12 @@ public struct CloudConversationClient: CloudConversationCommands {
     }
 
     public static func supported(by connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.shared.cloudConversations) == true
+        await connection.identity?.supports(DaemonCapability.cloudConversations.rawValue) == true
     }
 
     private func require() async throws {
         guard await Self.supported(by: connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudConversations])
+            throw DaemonError.missingCapabilities([DaemonCapability.cloudConversations.rawValue])
         }
     }
 
@@ -118,7 +118,7 @@ public struct CloudConversationClient: CloudConversationCommands {
     }
 
     public func requestLive(_ conversation: String) async throws {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudChiefLive) == true else { return }
+        guard await connection.identity?.supports(DaemonCapability.cloudChiefLive.rawValue) == true else { return }
         _ = try await local(CloudConversationLiveRequest(conversation: conversation))
     }
 
@@ -127,7 +127,7 @@ public struct CloudConversationClient: CloudConversationCommands {
     }
 
     public func typing(_ conversation: String, on: Bool) async throws {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationTyping) == true else { return }
+        guard await connection.identity?.supports(DaemonCapability.cloudConversationTyping.rawValue) == true else { return }
         _ = try await local(CloudConversationTypingRequest(conversation: conversation, on: on))
     }
 
@@ -158,7 +158,7 @@ public struct CloudConversationClient: CloudConversationCommands {
     }
 
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
+        guard await connection.identity?.supports(DaemonCapability.cloudConversationRuns.rawValue) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
         var pages = 1
         while all.hasMore == true, pages < 8, let last = all.steps.compactMap(\.seq).max() {
@@ -183,19 +183,19 @@ extension CloudConversationCommands {
 
     /// Fakes without the person's inbox: refused as a daemon without `cloud-inbox-op` would.
     public func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws {
-        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationInboxState])
+        throw DaemonError.missingCapabilities([DaemonCapability.conversationInboxState.rawValue])
     }
 
     /// Fakes and daemons without Cloud attachments.
     public func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
                                  previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment {
-        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudAttachments])
+        throw DaemonError.missingCapabilities([DaemonCapability.cloudAttachments.rawValue])
     }
 
     /// Fakes and daemons without Cloud attachments.
     public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
                                    to destination: URL) async throws -> String {
-        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudAttachments])
+        throw DaemonError.missingCapabilities([DaemonCapability.cloudAttachments.rawValue])
     }
 
     /// Fakes and daemons without run reads.
@@ -203,7 +203,7 @@ extension CloudConversationCommands {
 
     /// Fakes and daemons without the read: the caller falls back to history.
     public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
-        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationThread])
+        throw DaemonError.missingCapabilities([DaemonCapability.conversationThread.rawValue])
     }
 }
 

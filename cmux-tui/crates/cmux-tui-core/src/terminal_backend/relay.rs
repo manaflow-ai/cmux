@@ -13,6 +13,7 @@
 //! - client to app: bytes from the socket become data frames within the
 //!   app's credit.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
@@ -64,7 +65,12 @@ impl RelaySet {
             let uid = crate::platform::effective_uid();
             path = std::env::temp_dir().join(format!("cmux-tl-{uid}")).join(&name);
         }
-        let parent = path.parent().expect("a socket path has a directory");
+        let Some(parent) = path.parent() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "socket path has no directory",
+            ));
+        };
         prepare_dir(parent)?;
         match std::fs::remove_file(&path) {
             Ok(()) => {}
@@ -88,16 +94,18 @@ impl RelaySet {
             gone,
         };
         std::thread::Builder::new().name("cmux-link-accept".into()).spawn(move || accept.run())?;
-        self.relays.lock().unwrap().insert(channel.to_owned(), relay);
+        self.relays.lock().recover_poison().insert(channel.to_owned(), relay);
         Ok(path)
     }
 
     /// Stops the relay of an ended link: no new client, the client's socket
     /// shuts down, the file goes. Never waits for the threads.
     pub(crate) fn stop(&self, channel: &str) {
-        let Some(relay) = self.relays.lock().unwrap().remove(channel) else { return };
+        let Some(relay) = self.relays.lock().recover_poison().remove(channel) else {
+            return;
+        };
         relay.stopped.store(true, Ordering::SeqCst);
-        if let Some(client) = relay.client.lock().unwrap().take() {
+        if let Some(client) = relay.client.lock().recover_poison().take() {
             let _ = client.shutdown(Shutdown::Both);
         }
         // Wakes the accept thread, which sees `stopped` and exits.
@@ -107,7 +115,7 @@ impl RelaySet {
 
     /// The socket of an open link.
     pub(crate) fn socket(&self, channel: &str) -> Option<PathBuf> {
-        self.relays.lock().unwrap().get(channel).map(|r| r.path.clone())
+        self.relays.lock().recover_poison().get(channel).map(|r| r.path.clone())
     }
 }
 
@@ -147,7 +155,7 @@ impl Accept {
             if crate::platform::require_unix_peer_uid(&stream, uid).is_err() {
                 continue;
             }
-            let mut slot = self.client.lock().unwrap();
+            let mut slot = self.client.lock().recover_poison();
             if slot.is_some() {
                 continue;
             }
@@ -184,7 +192,8 @@ impl Accept {
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
-                if links.channels().send_all(&channel, &buf[..n], &*emit).is_err() {
+                let read = buf.get(..n).unwrap_or(&buf);
+                if links.channels().send_all(&channel, read, &*emit).is_err() {
                     break;
                 }
             }

@@ -27,6 +27,8 @@ final class SidebarListView: NSView {
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]
+    /// The rails before the nested-groups prototype (a capture's "before"); off draws the subtree rails.
+    var legacyNestedRails = false
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks? {
@@ -181,7 +183,11 @@ final class SidebarListView: NSView {
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
-                for row in self.displayed.rows { if case .item = row.key, let view = self.rowViews[row.key] { self.configure(view, row: row, animated: false) } }
+                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+                for (key, view) in self.rowViews {
+                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
+                    self.configure(view, row: row, animated: false)
+                }
             }
         }
     }

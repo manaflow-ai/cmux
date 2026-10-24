@@ -25,20 +25,24 @@ use crate::frame::{self, DataFrame, Message};
 use crate::token::{Claims, SigningKey};
 
 /// The fixed test seed (never a real key): bytes 0x00..=0x1f.
-pub const TEST_SEED: [u8; 32] = {
-    let mut seed = [0u8; 32];
-    let mut index = 0;
-    while index < 32 {
-        seed[index] = index as u8;
-        index += 1;
-    }
-    seed
-};
+pub const TEST_SEED: [u8; 32] = [
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+];
 
 /// Verification time used by the token checks.
 pub const TEST_NOW: u64 = 1_700_000_000;
 /// Expiry of the test tokens (2100-01-01).
 pub const TEST_EXP: u64 = 4_102_444_800;
+
+/// Set `key` on the object at JSON pointer `at` (`""` is the root). Every
+/// fixture here is built in this file, so the object exists; were it missing,
+/// `target` stays unchanged and the committed-vectors check fails.
+fn set(target: &mut Value, at: &str, key: &str, value: Value) {
+    if let Some(object) = target.pointer_mut(at).and_then(Value::as_object_mut) {
+        object.insert(key.to_owned(), value);
+    }
+}
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -50,10 +54,10 @@ fn envelope(name: &str, text: &str, valid: bool, decision: Option<u32>) -> Value
         let encoded = crate::envelope::Envelope::decode(text)
             .map(|envelope| envelope.encode())
             .unwrap_or_default();
-        case["encoded"] = json!(encoded);
+        set(&mut case, "", "encoded", json!(encoded));
     }
     if let Some(decision) = decision {
-        case["decision"] = json!(decision);
+        set(&mut case, "", "decision", json!(decision));
     }
     case
 }
@@ -268,7 +272,7 @@ fn token_case() -> anyhow::Result<Value> {
                  decision: Option<u32>| {
         let mut case = json!({ "name": name, "token": token, "aud": aud, "origin": origin, "now": now, "result": result });
         if let Some(decision) = decision {
-            case["decision"] = json!(decision);
+            set(&mut case, "", "decision", json!(decision));
         }
         case
     };
@@ -309,8 +313,10 @@ fn token_case() -> anyhow::Result<Value> {
 /// Flip one character inside the claims part, keeping it base64url.
 fn tamper(token: &str) -> String {
     let mut bytes = token.as_bytes().to_vec();
-    let index = token.find('.').unwrap_or_default() + 3;
-    bytes[index] = if bytes[index] == b'A' { b'B' } else { b'A' };
+    let index = token.find('.').unwrap_or_default().saturating_add(3);
+    if let Some(byte) = bytes.get_mut(index) {
+        *byte = if *byte == b'A' { b'B' } else { b'A' };
+    }
     String::from_utf8(bytes).unwrap_or_default()
 }
 
@@ -323,9 +329,9 @@ fn validation_cases() -> Vec<Value> {
         "endpoints": [{ "kind": "ws", "url": "ws://127.0.0.1:4100/" }]
     });
     let mut hello_op_strings = hello.clone();
-    hello_op_strings["ops"] = json!(["com.example.hello.greet.say"]);
+    set(&mut hello_op_strings, "", "ops", json!(["com.example.hello.greet.say"]));
     let mut hello_digest_string = hello.clone();
-    hello_digest_string["ir"] = json!("sha256:00");
+    set(&mut hello_digest_string, "", "ir", json!("sha256:00"));
     let mut cases = vec![
         case("status params", "GitStatusParams", json!({ "cwd": "/repo" }), true),
         case("status params without cwd", "GitStatusParams", json!({}), false),
@@ -393,7 +399,7 @@ fn validation_cases() -> Vec<Value> {
     ];
     let mut tagged = |name: &str, ty: &str, value: Value, valid: bool, decision: u32| {
         let mut entry = case(name, ty, value, valid);
-        entry["decision"] = json!(decision);
+        set(&mut entry, "", "decision", json!(decision));
         cases.push(entry);
     };
     tagged("provider hello", "ProviderHello", hello, true, 11);
@@ -520,11 +526,11 @@ fn fragment_cases() -> Value {
         "types": { "OctoListParams": { "type": "object", "properties": {}, "additionalProperties": false } }
     });
     let mut keyword = fragment.clone();
-    keyword["types"]["OctoListParams"]["patternProperties"] = json!({});
+    set(&mut keyword, "/types/OctoListParams", "patternProperties", json!({}));
     let mut squatter = fragment.clone();
-    squatter["ops"][0]["name"] = json!("cmux.git.steal");
+    set(&mut squatter, "/ops/0", "name", json!("cmux.git.steal"));
     let mut third_party_alias = fragment.clone();
-    third_party_alias["ops"][0]["aliases"] = json!(["difftools.list"]);
+    set(&mut third_party_alias, "/ops/0", "aliases", json!(["difftools.list"]));
     let first_party = |alias: &str| {
         json!({ "ops": [{
             "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false,
@@ -534,12 +540,21 @@ fn fragment_cases() -> Value {
     };
     let with_pattern = |pattern: &str| {
         let mut case = fragment.clone();
-        case["types"]["OctoListParams"]["properties"]["id"] =
-            json!({ "type": "string", "pattern": pattern });
+        set(
+            &mut case,
+            "/types/OctoListParams/properties",
+            "id",
+            json!({ "type": "string", "pattern": pattern }),
+        );
         case
     };
     let mut two_all_of = fragment.clone();
-    two_all_of["ops"][0]["result"] = json!({ "allOf": [{ "type": "array" }, { "maxItems": 3 }] });
+    set(
+        &mut two_all_of,
+        "/ops/0",
+        "result",
+        json!({ "allOf": [{ "type": "array" }, { "maxItems": 3 }] }),
+    );
     // Decision 21: mcp, cli and secret_output.
     let op21 = |name: &str, mcp: Option<Value>, cli: Option<Value>, result: Value| {
         let mut op = json!({
@@ -547,10 +562,10 @@ fn fragment_cases() -> Value {
             "params": { "$ref": "#/types/OctoGetParams" }, "result": result, "errors": []
         });
         if let Some(mcp) = mcp {
-            op["mcp"] = mcp;
+            set(&mut op, "", "mcp", mcp);
         }
         if let Some(cli) = cli {
-            op["cli"] = cli;
+            set(&mut op, "", "cli", cli);
         }
         op
     };
@@ -596,7 +611,7 @@ fn fragment_cases() -> Value {
     let secret = op21("octo.diff_tools.auth.get", exposed(), None, nested_secret);
     let with_paths = |paths: Value| {
         let mut op = op21("octo.diff_tools.file.get", None, None, plain());
-        op["paths"] = paths;
+        set(&mut op, "", "paths", paths);
         op
     };
     let no_mcp = op21("octo.diff_tools.diff.get", None, None, plain());
@@ -604,7 +619,7 @@ fn fragment_cases() -> Value {
     let with = |name: &str, fields: Value| {
         let mut op = op21(name, None, None, plain());
         for (key, value) in fields.as_object().into_iter().flatten() {
-            op[key] = value.clone();
+            set(&mut op, "", key, value.clone());
         }
         op
     };

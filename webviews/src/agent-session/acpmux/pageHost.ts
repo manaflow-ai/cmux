@@ -13,7 +13,6 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
-import { setImportCards } from "./importCards";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
@@ -86,6 +85,10 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "workflowLabs":
+      // Separate from the existing preview environment toggle. The host can opt the
+      // experimental workflow summary in without changing preview semantics.
+      return bridge?.applyWorkflowLabs?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
     case "sessionStatus":
@@ -110,9 +113,6 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
-    case "importCards":
-      // Direct, like nowPlaying: a push before the New Tab screen mounts is kept.
-      return setImportCards(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -132,6 +132,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.revealTurn?.(String(event.value));
     case "command":
       return bridge?.command?.(String(event.value));
+    case "stopTurn":
+      return bridge?.command?.("stopTurn", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

@@ -53,7 +53,7 @@ impl Mux {
         })
     }
 
-    pub(super) fn ordinary_pane_selectors(&self, pane: PaneId) -> Option<crate::ResourceSelectors> {
+    pub(crate) fn ordinary_pane_selectors(&self, pane: PaneId) -> Option<crate::ResourceSelectors> {
         let public_id =
             self.with_state(|state| state.resource_indexes.pane_ids.get(&pane).cloned())?;
         Some(crate::ResourceSelectors {

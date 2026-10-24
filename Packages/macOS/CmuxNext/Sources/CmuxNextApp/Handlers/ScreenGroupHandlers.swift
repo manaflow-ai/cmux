@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 
 /// Screen group actions (the tab group actions, for the screen bar). The
 /// group is resolved before the capability check, so an unknown group is
@@ -16,13 +17,13 @@ enum ScreenGroupHandlers {
     }
 
     private static func group(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> ScreenGroupRef? {
-        guard let ref = ctx.screenGroup(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: ref.daemon) else { return nil }
+        guard let ref = ctx.screenGroup(invocation), ctx.require(DaemonCapability.screenGroups.rawValue, on: ref.daemon) else { return nil }
         return ref
     }
 
     private static func bindMembership(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("screenGroup.create", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapability.screenGroups.rawValue, on: ref.daemon) else { return }
             guard !ref.screen.pinned else { return ctx.refuse(ScreenStrings.pinnedCannotGroup) }
             let color = invocation["color"]?.stringValue.flatMap(GroupTint.init(wire:))
             ScreenGroupCommands.create([ref.screen], in: ref.workspace, name: invocation["name"]?.stringValue, color: color, daemon: ref.daemon)
@@ -35,7 +36,7 @@ enum ScreenGroupHandlers {
             ScreenGroupCommands.add([screen.screen], to: ref.group.id, daemon: ref.daemon)
         })
         registry.bind("screenGroup.removeScreen", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapability.screenGroups.rawValue, on: ref.daemon) else { return }
             guard ref.screen.group != nil else { return ctx.refuse(ScreenStrings.screenNotInGroup) }
             ScreenGroupCommands.remove([ref.screen], daemon: ref.daemon)
         })
@@ -119,13 +120,13 @@ enum ScreenGroupHandlers {
             ScreenGroupCommands.unsave(ref.group.id, daemon: ref.daemon)
         })
         registry.bind("screenGroup.reopenSaved", invoke: { invocation in
-            guard let content = ctx.content(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: content.daemon) else { return }
+            guard let content = ctx.content(invocation), ctx.require(DaemonCapability.screenGroups.rawValue, on: content.daemon) else { return }
             guard let saved = invocation["saved"]?.stringValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return }
             let id = SavedScreenGroupID(rawValue: saved), workspace = content.workspace.handle
             content.daemon.send("reopen-saved-screen-group") { _ = try await $0.reopenSavedScreenGroup(id, in: workspace) }
         })
         registry.bind("screenGroup.deleteSaved", invoke: { invocation in
-            guard ctx.require(DaemonCapabilities.shared.screenGroups, on: ctx.services.activeDaemon) else { return }
+            guard ctx.require(DaemonCapability.screenGroups.rawValue, on: ctx.services.activeDaemon) else { return }
             guard let saved = invocation["saved"]?.stringValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return }
             let id = SavedScreenGroupID(rawValue: saved)
             ctx.services.activeDaemon.send("delete-saved-screen-group") { try await $0.deleteSavedScreenGroup(id) }

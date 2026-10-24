@@ -159,6 +159,110 @@ function sendMessage(args: string[]): AgentMessage | undefined {
   return { channel: "terminal", to: surface ?? workspace, text: oneMessage(rest.join(" ")) };
 }
 
+/// How far a send got, as one word on its line (Leo 2026-10-21: the raw result is "immediately
+/// TMI"): from the call's state and what it printed. Claude Code's SendMessage answers with JSON
+/// (`{"success":true,"message":"Message queued for delivery to …"}`), `acpmux send --no-wait`
+/// prints `queued` or `steered` (or `--json`'s `{"queued":…,"steered":…}`), tell-coordinator its
+/// receipt (`delivered to leoli-24 (id …)`). Anything else that finished reads as sent; a result
+/// that says it failed reads as failed.
+export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
+
+export function messageDelivery(
+  tool: Pick<Tool, "status" | "exitCode" | "output">,
+  message?: Pick<AgentMessage, "channel" | "text" | "to">,
+): Delivery {
+  if (tool.status === "pending" || tool.status === "in_progress") return "sending";
+  if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
+  // A mailbox write prints what it wrote (`tee -a`), never a receipt: its words are the message's.
+  if (message?.channel === "mailbox") return "sent";
+  const words = (text: string) => receiptWords(text, message);
+  const output = (tool.output ?? "").trim();
+  if (!output) return "sent";
+  const value = parseJson(output);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const result = value as Record<string, unknown>;
+    const error = typeof result.error === "string" ? result.error.trim() : result.error;
+    if (
+      result.success === false ||
+      result.ok === false ||
+      result.isError === true ||
+      (error !== undefined && error !== null && error !== "" && error !== false)
+    )
+      return "failed";
+    if (result.steered === true || result.delivered === true) return "delivered";
+    if (result.queued === true) return "queued";
+    const said = [result.message, result.status, result.result].find((part) => typeof part === "string");
+    return typeof said === "string" ? deliveryWords(words(said)) : "sent";
+  }
+  const text = words(output);
+  return text ? deliveryWords(text) : "sent";
+}
+
+/// A receipt's own words: without the message echoed back whole on its first lines ("the earlier
+/// message was not delivered" is the message, not its receipt) and without the recipient's name
+/// after "to" (a session named `undelivered` is not a failure). Only whole lines and the name are
+/// cut, so a short message ("not") never erases the receipt's words.
+function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">): string {
+  let rest = text.trim();
+  const echoed = message?.text.trim();
+  if (echoed && (rest === echoed || rest.startsWith(`${echoed}\n`))) rest = rest.slice(echoed.length).trim();
+  const to = message?.to?.trim();
+  if (to)
+    rest = rest.replace(new RegExp(`\\bto\\s+${to.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "gi"), "to");
+  return rest;
+}
+
+/// A send's printed words, read for how far it got.
+function deliveryWords(text: string): Delivery {
+  if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
+  // "could not be delivered", "wasn't delivered", "failed to deliver", "undeliverable".
+  if (
+    /(?:\bnot|\bnever|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|(?<![\w-])undeliver(?:able|ed)?(?![\w-])/i.test(
+      text,
+    )
+  )
+    return "failed";
+  if (/\bqueued\b/i.test(text)) return "queued";
+  if (/^\s*steered\s*$/im.test(text) || /\bdelivered\b/i.test(text)) return "delivered";
+  return "sent";
+}
+
+/// Why a send was not delivered, when its result says (Leo 2026-10-21: a card read "Sent" over a
+/// `success:false` result, "was stopped by the user and won't be resumed"): the agent it went to
+/// was stopped, no agent goes by that name, or (`other`) the result does not say.
+export type NotDelivered = "stopped" | "noAgent" | "other";
+
+export function notDeliveredReason(tool: Pick<Tool, "output">): NotDelivered {
+  const output = (tool.output ?? "").trim();
+  const value = parseJson(output);
+  const result = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const said =
+    [result.error, result.message, result.reason, result.result].find((part) => typeof part === "string") ?? output;
+  const text = String(said);
+  if (
+    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b/i.test(
+      text,
+    )
+  )
+    return "noAgent";
+  if (
+    /\b(?:stopped|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
+      text,
+    )
+  )
+    return "stopped";
+  return "other";
+}
+
+function parseJson(text: string): unknown {
+  if (!text.startsWith("{")) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n/;
 
 /// The body of the command's first here-document (`<<'EOF' … EOF`).

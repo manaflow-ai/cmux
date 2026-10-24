@@ -37,7 +37,7 @@ nonisolated enum PanePlacementSettingsSchema {
                 LinkPlacement.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.linkPlacement", "Open Links and Files"),
                 help: SettingsText.keyed("settings.layout.linkPlacement.help",
-                                        "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."),
+                                        "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."),
                 kind: .choice([
                     SettingChoice(LinkPlacement.splitRight.rawValue, SettingsText.keyed("settings.choice.linkPlacementSplitRight", "Split Right")),
                     SettingChoice(LinkPlacement.newColumn.rawValue, SettingsText.keyed("settings.choice.linkPlacementNewColumn", "New Column on the Right")),

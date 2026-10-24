@@ -12,6 +12,8 @@ type GalleryProps = Omit<PanelProps, "onClose" | "onOpenFile" | "review"> & {
   openFile?: "resolve" | "reject";
   /// The turn's hunk review, held here as the pane holds it (App.tsx hunkDecisions).
   reviewing?: boolean;
+  /// The pane's width in px, narrower than the stage: a split beside the chat.
+  paneWidth?: number;
 };
 
 const changed = (path: string, before: string | undefined, after: string | undefined): TurnFile => {
@@ -215,6 +217,19 @@ const threadsSource: ChangesSource = {
     ],
   }),
 };
+/// A repository with Commit and Push, the branch two commits ahead: the toolbar at its widest.
+const gitSource: ChangesSource = {
+  diff: async () => ({ files: [] }),
+  status: async () => ({
+    branch: "feat/upload-retry",
+    upstream: "origin/feat/upload-retry",
+    detached: false,
+    ahead: 2,
+    behind: 0,
+  }),
+  commit: async () => ({}),
+  push: async () => ({}),
+};
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
   diff: async () => {
@@ -223,7 +238,7 @@ const errorSource: ChangesSource = {
 };
 const pendingSource: ChangesSource = { diff: () => new Promise(() => {}) };
 
-function GalleryDiffPanel({ openFile = "resolve", reviewing = false, ...props }: GalleryProps) {
+function GalleryDiffPanel({ openFile = "resolve", reviewing = false, paneWidth, ...props }: GalleryProps) {
   const [action, setAction] = useState<string>();
   const [decisions, setDecisions] = useState<ReadonlyMap<string, HunkDecision>>(new Map());
   const review: HunkReview = {
@@ -239,7 +254,10 @@ function GalleryDiffPanel({ openFile = "resolve", reviewing = false, ...props }:
       setDecisions((current) => new Map([...current, ...keys.map((key) => [key, "requested"] as const)])),
   };
   return (
-    <div data-diff-gallery-action={action ?? ""}>
+    <div
+      data-diff-gallery-action={action ?? ""}
+      style={paneWidth ? { position: "absolute", inset: "0 auto 0 0", width: paneWidth } : undefined}
+    >
       <DiffPanel
         {...props}
         review={reviewing ? review : undefined}
@@ -281,6 +299,24 @@ const openRejectedFile: Play = async (ctx) => {
 const closeWithEscape: Play = async (ctx) => {
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.find({ selector: '[data-diff-gallery-action="close"]' }));
+};
+
+/// In a split beside the chat (toolbar-diffviewer's capture of #24168, 2026-10-22: Commit and Push
+/// drew over the Last turn pill), the toolbar wraps under the pill: nothing in the header overlaps,
+/// and the header stays inside the pane.
+const splitPaneHeader: Play = async (ctx) => {
+  const box = (selector: string) => ctx.document.querySelector(selector)?.getBoundingClientRect();
+  await ctx.waitFor(() => {
+    const [header, scope, tools, push] = [
+      box(".acpmux-diff-header"),
+      box(".acpmux-diff-scope"),
+      box(".acpmux-diff-tools"),
+      box('[data-tool="push"]'),
+    ];
+    if (!header || !scope || !tools || !push) return false;
+    const apart = scope.right <= tools.left || scope.bottom <= tools.top;
+    return apart && tools.right <= header.right && push.right <= header.right;
+  });
 };
 
 const chooseScope = async (ctx: Parameters<Play>[0], scope: string) => {
@@ -483,6 +519,11 @@ export default componentEntry<GalleryProps>({
       note: "A successful git scope with no files reports an empty result.",
       props: { files, source: emptySource },
       play: showEmpty,
+    },
+    "split-pane": {
+      note: "A 280 px split beside the chat: Commit, Push and the view tools wrap under the Last turn pill instead of drawing over it.",
+      props: { files, source: gitSource, paneWidth: 280 },
+      play: splitPaneHeader,
     },
     "loaded-scope": {
       note: "A loaded git scope replaces the turn files and shows branch metadata.",

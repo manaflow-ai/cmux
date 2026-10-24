@@ -1,8 +1,8 @@
 // New Tab lists move with their rows (motion pass, 2026-10-12): when a tab closes, its row joins
 // Recently Closed at the top and the rows under it slide down from where they were drawn, instead
-// of every row jumping a slot in one frame; the new row fades in where it lands. Reduced motion
-// keeps the fades and drops the slides, for the lists and for the template switch, whose parts
-// used to appear at once there (plans/cmux-next/motion.md rule 7).
+// of every row jumping a slot in one frame. The new row is drawn where it lands at once, with no
+// fade (Leo 2026-10-22: no entry animations on the New Tab). Reduced motion drops the slides too
+// (plans/cmux-next/motion.md rule 7).
 // This drives the real gallery page through the bridge the app uses (applyRecentlyClosed).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -145,7 +145,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     });
   }
 
-  test("a closed tab's row fades in at the top and the rows under it slide down", async () => {
+  test("a closed tab's row appears at once at the top and the rows under it slide down", async () => {
     const page = await open(false);
     try {
       await closed(page, ["a", "b", "c", "d"]);
@@ -153,7 +153,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
       await forget(page);
       await closed(page, ["e", "a", "b", "c", "d"]);
       expect(await motion(page)).toEqual({
-        "Closed e": ["opacity"],
+        "Closed e": [],
         "Closed a": ["transform"],
         "Closed b": ["transform"],
         "Closed c": ["transform"],
@@ -164,7 +164,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     }
   });
 
-  test("with reduced motion the new row still fades in and nothing slides", async () => {
+  test("with reduced motion the new row appears at once and nothing slides", async () => {
     const page = await open(true);
     try {
       await closed(page, ["a", "b", "c", "d"]);
@@ -172,7 +172,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
       await forget(page);
       await closed(page, ["e", "a", "b", "c", "d"]);
       expect(await motion(page)).toEqual({
-        "Closed e": ["opacity"],
+        "Closed e": [],
         "Closed a": [],
         "Closed b": [],
         "Closed c": [],

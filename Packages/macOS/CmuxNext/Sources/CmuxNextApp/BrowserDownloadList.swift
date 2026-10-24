@@ -61,6 +61,12 @@ final class BrowserDownloadList {
         }
     }
 
+    /// True while a download tab `key` started in this run is still in progress (the page
+    /// does not hibernate meanwhile).
+    func isDownloading(tab key: String) -> Bool {
+        items.contains { $0.status == .inProgress && origins[ObjectIdentifier($0)] == key }
+    }
+
     /// What tab `key`'s Downloads button shows; read while it renders, so
     /// it redraws as downloads start and end. The button counts only the
     /// downloads that tab started in this run (a person who downloaded

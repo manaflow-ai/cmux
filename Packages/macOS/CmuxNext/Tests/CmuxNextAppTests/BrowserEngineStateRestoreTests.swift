@@ -34,15 +34,15 @@ import Testing
         defer { server.stop() }
         let login = server.url("/login")
         var stored: FrontendBrowserHistory?
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
         let (service, tab) = Self.service(record: login, stored: { nil }, store: { stored = $0 })
         page.load(login)
         service.track(page, for: tab)
         try await Self.until("the login page loads") {
-            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string("login")
+            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string("login")
         }
-        _ = try await page.evaluate("document.getElementById('password').value = 'rj-typed-secret'; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('password').value = 'rj-typed-secret'; true", world: .page, gesture: .agent)
         try await Self.until("the history writer starts") { service.historyWriters[tab.id] != nil }
         await service.historyWriters[tab.id]?.flushNow()
         service.untrack(tab.id)
@@ -90,21 +90,21 @@ import Testing
         // The page `url` has loaded in `tab`: its document is complete and titled with its name.
         func shows(_ tab: WebKitTab, _ url: URL) async -> Bool {
             let name = url.deletingPathExtension().lastPathComponent
-            return (try? await tab.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string(name)
+            return (try? await tab.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
         }
 
         // Before the quit: a, then two link clicks, then a scroll; quit saves the history.
-        let first = WebKitEngine().makeWebKitTab()
+        let first = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         window.contentView = first.contentView
         let (before, beforeTab) = service(record: a, stored: { stored }, store: { stored = $0 })
         first.load(a)
         before.track(first, for: beforeTab)
         try await until("a loads") { await shows(first, a) }
         for next in [b, c] {
-            _ = try await first.evaluate("document.querySelector('a').click(); true", world: .page)
+            _ = try await first.evaluate("document.querySelector('a').click(); true", world: .page, gesture: .agent)
             try await until("\(next.lastPathComponent) loads") { await shows(first, next) }
         }
-        _ = try await first.evaluate("scrollTo(0, 1500); true", world: .page)
+        _ = try await first.evaluate("scrollTo(0, 1500); true", world: .page, gesture: .agent)
         try await until("the history writer starts") { before.historyWriters[beforeTab.id] != nil }
         await before.historyWriters[beforeTab.id]?.flushNow()
         before.untrack(beforeTab.id)
@@ -122,7 +122,7 @@ import Testing
                 return saved
             }
         }
-        let page = WebKitEngine().makeWebKitTab(id: BrowserTabID(rawValue: afterTab.id))
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(id: BrowserTabID(rawValue: afterTab.id))
         window.contentView = page.contentView
         defer { page.close() }
         after.historyStarts.hold(page, url: c, tabID: afterTab.id)
@@ -132,7 +132,7 @@ import Testing
         try await until("c loads again") { await shows(page, c) }
 
         func number(_ script: String) async -> Double? {
-            if case .number(let value)? = try? await page.evaluate(script, world: .page) { return value }
+            if case .number(let value)? = try? await page.evaluate(script, world: .page, gesture: .agent) { return value }
             return nil
         }
         let length = await number("history.length")
@@ -148,9 +148,9 @@ import Testing
         }
 
         // A local page shows no file outside its folder, after the reopen too.
-        if case .bool(true)? = try? await page.evaluate("!!document.getElementById('probe')", world: .page) {
+        if case .bool(true)? = try? await page.evaluate("!!document.getElementById('probe')", world: .page, gesture: .agent) {
             try await Task.sleep(for: .seconds(1))
-            let shown = try? await page.evaluate("document.getElementById('probe').naturalWidth > 0", world: .page)
+            let shown = try? await page.evaluate("document.getElementById('probe').naturalWidth > 0", world: .page, gesture: .agent)
             #expect(shown == .bool(false), "the reopened local page shows a file outside its folder")
         }
 
@@ -163,7 +163,7 @@ import Testing
     /// A browser tab service for one app process: its daemon stores one tab's history in memory.
     private static func service(record url: URL, stored: @escaping () -> FrontendBrowserHistory?,
                                 store: @escaping (FrontendBrowserHistory) -> Void) -> (BrowserTabService, TabModel) {
-        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()))
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: url.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "webkit"))
         service.tabModel = { $0 == tab.id ? tab : nil }

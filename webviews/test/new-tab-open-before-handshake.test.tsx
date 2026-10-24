@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -160,4 +161,29 @@ test("a chat from the New Tab page still waits for the handshake", async () => {
   // A browser tab opens at once too.
   await onSubmit("browser", "example.com");
   expect(calls).toEqual(["chat:fix the test", "tab.open"]);
+});
+
+test("a classic New Tab image reaches the first chat prompt", async () => {
+  const { newTabPageSubmit } = await import("../src/agent-session/acpmux/newtab/pageSubmit");
+  const image: ComposerAttachment = {
+    id: "image-1",
+    kind: "image",
+    name: "Screenshot.png",
+    mimeType: "image/png",
+    size: 4,
+    data: "iVBO",
+  };
+  let received: unknown[] | undefined;
+  const waiting: (() => void)[] = [];
+  const onSubmit = newTabPageSubmit({
+    callNative: async () => undefined,
+    whenHandshaken: (run) => void waiting.push(run),
+    startChat: (...args) => {
+      received = args;
+    },
+  });
+  expect(onSubmit("agent", "what is this", "/Users/you/src/app", [image])).toBeUndefined();
+  expect(received).toBeUndefined();
+  waiting.forEach((run) => run());
+  expect(received).toEqual(["what is this", "/Users/you/src/app", [image]]);
 });

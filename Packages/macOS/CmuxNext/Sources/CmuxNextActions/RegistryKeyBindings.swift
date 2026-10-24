@@ -29,7 +29,19 @@ public struct RegistryKeyBindings {
         let table = makeTable()
         registry.shortcutIndex?.bindingTable = table
         registry.shortcutIndex?.bindingTableHasWorkspaceTabKeys = workspaceTabKeys
+        registry.shortcutIndex?.subtables = [:]
         return table
+    }
+
+    /// The entries of ``table`` that `keep` keeps, as a table, built once per binding change and
+    /// cached under `name` (the palette resolves every key-down against its own entries).
+    /// `keep` must give the same answer for a name every time.
+    public func subtable(_ name: String, keeping keep: (KeyBinding) -> Bool) -> KeyBindingTable {
+        let full = table
+        if let cached = registry.shortcutIndex?.subtables[name] { return cached }
+        let sub = KeyBindingTable(full.entries.filter(keep))
+        registry.shortcutIndex?.subtables[name] = sub
+        return sub
     }
 
     /// Bound, available in `context` (the key window's facts), and enabled.
@@ -59,7 +71,11 @@ public struct RegistryKeyBindings {
         ids += registry.actions.map(\.id).filter { registry.descriptorIndexByID[$0] == nil }
         for (order, id) in ids.enumerated() where registry.disabledFeature(for: id) == nil {
             let requires = registry.descriptor(for: id)?.requires ?? []
-            let when = WhenClause.requiring(requires)
+            var when = WhenClause.requiring(requires)
+            // Home's conversation keys run on Home only, whoever bound them (a Settings rebind too).
+            if KeyBindingDefaults.homeChatScoped.contains(id) {
+                when = WhenClause.and([when, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+            }
             // The code editor's editing chords win over these defaults (R127).
             var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
                 ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
@@ -126,6 +142,8 @@ public struct RegistryKeyBindings {
                 // The Chrome tab keys win over every focus and the Ghostty config; cmux.json still decides.
                 entries += KeyBindingDefaults.tabSwitching(registry: registry)
                 entries += KeyBindingDefaults.workspacesAsTabs(registry: registry)
+                // On Home the same keys move through the chat list.
+                entries += KeyBindingDefaults.homeChatSwitching(registry: registry)
             case .user: entries += extra.user.filter(enabled)
             }
         }

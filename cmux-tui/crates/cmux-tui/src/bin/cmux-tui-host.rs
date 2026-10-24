@@ -40,6 +40,17 @@ fn main() -> std::process::ExitCode {
         println!("cmux-tui-host {}", cmux_build_identity::BUILD_IDENTITY);
         return std::process::ExitCode::SUCCESS;
     }
+    // The holder of every PTY (cmux-holder) runs from this small binary too.
+    #[cfg(unix)]
+    if args.first().map(String::as_str) == Some("__holder") {
+        return match cmux_holder::serve(&args[1..]) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("cmux-tui-host holder: {error}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if args.first().map(String::as_str) == Some("__terminal-host") {
         args.remove(0);
     }

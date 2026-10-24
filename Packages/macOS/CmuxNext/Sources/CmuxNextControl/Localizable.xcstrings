@@ -11794,6 +11794,530 @@
           }
         }
       }
+    },
+    "control.error.batchTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "action.batch takes at most %1$lld ops in one transaction (got %2$lld); send several batches, or atomic: false to apply it as consecutive transactions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقبل action.batch ما لا يزيد عن %1$lld عملية في معاملة واحدة (تم استلام %2$lld)؛ أرسل عدة دفعات، أو atomic: false لتطبيقها كمعاملات متتالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch prima najviše %1$lld operacija u jednoj transakciji (primljeno %2$lld); pošaljite više paketa ili atomic: false da se primijeni kao uzastopne transakcije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch tager højst %1$lld handlinger i én transaktion (fik %2$lld); send flere batches, eller atomic: false for at anvende den som flere transaktioner i træk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch nimmt höchstens %1$lld Operationen in einer Transaktion an (erhalten: %2$lld); sende mehrere Batches oder atomic: false, um sie als aufeinanderfolgende Transaktionen anzuwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch admite como máximo %1$lld operaciones en una transacción (recibidas %2$lld); envía varios lotes, o atomic: false para aplicarlo como transacciones consecutivas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch accepte au plus %1$lld opérations par transaction (%2$lld reçues) ; envoyez plusieurs lots, ou atomic: false pour l’appliquer en transactions successives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch accetta al massimo %1$lld operazioni in una transazione (ricevute %2$lld); invia più batch, oppure atomic: false per applicarlo come transazioni consecutive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch は 1 つのトランザクションで最大 %1$lld 個の操作を受け付けます (%2$lld 個を受信)。複数のバッチに分けるか、atomic: false で連続したトランザクションとして適用してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch ទទួលបានប្រតិបត្តិការយ៉ាងច្រើន %1$lld ក្នុងប្រតិបត្តិការមួយ (បានទទួល %2$lld); សូមផ្ញើជាច្រើនបាច់ ឬ atomic: false ដើម្បីអនុវត្តជាប្រតិបត្តិការបន្តបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch는 한 트랜잭션에 최대 %1$lld개의 작업을 받습니다(%2$lld개 받음). 여러 배치로 나누어 보내거나 atomic: false로 연속된 트랜잭션으로 적용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch tar maks %1$lld operasjoner i én transaksjon (fikk %2$lld); send flere batcher, eller atomic: false for å bruke den som påfølgende transaksjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch przyjmuje najwyżej %1$lld operacji w jednej transakcji (otrzymano %2$lld); wyślij kilka partii albo atomic: false, aby zastosować je jako kolejne transakcje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch aceita no máximo %1$lld operações em uma transação (recebidas %2$lld); envie vários lotes, ou atomic: false para aplicá-lo como transações consecutivas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch принимает не больше %1$lld операций в одной транзакции (получено %2$lld); отправьте несколько пакетов или atomic: false, чтобы применить их как последовательные транзакции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch รับได้สูงสุด %1$lld การดำเนินการในหนึ่งธุรกรรม (ได้รับ %2$lld) ส่งหลายชุด หรือใช้ atomic: false เพื่อใช้เป็นธุรกรรมต่อเนื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch bir işlemde en fazla %1$lld işlem alır (%2$lld alındı); birkaç toplu iş gönderin ya da ardışık işlemler olarak uygulamak için atomic: false kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch приймає щонайбільше %1$lld операцій в одній транзакції (отримано %2$lld); надішліть кілька пакетів або atomic: false, щоб застосувати їх як послідовні транзакції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch nhận tối đa %1$lld thao tác trong một giao dịch (đã nhận %2$lld); hãy gửi nhiều lô, hoặc atomic: false để áp dụng thành các giao dịch liên tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch 每个事务最多接受 %1$lld 个操作(收到 %2$lld 个);请分成多个批次发送,或使用 atomic: false 作为连续事务应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "action.batch 每個交易最多接受 %1$lld 個操作(收到 %2$lld 個);請分成多個批次傳送,或使用 atomic: false 作為連續交易套用"
+          }
+        }
+      }
+    },
+    "control.error.batchOpsShape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.ops must be a non-empty array of action.run params"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن يكون params.ops مصفوفة غير فارغة من معاملات action.run"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops mora biti neprazan niz parametara za action.run"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops skal være en ikke-tom liste af action.run-parametre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops muss ein nicht leeres Array von action.run-Parametern sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops debe ser un arreglo no vacío de parámetros de action.run"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops doit être un tableau non vide de paramètres action.run"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops deve essere un array non vuoto di parametri di action.run"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops は action.run のパラメーターを並べた空でない配列です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops ត្រូវតែជាអារេមិនទទេនៃប៉ារ៉ាម៉ែត្រ action.run"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops는 action.run 매개변수로 된 비어 있지 않은 배열이어야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops må være en ikke-tom liste med action.run-parametere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops musi być niepustą tablicą parametrów action.run"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops deve ser um array não vazio de parâmetros de action.run"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops должен быть непустым массивом параметров action.run"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops ต้องเป็นอาร์เรย์ที่ไม่ว่างของพารามิเตอร์ action.run"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops, action.run parametrelerinden oluşan boş olmayan bir dizi olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops має бути непорожнім масивом параметрів action.run"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops phải là một mảng không rỗng gồm các tham số action.run"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops 必须是由 action.run 参数组成的非空数组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "params.ops 必須是由 action.run 參數組成的非空陣列"
+          }
+        }
+      }
+    },
+    "control.error.batchMemberPerOp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ applies to the whole action.batch, not to one op"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينطبق %@ على action.batch بالكامل، وليس على عملية واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ se odnosi na cijeli action.batch, ne na jednu operaciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gælder hele action.batch, ikke én handling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gilt für den ganzen action.batch, nicht für eine Operation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ se aplica a todo el action.batch, no a una operación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ s’applique à tout l’action.batch, pas à une seule opération"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ si applica all’intero action.batch, non a una singola operazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ は action.batch 全体に指定します。1 つの操作には指定できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ អនុវត្តចំពោះ action.batch ទាំងមូល មិនមែនចំពោះប្រតិបត្តិការមួយទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) 작업 하나가 아니라 action.batch 전체에 적용됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gjelder hele action.batch, ikke én operasjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ dotyczy całego action.batch, a nie jednej operacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ se aplica ao action.batch inteiro, não a uma operação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ относится ко всему action.batch, а не к одной операции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ใช้กับ action.batch ทั้งชุด ไม่ใช่การดำเนินการเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ tek bir işleme değil, action.batch'in tamamına uygulanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ стосується всього action.batch, а не однієї операції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ áp dụng cho toàn bộ action.batch, không cho một thao tác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 作用于整个 action.batch,而不是单个操作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 作用於整個 action.batch,而不是單一操作"
+          }
+        }
+      }
+    },
+    "control.error.batchAtomicShape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "atomic must be true or false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن تكون قيمة atomic هي true أو false"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic mora biti true ili false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic skal være true eller false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic muss true oder false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic debe ser true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic doit valoir true ou false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic deve essere true o false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic は true か false です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic ត្រូវតែជា true ឬ false"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic은 true 또는 false여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic må være true eller false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic musi mieć wartość true lub false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic deve ser true ou false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic должен быть true или false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic ต้องเป็น true หรือ false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic true veya false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic має бути true або false"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic phải là true hoặc false"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic 必须是 true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atomic 必須是 true 或 false"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

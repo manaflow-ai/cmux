@@ -13,7 +13,7 @@ import CmuxNextLayout
 /// the same directory) stays behind (`tab-column-respawn-v1`).
 enum DockColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
-        let capability = DaemonCapabilities.shared.dockColumns
+        let capability = DaemonCapability.dockColumns.rawValue
         registry.bind("column.dock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:))
             let mode = invocation["mode"]?.stringValue.flatMap(DockMode.init(rawValue:)) ?? ColumnDocking.defaultMode
@@ -56,15 +56,15 @@ enum DockColumnHandlers {
         case .pin(_, let dock, let width):
             // Width and pin in one transaction: one undo step.
             let transaction = LayoutTransactionID.make()
-            if dock.edge.isBand, !content.daemon.supports(DaemonCapabilities.shared.edgeDocks) {
-                throw ActionFailure(message: content.daemon.missingCapabilityMessage(DaemonCapabilities.shared.edgeDocks))
+            if dock.edge.isBand, !content.daemon.supports(DaemonCapability.edgeDocks.rawValue) {
+                throw ActionFailure(message: content.daemon.missingCapabilityMessage(DaemonCapability.edgeDocks.rawValue))
             }
             if abs(column.width - width) > 0.001 {
                 content.layoutModel.setColumnWidth(column.id, width: width, transaction: transaction, phase: .ended)
             }
             try ColumnDocking.apply(dock, to: column, in: content, transaction: transaction)
         case .moveTab(let pane, let dock, let width):
-            let docks = DaemonCapabilities.shared.edgeDocks
+            let docks = DaemonCapability.edgeDocks.rawValue
             guard content.daemon.supports(docks) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(docks)) }
             guard let controller = content.panes[pane], let tab = controller.selectedTab else {
                 throw ActionFailure.noTarget(RefusalStrings.focusedPaneHasNoTab)
@@ -73,7 +73,7 @@ enum DockColumnHandlers {
             // the column keeps another pane, or a fresh tab stays behind.
             var respawn: SplitRespawn?
             if controller.pane.tabs.count == 1, column.root.panes.count == 1 {
-                let capability = DaemonCapabilities.shared.tabColumnRespawn
+                let capability = DaemonCapability.tabColumnRespawn.rawValue
                 guard content.daemon.supports(capability) else {
                     throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability))
                 }

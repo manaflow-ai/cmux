@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 // The struct was nonisolated in CmuxNextDesign; this module defaults to the
 // main actor, so the conversions opt out to stay usable from layers and

@@ -3,6 +3,9 @@
 //! "stream disconnected", and each chat stayed idle until a person typed "continue".
 use super::*;
 
+#[path = "agent_revive.rs"]
+mod agent_revive;
+
 /// Every event kind of a session, oldest first.
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {
     hub.events(id, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect()

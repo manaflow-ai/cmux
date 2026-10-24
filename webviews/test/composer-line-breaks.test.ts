@@ -149,7 +149,7 @@ await requireBrowserLane("composer-line-breaks.test.ts", async () => {
       // (c) The transcript message's copy is the prompt's text with `\n`.
       const row = page.locator(".acpmux-row", { has: bubble });
       await row.hover();
-      await row.locator(".acpmux-row__copy").click();
+      await row.locator('.cv-user__actions button[aria-label="Copy"]').click();
       await page.waitForFunction(() => ((window as unknown as { __copied: string[] }).__copied ?? []).length > 0);
       const copied = await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied.at(-1)!);
       expect(copied).toBe(TEXT);

@@ -9,6 +9,7 @@ import { ROLES, roleHas, type TeamGrant } from "./domains/team-roles.ts"
 import { noOwnerOf, seatsOf } from "./domains/team-stack.ts"
 import { auditPage } from "./domains/team-audit-rows.ts"
 import { aiLimitViewOf } from "./domains/team-ai-limit.ts"
+import { groupRead } from "./domains/team-group-reads.ts"
 import type { Env } from "./env.ts"
 import { nextMonthStart } from "./usage-user.ts"
 import { teamUsageLine } from "./team-ai-usage.ts"
@@ -28,7 +29,9 @@ const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
   "sso.connection.list": "team.manage",
   "domain.list": "team.manage",
   "team.device.compliance": "team.manage",
-  "team.audit.list": "audit.read_billing"
+  "team.audit.list": "audit.read_billing",
+  "group.get": "team.resources",
+  "group.list": "team.resources"
 }
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
@@ -125,6 +128,9 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       const page = auditPage(rows, before, limit, roleHas(member.role, "audit.read") ? undefined : "billing")
       return { ok: true, value: { team: state.team?.id, ...page }, revision: String(state.audit_count ?? 0) }
     }
+    case "group.get":
+    case "group.list":
+      return groupRead(state, op, params, principal.user!, rows)
     default:
       return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
   }

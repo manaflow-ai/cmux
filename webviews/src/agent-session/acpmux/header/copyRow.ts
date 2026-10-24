@@ -9,6 +9,7 @@ export function copyRow(
   chat: { link: string | undefined; rows: readonly AcpmuxRow[]; sessionId?: string },
   copy: (text: string) => void,
   t: Translate = translate,
+  copyFullConversation?: () => Promise<string | null>,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
   const { link, rows, sessionId } = chat;
   // The menu's rows are read on every render: only check here, build the text on selection.
@@ -24,7 +25,19 @@ export function copyRow(
   if (answered && lastResponse(rows))
     children.push({ key: "copyResponse", label: t("chatMenu.copyResponse"), onSelect: () => copy(lastResponse(rows)) });
   if (answered)
-    children.push({ key: "copyMarkdown", label: t("chatMenu.copyMarkdown"), onSelect: () => copy(chatMarkdown(rows)) });
+    children.push({
+      key: "copyMarkdown",
+      label: t("chatMenu.copyMarkdown"),
+      onSelect: () => {
+        if (!copyFullConversation) {
+          copy(chatMarkdown(rows));
+          return;
+        }
+        void copyFullConversation().then((markdown) => {
+          if (markdown) copy(markdown);
+        });
+      },
+    });
   if (sessionId)
     children.push({ key: "copySessionId", label: t("chatMenu.copySessionId"), onSelect: () => copy(sessionId) });
   if (!children.length) return undefined;
@@ -33,7 +46,8 @@ export function copyRow(
 
 const text = (row: AcpmuxRow) => row.text?.trim() ?? "";
 /// A prompt the agent got: not one still sending, failed, or queued behind a harness switch.
-const sent = (row: AcpmuxRow) => row.kind === "user" && !row.pending && !row.failed && !row.queued;
+const sent = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.pending && !row.failed && !row.queued && row.incoming?.kind !== "hidden";
 
 /// The answer after the last sent prompt: its text rows, in order.
 function lastResponse(rows: readonly AcpmuxRow[]): string {
@@ -58,6 +72,32 @@ function chatMarkdown(rows: readonly AcpmuxRow[]): string {
     } else if (row.kind === "assistant" && body) {
       blocks.push(body);
     }
+  }
+  return blocks.join("\n\n");
+}
+
+/// A stable export for the native command palette. Role headings make a copied chat readable in a
+/// plain editor, while tool calls stay as short, title-only lines instead of leaking their inputs or
+/// outputs into a clipboard action. Recorded exports pass rows folded from the complete event log,
+/// including older turns that the live transcript has not loaded.
+export function conversationMarkdown(rows: readonly AcpmuxRow[]): string {
+  const blocks: string[] = [];
+  for (const row of rows) {
+    const body = text(row);
+    if (sent(row)) {
+      if (body || row.images?.length) blocks.push(`**User:**\n${body || "(attachment)"}`);
+    } else if (row.kind === "assistant" && body) {
+      blocks.push(`**Assistant:**\n${body}`);
+    }
+    const tools = (row.items ?? [])
+      .map((item) => item.tool?.title.trim())
+      .filter((title): title is string => !!title)
+      .map((title) => {
+        const compact = title.replace(/\s+/gu, " ");
+        const short = compact.length > 160 ? `${compact.slice(0, 157)}…` : compact;
+        return `- Tool: ${short}`;
+      });
+    if (tools.length) blocks.push(...tools);
   }
   return blocks.join("\n\n");
 }

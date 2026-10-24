@@ -300,17 +300,6 @@
   color: var(--lg-warn);
   font-weight: 600;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .lg-state.working::before,
-  .lg-state-mark.working {
-    animation: lg-pulse 1.6s ease-in-out infinite;
-  }
-}
-@keyframes lg-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
 
 /* ---------- Main ---------- */
 .lg-main {
@@ -1248,11 +1237,6 @@
 .lg-run-mark.failed {
   border-color: var(--hc-danger);
   background: var(--hc-danger);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .lg-run-mark.running {
-    animation: lg-pulse 1.6s ease-in-out infinite;
-  }
 }
 .lg-run-title {
   margin: -4px 0 4px;

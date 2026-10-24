@@ -121,6 +121,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(EdgeSwipePriority())
+        // UIKit starts closing an open List row as the finger lands, before the pan asks to
+        // begin: whether a row was open is read at touch-down.
+        view.addGestureRecognizer(TouchDownProbe { [weak self] in self?.noteTouchDown() })
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (self: Self, _) in
             self.strokeView.layer.borderColor = theme.colors.cardStroke.uiColor.resolvedColor(with: self.traitCollection).cgColor
@@ -309,9 +312,36 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         if model.isOpen {
             return velocity.x < 0
         }
-        guard velocity.x > 0, model.allowsInteractiveOpen else { return false }
-        let location = pan.location(in: view)
-        return !touchIsInPushedScreen(location) && !touchIsInHorizontalScroller(location)
+        guard velocity.x > 0 else { return false }
+        return mayOpen(at: pan.location(in: view))
+    }
+
+    /// Whether a rightward pan at `location` may open the closed drawer.
+    func mayOpen(at location: CGPoint) -> Bool {
+        guard model.allowsInteractiveOpen else { return false }
+        guard !touchIsInPushedScreen(location), !touchIsInHorizontalScroller(location) else { return false }
+        return !closesOpenRowActions()
+    }
+
+    /// Mail and Messages: while a row's swipe actions are open, a rightward
+    /// swipe closes them instead of opening the drawer. A `List` row closes
+    /// itself on the touch (UIKit); a row outside `List` is closed here.
+    /// Returns whether actions were open.
+    private func closesOpenRowActions() -> Bool {
+        let rows = RowSwipeActions.shared
+        let listRowOpen = listRowOpenAtTouchDown || RowSwipeActions.hasOpenListRow(in: contentController.view)
+        guard rows.hasOpenRow || listRowOpen else { return false }
+        rows.closeAll()
+        return true
+    }
+
+    /// A `List` row was slid open when the current touch began.
+    private var listRowOpenAtTouchDown = false
+
+    private func noteTouchDown() {
+        // Only where the drawer could open (closed, on a tab root): no tree walk elsewhere.
+        listRowOpenAtTouchDown = !model.isOpen && model.allowsInteractiveOpen
+            && RowSwipeActions.hasOpenListRow(in: contentController.view)
     }
 
     /// The drawer only opens from a tab root. Any navigation controller under
@@ -334,6 +364,8 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === pan else { return false }
         if other is UIScreenEdgePanGestureRecognizer { return true }
+        // A row outside `List` with open actions takes the rightward swipe to close them.
+        if other.name == RowSwipeActions.panName { return true }
         var responder: UIResponder? = other.view
         while let current = responder {
             if let navigation = current as? UINavigationController {
@@ -429,6 +461,25 @@ private final class EdgeSwipePriority: UIGestureRecognizer {
             }
             responder = current.next
         }
+    }
+}
+
+/// Reports each touch-down and fails at once: it never recognizes, delays
+/// or cancels touches.
+private final class TouchDownProbe: UIGestureRecognizer {
+    private let began: () -> Void
+
+    init(began: @escaping () -> Void) {
+        self.began = began
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        began()
+        state = .failed
     }
 }
 

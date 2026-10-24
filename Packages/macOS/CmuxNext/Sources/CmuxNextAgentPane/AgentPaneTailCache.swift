@@ -11,7 +11,7 @@ public import Foundation
 /// setting to turn off: quitting the app forgets every tail, and signing out drops them with the
 /// rest of the session's state (``clear()``). What is held is bounded three ways here, so the
 /// bound holds whatever a page sends: the most recent ``chats`` chats, ``events`` records of each,
-/// and ``bytes`` of each (``holds(_:)``) — at most about 8 MiB in the worst case, and a small
+/// and ``bytes`` of each (``holds(_:)``) — at most about 20 MiB in the worst case, and a small
 /// fraction of that for ordinary chats, which are far under the per-chat bound.
 ///
 /// The page bounds a tail to 256 KiB of its own before handing it over (acpmux/tailCache.ts
@@ -27,7 +27,7 @@ public import Foundation
 public final class AgentPaneTailCache {
     public static let shared = AgentPaneTailCache()
     /// Chats whose tail is kept, as the page keeps the same number.
-    static let chats = 8
+    static let chats = 20
     /// Most records one chat's tail may carry, as many as an attach page holds. A tail over this
     /// is refused whole, never cut: a cut tail that still called its history exhausted would hide
     /// the chat's older turns (webviews/test/reopened-chat-history.test.ts).

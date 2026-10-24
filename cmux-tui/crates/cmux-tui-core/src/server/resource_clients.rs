@@ -4,6 +4,7 @@
 //! release. Each function answers one `client.*`, `session.*` or
 //! `*.viewer.*` resource operation for the connection dispatcher.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -44,7 +45,7 @@ pub(crate) fn public_client_id(
     digest.update(b"/");
     digest.update(client.to_be_bytes());
     let digest = digest.finalize();
-    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let payload = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<String>();
     ClientPublicId::parse(format!("client_{payload}"))
 }
 
@@ -127,10 +128,10 @@ fn resource_client_snapshot(
     attached_terminal_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     attached_terminal_ids.dedup();
     sizes.sort_by(|left, right| {
-        left["terminal_id"]
+        left.field("terminal_id")
             .as_str()
             .unwrap_or_default()
-            .cmp(right["terminal_id"].as_str().unwrap_or_default())
+            .cmp(right.field("terminal_id").as_str().unwrap_or_default())
     });
     Ok(json!({
         "id":public_client_id(session_id, record.client)?,
@@ -166,7 +167,10 @@ fn resource_client_snapshots(
         .map(|record| resource_client_snapshot(mux, requesting_client, session_id, record))
         .collect::<Result<Vec<_>, _>>()?;
     clients.sort_by(|left, right| {
-        left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
+        left.field("id")
+            .as_str()
+            .unwrap_or_default()
+            .cmp(right.field("id").as_str().unwrap_or_default())
     });
     Ok(clients)
 }
@@ -178,8 +182,10 @@ pub(super) fn resource_session_snapshot(
 ) -> Result<Value, ResourceError> {
     let session_id = resource_session_id(mux, selectors)?;
     let mut snapshot = crate::resource_api::public_session_snapshot(mux)?;
-    snapshot["clients"] =
-        Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?);
+    snapshot.insert(
+        "clients",
+        Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?),
+    );
     Ok(snapshot)
 }
 
@@ -271,8 +277,9 @@ pub(super) fn resource_client_sizing_set(
     let operation = "client.sizing.set";
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let enabled =
-        request.fields["enabled"].as_bool().expect("catalog validates client sizing enabled");
+    let enabled = request.fields.get("enabled").and_then(Value::as_bool).ok_or_else(|| {
+        ResourceError::validation_invalid(Some("enabled"), "enabled must be a boolean")
+    })?;
     let exclusive = request.fields.get("exclusive").and_then(Value::as_bool).unwrap_or(false);
     if exclusive && !enabled {
         return Err(ResourceError::validation_invalid(
@@ -345,7 +352,7 @@ fn checked_resource_u16(
     fields: &serde_json::Map<String, Value>,
     field: &'static str,
 ) -> Result<u16, ResourceError> {
-    let value = fields[field].as_u64().expect("catalog validates integer fields");
+    let value = crate::resource_router::required_u64(fields, field)?;
     u16::try_from(value).map_err(|_| {
         ResourceError::operation_failed(
             operation,
@@ -407,8 +414,7 @@ pub(super) fn resource_terminal_viewer_resize(
 ) -> Result<Value, ResourceError> {
     let operation = "terminal.viewer.resize";
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let lease =
-        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let lease = crate::resource_router::required_string(&request.fields, "attachment_lease")?;
     let cols = checked_resource_u16(operation, &request.fields, "cols")?;
     let rows = checked_resource_u16(operation, &request.fields, "rows")?;
     let (cols, rows) = clamp_terminal_size(cols, rows);
@@ -535,8 +541,7 @@ pub(super) fn resource_terminal_viewer_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let lease =
-        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let lease = crate::resource_router::required_string(&request.fields, "attachment_lease")?;
     let outcome = release_resource_view(mux, client, surface.id, lease, "terminal.viewer.release")?;
     Ok(json!({"outcome":outcome}))
 }
@@ -566,14 +571,13 @@ pub(super) fn resource_browser_viewer_resize(
 ) -> Result<Value, ResourceError> {
     let operation = "browser.viewer.resize";
     let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
-    let lease =
-        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
-    let width_px =
-        u32::try_from(request.fields["width_px"].as_u64().expect("catalog validates width_px"))
-            .expect("catalog validates uint32");
-    let height_px =
-        u32::try_from(request.fields["height_px"].as_u64().expect("catalog validates height_px"))
-            .expect("catalog validates uint32");
+    let lease = crate::resource_router::required_string(&request.fields, "attachment_lease")?;
+    let pixels = |field: &str| {
+        u32::try_from(crate::resource_router::required_u64(&request.fields, field)?)
+            .map_err(|_| ResourceError::validation_invalid(Some(field), "exceeds the uint32 limit"))
+    };
+    let width_px = pixels("width_px")?;
+    let height_px = pixels("height_px")?;
     let (cols, rows) = browser_cells_for_pixels(mux, width_px, height_px);
     let (accepted, outcome) =
         resize_resource_view(mux, client, surface.id, lease, (cols, rows), operation)?;
@@ -591,8 +595,7 @@ pub(super) fn resource_browser_viewer_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
-    let lease =
-        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let lease = crate::resource_router::required_string(&request.fields, "attachment_lease")?;
     let outcome = release_resource_view(mux, client, surface.id, lease, "browser.viewer.release")?;
     Ok(json!({"outcome":outcome}))
 }

@@ -13,6 +13,14 @@
 // surfaces WebTheme.swift injects), or a `color-mix` of two opaque colors. Anything it cannot
 // resolve passes. A rule that must stay solid under its blur says why on the line before its
 // background: `/* glass-opaque-allow: <reason> */`.
+//
+// Tooltips and hover cards are glass (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these
+// hover tooltips and hover previews"). A rule whose selector names a tooltip or a hover card counts
+// as glass even without a blur, so `backdrop-filter: none` never makes one a legitimately solid
+// card, and `findSolidTooltipMarkup` fails a tooltip class list in the page code (`ui-tooltip`,
+// `ui-title-tooltip`) that does not carry `ui-glass`.
+// Named floating surfaces are glass too, even when their old markup and stylesheet set neither
+// ui-glass nor a blur. The classic New Tab omnibar used to escape both checks that way.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,11 +32,24 @@ const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\
 const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
 // Host tokens (WebTheme.swift) the CSS never defines but documents as solid.
 const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
+// A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,
+// `.x-hover-card`, `[role="tooltip"]`.
+const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
+const REQUIRED_GLASS_CLASSES = new Set(["acpmux-omni"]);
+// Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an
+// inline `glass-opaque-allow`; this list holds only fills in a file another open pull request is
+// editing, and each entry goes when that file is free.
+const TOOLTIP_FILL_OVERRIDDEN = new Map<string, string>([
+  [
+    "pages/shared/desktop.css .ui-card",
+    "every AnchoredCard also carries .ui-glass, and glass.css's tooltip rule paints over this fill (desktop.css is in #23066)",
+  ],
+]);
 const NAMED_TRANSLUCENT = new Set(["transparent"]);
 const NAMED_UNKNOWN = new Set(["currentcolor", "inherit", "initial", "unset", "revert", "none"]);
 
-type Kind = "opaque" | "translucent" | "unknown";
-interface Block {
+export type Kind = "opaque" | "translucent" | "unknown";
+export interface Block {
   file: string;
   line: number;
   selector: string;
@@ -219,24 +240,56 @@ function blurs(block: Block): boolean {
   );
 }
 
-/** Every glass fill under src/ that is opaque, as `file:line: selector { prop: value }`. */
-export function findOpaqueGlass(srcDir: string = SRC): string[] {
+/** The selector's subject, not a row or control inside a named glass surface. Functional pseudo
+ * selectors and attribute values do not contribute class names or descendant combinators. */
+export function targetsRequiredGlass(selector: string): boolean {
+  return splitArgs(selector).some((part) => {
+    let depth = 0;
+    let subject = "";
+    for (const ch of part) {
+      if (ch === "(" || ch === "[") {
+        depth++;
+      } else if (ch === ")" || ch === "]") {
+        depth--;
+      } else if (depth === 0) {
+        if (/[\s>+~]/.test(ch)) subject = "";
+        else subject += ch;
+      }
+    }
+    return [...subject.matchAll(/\.([\w-]+)/g)].some((match) => REQUIRED_GLASS_CLASSES.has(match[1] ?? ""));
+  });
+}
+
+/** Every rule under srcDir outside Reduce Transparency; loads the tokens they define for fillKind. */
+export function glassContextRules(srcDir: string = SRC): Block[] {
   const parsed = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
+  const rules = parsed.filter((block) => !inReduce(block));
   tokens = new Map();
-  for (const block of parsed) {
-    if (inReduce(block)) continue;
+  for (const block of rules) {
     for (const d of block.decls) {
       if (!d.prop.startsWith("--")) continue;
       tokens.set(d.prop, [...(tokens.get(d.prop) ?? []), d.value]);
     }
   }
+  return rules;
+}
+
+/** What a fill provably is, resolving tokens from the last glassContextRules() call. */
+export function fillKind(value: string): Kind {
+  return classify(value);
+}
+
+/** Every glass fill under src/ that is opaque, as `file:line: selector { prop: value }`. */
+export function findOpaqueGlass(srcDir: string = SRC): string[] {
   const found: string[] = [];
-  for (const block of parsed) {
-    if (inReduce(block)) continue;
-    // Glass: a blur, or a class named glass (`.sa-glass`).
-    const glass = blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector);
+  for (const block of glassContextRules(srcDir)) {
+    // A required surface stays glass even if its old markup has no ui-glass and its CSS no blur.
+    const tooltip = TOOLTIP.test(block.selector);
+    const glass =
+      blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || tooltip || targetsRequiredGlass(block.selector);
+    const overridden = tooltip && TOOLTIP_FILL_OVERRIDDEN.has(`${block.file} ${block.selector}`);
     for (const d of block.decls) {
-      if (d.allowed) continue;
+      if (d.allowed || overridden) continue;
       const fill = glass && (d.prop === "background" || d.prop === "background-color");
       const glassToken = d.prop.startsWith("--") && /glass/.test(d.prop);
       if (!fill && !glassToken) continue;
@@ -249,7 +302,58 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
   return found;
 }
 
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === "gallery" ? [] : sourceFiles(path);
+    return /\.tsx?$/.test(entry.name) && !/\.(test|gallery)\.tsx?$/.test(entry.name) ? [path] : [];
+  });
+}
+
+/** Every tooltip class list in the page code that is not glass, as `file:line: "classes"`. A
+ * tooltip element is `ui-tooltip` (ui/Tooltip.tsx, AnchoredCard) or `ui-title-tooltip`
+ * (ui/titleTooltips.ts); it carries `ui-glass` with it. */
+export function findSolidTooltipMarkup(srcDir: string = SRC): string[] {
+  const found: string[] = [];
+  for (const file of sourceFiles(srcDir)) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/["`]([^"`\n]*)["`]/g)) {
+      const names = (match[1] ?? "").split(/\s+/);
+      if (!names.some((name) => name === "ui-tooltip" || name === "ui-title-tooltip")) continue;
+      if (names.includes("ui-glass")) continue;
+      const line = text.slice(0, match.index).split("\n").length;
+      found.push(`${relative(srcDir, file)}:${line}: ${match[0]}`);
+    }
+  }
+  return found;
+}
+
+/** A named floating surface's className literal must carry ui-glass itself. Only className values
+ * count: an id, a query selector or a child class containing the surface's name is not its markup. */
+export function findMissingGlassMarkup(srcDir: string = SRC): string[] {
+  const found: string[] = [];
+  for (const file of sourceFiles(srcDir)) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/\bclassName\s*=\s*(?:\{\s*)?(["`])([^"`\n]*)\1/g)) {
+      const classes = match[2] ?? "";
+      const names = classes.split(/\s+/);
+      if (!names.some((name) => REQUIRED_GLASS_CLASSES.has(name)) || names.includes("ui-glass")) continue;
+      const line = text.slice(0, match.index).split("\n").length;
+      found.push(`${relative(srcDir, file)}:${line}: ${JSON.stringify(classes)}`);
+    }
+  }
+  return found;
+}
+
 if (import.meta.main) {
+  for (const line of findSolidTooltipMarkup()) {
+    console.error(`a tooltip is never solid (add ui-glass): ${line}`);
+    process.exitCode = 1;
+  }
+  for (const line of findMissingGlassMarkup()) {
+    console.error(`a floating surface is glass (add ui-glass): ${line}`);
+    process.exitCode = 1;
+  }
   const found = findOpaqueGlass();
   for (const line of found) console.error(`glass is never opaque: ${line}`);
   if (found.length) process.exitCode = 1;

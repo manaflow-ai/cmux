@@ -84,12 +84,12 @@ struct AgentPageHibernationTests {
         let busy = try rig.hiddenChat("tab_busy", session: "s-busy")
         rig.turns.setState(.working, session: "s-busy")
 
-        // Moderate: an hour hidden. At half an hour both pages stay.
-        rig.advance(minutes: 30)
+        // Moderate: half an hour hidden. At 20 minutes both pages stay.
+        rig.advance(minutes: 20)
         await rig.settle { false }
         #expect(rig.tabs.existingView("tab_quiet") === page)
 
-        rig.advance(minutes: 31)
+        rig.advance(minutes: 11)
         await rig.settle { rig.tabs.existingView("tab_quiet") == nil }
         #expect(rig.tabs.existingView("tab_quiet") == nil, "the hidden chat kept its page")
         #expect(rig.displaced == ["tab_quiet"], "the pane still holding the page was not told")

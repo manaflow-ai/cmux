@@ -126,7 +126,7 @@ final class CEFFileDragRelay {
         chain = Task { [logger] in
             await previous?.value
             do {
-                _ = try await tab.evaluate(script, world: .isolated)
+                _ = try await tab.evaluate(script, world: .isolated, gesture: .cmux)
             } catch {
                 logger.error("file drag leave failed: \(String(describing: error), privacy: .public)")
             }
@@ -158,8 +158,8 @@ extension CEFHostView {
     }
 
     /// A session that ended with no exit or drop here (the view left its window mid-drag).
+    // NSView has no `draggingEnded:` of its own: no super call.
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        super.draggingEnded(sender)
         fileDrag.exited()
     }
 }

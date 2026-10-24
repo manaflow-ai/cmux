@@ -47,9 +47,11 @@ extension SidebarListViewComponents {
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
+        case let (.emptyGroup(id), view as EmptyGroupRowView):
+            // The same New Workspace in Group as the header's + (one action path).
+            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
         case let (.section(sectionID), view as SectionHeaderRowView):
-            // The Chief's group holds the workspaces it starts: no + of its own.
-            if case let .machine(machine) = sectionID, !machine.isLocalChief {
+            if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
             } else {

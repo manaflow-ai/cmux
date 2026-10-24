@@ -28,6 +28,14 @@ struct NewTabWidgetsTests {
         #expect(try json(AgentPaneNewTab(kind: .agent))["pageWidgets"] == nil)
     }
 
+    /// `headlineOff` is in the context only when the greeting is set to false in cmux.json.
+    @Test func thePageContextCarriesHeadlineOffOnlyWhenSet() throws {
+        var page = AgentPaneNewTab(kind: .agent, pageWidgets: [])
+        #expect(try json(page)["headlineOff"] == nil)
+        page.headlineOff = true
+        #expect(try json(page)["headlineOff"] as? Bool == true)
+    }
+
     private func json(_ page: AgentPaneNewTab) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
     }

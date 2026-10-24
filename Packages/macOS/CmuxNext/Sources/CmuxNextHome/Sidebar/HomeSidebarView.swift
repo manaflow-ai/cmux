@@ -27,15 +27,18 @@ public final class HomeSidebarView: NSView {
     public var onMarkUnread: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
     public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
-    /// Teammates matching a query that have no DM yet (the list's extra search section).
+    /// Teammates matching a query that have no DM yet (the list's extra search section). Without
+    /// a search, the model's ``HomeSidebarModel/teammates`` are rows after the conversations.
     public var teammates: (String) -> [HomeContact] = { _ in [] }
-    /// A teammate from the search section was chosen: start (or open) the DM.
+    /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
     public var onNewMessage: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
     public var onOpenRequests: () -> Void = {}
+    /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
+    public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
     let list = CmuxSidebarView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
@@ -48,8 +51,8 @@ public final class HomeSidebarView: NSView {
     /// (Home offers no other filter, so no menu).
     let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease.circle", onSymbol: "line.3.horizontal.decrease.circle.fill",
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread")
-    /// Compose at the chat's top-left while the list shows avatars only (`HomeChatColumnView`, which
-    /// `HomeSidebarSplitView` places beside this list).
+    /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
+    /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
     /// The search field's capsule: a quiet fill and the composer's hairline rim, stepped toward
     /// the text while the field edits (the composer's focus, #22114), never AppKit's blue ring.
@@ -94,14 +97,32 @@ public final class HomeSidebarView: NSView {
         // No system blue in the list: a neutral selection in the theme's tint and grey pinned
         // names, as Messages' pinned grid.
         list.neutralSelection = true
-        list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
-        list.onOpen = { [weak self] id in self?.onOpen(ConversationID(id)) }
-        list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
-        list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
-        list.onSetRead = { [weak self] read, id in
-            if read { self?.onMarkRead(ConversationID(id)) } else { self?.onMarkUnread(ConversationID(id)) }
+        // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
+        // no pin, read state or conversation menu.
+        list.onSelect = { [weak self] id in
+            guard let self, let id else { return }
+            if let person = teammate(for: id) { onStartTeammate(person) } else { onSelect(ConversationID(id)) }
         }
-        list.menuItems = { [weak self] id in self?.menuItems(ConversationID(id)) ?? [] }
+        list.onOpen = { [weak self] id in
+            guard let self, teammate(for: id) == nil else { return }
+            onOpen(ConversationID(id))
+        }
+        list.onSetPinned = { [weak self] on, id in
+            guard let self, teammate(for: id) == nil else { return }
+            onSetPinned(on, ConversationID(id))
+        }
+        list.onPlacePinned = { [weak self] id, index in
+            guard let self, teammate(for: id) == nil else { return }
+            onPlacePinned(ConversationID(id), index)
+        }
+        list.onSetRead = { [weak self] read, id in
+            guard let self, teammate(for: id) == nil else { return }
+            if read { onMarkRead(ConversationID(id)) } else { onMarkUnread(ConversationID(id)) }
+        }
+        list.menuItems = { [weak self] id in
+            guard let self, teammate(for: id) == nil else { return [] }
+            return menuItems(ConversationID(id))
+        }
         list.searchSection = { [weak self] query in
             guard let self else { return nil }
             let people = teammates(query)
@@ -134,7 +155,18 @@ public final class HomeSidebarView: NSView {
             noteLabel.isHidden = model.note == nil
             needsLayout = true
         }
+        onContentChange()
     }
+
+    /// The list holds at most one conversation and nothing under it (no note, no Message Requests):
+    /// avatars only, it would be one avatar in an empty band (`HomeSidebarSplitView` folds it then).
+    /// The New Message draft row does not count: it comes and goes with the page.
+    public var holdsOneConversation: Bool {
+        model.pinned.count + model.rows.count <= 1 && noteLabel.isHidden && requestsButton.isHidden
+    }
+
+    /// ``holdsOneConversation`` may have changed (the split view lays out again).
+    var onContentChange: () -> Void = {}
 
     /// Shows or removes the New Message draft row (first under the pinned
     /// grid, no time, as in Messages).
@@ -151,7 +183,22 @@ public final class HomeSidebarView: NSView {
                                             lastAt: .distantPast, unreadCount: 0, pinned: false, muted: false, avatar: nil),
                            at: model.pinned.count)
         }
+        entries += model.teammates.map(Self.teammateEntry)
         list.show(entries, pinned: model.pinned.map(\.id.rawValue))
+    }
+
+    /// The teammate a list id names (``teammateRowID(_:)``), or nil for a conversation.
+    func teammate(for id: String) -> HomeContact? {
+        guard id.hasPrefix(Self.teammateRowPrefix) else { return nil }
+        return model.teammates.first { Self.teammateRowID($0) == id }
+    }
+
+    /// A teammate as a list row: their name and monogram, no preview or time (as the draft row).
+    static func teammateEntry(_ contact: HomeContact) -> CmuxSidebarEntry {
+        CmuxSidebarEntry(id: teammateRowID(contact), title: contact.name,
+                         people: [CmuxSidebarEntry.Person(id: contact.id.rawValue, name: contact.name, initials: initials(contact.name))],
+                         preview: "", previewSender: nil, lastAt: .distantPast, unreadCount: 0, pinned: false, muted: false,
+                         avatar: nil)
     }
 
     /// Each pinned tile's and row's frame in window points from the top-left (`debug.home page`).
@@ -171,8 +218,8 @@ public final class HomeSidebarView: NSView {
 
     /// The Chief's avatar as the list draws it: the picture, else its text
     /// as a monogram (one or two letters) or on the grey disc (an emoji).
-    /// The disc draws an emoji at half its width, so two would spill past
-    /// it: a two-emoji avatar shows its first in the list.
+    /// The disc fits an emoji's drawn box to 60 % of its width, so two
+    /// would each draw small: a two-emoji avatar shows its first in the list.
     static func avatar(_ chief: HomeChiefAvatar) -> CmuxSidebarEntry.Avatar {
         switch chief {
         case .picture(let url): return .image(url.absoluteString)
@@ -192,6 +239,7 @@ public final class HomeSidebarView: NSView {
         if requestsButton.isHidden != (count == 0) {
             requestsButton.isHidden = count == 0
             needsLayout = true
+            onContentChange()
         }
     }
 
@@ -200,17 +248,22 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarMenuItem(title: title, handler: handler)
     }
 
+    /// The list id of a teammate's row (a person with no DM yet).
+    public static func teammateRowID(_ contact: HomeContact) -> String { teammateRowPrefix + contact.id.rawValue }
+    static let teammateRowPrefix = "teammate:"
+
     /// One or two letters for a teammate's monogram.
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: \.isWhitespace)
         return String(words.prefix(2).compactMap(\.first)).uppercased()
     }
 
-    /// The unread dot uses the app's theme accent (sent bubbles alone are
-    /// iMessage blue); the column lays the theme's legibility scrim; the
-    /// selection is the theme's translucent selection tint, never the system blue.
+    /// The unread dot is the notification blue, as in Messages and on the unread rings (or the
+    /// user's `unreadDotColor`), never the theme accent: the default theme's accent is a grey, and
+    /// the dot read as missing (the user, 2026-10-21). The column lays the theme's legibility
+    /// scrim; the selection is the theme's translucent selection tint, never the system blue.
     func applyColors() {
-        list.unreadColor = performWithTheme { Palette.accent }
+        list.unreadColor = unreadDotColor ?? performWithTheme { Palette.notificationBlue }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
         requestsButton.contentTintColor = performWithTheme { Palette.textSecondary }
         // The menu ring: the label colour, not the system accent.
@@ -282,7 +335,8 @@ public final class HomeSidebarView: NSView {
         unreadToggle.frame = h.filter
         compose.frame = h.compose
         unreadToggle.isHidden = h.compact
-        compose.isHidden = h.compact
+        // Compose is the chat's (`chatCompose`) at every width.
+        compose.isHidden = true
         return h.listTop
     }
 
@@ -347,9 +401,11 @@ public final class HomeSidebarView: NSView {
     /// `JSONSerialization` graph: the list's `width` and the `header` (each frame as [x, y, width,
     /// height], `compact`, `buttonsCovered`, and `chatCompose`, the chat's compose button in window
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
-    /// nothing changes then.
+    /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
+    /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
+        let before = [compose, unreadToggle].map(\.debugState)
         let split = superview as? HomeSidebarSplitView
         if let width { split?.setWidth(width) }
         if let select {
@@ -369,7 +425,8 @@ public final class HomeSidebarView: NSView {
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
                 "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
-                           "chatCompose": frame(chat)] as [String: Any]]
+                           "chatCompose": frame(chat)] as [String: Any],
+                "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
     }
     #endif
 

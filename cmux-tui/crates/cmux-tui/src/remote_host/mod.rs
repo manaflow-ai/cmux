@@ -9,9 +9,9 @@
 //! `--remote` there for remote hosting.
 
 mod admit;
-mod audit;
+pub(crate) mod audit;
 mod client;
-mod config;
+pub(crate) mod config;
 mod grant;
 mod preface;
 mod serve;
@@ -276,7 +276,7 @@ fn serve_dir(args: &[String]) -> anyhow::Result<()> {
 /// install would start `cmux-tui host serve` and fail; prefer the `cmux`
 /// name this process was started by (absolute, relative or through PATH),
 /// then a `cmux` next to the binary, when it is the same file.
-fn self_exe() -> anyhow::Result<PathBuf> {
+pub(crate) fn self_exe() -> anyhow::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     if is_cmux_name(&exe) {
         return Ok(exe);
@@ -314,6 +314,38 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
     if !flags.positional.is_empty() {
         return Err(usage("takes no positional arguments"));
     }
+    let value = enable_report(&flags)?;
+    output(&value, flags.has("json"));
+    Ok(())
+}
+
+/// `cmux setup tailnet`'s change: what `cmux host enable [--owner LOGIN]
+/// --json` does and prints, as its JSON (one mutation path for both).
+pub(crate) fn setup_enable(owner: Option<&str>) -> anyhow::Result<Value> {
+    let mut args = vec!["--json".to_owned()];
+    if let Some(owner) = owner {
+        args.extend(["--owner".to_owned(), owner.to_owned()]);
+    }
+    enable_report(&Flags::parse(
+        &args,
+        &["owner", "session", "port"],
+        &["no-service", "no-spawn", "json"],
+    )?)
+}
+
+/// `cmux setup tailnet`'s check: what `cmux host status --json` prints.
+pub(crate) fn setup_status() -> Value {
+    let config = match config::load() {
+        Ok(config) => config,
+        Err(e) => return json!({"error": format!("{e:#}")}),
+    };
+    let status = tailnet::Tailnet::locate().and_then(|t| t.status());
+    let notes: Vec<String> =
+        status.as_ref().err().map(|e| format!("tailnet: {e:#}")).into_iter().collect();
+    status_value(&config, status.as_ref().ok(), &notes)
+}
+
+fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
     let tailnet = tailnet::Tailnet::locate()?;
     let status = tailnet.status()?;
     if status.backend_state != "Running" {
@@ -376,7 +408,7 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
                 .to_owned(),
         );
     }
-    print_status(&config, Some(&status), flags.has("json"), &notes)
+    Ok(status_value(&config, Some(&status), &notes))
 }
 
 fn disable(args: &[String]) -> anyhow::Result<()> {
@@ -407,6 +439,23 @@ fn print_status(
     json_out: bool,
     notes: &[String],
 ) -> anyhow::Result<()> {
+    output(&status_value(config, status, notes), json_out);
+    Ok(())
+}
+
+fn output(value: &Value, json_out: bool) {
+    if json_out {
+        println!("{value}");
+    } else {
+        print_human(value);
+    }
+}
+
+fn status_value(
+    config: &config::Config,
+    status: Option<&tailnet::Status>,
+    notes: &[String],
+) -> Value {
     let pid = service::running_pid();
     // A listener this command just started takes its lock after it checks
     // the tailnet, so right after a start it is "starting", not "off".
@@ -421,7 +470,7 @@ fn print_status(
                 .collect()
         })
         .unwrap_or_default();
-    let value = json!({
+    json!({
         "enabled": config.enabled,
         "serving": pid.is_some(),
         "starting": starting,
@@ -443,13 +492,7 @@ fn print_status(
         "config": config::path().ok().map(|p| p.display().to_string()),
         "log": service::log_path().ok().map(|p| p.display().to_string()),
         "notes": notes,
-    });
-    if json_out {
-        println!("{value}");
-        return Ok(());
-    }
-    print_human(&value);
-    Ok(())
+    })
 }
 
 fn print_human(value: &Value) {

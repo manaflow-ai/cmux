@@ -56,8 +56,9 @@ function record(value: unknown): Record<string, unknown> {
 
 const message = (error: unknown) => (error instanceof Error ? error.message.trim() : "");
 
-/// An agent CLI update on offer (hq#2569 #12): never a banner over the chat. The model chip wears a
-/// small dot and its picker offers Update and Skip This Version (`UpdateOfferContext`).
+/// An agent CLI update on offer (hq#2569 #12): never a banner over the chat, and never a dot on the
+/// model chip (Leo 2026-10-21). The chip's tooltip names it and its menu and picker offer Update and
+/// Skip This Version (`UpdateOfferContext`).
 export type UpdateOffer = {
   harness: string;
   agent: string;

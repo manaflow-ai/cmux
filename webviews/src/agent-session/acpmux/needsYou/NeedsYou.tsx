@@ -4,7 +4,7 @@
 // of its choices), jumps to where it was asked (Go to source) and can be asked about in a side
 // question seeded with the ask (Ask about this), so nobody re-reads a thread to answer it. An ask
 // leaves the list once acpmux says it was answered, wherever that was (asks.ts).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
@@ -19,7 +19,9 @@ import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import "./needsYou.css";
 
 /// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all.
+/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
+/// also writes `off` while the App Store's Needs You item is not installed
+/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
 export type NeedsYouMode = "pinned" | "compact" | "off";
 
 export function needsYouMode(
@@ -66,15 +68,21 @@ export function NeedsYouButton({
   const [focus, setFocus] = useState<string>();
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  // The list takes focus on open, not its first row's Go to source: a ring on that arrow read as a
+  // bordered button (Leo 2026-10-21). Tab still reaches every row's tools from here.
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
-  // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts).
+  // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts). Off (the App
+  // Store item not installed) registers no opener, so nothing can open a list that is not drawn.
   useEffect(
     () =>
-      onOpenNeedsYou((itemId) => {
-        setFocus(itemId);
-        setOpen(true);
-      }),
-    [],
+      mode === "off"
+        ? undefined
+        : onOpenNeedsYou((itemId) => {
+            setFocus(itemId);
+            setOpen(true);
+          }),
+    [mode],
   );
   if (mode === "off") return null;
   const count = items.length;
@@ -117,9 +125,11 @@ export function NeedsYouButton({
         label={t("needsYou.title")}
         className="acpmux-needs-you"
         side="bottom"
+        initialFocus={panelRef}
         finalFocus={buttonRef}
       >
         <NeedsYouPanel
+          panelRef={panelRef}
           items={items}
           mode={mode}
           actions={{
@@ -142,12 +152,15 @@ export function NeedsYouPanel({
   mode = "pinned",
   actions,
   focus,
+  panelRef,
 }: {
   items: readonly NeedsYouItem[];
   mode?: NeedsYouMode;
   actions: NeedsYouActions;
   /// The ask a link opened the list on: scrolled to and marked.
   focus?: string;
+  /// The popover's initial focus target.
+  panelRef?: RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
   const now = useMinuteClock();
@@ -156,9 +169,8 @@ export function NeedsYouPanel({
   const shown = items.filter((item) => !sent.has(item.id));
   const missing = focus !== undefined && !items.some((item) => item.id === focus);
   return (
-    <div className="acpmux-needs-you-panel" data-mode={mode}>
+    <div ref={panelRef} className="acpmux-needs-you-panel" data-mode={mode} tabIndex={-1}>
       <header className="acpmux-needs-you-head">
-        <Icon name="state.pinned" size={14} />
         <span className="acpmux-needs-you-title">{t("needsYou.title")}</span>
         {shown.length > 0 && <span className="acpmux-needs-you-total">{shown.length}</span>}
       </header>
@@ -238,16 +250,34 @@ function NeedsYouRow({
         <span className="acpmux-needs-you-who">{item.who.chief ? t("needsYou.chief") : item.who.name}</span>
         {item.who.via && <span className="acpmux-needs-you-via">{t("needsYou.via", { name: item.who.via })}</span>}
         <span className="acpmux-needs-you-kind">{t(KINDS[item.kind])}</span>
-        {age && <span className="acpmux-needs-you-age">{age}</span>}
-        <button
-          type="button"
-          className="acpmux-needs-you-go"
-          aria-label={t("needsYou.goToSource")}
-          title={t("needsYou.goToSource")}
-          onClick={() => actions.goTo(item)}
-        >
-          <Icon name="action.go" size={14} />
-        </button>
+        {/* The row's end: its age at rest; on hover or keyboard focus, its tools in the same slot,
+            plain icons with no chrome of their own (Leo 2026-10-21). */}
+        <span className="acpmux-needs-you-end">
+          {age && <span className="acpmux-needs-you-age">{age}</span>}
+          <span className="acpmux-needs-you-tools">
+            {!compact && (
+              <button
+                type="button"
+                className="acpmux-needs-you-ask-about"
+                aria-label={t("needsYou.askAbout")}
+                title={t("needsYou.askAbout")}
+                aria-expanded={asking}
+                onClick={() => setAsking((open) => !open)}
+              >
+                <Icon name="agent.question" size={14} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="acpmux-needs-you-go"
+              aria-label={t("needsYou.goToSource")}
+              title={t("needsYou.goToSource")}
+              onClick={() => actions.goTo(item)}
+            >
+              <Icon name="action.go" size={14} />
+            </button>
+          </span>
+        </span>
       </div>
       <p className="acpmux-needs-you-ask">{askText(item, t)}</p>
       {!compact && item.detail && (
@@ -255,37 +285,26 @@ function NeedsYouRow({
           {item.detail}
         </p>
       )}
-      {!compact && (
+      {!compact && item.answers.length > 0 && (
         <div className="acpmux-needs-you-actions">
-          {item.answers.length > 0 && (
-            // Claude's permission card: the answers as numbered rows, the first one ready.
-            <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
-              {item.answers.map((choice) => (
-                <button
-                  key={choice.id}
-                  type="button"
-                  className="acpmux-needs-you-answer"
-                  data-tone={choice.tone}
-                  disabled={sending !== undefined}
-                  aria-busy={sending === choice.id}
-                  onClick={() => answer(choice)}
-                >
-                  <span className="acpmux-needs-you-answer-label">
-                    {choice.id === "resume" && item.kind === "held" ? t("needsYou.resume") : choice.label}
-                  </span>
-                </button>
-              ))}
-            </fieldset>
-          )}
-          <button
-            type="button"
-            className="acpmux-needs-you-ask-about"
-            aria-expanded={asking}
-            onClick={() => setAsking((open) => !open)}
-          >
-            <Icon name="agent.question" size={13} />
-            {t("needsYou.askAbout")}
-          </button>
+          {/* Claude's permission card: the answers as numbered rows, the first one ready. */}
+          <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
+            {item.answers.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                className="acpmux-needs-you-answer"
+                data-tone={choice.tone}
+                disabled={sending !== undefined}
+                aria-busy={sending === choice.id}
+                onClick={() => answer(choice)}
+              >
+                <span className="acpmux-needs-you-answer-label">
+                  {choice.id === "resume" && item.kind === "held" ? t("needsYou.resume") : choice.label}
+                </span>
+              </button>
+            ))}
+          </fieldset>
         </div>
       )}
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
@@ -351,22 +370,23 @@ function Avatar({ item }: { item: NeedsYouItem }) {
         className="acpmux-needs-you-avatar is-chief"
         src={CHIEF_AVATAR}
         alt=""
-        width={18}
-        height={18}
+        width={16}
+        height={16}
         draggable={false}
       />
     );
   return (
     <span className="acpmux-needs-you-avatar" title={item.who.harness ? agentDisplayName(item.who.harness) : undefined}>
-      <AgentMark agent={item.who.harness} size={12} reserve />
+      <AgentMark agent={item.who.harness} size={14} reserve />
     </span>
   );
 }
 
-/// The ask's line: its own text, else what its kind says.
+/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
+/// else for an answer).
 export function askText(item: NeedsYouItem, t: Translate): string {
   if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t("needsYou.waiting");
+  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
 }
 
 /// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the

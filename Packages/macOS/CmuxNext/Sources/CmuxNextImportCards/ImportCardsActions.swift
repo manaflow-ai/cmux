@@ -13,7 +13,7 @@ extension ImportSuggestionsCenter {
         // Every card Settings › Import lists, as JSON text (`cmux import list`).
         registry.bind("import.list", unavailable: refusedWhileOff, invoke: { [weak self, weak registry] _ in
             guard let self, let registry else { return }
-            let text = ImportCardJSON.text(list(for: .settings))
+            let text = ImportCardJSON.text(list())
             registry.track(result: Task { .success(["cards": .string(text)]) })
         })
         registry.bind("import.card", unavailable: refusedWhileOff, invoke: { [weak self, weak registry] invocation in

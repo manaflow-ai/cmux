@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import CmuxNextCodeRouter
 public import Foundation
 
@@ -20,6 +21,10 @@ public protocol AccountsServices: AnyObject {
     /// switch account, sign out).
     func runCmuxAccount(_ action: CmuxAccountAction)
 
+    /// The team cmux works in while signed in (nil when signed out): the
+    /// screen lists its teams and switches through it.
+    var activeTeam: ActiveTeam? { get }
+
     /// The team's CodeRouter accounts this user may see.
     func linkedAccounts() async throws -> [LinkedAccount]
     /// Builds the credential (from the local sign-in, the environment, the
@@ -29,8 +34,10 @@ public protocol AccountsServices: AnyObject {
 
     /// Runs the provider's own login: its CLI in a new cmux terminal tab,
     /// or its page in a cmux browser tab. Returns when the tab is open; the
-    /// screen re-detects when the app becomes active again.
-    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan)
+    /// screen re-detects when the app becomes active again. False when
+    /// nothing opened: no window with a pane on this Mac to open it in.
+    @discardableResult
+    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool
     /// Runs `claude setup-token` in a terminal tab, so the user can copy the
     /// token into the paste field.
     func runClaudeSetupToken()

@@ -58,16 +58,19 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "closed", "status": "closed"},
         {"name": "other/lane", "peer": "other", "status": "running", "turn": {"startedAt": 1}},
     ]});
-    assert_eq!(busy_sessions(&ls.to_string()), Some(vec!["mid-turn".into(), "asking".into()]));
+    assert_eq!(
+        busy_sessions(&ls.to_string(), None),
+        Some(vec!["mid-turn".into(), "asking".into()])
+    );
     // A sub-session is a session of the same daemon: an idle parent
     // with a child mid-turn is busy.
     let family = json!({"sessions": [
         {"name": "parent", "status": "idle", "turn": null, "pendingPermissions": 0, "children": 1},
         {"name": "parent-sub", "status": "running", "turn": {"startedAt": 1}, "startedBy": "parent", "depth": 1},
     ]});
-    assert_eq!(busy_sessions(&family.to_string()), Some(vec!["parent-sub".into()]));
-    assert_eq!(busy_sessions(r#"{"sessions": []}"#), Some(vec![]));
-    assert_eq!(busy_sessions(""), None, "unreadable is not idle");
+    assert_eq!(busy_sessions(&family.to_string(), None), Some(vec!["parent-sub".into()]));
+    assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
+    assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(
         answering_build("{\n  \"build\": \"d5829ffea 2026-10-21\",\n  \"pid\": 7\n}").as_deref(),
         Some("d5829ffea 2026-10-21")
@@ -124,6 +127,10 @@ const UNITS: &str = ".config/systemd/user";
 #[cfg(unix)]
 const TARGET: &str = "x86_64-unknown-linux-musl";
 
+/// The `personInstance` the fake peer daemon reports.
+#[cfg(unix)]
+const PEER_DAEMON: &str = "peer-daemon-run";
+
 /// A fake acpmux of `build` whose daemon, once started, reports `runs`
 /// (None: it never answers). Like cmux-tui, it answers as acpmux only
 /// under that file name. `$HOME/daemon` holds the build of the daemon
@@ -139,7 +146,7 @@ fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
 echo "acpmux $*" >> "$HOME/calls"
 case "$*" in
 --version) if [ "${{0##*/}}" = acpmux ]; then echo "acpmux 1.0.0 ({build})"; else echo "cmux 1.0.0"; fi;;
-"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": 4242\n}}\n' "$(cat "$HOME/daemon")"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
+"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": 4242,\n  "personInstance": "{PEER_DAEMON}"\n}}\n' "$(cat "$HOME/daemon")"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
 "--json ls") cat "$HOME/sessions.json";;
 "daemon shutdown"*) rm -f "$HOME/daemon";;
 "--json daemon start"|__start) {start};;
@@ -153,21 +160,35 @@ esac
 /// the build in `$HOME/old-build`), `$HOME/fails-<unit>` does not start,
 /// and a stop without `KillMode=process` (the unit's, or the migration's
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
-/// no manager answers.
+/// no manager answers. `show` (not logged: every update script reads it)
+/// prints `acpmux.service`'s `Environment=` settings, its drop-ins'
+/// included, or `$HOME/unit-environment` as it is (what systemd prints for
+/// values it quotes). Like the daemon
+/// (`config::private_state_dir`, which opens its home with `O_NOFOLLOW`),
+/// acpmux.service never answers when `~/.acpmux` is a link and no drop-in
+/// sets `ACPMUX_HOME`.
 #[cfg(unix)]
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
-echo "systemctl $*" >> "$HOME/calls"
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
+if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
+if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
+echo "systemctl $*" >> "$HOME/calls"
 under() { echo "0::/user.slice/user-1001.slice/user@1001.service/app.slice/$1" > "$HOME/proc/4242/cgroup"; }
+# Type=simple: the start succeeds once the process forks; a daemon that then
+# exits (a home through a link) is seen only as no answer.
+starts() {
+  cat "$d/$1.d/"*.conf > "$HOME/started-with" 2>/dev/null
+  if [ "$1" = acpmux.service ] && [ -L "$HOME/.acpmux" ] && ! grep -q '^Environment=ACPMUX_HOME=' "$HOME/started-with"; then echo "open private state directory $HOME/.acpmux: Not a directory" >> "$HOME/calls"; else ~/.local/bin/acpmux __start; fi
+}
 case "$2" in
 show-environment) test ! -f "$HOME/no-systemd";;
 cat) test -f "$d/$3";;
 is-active) test -f "$HOME/active-$4";;
-restart) rm -f "$HOME/daemon"; ~/.local/bin/acpmux __start; under "$3";;
+restart) rm -f "$HOME/daemon"; under "$3"; starts "$3";;
 enable)
   test -f "$d/$4" && test ! -f "$HOME/fails-$4" || exit 1
   touch "$HOME/active-$4"; under "$4"
-  if [ "$4" = acpmux.service ]; then cat "$d/acpmux.service.d/"*.conf > "$HOME/started-with" 2>/dev/null; ~/.local/bin/acpmux __start; else cp "$HOME/old-build" "$HOME/daemon"; fi;;
+  if [ "$4" = acpmux.service ]; then starts acpmux.service; else cp "$HOME/old-build" "$HOME/daemon"; fi;;
 disable)
   if [ -f "$HOME/active-$4" ]; then
     rm -f "$HOME/active-$4" "$HOME/daemon"
@@ -185,6 +206,9 @@ struct FakePeer {
     /// A file (relative path, text) written right after the next copy: what
     /// changes on the peer while the binary is pushed.
     after_copy: std::cell::RefCell<Option<(&'static str, &'static str)>>,
+    /// Right after the next copy, the process that keeps the host's update
+    /// lease ends: the connection that held the lock dropped.
+    lease_ends_after_copy: std::cell::Cell<bool>,
 }
 
 #[cfg(unix)]
@@ -195,16 +219,7 @@ impl Remote for FakePeer {
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
         assert!(stdin.is_none(), "host update feeds no stdin");
-        let script = script
-            .replace("/proc/", &format!("{}/", self.home.join("proc").display()))
-            .replace("/etc/cmux/", &format!("{}/", self.home.join("etc/cmux").display()));
-        let out = Command::new("sh")
-            .args(["-c", &script])
-            .current_dir(&self.home)
-            .env("HOME", &self.home)
-            .env("XDG_RUNTIME_DIR", self.home.join("run"))
-            .env("PATH", format!("{}:/usr/bin:/bin", self.home.join("fakebin").display()))
-            .output()?;
+        let out = self.sh(script).output()?;
         Ok(RemoteOut {
             ok: out.status.success(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -212,11 +227,21 @@ impl Remote for FakePeer {
         })
     }
 
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        use std::process::Stdio;
+        let mut child = self.sh(script);
+        child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        Ok(child.spawn()?)
+    }
+
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // As scp: a `~/` path is under the remote home.
         std::fs::copy(local, self.home.join(remote.strip_prefix("~/").unwrap_or(remote)))?;
         if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
             self.write(rel, text);
+        }
+        if self.lease_ends_after_copy.take() {
+            self.end_lease();
         }
         Ok(())
     }
@@ -236,7 +261,11 @@ impl FakePeer {
     fn new(tag: &str) -> FakePeer {
         let home = std::env::temp_dir().join(format!("acpmux-up-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
-        let peer = FakePeer { home, after_copy: Default::default() };
+        let peer = FakePeer {
+            home,
+            after_copy: Default::default(),
+            lease_ends_after_copy: Default::default(),
+        };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
         }
@@ -298,6 +327,46 @@ impl FakePeer {
         self.exe(".local/bin/acpmux", &fake_acpmux(STALE, Some(STALE)));
     }
 
+    /// End the process that keeps the update lease (a holder this test
+    /// spawned, `host_lock.rs`) and reap it, as sshd does when the
+    /// connection that held the lock drops.
+    fn end_lease(&self) {
+        let owner = self.read(".acpmux/update.owner");
+        let pid: i32 =
+            owner.split_whitespace().nth(1).and_then(|p| p.parse().ok()).expect("a lease");
+        let mut status = 0;
+        // SAFETY: the holder is a child of this test process (`Self::spawn`).
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+            libc::waitpid(pid, &mut status, 0);
+        }
+    }
+
+    /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it;
+    /// `$HOME/path`, when a test wrote one, is its PATH, and `$HOME/shell`
+    /// its shell (ssh runs the login shell).
+    fn sh(&self, script: &str) -> Command {
+        let script = script
+            .replace("/proc/", &format!("{}/", self.home.join("proc").display()))
+            .replace("/etc/cmux/", &format!("{}/", self.home.join("etc/cmux").display()));
+        let shell = std::fs::read_to_string(self.home.join("shell"));
+        let mut command = Command::new(shell.as_deref().unwrap_or("sh").trim());
+        command
+            .args(["-c", &script])
+            .current_dir(&self.home)
+            .env("HOME", &self.home)
+            .env("XDG_RUNTIME_DIR", self.home.join("run"))
+            .env(
+                "PATH",
+                std::fs::read_to_string(self.home.join("path")).unwrap_or_else(|_| {
+                    format!("{}:/usr/bin:/bin", self.home.join("fakebin").display())
+                }),
+            )
+            .env_remove("ACPMUX_HOME")
+            .env_remove("ACPMUX_SOCKET");
+        command
+    }
+
     fn write(&self, rel: &str, text: &str) {
         let path = self.home.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -335,7 +404,19 @@ impl FakePeer {
     }
 
     fn update(&self, if_idle: bool) -> PeerUpdate {
-        let opts = UpdateOptions { binary_dir: Some(self.home.join("binaries")), if_idle };
+        let opts =
+            UpdateOptions { binary_dir: Some(self.home.join("binaries")), if_idle, caller: None };
+        update_peer(self, &opts)
+    }
+
+    /// `update(true)` run from the session `session` of the daemon `daemon`.
+    fn update_from(&self, session: &str, daemon: &str) -> PeerUpdate {
+        let caller = Caller { session: session.to_owned(), daemon: daemon.to_owned() };
+        let opts = UpdateOptions {
+            binary_dir: Some(self.home.join("binaries")),
+            if_idle: true,
+            caller: Some(caller),
+        };
         update_peer(self, &opts)
     }
 
@@ -413,7 +494,7 @@ fn a_login_banner_is_not_read_as_the_platform() {
         "Welcome to box\n{UNAME}Linux aarch64\n{CLOUD_VM}\n\n{PROBE_SPLIT}\n{{}}\n\n{PROBE_SPLIT}\n\n{PROBE_SPLIT}\n"
     );
     let out = RemoteOut { ok: true, stdout, stderr: String::new() };
-    let probe = Probe::parse(&out).unwrap();
+    let probe = Probe::parse(&out, None).unwrap();
     assert_eq!(probe.uname, "Linux aarch64");
     assert!(probe.cloud_vm);
 }
@@ -472,7 +553,7 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
     let peer = FakePeer::new("wrong-platform");
     let other = if cfg!(target_os = "linux") { "Darwin arm64" } else { "Linux x86_64" };
     peer.write("uname", other);
-    let up = update_peer(&peer, &UpdateOptions { binary_dir: None, if_idle: false });
+    let up = update_peer(&peer, &UpdateOptions { binary_dir: None, if_idle: false, caller: None });
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
     let why = up.error.as_deref().unwrap_or("");
     assert!(why.contains("--binary-dir") && why.contains("fake is "), "{why}");
@@ -499,6 +580,46 @@ fn if_idle_leaves_a_peer_mid_turn_untouched() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
     // Without --if-idle it updates.
     assert_eq!(peer.update(false).outcome, Outcome::Updated);
+}
+
+#[test]
+#[cfg(unix)]
+fn if_idle_does_not_wait_on_the_session_that_runs_the_update() {
+    // deputy-2, 2026-10-22: "`--if-idle` never succeeds on a busy host (a
+    // probe or the calling lane is always mid-turn)". The caller's own turn
+    // runs this command, so it never ends first.
+    let peer = FakePeer::new("busy-caller");
+    let sessions = |other_busy: bool, caller_asks: u64| {
+        json!({"sessions": [
+            {"name": "caller", "sessionId": "01a1-caller", "status": "running", "turn": {"startedAt": 1},
+             "pendingPermissions": caller_asks},
+            {"name": "probe", "sessionId": "01a1-probe", "status": "idle",
+             "turn": if other_busy { json!({"startedAt": 1}) } else { Value::Null }, "pendingPermissions": 0},
+        ]})
+        .to_string()
+    };
+    peer.write("sessions.json", &sessions(true, 0));
+    peer.offer(NEW, Some(NEW));
+    // Another session mid-turn still holds the update, and the caller is not named.
+    let up = peer.update_from("01a1-caller", PEER_DAEMON);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Busy, Some("busy")), "{up:?}");
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: probe"));
+    peer.write("sessions.json", &sessions(false, 0));
+    // From another session, the caller's turn holds it.
+    let up = peer.update_from("01a1-elsewhere", PEER_DAEMON);
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: caller"));
+    // A session id is daemon-local: the same id on another daemon is not the caller.
+    let up = peer.update_from("01a1-caller", "another-daemon-run");
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: caller"));
+    // A permission the caller waits on still holds it: a restart would cancel it.
+    peer.write("sessions.json", &sessions(false, 1));
+    let up = peer.update_from("01a1-caller", PEER_DAEMON);
+    assert_eq!(up.error.as_deref(), Some("mid-turn or waiting on a permission: caller"));
+    // Only the caller's turn runs: it updates, through both reads.
+    peer.write("sessions.json", &sessions(false, 0));
+    let up = peer.update_from("01a1-caller", PEER_DAEMON);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
 }
 
 #[test]
@@ -584,7 +705,10 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     let home = peer.home.join(".acpmux-supervised/hb");
     assert_eq!(
         peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
-        format!("[Service]\nEnvironment=ACPMUX_HOME={}\n", home.display())
+        format!(
+            "[Service]\nEnvironment=ACPMUX_HOME={h}\nEnvironment=ACPMUX_SOCKET={h}/acpmux.sock\n",
+            h = home.display()
+        )
     );
     let started_with = peer.read("started-with");
     assert!(started_with.contains("MemoryMax=6G") && started_with.contains("ACPMUX_HOME="));
@@ -621,6 +745,39 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
 }
 
+/// `binary` (a fake acpmux) whose daemon answers only at `socket`: a daemon
+/// whose home or socket a drop-in of `acpmux.service` moved.
+#[cfg(unix)]
+fn listening_at(socket: &str, binary: &str) -> String {
+    let check = format!(
+        "#!/bin/sh\nif [ \"$*\" = \"--json daemon status\" ] && [ \"$ACPMUX_SOCKET\" != '{socket}' ]; then printf '{{\"running\": false}}\\n'; exit 0; fi\n"
+    );
+    binary.replacen("#!/bin/sh\n", &check, 1)
+}
+
+#[test]
+#[cfg(unix)]
+fn a_moved_daemon_is_reached_through_the_settings_its_move_carried() {
+    // One rule for the daemon's home and socket: the move to acpmux.service
+    // carries them into its drop-in (#24079), and every update script reads
+    // them back from the unit (SERVICE_ENV), so the next update, from a
+    // shell that has neither, checks the daemon where it listens instead of
+    // rolling a healthy one back.
+    let peer = FakePeer::new("carried-socket");
+    peer.under_foreign_unit(false);
+    peer.offer(NEW, Some(NEW));
+    assert_eq!(peer.update(true).outcome, Outcome::Updated);
+    let socket = peer.home.join(".acpmux-supervised/hb/acpmux.sock").display().to_string();
+    let carried = peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf"));
+    assert!(carried.contains(&format!("Environment=ACPMUX_SOCKET={socket}\n")), "{carried}");
+    let newer = "b2c3d4e5f 2026-10-22";
+    let binary = listening_at(&socket, &fake_acpmux(newer, Some(newer)));
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &binary);
+    let up = peer.update(true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
+    assert_eq!(up.migrated_from, None);
+}
+
 #[test]
 #[cfg(unix)]
 fn huge_blues_stale_binary_never_runs() {
@@ -641,9 +798,45 @@ fn huge_blues_stale_binary_never_runs() {
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
     assert_eq!(peer.daemon(), NEW);
     assert_eq!(peer.read("started").trim(), NEW, "only the pushed build started");
-    // `~/.acpmux` links to the unit's home: nothing to carry.
-    assert!(!peer.exists(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")));
+    // `~/.acpmux` links to the unit's home, but the daemon never opens its
+    // home through a link: the home is carried (huge-blue, 2026-10-22).
+    let home = peer.home.join(".acpmux-supervised/hb");
+    assert_eq!(
+        peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
+        format!(
+            "[Service]\nEnvironment=ACPMUX_HOME={h}\nEnvironment=ACPMUX_SOCKET={h}/acpmux.sock\n",
+            h = home.display()
+        )
+    );
     assert!(peer.read("started-with").contains("MemoryHigh=5G"));
+
+    // The unit names the link itself, with a trailing `/`: the old daemon
+    // opens it, acpmux.service without it would not, so it is carried.
+    let peer = FakePeer::new("stale-slash");
+    peer.under_foreign_unit(false);
+    let linked = format!("{}/.acpmux/", peer.home.display());
+    peer.write("proc/4242/environ", &format!("PATH=/usr/bin\0ACPMUX_HOME={linked}\0"));
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(
+        peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
+        format!("[Service]\nEnvironment=ACPMUX_HOME={linked}\n")
+    );
+
+    // A drop-in of the unit's own with the carried settings' name would
+    // replace them: refused before anything changes.
+    let peer = FakePeer::new("stale-clash");
+    peer.under_foreign_unit(false);
+    peer.write(&format!("{UNITS}/{FOREIGN}.d/10-migrated.conf"), "[Service]\nNice=5\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unitSettings")),
+        "{up:?}"
+    );
+    peer.assert_untouched(&fake_acpmux(STALE, Some(STALE)), OLD);
 }
 
 #[test]
@@ -751,3 +944,7 @@ fn a_listen_address_acpmux_service_would_lose_is_refused() {
     assert!(up.error.as_deref().unwrap_or("").contains("127.0.0.1:47822"), "{up:?}");
     peer.assert_untouched(&fake_acpmux(STALE, Some(STALE)), OLD);
 }
+
+#[cfg(unix)]
+#[path = "host_lock_tests.rs"]
+mod lock;

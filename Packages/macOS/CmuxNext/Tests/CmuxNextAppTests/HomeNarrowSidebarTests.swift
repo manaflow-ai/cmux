@@ -7,7 +7,7 @@ import Testing
 /// just don't have to show the search bar or the filter bar and the compose bar should be shown in
 /// the chat UI top left not in the sidebar." As Messages: the avatar-only list has no header row,
 /// and a round compose button sits at the chat's top-left, beside the traffic lights; the list with
-/// names keeps its search, Unread toggle and compose.
+/// names keeps its search and Unread toggle, and compose stays in the chat (the user, 2026-10-21).
 @MainActor
 struct HomeNarrowSidebarTests {
     /// The chat's compose button in `view`'s tree, by its accessibility identifier.
@@ -96,11 +96,11 @@ struct HomeNarrowSidebarTests {
     }
 
     @Test(arguments: [180, 320] as [CGFloat])
-    func theListWithNamesKeepsItsRowAndTheChatHasNoCompose(_ width: CGFloat) throws {
+    func theListWithNamesKeepsItsRowAndComposeStaysInTheChat(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
-        #expect(!p.home.compose.isHidden && !p.home.unreadToggle.isHidden)
+        #expect(p.home.compose.isHidden && !p.home.unreadToggle.isHidden)
         #expect(!p.home.searchCapsule.isHidden)
-        #expect(Self.chatCompose(in: p.split).map(\.isHidden) ?? true)
+        #expect(Self.chatCompose(in: p.split).map { !$0.isHidden } ?? false)
     }
 }

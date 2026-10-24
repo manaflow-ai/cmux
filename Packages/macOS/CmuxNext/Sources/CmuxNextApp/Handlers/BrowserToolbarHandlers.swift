@@ -165,6 +165,9 @@ enum BrowserToolbarHandlers {
         let entries: [ContextMenuEntry] = [.action("browserProfile.new"), .action("importFromBrowser")]
         move(registry.makeContextMenu(for: .browserPage, target: target, entries: entries), into: menu)
         move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, entries: [.action("browserProfile.rename")]), into: menu)
+        // This profile's own extensions (chrome://extensions and the Web Store open in it).
+        move(registry.makeContextMenu(for: .browserPage, target: target,
+                                      entries: [.separator, .action("browser.extensions.manage"), .action("browser.extensions.webStore")]), into: menu)
         return menu
     }
 

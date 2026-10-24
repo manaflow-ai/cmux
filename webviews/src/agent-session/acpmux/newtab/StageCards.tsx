@@ -7,6 +7,7 @@ import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { ProjectBadge } from "../ProjectBadge";
 import { ProjectChooser, type Project } from "../ProjectChooser";
+import { projectRows } from "../projectRepos";
 import { isAgentHome } from "../sessionList";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
@@ -39,7 +40,11 @@ export function EnvironmentCard({
   const nt = useNt();
   // A chat with no project runs in a private agent-home folder (sessionList.ts isAgentHome); it is
   // no environment to offer, as recentProjects keeps it out too.
-  const local = projects.filter((project) => !project.peer && !isAgentHome(project.cwd));
+  // One row per repository: a lane's checkout or scratch folder is no project to offer here.
+  const local = projectRows(
+    projects.filter((project) => !project.peer && !isAgentHome(project.cwd)),
+    current,
+  );
   const shown = current ? local.find((project) => project.cwd === current) : undefined;
   const others = local.filter((project) => project.cwd !== current).slice(0, OTHER_PROJECTS);
   const where = machineName ?? t("composer.thisMac");

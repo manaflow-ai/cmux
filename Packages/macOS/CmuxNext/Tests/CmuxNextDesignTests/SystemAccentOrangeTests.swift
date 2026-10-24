@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The accent is never orange: with the macOS accent set to orange (System Settings > Appearance),
 /// cmux's menus, selections and focus rings still draw the theme's own colors, which are neutral
@@ -60,19 +61,6 @@ import Testing
                 Self.expectNotAccent(color, "\(theme) \(name)", orangeAllowed: true)
             }
         }
-    }
-
-    @Test func aThemedMenuHighlightIsNotTheSystemAccent() throws {
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Rename", action: nil, keyEquivalent: ""))
-        // Held here: the registry and a scope's parent hold scopes weakly.
-        let scope = Self.neutralScope()
-        menu.themeRows(in: scope)
-        let row = try #require(menu.items[0].view as? ThemedMenuRowView, "the row is cmux-drawn, not AppKit's highlight")
-        row.highlightOverride = true
-        // Left of the title, where only the highlight paints.
-        Self.expectNotAccent(try #require(Self.sample(row, x: 8)), "highlighted menu row")
-        withExtendedLifetime(scope) {}
     }
 
     @Test func aSelectedTableRowIsNotTheSystemAccent() throws {

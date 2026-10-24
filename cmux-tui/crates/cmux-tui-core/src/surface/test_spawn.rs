@@ -146,7 +146,7 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
 
         let render_state = RenderState::new()?;
-        let (frame_requests, _frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         let test_master_control = Arc::new(TestMasterPtyControl::default());
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
 
@@ -162,6 +162,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -191,6 +193,8 @@ impl Surface {
                             control: test_master_control.clone(),
                         })),
                         killer: Box::new(TestChildKiller),
+                        #[cfg(unix)]
+                        holder: None,
                     },
                 ),
                 lifetime,

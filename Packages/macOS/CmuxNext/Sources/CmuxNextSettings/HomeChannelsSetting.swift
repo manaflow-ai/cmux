@@ -54,5 +54,6 @@ extension CmuxConfigSnapshot {
         take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
         take(HomeServerSetting.parse(root), \.homeServer)
+        take(ChiefReactionSettings.parse(root), \.chiefReactions)
     }
 }

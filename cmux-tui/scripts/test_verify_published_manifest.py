@@ -196,15 +196,21 @@ class VerifyPublishedManifestTests(TestCase):
     def test_artifact_workflow_verifies_unix_machine_manifest_before_latest(self) -> None:
         document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
         build = document["jobs"]["build"]["with"]
+        windows = document["jobs"]["build-windows"]["with"]
         # The Windows daemon is built for GPUI's Windows daemon mode, but is
         # published only under cmux-tui-windows/<sha>/ and the tree: never in
         # cmux-tui/<sha>/ or cmux-tui/latest/, which the public Windows
-        # installer reads (asserted below with --forbid-artifact).
-        self.assertIs(build["include_windows"], True)
+        # installer reads (asserted below with --forbid-artifact). It builds
+        # in build-windows, its own call, so the macOS and Linux tree never
+        # waits for it (tests/test_cmux_tui_feat_publish_order.py).
+        self.assertIs(build["include_windows"], False)
+        self.assertIs(windows["include_windows"], True)
+        self.assertEqual(windows["target_set"], "windows")
         # A Windows failure must not block the macOS and Linux tree.
-        self.assertIs(build["windows_optional"], True)
-        self.assertIs(build["package_npm"], False)
-        self.assertIs(build["package_pypi"], False)
+        self.assertIs(windows["windows_optional"], True)
+        for call in (build, windows):
+            self.assertIs(call["package_npm"], False)
+            self.assertIs(call["package_pypi"], False)
 
         installer = WINDOWS_INSTALLER.read_text(encoding="utf-8")
         advertised = re.search(r'^\$Artifact = "([^"]+)"$', installer, re.MULTILINE)

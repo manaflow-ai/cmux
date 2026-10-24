@@ -161,12 +161,29 @@ enum WorkspaceBulkClose {
         return (sidebar, groups.filter { $0.id.rawValue != group.id.rawValue })
     }
 
-    /// The one close path for each workspace, on the daemon that owns it.
-    static func close(_ members: [Member]) {
-        for (workspace, daemon) in members {
-            guard let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
+    /// The one close path for several workspaces at once (every bulk close, Close Workspaces in
+    /// Group): on each daemon, the workspaces with tabs close in one `layout.bulk` request with
+    /// their terminals (`BulkClosePlan`), one closed group, so one Reopen Closed brings all of them
+    /// back; an empty workspace, or any on an older daemon, closes alone. `send` runs each daemon
+    /// command (the sidebar's resyncs its rows when one fails).
+    static func close(_ members: [Member],
+                      send: (DaemonService, String, @escaping DaemonCommandBody) -> Void = { $0.send($1, $2) }) {
+        var daemons: [DaemonService] = []
+        for (_, daemon) in members where !daemons.contains(where: { $0 === daemon }) { daemons.append(daemon) }
+        for daemon in daemons {
+            let workspaces = members.filter { $0.1 === daemon && $0.0.key != nil }.map(\.0)
+            let plan = BulkClosePlan(workspaces, servesBulk: daemon.servesBulkClose, id: \.resourceID,
+                                     hasTabs: { $0.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } } })
+            if !plan.bulk.isEmpty {
+                for (workspace, _) in plan.bulk { _ = WorkspaceClose.closing(workspace, on: daemon) }
+                let ids = plan.bulk.map(\.id)
+                send(daemon, "close-workspaces") { try await $0.state.closeBulk(.workspace, ids: ids, endTerminals: true) }
+            }
+            for workspace in plan.each {
+                guard let key = workspace.key else { continue }
+                let terminals = WorkspaceClose.closing(workspace, on: daemon)
+                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
+            }
         }
     }
 

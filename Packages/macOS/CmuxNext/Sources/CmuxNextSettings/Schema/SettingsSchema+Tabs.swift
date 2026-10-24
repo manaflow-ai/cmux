@@ -56,16 +56,17 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
-    /// `tabs.terminalFirst`: Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic (#23021).
+    /// `tabs.terminalFirst`, shown as cmux Classic Mode: every new tab, split, workspace and window a
+    /// person opens is a terminal, as in cmux classic (#23021). The help says how to reach the GUI.
     static func terminalFirst(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             TerminalFirstSetting.configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.terminalFirst", "New Tabs and Splits Open a Terminal"),
+            title: SettingsText.keyed("settings.tabs.terminalFirst", "cmux Classic Mode"),
             help: SettingsText.keyed("settings.tabs.terminalFirst.help",
-                                     "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."),
+                                     "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."),
             kind: .toggle,
             default: .bool(TerminalFirstSetting.fallback),
-            keywords: ["terminal", "classic", "new tab", "split", "cmd-t", "cmd-d", "new tab page", "default"]
+            keywords: ["terminal", "classic", "classic mode", "cmux classic", "new tab", "split", "workspace", "window", "cmd-t", "cmd-d", "cmd-n", "new tab page", "gui", "default"]
         )
     }
 

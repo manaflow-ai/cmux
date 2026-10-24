@@ -31,7 +31,7 @@ public struct TerminalResumeCommandRequest: DaemonRequest {
     }
 
     public static let command = "terminal-resume-command"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.resumeCommand
+    public static let requiredCapability: String? = DaemonCapability.resumeCommand.rawValue
     public var target: SetTerminalKeepRequest.Target
     public var change: Change
 

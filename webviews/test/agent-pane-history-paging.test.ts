@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // A long chat opens on its tail and pages older turns in as the reader scrolls up (cx-2lv1k). A
 // session on cmux server can hold thousands of turns: the pane asks acpmux for the newest records
@@ -361,5 +362,389 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       moved: [],
       atEnd: true,
     });
+  });
+
+  // Leo 2026-10-21, after restarting the app on a chat of about 720 turns: "NOW I CAN'T SEE THE
+  // PAST HISTORY OF THIS CHAT. WHERE IS OUR PAGINATION?" One older read failed, and while the reply
+  // streamed the transcript asked again inside the client's 2 s back-off, got nothing, and never
+  // asked again: at the very top a wheel up fires no scroll event. This chat compacted every 100
+  // turns, its reply streams while the reader scrolls, it opens on a tail the app kept from long
+  // ago that its attach does not continue (the older read already out is dropped when it lands),
+  // and its first older read after the attach fails.
+  test("a 700-turn chat that compacted pages back to its first message past a dropped and a failed read, while it streams", async () => {
+    const LONG = "0190a000-0000-7000-8000-00000000a700";
+    const LONG_TURNS = 700;
+    const COMPACT_EVERY = 100;
+    // Each turn read a build log: pages end at maxBytes long before they reach their record limit.
+    const log = "warning: unused variable `x`\n".repeat(110);
+    const longSteps: Step[] = [];
+    for (let n = 1; n <= LONG_TURNS; n++) {
+      longSteps.push(["mux", "user_message", { text: `Question ${n}` }], ["mux", "turn_started", {}]);
+      if (n % COMPACT_EVERY === 0)
+        longSteps.push(
+          ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+          [
+            "in",
+            "compaction",
+            update({ sessionUpdate: "compaction", state: "completed", preTokens: 180_000, postTokens: 12_000 }),
+          ],
+        );
+      longSteps.push(
+        [
+          "in",
+          "tool_call",
+          update({
+            sessionUpdate: "tool_call",
+            toolCallId: `log-${n}`,
+            title: "cat build.log",
+            kind: "read",
+            status: "in_progress",
+          }),
+        ],
+        [
+          "in",
+          "tool_call_update",
+          update({
+            sessionUpdate: "tool_call_update",
+            toolCallId: `log-${n}`,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: log } }],
+          }),
+        ],
+        ["in", "agent_message_chunk", chunk(`Answer ${n}.`)],
+        // Not a transcript record: a read for `transcript` leaves it out.
+        ["in", "usage_update", update({ sessionUpdate: "usage_update", used: n * 100, size: 200_000 })],
+      );
+      // The last turn is still answering.
+      if (n < LONG_TURNS) longSteps.push(["mux", "turn_result", { status: "completed" }]);
+    }
+    const longEvents = longSteps.map(([dir, kind, msg], index) => ({
+      sessionId: LONG,
+      seq: index + 1,
+      at: START + index * 1000,
+      dir,
+      kind,
+      msg,
+    }));
+    const longSession = {
+      sessionId: LONG,
+      cwd: "/home/dev/cmux",
+      title: "Very long chat",
+      harness: "claude",
+      family: "claude",
+      status: "running",
+      turnCount: LONG_TURNS,
+      updatedAt: START,
+      lastSeq: longEvents.length,
+    };
+    // Another tab read this chat long ago, and the app host kept its tail (tailCache.ts
+    // `chat.tail.get`): two whole turns from the middle of its history. The reader is on another
+    // chat and switches to this one: the pane draws the tail on the frame the switch lands and asks
+    // for the history before it; the attach page then starts far past the tail, so the chat drops
+    // it (direct.ts historyEpoch) and that older read, answered after the attach, brings nothing.
+    const STALE_TURN = 300;
+    const promptSeq = (n: number) =>
+      longEvents.find((event) => event.kind === "user_message" && event.msg.text === `Question ${n}`)!.seq;
+    const staleFrom = promptSeq(STALE_TURN);
+    const staleTo = promptSeq(STALE_TURN + 2) - 1;
+    const staleTail = {
+      events: longEvents.filter((event) => event.seq >= staleFrom && event.seq <= staleTo),
+      historyExhausted: false,
+    };
+    let staleReads = 0;
+    let attachAnsweredAt = 0;
+    let staleAnsweredAt = 0;
+    /// The chat the reader is on before the switch.
+    const OTHER = "0190a000-0000-7000-8000-00000000a701";
+    const otherEvents = (
+      [
+        ["mux", "user_message", { text: "Other question" }],
+        ["mux", "turn_started", {}],
+        ["in", "agent_message_chunk", chunk("Other answer.")],
+        ["mux", "turn_result", { status: "completed" }],
+      ] as Step[]
+    ).map(([dir, kind, msg], index) => ({
+      sessionId: OTHER,
+      seq: index + 1,
+      at: START + index * 1000,
+      dir,
+      kind,
+      msg,
+    }));
+    const otherSession = {
+      ...longSession,
+      sessionId: OTHER,
+      title: "Other chat",
+      status: "ready",
+      turnCount: 1,
+      lastSeq: otherEvents.length,
+    };
+    // acpmux hub/paging.rs: `transcript` is every mux record here and every agent update but
+    // bookkeeping; a page is the newest `limit` records before `beforeSeq`, ending before its JSON
+    // passes `maxBytes`, and always holds at least one record.
+    const NOT_TRANSCRIPT = ["usage_update", "available_commands_update", "current_mode_update", "config_option_update"];
+    const wanted = (event: (typeof longEvents)[number], kinds: unknown) =>
+      !Array.isArray(kinds) ||
+      kinds.some((kind) =>
+        kind === "all"
+          ? true
+          : kind === "transcript"
+            ? event.dir === "mux" || (event.dir === "in" && !NOT_TRANSCRIPT.includes(event.kind))
+            : kind === event.kind,
+      );
+    function longPage(params: Record<string, any>) {
+      const lastSeq = longEvents.length;
+      if (typeof params.afterSeq === "number" && params.beforeSeq === undefined) {
+        const after = longEvents.filter((event) => event.seq > params.afterSeq && wanted(event, params.kinds));
+        return { events: after, hasMore: false, lastSeq };
+      }
+      const limit = Number(params.limit ?? 2000);
+      const maxBytes = Number(params.maxBytes ?? 1 << 20);
+      const pool = longEvents.filter(
+        (event) => event.seq < (params.beforeSeq ?? Infinity) && wanted(event, params.kinds),
+      );
+      const out: typeof longEvents = [];
+      let bytes = 0;
+      let hasMore = false;
+      for (let index = pool.length - 1; index >= 0; index--) {
+        const event = pool[index]!;
+        bytes += JSON.stringify(event.msg).length + event.kind.length + 120;
+        if (out.length === limit || (out.length > 0 && bytes > maxBytes)) {
+          hasMore = true;
+          break;
+        }
+        out.push(event);
+      }
+      return { events: out.reverse(), hasMore, lastSeq };
+    }
+    const longRequests: { method: string; params: Record<string, any>; failed?: boolean; dropped?: boolean }[] = [];
+    let failedOnce = false;
+    let longInflight = 0;
+    let longReplies = 0;
+    const sockets = new Set<{ send(data: string): void }>();
+    const longDaemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        open(ws) {
+          sockets.add(ws);
+        },
+        close(ws) {
+          sockets.delete(ws);
+        },
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          if (message.id === undefined) return;
+          const params = message.params ?? {};
+          let reply: Record<string, unknown>;
+          // A remote daemon answers a little later; the attach of a long chat later still, so the
+          // kept tail's older read goes out while it is in flight, and is answered after it.
+          let delay = 40;
+          let answered = () => {};
+          if (message.method === "initialize")
+            reply = {
+              result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
+            };
+          else if (message.method === "_acpmux/watch")
+            reply = { result: { sessions: [{ ...longSession, lastSeq: longEvents.length }, otherSession] } };
+          else if (params.sessionId === OTHER && message.method === "_acpmux/attach")
+            reply = {
+              result: { session: otherSession, events: otherEvents, hasMore: false, lastSeq: otherEvents.length },
+            };
+          else if (params.sessionId === OTHER && message.method === "_acpmux/events")
+            reply = { result: { events: [], hasMore: false, lastSeq: otherEvents.length } };
+          else if (message.method === "_acpmux/attach") {
+            longRequests.push({ method: message.method, params });
+            reply = { result: { session: { ...longSession, lastSeq: longEvents.length }, ...longPage(params) } };
+            delay = 1_500;
+            answered = () => (attachAnsweredAt ||= performance.now());
+          } else if (message.method === "_acpmux/events") {
+            const older = Array.isArray(params.kinds) && params.kinds.includes("transcript");
+            if (older && attachAnsweredAt === 0 && Number(params.beforeSeq) === staleFrom) {
+              // The read off the kept tail: answered once the attach has replaced that tail.
+              staleReads++;
+              longRequests.push({ method: message.method, params, dropped: true });
+              reply = { result: longPage(params) };
+              delay = 2_500;
+              answered = () => (staleAnsweredAt = performance.now());
+            } else if (older && !failedOnce) {
+              // The first older transcript read after the attach fails, as one over a dropped connection does.
+              failedOnce = true;
+              longRequests.push({ method: message.method, params, failed: true });
+              reply = { error: { code: -32000, message: "connection reset by peer" } };
+            } else {
+              longRequests.push({ method: message.method, params });
+              reply = { result: longPage(params) };
+            }
+          } else reply = { result: null };
+          longInflight++;
+          setTimeout(() => {
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }));
+            answered();
+            longInflight--;
+            longReplies++;
+          }, delay);
+        },
+      },
+    });
+    // The reply goes on streaming while the reader scrolls: the pane renders on every chunk.
+    let pushed = 0;
+    const live = setInterval(() => {
+      if (sockets.size === 0 || attachAnsweredAt === 0) return;
+      const event = {
+        sessionId: LONG,
+        seq: longEvents.length + 1,
+        at: START + longEvents.length * 1000,
+        dir: "in",
+        kind: "agent_message_chunk",
+        msg: chunk(` more ${pushed}`),
+      };
+      longEvents.push(event);
+      pushed++;
+      for (const socket of sockets)
+        socket.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+    }, 100);
+    // A tall view, so each wheel step can be long and still show every prompt as it passes.
+    const page = await browser!.newPage({ viewport: { width: 900, height: 1400 } });
+    try {
+      await installPaintedFrames(page);
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      // The app host's side of tailCache.ts: it answers with the old tail, and takes what the page
+      // hands it. The pane installs its own actions once it runs; these stay among them.
+      await page.addInitScript(
+        ([sessionId, tail]) => {
+          const host = {
+            "chat.tail.get": async (params: { sessionId?: unknown }) => (params.sessionId === sessionId ? tail : null),
+            "chat.tail": async () => null,
+          };
+          let actions: Record<string, unknown> = { ...host };
+          Object.defineProperty(window, "cmuxAcpmuxActions", {
+            configurable: true,
+            get: () => actions,
+            set: (next: Record<string, unknown>) => void (actions = { ...next, ...host }),
+          });
+        },
+        [LONG, staleTail] as const,
+      );
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const endpoint = `ws://127.0.0.1:${longDaemon.port}/`;
+      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${OTHER}`);
+      await page.getByText("Other question", { exact: true }).waitFor({ timeout: 60_000 });
+      // The reader switches to the long chat, as a pick in the chat list does.
+      await page.evaluate(
+        (sessionId) =>
+          (window as unknown as { cmuxAcpmuxActions: Record<string, (params: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions["chat.select"]!({ sessionId }),
+        LONG,
+      );
+      await page.getByText(`Question ${LONG_TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
+      // A wheel step settles: no read in flight and the offset still for 60ms, timed in the page.
+      const settle = async () => {
+        for (const started = Date.now(); Date.now() - started < 5_000;) {
+          const sent = longReplies;
+          const held = await page.evaluate(
+            (left) =>
+              new Promise<boolean>((resolve) => {
+                const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+                let last = scroller.scrollTop;
+                let since = performance.now();
+                const end = since + left;
+                window.cmuxAfterPaint((now) => {
+                  if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
+                  if (now - since >= 60) resolve(true);
+                  else if (now >= end) resolve(false);
+                  else return;
+                  return false;
+                });
+              }),
+            5_000 - (Date.now() - started),
+          );
+          if (held && longInflight === 0 && longReplies === sent) return;
+        }
+      };
+      await settle();
+      // The chat opened on its latest screenful, from one capped page.
+      const attach = longRequests.find((request) => request.method === "_acpmux/attach");
+      expect(Number(attach?.params.maxBytes)).toBeLessThanOrEqual(128 * 1024);
+      expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
+
+      const scroller = page.locator(".acpmux-scroll");
+      const box = (await scroller.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      // Each prompt and each compaction note, as it passes through the view, newest first.
+      const seen: string[] = [];
+      let reachedFirst = false;
+      let stuck = 0;
+      const look = () =>
+        page.evaluate(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const view = node.getBoundingClientRect();
+          const items = [...node.querySelectorAll<HTMLElement>(".cv-user__bubble, .cv-compaction")]
+            .map((element) => ({
+              id: element.classList.contains("cv-compaction")
+                ? `compaction:${element.closest<HTMLElement>(".acpmux-row")?.dataset.rowId ?? "?"}`
+                : (element.textContent ?? ""),
+              y: element.getBoundingClientRect().top - view.top,
+            }))
+            .filter((item) => item.y >= 0 && item.y < view.height)
+            .sort((a, b) => a.y - b.y)
+            .map((item) => item.id);
+          return { top: node.scrollTop, items };
+        });
+      let steps = 0;
+      for (; steps < 1_500 && !reachedFirst && stuck < 40; steps++) {
+        const before = await look();
+        for (const id of [...before.items].reverse()) if (!seen.includes(id)) seen.push(id);
+        await page.mouse.wheel(0, -900);
+        await settle();
+        const after = await look();
+        reachedFirst = after.items.includes("Question 1");
+        // At the top with nothing new: a transcript that stopped asking stays here for good.
+        stuck = after.top === 0 && before.top === 0 && after.items.join() === before.items.join() ? stuck + 1 : 0;
+      }
+      await settle();
+      for (const id of [...(await look()).items].reverse()) if (!seen.includes(id)) seen.push(id);
+
+      console.log(
+        `700-turn chat: ${steps} wheel steps; kept-tail reads ${staleReads}, answered ${Math.round(staleAnsweredAt - attachAnsweredAt)} ms after the attach`,
+      );
+      expect(errors).toEqual([]);
+      expect(failedOnce).toBe(true);
+      // The kept tail was drawn and read from, and that read landed after the attach dropped it.
+      expect(staleReads).toBeGreaterThan(0);
+      expect(attachAnsweredAt).toBeGreaterThan(0);
+      expect(staleAnsweredAt).toBeGreaterThan(attachAnsweredAt);
+      expect(pushed).toBeGreaterThan(10);
+      expect({ reachedFirst, oldestSeen: seen.at(-1) }).toEqual({ reachedFirst: true, oldestSeen: "Question 1" });
+      // Every prompt once and in order. A finished turn folds its compaction with its work under
+      // "Worked for" (turns.ts, Leo 2026-10-21: fold only the work); the turn still streaming shows
+      // its compaction where it happened, under its prompt.
+      expect(seen.map((id) => (id.startsWith("compaction:") ? "compaction" : id))).toEqual(
+        Array.from({ length: LONG_TURNS }, (_, index) => LONG_TURNS - index).flatMap((n) =>
+          n === LONG_TURNS ? ["compaction", `Question ${n}`] : [`Question ${n}`],
+        ),
+      );
+      expect(new Set(seen.filter((id) => id.startsWith("compaction:"))).size).toBe(1);
+      // The pane read its history in bounded pages, each before the oldest record it held.
+      const older = longRequests.filter(
+        (request) =>
+          request.method === "_acpmux/events" &&
+          !request.failed &&
+          !request.dropped &&
+          request.params.kinds?.includes("transcript"),
+      );
+      expect(older.length).toBeGreaterThan(3);
+      expect(older.every((request) => Number(request.params.maxBytes) <= 256 * 1024)).toBe(true);
+      const cursors = older.map((request) => request.params.beforeSeq as number);
+      expect(cursors).toEqual([...cursors].sort((a, b) => b - a));
+    } finally {
+      clearInterval(live);
+      await page.close();
+      await longDaemon.stop(true);
+    }
   });
 });

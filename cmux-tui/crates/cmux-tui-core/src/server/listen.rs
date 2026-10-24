@@ -35,12 +35,12 @@ impl PendingServer {
         self.mux.mark_server_lifecycle_ready();
         #[cfg(unix)]
         start_apps_when_ready(&self.mux);
-        Ok(self.path.take().expect("pending server path is available"))
+        self.path.take().ok_or_else(|| anyhow::anyhow!("pending server path was already taken"))
     }
 
     /// Transfer socket cleanup while another startup owner publishes readiness.
     pub fn into_bound_path(mut self) -> PathBuf {
-        self.path.take().expect("pending server path is available")
+        self.path.take().unwrap_or_default()
     }
 }
 
@@ -490,6 +490,8 @@ pub fn serve_bound(mux: Arc<Mux>, bound: BoundSocket) -> anyhow::Result<PendingS
 
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    // Key-press flow marks start here, before the first request (`CMUX_TRACE_FLOWS`).
+    cmux_flow_trace::init();
     serve_paused(mux, path)?.mark_ready()
 }
 

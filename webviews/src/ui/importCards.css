@@ -1,6 +1,6 @@
-/* Import suggestion cards (ImportCards.tsx). Colors come from the page's theme: the agent page's
-   --agent-* tokens on New Tab, the --cmux-* tokens in Settings, so the cards follow light, dark
-   and custom themes. No animation: a card changes in one frame. */
+/* Import suggestion cards (ImportCards.tsx), in Settings › Import. Colors come from the page's
+   theme (--cmux-* tokens), so the cards follow light, dark and custom themes. No animation: a card
+   changes in one frame. */
 .import-cards {
   --import-text: var(--agent-text, var(--cmux-text, CanvasText));
   --import-dim: color-mix(in srgb, var(--import-text) 64%, transparent);
@@ -37,10 +37,6 @@
   display: grid;
   gap: 8px;
   min-width: 0;
-}
-
-.import-cards[data-layout="row"] .import-cards-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .import-card {
