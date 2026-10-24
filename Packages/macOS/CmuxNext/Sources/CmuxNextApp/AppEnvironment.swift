@@ -29,11 +29,16 @@ struct AppEnvironment: Sendable {
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
     let terminalEnvironment: [String: String]
+    /// The soft open-file limit this app was launched with, when `main` raised it
+    /// (``OpenFileLimit/Change/launchLimit``); nil when the raise changed nothing. Every program
+    /// cmux runs for a person gets it back: terminals through ``daemonEnvironment``, agent chats
+    /// through the acpmux daemon the app starts at it (`AcpmuxEnvironment.launchOpenFileLimit`).
+    let launchOpenFileLimit: rlim_t?
     /// What every cmux-tui owner this app starts (its daemon, the Chief owner) gets in its own
-    /// process environment and no terminal gets: the open-file limit this app was launched with,
-    /// when `main` raised it (``OpenFileLimit/Change/daemonEnvironment``). The owner records it
-    /// and removes it, so its shells, hooks and plugins get that limit back.
-    let daemonEnvironment: [String: String]
+    /// process environment and no terminal gets: ``launchOpenFileLimit``
+    /// (``OpenFileLimit/daemonEnvironment(launchLimit:)``). The owner records it and removes it,
+    /// so its shells, hooks and plugins get that limit back.
+    var daemonEnvironment: [String: String] { OpenFileLimit.daemonEnvironment(launchLimit: launchOpenFileLimit) }
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -97,7 +102,7 @@ struct AppEnvironment: Sendable {
             showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
-            daemonEnvironment: openFiles?.daemonEnvironment ?? [:],
+            launchOpenFileLimit: openFiles?.launchLimit,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )

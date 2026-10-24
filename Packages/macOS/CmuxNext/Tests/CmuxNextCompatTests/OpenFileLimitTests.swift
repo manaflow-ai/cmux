@@ -62,8 +62,12 @@ struct OpenFileLimitTests {
     /// The daemons get the launch limit back for their shells (cmux-pty LAUNCH_SOFT_LIMIT_ENV,
     /// cmux-holder NOFILE_SOFT_ENV); nothing when nothing was raised.
     @Test func theDaemonsGetTheLaunchLimitBack() {
-        #expect(OpenFileLimit.Change(before: 256, after: 24_576).daemonEnvironment == ["CMUX_TUI_HOST_NOFILE_SOFT": "256"])
-        #expect(OpenFileLimit.Change(before: 50_000, after: 50_000).daemonEnvironment.isEmpty)
+        let raised = OpenFileLimit.Change(before: 256, after: 24_576)
+        #expect(raised.launchLimit == 256)
+        #expect(OpenFileLimit.daemonEnvironment(launchLimit: raised.launchLimit) == ["CMUX_TUI_HOST_NOFILE_SOFT": "256"])
+        let kept = OpenFileLimit.Change(before: 50_000, after: 50_000)
+        #expect(kept.launchLimit == nil)
+        #expect(OpenFileLimit.daemonEnvironment(launchLimit: kept.launchLimit).isEmpty)
     }
 
     /// The real getrlimit/setrlimit, in a child process at launchd's soft limit (an exit test, so

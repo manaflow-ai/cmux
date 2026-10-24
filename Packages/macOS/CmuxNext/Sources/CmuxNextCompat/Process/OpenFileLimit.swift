@@ -11,18 +11,27 @@ import Foundation
 /// daemons raise theirs (cmux-pty `raise_open_file_limit`). The app does the same, first thing
 /// in `main`, before CefInitialize and before any thread.
 ///
-/// Which children keep the raised limit, on purpose:
-/// - Chromium's helpers (GPU, network, renderers): they need it.
-/// - Every process the app starts directly through `Process` or `posix_spawn` (the login-shell
-///   capture `$SHELL -l -i`, git, ssh, `ProcessRunner` helpers, agent processes): Darwin's
-///   `posix_spawn` cannot set a child's limits, and none of them is known to `select(2)` on
-///   descriptors at or above `FD_SETSIZE` (1024), which aborts on macOS 11 and later. A direct
-///   child that does must start through a trampoline that sets the soft limit back before `exec`.
+/// Every program a person runs through cmux sees the limit of the environment that launched cmux
+/// (``Change/launchLimit``), the same `ulimit -n` in a terminal and in an agent chat:
+/// - Terminals, and the hooks, plugins and Chief brains the daemons run: the app names the launch
+///   limit to every cmux-tui owner it starts, and only to them (``daemonEnvironment(launchLimit:)``,
+///   ``originalSoftLimitKey``); the owner records it and removes the variable, and its holder,
+///   terminal hosts and process scopes give it back.
+/// - Agent chats: the app starts its acpmux daemon at the launch limit (its launch shell runs
+///   `ulimit -S -n` before the daemon's `exec`, `AcpmuxDaemonLauncher`), as launchd starts a
+///   standalone one. The daemon raises its own limit at start (acpmux `open_file_limit::raise`);
+///   its agents get the limit it started with only where acpmux sets it back between their fork
+///   and `exec` (open: acpmux does not yet, so agent tool shells still see its raised limit).
 ///
-/// Programs in a terminal, and the hooks, plugins and Chief brains the daemons run, see the limit
-/// of the environment that launched cmux: the app names it to every cmux-tui owner it starts, and
-/// only to them (``Change/daemonEnvironment``, ``originalSoftLimitKey``); the owner records it and
-/// removes the variable, and its holder, terminal hosts and process scopes give it back.
+/// Which children keep the raised limit, on purpose (this list is the one place that says so):
+/// - Chromium's helpers (GPU, network, renderers): they need it.
+/// - The app's other short-lived direct children (`ProcessRunner` helpers such as git and ssh
+///   probes, and the login-shell capture `$SHELL -l -i -c 'env -0'`): Darwin's `posix_spawn`
+///   cannot set a child's limits, so lowering it needs a shell between spawn and `exec`. A raised
+///   soft limit gives a program no descriptor at or above `FD_SETSIZE` (1024) by itself; only a
+///   program that opens more than 1024 files can reach `select(2)`'s abort, where 256 would have
+///   stopped it with EMFILE instead. A daemon a login rc file starts from the capture (ssh-agent,
+///   gpg-agent) keeps the raised limit for that reason.
 ///
 /// The syscalls are injected (``init(ceiling:read:write:perProcessCap:)``); a test passes its own:
 ///
@@ -91,13 +100,19 @@ package struct OpenFileLimit: Sendable {
             self.after = after
         }
 
-        /// What every cmux-tui owner the app starts gets in its own environment, and nothing
-        /// else: ``OpenFileLimit/originalSoftLimitKey`` with the launch limit when the raise
-        /// changed the limit, else nothing. The owner records it and removes the variable, so its
-        /// shells, hooks and plugins get the launch limit back; a terminal's env never carries it.
-        package var daemonEnvironment: [String: String] {
-            after > before ? [OpenFileLimit.originalSoftLimitKey: String(before)] : [:]
+        /// The soft limit the programs cmux runs for a person get back: `before` when the raise
+        /// changed the limit, else nil (they inherit the app's limit, which is the launch one).
+        package var launchLimit: rlim_t? {
+            after > before ? before : nil
         }
+    }
+
+    /// What every cmux-tui owner the app starts gets in its own environment, and nothing else:
+    /// ``originalSoftLimitKey`` with `launchLimit` (``Change/launchLimit``), else nothing. The owner
+    /// records it and removes the variable, so its shells, hooks and plugins get the launch limit
+    /// back; a terminal's env never carries it.
+    package static func daemonEnvironment(launchLimit: rlim_t?) -> [String: String] {
+        launchLimit.map { [originalSoftLimitKey: String($0)] } ?? [:]
     }
 
     /// What one ``raise()`` did.
