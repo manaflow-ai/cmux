@@ -93,6 +93,7 @@ extension ScreenContentView {
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
         var changed = force
         let scale = self.scale
+        let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -112,8 +113,12 @@ extension ScreenContentView {
             if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
-                // layout pass behind it (`PaneContentView.layout` sizes the strip).
-                host.layoutSubtreeIfNeeded()
+                // layout pass behind it (`PaneContentView.layout` sizes the strip). Only at a real size in a
+                // window: before the root is placed (a new window's content builds its layout first) the
+                // frames come from an empty viewport, and laying every pane out there broke Auto Layout
+                // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
+                // layout pass lays them out once the root has its size.
+                if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
                 changed = true
             } else if host.frame.origin != placed.origin {
                 // A pane that only moves (the strip camera, a column opening beside it) keeps its
