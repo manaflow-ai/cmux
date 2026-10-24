@@ -124,12 +124,12 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     }
 
     private var selected: RipgrepMatch? {
-        let row = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
-        return row >= 0 && row < results.count ? results[row] : nil
+        guard let row = table.clickedRowIfValid ?? table.selectedRowIfValid, row < results.count else { return nil }
+        return results[row]
     }
 
     @objc private func openClicked() {
-        guard table.clickedRow >= 0 else { return }
+        guard table.clickedRowIfValid != nil else { return }
         openSelected()
     }
 
