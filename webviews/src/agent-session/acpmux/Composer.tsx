@@ -501,6 +501,7 @@ export function Composer({
     });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const pasteFiles = useCallback((files: File[]) => void attach(files, true, "paste"), [attach]);
   const removedInline = useRef<{ attachment: ComposerAttachment; index: number }[]>([]);
   const removeAttachment = useCallback(
     (id: string) => {
@@ -1596,6 +1597,7 @@ export function Composer({
         onRemoveAttachment={removeAttachment}
         onRestoreAttachment={restoreAttachment}
         onPasteAttachments={pasteAttachments}
+        onPasteFiles={pasteFiles}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={

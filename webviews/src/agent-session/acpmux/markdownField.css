@@ -314,6 +314,38 @@
   box-sizing: border-box;
   font-size: var(--text-caption);
 }
+.acpmux-md-inline-attachment.is-audio {
+  width: min(240px, 52vw);
+  height: 32px;
+  align-items: center;
+  padding: 0 var(--acpmux-attach-gap);
+  box-sizing: border-box;
+}
+.acpmux-md-inline-attachment.is-audio audio {
+  width: 100%;
+  height: 24px;
+}
+.acpmux-md-inline-attachment.is-pasted {
+  width: min(190px, 42vw);
+  height: 32px;
+  align-items: center;
+  padding: 0 var(--acpmux-attach-gap);
+  box-sizing: border-box;
+}
+.acpmux-md-inline-pasted {
+  max-width: 100%;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-md-inline-attachment.is-pasted button {
+  cursor: pointer;
+  text-align: left;
+}
 .acpmux-md-inline-attachment.is-pending::before {
   content: "";
   width: var(--acpmux-context-control-size);

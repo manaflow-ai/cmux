@@ -110,7 +110,7 @@ export function appendAttachments(
 /// saves it (intakeFiles.ts can take a large screenshot hundreds of ms): the chip it becomes, or
 /// the refusal's note, takes its place. Leo 2026-10-21: "ME PASTING IT DOESN'T JUST PASTE RIGHT
 /// INTO THE COMPOSER IMMEDIATELY".
-export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string };
+export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string; insertionIndex?: number };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
@@ -162,6 +162,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }));
     const ids = new Set(shown.map((chip) => chip.id));
     const insertionIndex = current.reserveInline?.(shown.map((chip) => chip.id));
+    if (insertionIndex !== undefined) {
+      for (const chip of shown) chip.insertionIndex = insertionIndex;
+    }
     batches.current.add(batch);
     if (shown.length) setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
@@ -207,6 +210,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
+      // MarkdownField reserves marks before inserting a file paste's caption and prevents the
+      // browser default. HTML-only image pastes still need this listener to lift their data URLs.
+      if (event.defaultPrevented && (event.clipboardData?.files.length ?? 0) > 0) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);

@@ -1,8 +1,5 @@
-// Leo 2026-10-20: two images copied in Chrome and pasted into the composer showed as chips and also
-// full size in the field, as `![Screenshot · 778×696](data:image/png;base64,…)`; the prompt went out
-// with that text, the bubble showed pages of base64 and the chat's compaction failed. A pasted image
-// is an attachment chip only: the field gets nothing but plain text, a prompt's text never carries a
-// `data:` URI (it goes as an ACP image block), and a bubble never draws one.
+// Two images copied in Chrome stay as ordered U+FFFC marks in the composer. Their previews are
+// compact decorations, while ACP still receives image blocks and the prompt never carries a data URI.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type RefObject } from "react";
@@ -174,15 +171,15 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
 
-test("pasting two copied images makes two chips and puts nothing in the prompt", async () => {
+test("pasting two copied images makes two ordered inline previews", async () => {
   const composer = await openComposer();
   await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2) });
   const chips = composer.current!.wakeState().attachments ?? [];
   expect(chips.map((chip) => chip.kind)).toEqual(["image", "image"]);
   expect(chips.every((chip) => chip.data === pngBase64)).toBe(true);
-  // Nothing inline: no image drawn in the field and no markup or base64 in its text.
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("");
+  expect(field().querySelectorAll(".acpmux-md-inline-attachment")).toHaveLength(2);
+  expect(field().querySelectorAll(".acpmux-md-inline-attachment img")).toHaveLength(2);
+  expect(field().textContent).toContain("\uFFFC");
   expect(field().innerHTML).not.toContain("data:");
 });
 
@@ -190,7 +187,7 @@ test("an image copied as HTML alone (no file on the clipboard) still comes in as
   const composer = await openComposer();
   await paste({ html: `<p>look at these</p>${imageHtml(2)}`, plain: "look at these" });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
-  expect(field().querySelector("img")).toBeNull();
+  expect(field().querySelectorAll(".acpmux-md-inline-attachment")).toHaveLength(2);
   expect(field().textContent).toBe("look at these");
   expect(field().innerHTML).not.toContain("data:");
 });
@@ -342,12 +339,12 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);
 });
 
-test("a prompt copied from a bubble with `![…](data:…)` text pastes as a chip and its text, nothing inline", async () => {
+test("a prompt copied from a bubble with `![…](data:…)` text pastes as an inline chip and its text", async () => {
   const composer = await openComposer();
   await paste({ plain: `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck` });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("what the heck");
+  expect(field().querySelectorAll(".acpmux-md-inline-attachment")).toHaveLength(1);
+  expect(field().textContent).toContain("what the heck");
   expect(field().innerHTML).not.toContain("data:");
 });
 

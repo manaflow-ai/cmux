@@ -44,6 +44,7 @@ export type ComposerBoxProps = {
   onRemoveAttachment(id: string): void;
   onRestoreAttachment?(id: string): void;
   onPasteAttachments?(attachments: ComposerAttachment[], index: number): void;
+  onPasteFiles?(files: File[]): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -109,6 +110,7 @@ export function ComposerBox({
   showAttachmentTray = false,
   onRestoreAttachment,
   onPasteAttachments,
+  onPasteFiles,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
@@ -130,19 +132,25 @@ export function ComposerBox({
   if (!attachmentsRef) ownAttachments.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
-  const inlineAttachments = useMemo(
-    () => [
-      ...attachments,
-      ...(pending ?? []).map((chip) => ({
+  const inlineAttachments = useMemo(() => {
+    const result = [...attachments];
+    const offsets = new Map<number, number>();
+    for (const chip of pending ?? []) {
+      const placeholder = {
         id: chip.id,
         kind: chip.image ? ("image" as const) : ("link" as const),
         name: chip.name,
         mimeType: chip.image ? "image/*" : "application/octet-stream",
         size: 0,
-      })),
-    ],
-    [attachments, pending],
-  );
+      };
+      const base = Math.min(Math.max(chip.insertionIndex ?? result.length, 0), result.length);
+      const offset = offsets.get(base) ?? 0;
+      const at = Math.min(base + offset, result.length);
+      result.splice(at, 0, placeholder);
+      offsets.set(base, offset + 1);
+    }
+    return result;
+  }, [attachments, pending]);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
@@ -194,6 +202,8 @@ export function ComposerBox({
             onInlineAttachmentRemove={onRemoveAttachment}
             onInlineAttachmentRestore={onRestoreAttachment}
             onInlineAttachmentPaste={onPasteAttachments}
+            onInlinePasteFiles={onPasteFiles}
+            onInlineAttachmentExpand={pastedChips.expand}
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).

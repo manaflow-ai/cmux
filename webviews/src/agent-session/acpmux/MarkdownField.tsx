@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
-import { pasteIsOnlyFileNames, type ComposerAttachment } from "./attachments";
+import { pasteIsOnlyFileNames, thumbnail, type ComposerAttachment } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
@@ -136,6 +136,10 @@ export type MarkdownFieldProps = {
   onInlineAttachmentRestore?(id: string): void;
   /// Receives attachments copied from this field, together with their insertion mark index.
   onInlineAttachmentPaste?(attachments: ComposerAttachment[], index: number): void;
+  /// Starts intake for files before the paste's caption text is inserted, preserving image-then-text order.
+  onInlinePasteFiles?(files: File[]): void;
+  /// Expands a large pasted-text attachment back into editable text.
+  onInlineAttachmentExpand?(id: string): void;
 };
 
 /// Streaming agent updates replace the composer's snapshot while the prompt is unchanged. The
@@ -174,6 +178,8 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onInlineAttachmentRemove === next.onInlineAttachmentRemove &&
     previous.onInlineAttachmentRestore === next.onInlineAttachmentRestore &&
     previous.onInlineAttachmentPaste === next.onInlineAttachmentPaste &&
+    previous.onInlinePasteFiles === next.onInlinePasteFiles &&
+    previous.onInlineAttachmentExpand === next.onInlineAttachmentExpand &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
 }
@@ -360,7 +366,11 @@ export const INLINE_ATTACHMENT_MARK = "\uFFFC";
 const INLINE_DECORATION_REFRESH = "cmux.inlineAttachments.refresh";
 const INLINE_CLIPBOARD_TYPE = "application/x-cmux-inline-attachments";
 
-function inlineWidget(attachment: ComposerAttachment, onRemove: (id: string) => void): HTMLElement {
+function inlineWidget(
+  attachment: ComposerAttachment,
+  onRemove: (id: string) => void,
+  onExpand?: (id: string) => void,
+): HTMLElement {
   const root = document.createElement("span");
   root.className = "acpmux-md-inline-attachment";
   root.contentEditable = "false";
@@ -369,14 +379,47 @@ function inlineWidget(attachment: ComposerAttachment, onRemove: (id: string) => 
   if (attachment.kind === "image" && attachment.data) {
     const image = document.createElement("img");
     image.alt = attachment.name;
-    image.src = `data:${attachment.mimeType};base64,${attachment.data}`;
+    root.classList.add("is-pending");
     root.append(image);
+    // Decode and downsample before handing bytes to the DOM. `thumbnail` uses createImageBitmap and
+    // OffscreenCanvas, so the expensive work stays outside the editor's main-thread layout pass.
+    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }, 144).then((preview) => {
+      if (!root.isConnected) return;
+      image.src = preview?.url ?? `data:${attachment.mimeType};base64,${attachment.data}`;
+      root.classList.remove("is-pending");
+    });
+  } else if (attachment.kind === "audio" && attachment.data) {
+    root.classList.add("is-audio");
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "metadata";
+    audio.src = `data:${attachment.mimeType};base64,${attachment.data}`;
+    root.append(audio);
+  } else if (attachment.kind === "pasted") {
+    root.classList.add("is-pasted");
+    const body = document.createElement(onExpand ? "button" : "span");
+    body.className = "acpmux-md-inline-pasted";
+    body.textContent = attachment.name || "Pasted text";
+    if (onExpand) {
+      (body as HTMLButtonElement).type = "button";
+      body.addEventListener("click", (event) => {
+        event.preventDefault();
+        onExpand(attachment.id);
+      });
+    }
+    root.append(body);
+  } else if (attachment.kind === "document") {
+    root.classList.add("is-file", "is-document");
+    const name = document.createElement("span");
+    name.textContent = `PDF · ${attachment.name}${attachment.pageCount ? ` · ${attachment.pageCount}p` : ""}`;
+    root.append(name);
   } else {
     root.classList.add("is-file");
     const name = document.createElement("span");
     name.textContent = attachment.name || (attachment.kind === "image" ? "Image" : "Attachment");
     root.append(name);
   }
+  if (attachment.path) root.title = attachment.path;
   if (!attachment.data && attachment.kind === "image") root.classList.add("is-pending");
   const remove = document.createElement("button");
   remove.type = "button";
@@ -397,6 +440,7 @@ function inlineDecorations(
   doc: ProseNode,
   attachments: readonly ComposerAttachment[],
   onRemove: (id: string) => void,
+  onExpand?: (id: string) => void,
 ): DecorationSet {
   const decorations: Decoration[] = [];
   let index = 0;
@@ -410,7 +454,7 @@ function inlineDecorations(
       // Hide the replacement character while leaving it in the document for selection/history.
       decorations.push(Decoration.inline(at, at + 1, { class: "acpmux-md-inline-mark" }));
       decorations.push(
-        Decoration.widget(at, () => inlineWidget(attachment, onRemove), {
+        Decoration.widget(at, () => inlineWidget(attachment, onRemove, onExpand), {
           side: -1,
           key: `cmux-inline-${attachment.id}`,
         }),
@@ -457,6 +501,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onInlineAttachmentRemove,
     onInlineAttachmentRestore,
     onInlineAttachmentPaste,
+    onInlinePasteFiles,
+    onInlineAttachmentExpand,
   },
   ref,
 ) {
@@ -493,6 +539,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   inlineRestoreRef.current = onInlineAttachmentRestore;
   const inlinePasteRef = useRef(onInlineAttachmentPaste);
   inlinePasteRef.current = onInlineAttachmentPaste;
+  const inlineFilesRef = useRef(onInlinePasteFiles);
+  inlineFilesRef.current = onInlinePasteFiles;
+  const inlineExpandRef = useRef(onInlineAttachmentExpand);
+  inlineExpandRef.current = onInlineAttachmentExpand;
   const composing = useRef(false);
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
@@ -558,25 +608,29 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       if (index < 0) return false;
       const at = inlineMarkPositions(editorView.state.doc)[index];
       if (at === undefined) return false;
+      removedInlineIds.push(id);
       editorView.dispatch(editorView.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
       inlineRemoveRef.current?.(id);
       return true;
     };
+    const makeInlineDecorations = (doc: ProseNode) =>
+      inlineDecorations(
+        doc,
+        inlineAttachmentsRef.current,
+        (id) => {
+          const current = view.current;
+          if (current) deleteInlineAttachment(current, id);
+        },
+        (id) => inlineExpandRef.current?.(id),
+      );
     const inlineAttachmentPlugin = $prose(
       () =>
         new Plugin({
           state: {
-            init: (_config, state) =>
-              inlineDecorations(state.doc, inlineAttachmentsRef.current, (id) => {
-                const current = view.current;
-                if (current) deleteInlineAttachment(current, id);
-              }),
+            init: (_config, state) => makeInlineDecorations(state.doc),
             apply: (transaction, decorations, previous, next) => {
               if (transaction.getMeta(INLINE_DECORATION_REFRESH) === true) {
-                return inlineDecorations(next.doc, inlineAttachmentsRef.current, (id) => {
-                  const current = view.current;
-                  if (current) deleteInlineAttachment(current, id);
-                });
+                return makeInlineDecorations(next.doc);
               }
               if (!transaction.docChanged) return decorations;
               // Mapping is cheap for ordinary keystrokes and avoids rebuilding every attachment on
@@ -584,18 +638,31 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               const oldMarks = inlineMarkPositions(previous.doc).length;
               const newMarks = inlineMarkPositions(next.doc).length;
               if (newMarks > oldMarks && removedInlineIds.length) {
-                const restored = removedInlineIds.pop();
-                if (restored) queueMicrotask(() => inlineRestoreRef.current?.(restored));
+                const count = Math.min(newMarks - oldMarks, removedInlineIds.length);
+                for (let index = 0; index < count; index += 1) {
+                  const restored = removedInlineIds.pop();
+                  if (restored) queueMicrotask(() => inlineRestoreRef.current?.(restored));
+                }
               }
               return oldMarks === newMarks
                 ? decorations.map(transaction.mapping, next.doc)
-                : inlineDecorations(next.doc, inlineAttachmentsRef.current, (id) => {
-                    const current = view.current;
-                    if (current) deleteInlineAttachment(current, id);
-                  });
+                : makeInlineDecorations(next.doc);
             },
           },
           props: {
+            handleTextInput: (editorView, from, to) => {
+              if (from === to) return false;
+              const positions = inlineMarkPositions(editorView.state.doc);
+              const ids = positions
+                .map((position, index) =>
+                  position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                )
+                .filter((id): id is string => Boolean(id));
+              if (!ids.length) return false;
+              removedInlineIds.push(...ids);
+              for (const id of ids) inlineRemoveRef.current?.(id);
+              return false;
+            },
             handleDOMEvents: {
               copy: (editorView, event) => {
                 const data = event.clipboardData;
@@ -662,8 +729,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     )
                     .filter((id): id is string => Boolean(id));
                   if (!ids.length) return false;
-                  editorView.dispatch(editorView.state.tr.delete(from, to));
                   removedInlineIds.push(...ids);
+                  editorView.dispatch(editorView.state.tr.delete(from, to));
                   for (const id of ids) inlineRemoveRef.current?.(id);
                   event.preventDefault();
                   return true;
@@ -753,6 +820,19 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               paste: (editorView, event) => {
                 const data = event.clipboardData;
                 if (!data) return false;
+                const { from, to } = editorView.state.selection;
+                if (from !== to) {
+                  const positions = inlineMarkPositions(editorView.state.doc);
+                  const ids = positions
+                    .map((position, index) =>
+                      position >= from && position < to ? inlineAttachmentsRef.current[index]?.id : undefined,
+                    )
+                    .filter((id): id is string => Boolean(id));
+                  if (ids.length) {
+                    removedInlineIds.push(...ids);
+                    for (const id of ids) inlineRemoveRef.current?.(id);
+                  }
+                }
                 const lifted = liftInlineImages(data.getData("text/plain"));
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
@@ -767,6 +847,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   : carriesImage
                     ? withoutMarkdownImages(lifted.text)
                     : lifted.text;
+                if (data.files.length) inlineFilesRef.current?.([...data.files]);
                 if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 insertPlain(editorView, plain);
                 showPastedEnd(editorView.state);
