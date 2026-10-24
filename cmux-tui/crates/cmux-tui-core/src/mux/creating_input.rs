@@ -14,6 +14,14 @@
 //! each sending connection gets its own bytes back in one `terminal-input-unclaimed` notice, so
 //! the client can give them to the terminal that has focus. Clients send keys to the new
 //! terminal at once and never hold or replay them.
+//!
+//! A terminal that starts again under its id (a kept tab's start, #17587, or a respawn after a
+//! host loss: its [`PendingTerminal::Respawning`] marker) queues its input the same way (`send`,
+//! `send-key`, `send {terminal_id}`), so no input request waits for the start; the other input
+//! paths wait for that queue as for a creation's. The start's worker clears its marker,
+//! then ends the queue ([`Mux::finish_terminal_start_input`]): written once the new shell's
+//! launch stream runs, or given back when the start failed. That worker always ends, so such a
+//! queue has no expiry.
 
 use super::*;
 
@@ -58,7 +66,7 @@ pub(crate) struct CreatingInputs {
 /// Where `write_terminal_input` put the bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalInputTarget {
-    /// Kept for a creating terminal (or one whose queue is being written).
+    /// Kept for a creating or starting terminal (or one whose queue is being written).
     Queued,
     /// Written to the live terminal.
     Written,
@@ -121,8 +129,9 @@ impl Mux {
         Some(generation)
     }
 
-    /// Write input to the terminal with host id `terminal_id`: queued while it is being created
-    /// or its queue is being written, written at once when it is live.
+    /// Write input to the terminal with host id `terminal_id`: queued while it is being created,
+    /// starts, or its queue is being written, written at once when it is live. A kept tab no
+    /// frontend started yet starts here, and the input queues for its start (#17587).
     pub(crate) fn write_terminal_input(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -131,28 +140,25 @@ impl Mux {
         paste: bool,
         notice: UnclaimedNotice,
     ) -> anyhow::Result<TerminalInputTarget> {
-        {
-            let mut terminals =
-                self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(creating) = terminals.get_mut(terminal_id) {
-                if creating.bytes + bytes.len() > CREATING_INPUT_LIMIT {
-                    return Err(InputOverflow { queued: creating.bytes }.into());
-                }
-                creating.bytes += bytes.len();
-                creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
-                if !creating.expiry_started && !creating.flushing {
-                    creating.expiry_started = true;
-                    self.start_creating_input_expiry(terminal_id, creating.generation);
-                }
-                return Ok(TerminalInputTarget::Queued);
-            }
+        if self.queue_terminal_input(terminal_id, client, bytes, paste, &notice)? {
+            return Ok(TerminalInputTarget::Queued);
         }
-        // Live, and no flush is pending: written outside the creating lock. A kept tab no
-        // frontend started yet starts first (#17587).
-        let surface = self
-            .live_surface_for_terminal(terminal_id)
-            .or_else(|| self.live_host_terminal_starting_kept(terminal_id))
-            .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+        // Live, and no flush or start is pending: written outside the creating lock.
+        let live = || self.live_surface_for_terminal(terminal_id).filter(|found| !found.is_dead());
+        let surface = match live() {
+            Some(surface) => surface,
+            None => {
+                anyhow::ensure!(
+                    self.start_kept_host_terminal(terminal_id),
+                    "unknown terminal {terminal_id}"
+                );
+                if self.queue_terminal_input(terminal_id, client, bytes, paste, &notice)? {
+                    return Ok(TerminalInputTarget::Queued);
+                }
+                // The start ended before the queue was looked at: its new shell runs.
+                live().ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?
+            }
+        };
         if paste {
             surface.write_paste(bytes)?;
         } else {
@@ -162,11 +168,73 @@ impl Mux {
         Ok(TerminalInputTarget::Written)
     }
 
-    /// Whether `terminal_id` names a live or creating terminal.
+    /// Queue input for `terminal_id` while it is being created, its queue is being written, or a
+    /// start of it runs. False when none is (the caller writes to the live terminal).
+    fn queue_terminal_input(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        client: u64,
+        bytes: &[u8],
+        paste: bool,
+        notice: &UnclaimedNotice,
+    ) -> anyhow::Result<bool> {
+        let inputs = &self.creating_inputs;
+        let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        // Lock order: creating, then the pending leaf lock. The start's worker clears its marker
+        // before it ends this queue, so a queue opened here is always written or given back.
+        if !terminals.contains_key(terminal_id) && self.terminal_is_respawning(terminal_id) {
+            let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
+            terminals.insert(
+                terminal_id.to_string(),
+                CreatingTerminal {
+                    generation,
+                    queued: Vec::new(),
+                    bytes: 0,
+                    // The start's worker always ends this queue: no expiry.
+                    expiry_started: true,
+                    flushing: false,
+                },
+            );
+        }
+        let Some(creating) = terminals.get_mut(terminal_id) else { return Ok(false) };
+        if creating.bytes + bytes.len() > CREATING_INPUT_LIMIT {
+            return Err(InputOverflow { queued: creating.bytes }.into());
+        }
+        creating.bytes += bytes.len();
+        creating.queued.push(QueuedInput {
+            client,
+            bytes: bytes.to_vec(),
+            paste,
+            notice: notice.clone(),
+        });
+        if !creating.expiry_started && !creating.flushing {
+            creating.expiry_started = true;
+            self.start_creating_input_expiry(terminal_id, creating.generation);
+        }
+        Ok(true)
+    }
+
+    /// A start of `terminal_id` (a kept tab's start or a respawn) ended and its worker cleared
+    /// its pending marker: the input queued for it goes to the new shell in order, or back to
+    /// its senders (`failure` names why).
+    pub(crate) fn finish_terminal_start_input(&self, terminal_id: &str, failure: Option<&str>) {
+        let generation = {
+            let terminals =
+                self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+            terminals.get(terminal_id).map(|creating| creating.generation)
+        };
+        if let Some(generation) = generation {
+            self.finish_creating_input(terminal_id, generation, failure);
+        }
+    }
+
+    /// Whether `terminal_id` names a live, creating or starting terminal.
     pub(crate) fn knows_terminal_input_target(&self, terminal_id: &str) -> bool {
         let terminals =
             self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-        terminals.contains_key(terminal_id) || self.live_surface_for_terminal(terminal_id).is_some()
+        terminals.contains_key(terminal_id)
+            || self.terminal_is_respawning(terminal_id)
+            || self.live_surface_for_terminal(terminal_id).is_some()
     }
 
     /// Make sure no queue of live `surface`'s terminal is pending or being written, so input sent
@@ -188,7 +256,9 @@ impl Mux {
             if now >= deadline {
                 return;
             }
-            if !creating.flushing {
+            // A start's queue is written by its worker once the new shell's launch stream runs,
+            // never here (the shell is in the tab before that stream starts).
+            if !creating.flushing && !self.terminal_is_respawning(&identity.terminal_id) {
                 let generation = creating.generation;
                 drop(terminals);
                 self.finish_creating_input(&identity.terminal_id, generation, None);

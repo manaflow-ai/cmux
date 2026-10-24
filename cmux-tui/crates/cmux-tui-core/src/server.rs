@@ -2744,13 +2744,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
-/// The live surface of `id` for a request that needs its shell (input, keys,
-/// a wait for output, an attach): a kept tab no frontend started yet starts
-/// first and is waited for (`Mux::live_surface_starting_kept_tab`, #17587).
-fn get_shell_surface(mux: &Arc<Mux>, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
-    mux.live_surface_starting_kept_tab(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
-}
-
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
 }

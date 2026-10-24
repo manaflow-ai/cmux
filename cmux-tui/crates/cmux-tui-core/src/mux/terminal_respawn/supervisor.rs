@@ -126,14 +126,16 @@ impl Mux {
         }
     }
 
-    /// An attempt abandoned before it started (the owner shuts down): clear
-    /// the respawning marker; the tab shows the committed host loss, which
+    /// An attempt abandoned before it started (the owner shuts down, or no
+    /// worker thread): clear the respawning marker and give input queued for
+    /// the start back to its senders; the tab shows the committed end, which
     /// the next owner's start sweep respawns.
     #[cfg(any(unix, windows))]
     pub(super) fn abandon_terminal_respawn(&self, terminal_id: &str) {
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != terminal_id || *pending != PendingTerminal::Respawning,
         );
+        self.finish_terminal_start_input(terminal_id, Some("failed"));
         self.record_terminal_end(terminal_id);
     }
 

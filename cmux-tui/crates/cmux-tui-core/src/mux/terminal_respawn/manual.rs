@@ -78,12 +78,19 @@ impl Mux {
             previous_incarnation: plan.old_incarnation.clone(),
         };
         let mux = Arc::clone(self);
-        let name = format!("terminal-restart-{}", plan.terminal_id);
+        let terminal_id = plan.terminal_id.clone();
+        let name = format!("terminal-restart-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
             mux.run_terminal_respawn(plan);
         });
         if let Err(error) = spawned {
+            // No worker will clear the respawning marker: clear it here, so
+            // the tab reads ended (still kept, when it was) and input queued
+            // for the start goes back to its senders.
             eprintln!("cmux-tui: no thread to restart terminal {}: {error}", accepted.terminal);
+            self.abandon_terminal_respawn(&terminal_id);
+            self.emit(MuxEvent::TreeChanged);
+            return Err(TabRestartError::Unavailable.into());
         }
         Ok(accepted)
     }

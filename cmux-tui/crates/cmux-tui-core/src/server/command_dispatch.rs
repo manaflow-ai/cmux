@@ -224,7 +224,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::CreateSurfaceWithReceipt(request) => {
             cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
+        Command::SendKey { surface, keys } => {
+            cmd_terminal_io::send_key(mux, client, writer, surface, keys)
+        }
         Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {

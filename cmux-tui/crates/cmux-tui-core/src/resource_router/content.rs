@@ -22,12 +22,14 @@ use super::{
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::State;
 use crate::mux::ResourceEffectProjection;
+use crate::mux::kept_tab_start::ShellTarget;
 use crate::resource::{
     BrowserPublicId, ContentPublicId, ResourceError, ResourceOperation, TerminalPublicId,
     WireDecimal,
 };
 #[cfg(test)]
 use crate::resource_api::public_session_snapshot;
+use crate::stream_interrupt::StreamInterrupt;
 use crate::workspace_registry::{
     RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus, ResourceChange,
     ResourcePatch, WorkspaceRegistry,
@@ -210,7 +212,7 @@ fn terminal_output_read(
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let (_, surface) = resolve_shell_terminal_surface(mux, &request.selectors)?;
+    let (_, target) = resolve_terminal_shell(mux, &request.selectors)?;
     let pattern = required_string(&request.fields, "pattern")?;
     let regex = Regex::new(pattern).map_err(|error| {
         validation_error(
@@ -229,6 +231,19 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
             })
         })
         .transpose()?;
+    let surface = match target {
+        ShellTarget::Live(surface) => surface,
+        // The wait first waits for the start, within its own deadline. This
+        // router has no connection whose close could stop it; the start
+        // itself always ends.
+        ShellTarget::Starting(host_terminal) => {
+            if !mux.wait_for_terminal_start(&host_terminal, deadline, &StreamInterrupt::new()) {
+                // The deadline passed while the terminal started: no screen yet.
+                return Ok(json!({"matched":false,"text":""}));
+            }
+            resolve_terminal_surface(mux, &request.selectors)?.1
+        }
+    };
     let check = || -> Result<String, ResourceError> {
         surface
             .try_with_terminal(|terminal| terminal.viewport_text())
@@ -354,7 +369,7 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
         let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
             resolve_terminal_wait_exit_id(mux, &request.selectors)?
         } else {
-            resolve_shell_terminal_surface(mux, &request.selectors)?.0
+            resolve_input_terminal_surface(mux, &request.selectors, request.envelope.operation)?.0
         };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
@@ -391,8 +406,7 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
-    // A kept tab no frontend started yet starts first (#17587).
-    let Some(surface_id) = mux.live_terminal_starting_kept(&terminal_id) else {
+    let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
             prepared,
@@ -1067,22 +1081,43 @@ fn resolve_terminal_surface(
     Ok((terminal_id, surface))
 }
 
-/// [`resolve_terminal_surface`] for an operation that needs the terminal's
-/// shell (input, a wait for output): a kept tab no frontend started yet starts
-/// first and is waited for (`Mux::live_terminal_starting_kept`, #17587).
-fn resolve_shell_terminal_surface(
+/// The terminal `selectors` name and where a request for its shell goes
+/// (`Mux::terminal_shell_target`): a kept tab no frontend started yet starts
+/// here, without waiting for its worker (#17587).
+fn resolve_terminal_shell(
     mux: &Arc<Mux>,
     selectors: &ResourceSelectors,
-) -> Result<(TerminalPublicId, Arc<Surface>), ResourceError> {
+) -> Result<(TerminalPublicId, ShellTarget), ResourceError> {
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
-    let surface = mux
-        .live_terminal_starting_kept(&terminal_id)
-        .and_then(|surface_id| mux.surface(surface_id))
-        .filter(|surface| surface.kind() == SurfaceKind::Pty)
-        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
-    Ok((terminal_id, surface))
+    match mux.terminal_shell_target(&terminal_id) {
+        Some(ShellTarget::Live(surface)) if surface.kind() != SurfaceKind::Pty => {
+            Err(ResourceError::not_found("terminal", terminal_id.as_str()))
+        }
+        Some(target) => Ok((terminal_id, target)),
+        None => Err(ResourceError::not_found("terminal", terminal_id.as_str())),
+    }
+}
+
+/// [`resolve_terminal_surface`] for an input effect (`terminal.input.*`,
+/// `terminal.history.clear`, `terminal.viewport.scroll`). This router has no
+/// connection to give queued bytes back to, so a starting terminal refuses
+/// the effect before its intent is recorded, instead of holding the request
+/// until the new shell runs.
+fn resolve_input_terminal_surface(
+    mux: &Arc<Mux>,
+    selectors: &ResourceSelectors,
+    operation: ResourceOperation,
+) -> Result<(TerminalPublicId, Arc<Surface>), ResourceError> {
+    match resolve_terminal_shell(mux, selectors)? {
+        (terminal_id, ShellTarget::Live(surface)) => Ok((terminal_id, surface)),
+        (terminal_id, ShellTarget::Starting(_)) => Err(ResourceError::operation_failed(
+            super::operation_name(operation),
+            "terminal is starting; wait for it (terminal.wait) and send again",
+            json!({"terminal_id":terminal_id.as_str(),"state":"starting"}),
+        )),
+    }
 }
 
 fn resolve_browser_surface(

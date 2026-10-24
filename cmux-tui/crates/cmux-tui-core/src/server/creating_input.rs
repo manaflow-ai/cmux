@@ -54,6 +54,20 @@ pub(super) fn send_to_terminal(
         );
         return Ok(json!({}));
     }
+    write_input(mux, client, writer, &terminal_id, &payload, paste)
+}
+
+/// Write `payload` to host terminal `terminal_id` (canonical hex), or queue it while the terminal
+/// is created or starts (a kept tab's start, #17587). Queued bytes given back reach this
+/// connection's event queue as one `terminal-input-unclaimed` notice. The reply says `queued`.
+pub(super) fn write_input(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    terminal_id: &str,
+    payload: &[u8],
+    paste: bool,
+) -> anyhow::Result<Value> {
     let notice_writer = writer.clone();
     let notice: UnclaimedNotice = Arc::new(move |terminal_id: &str, bytes: &[u8], reason: &str| {
         let _ = notice_writer.send_control(&json!({
@@ -63,6 +77,6 @@ pub(super) fn send_to_terminal(
             "reason": reason,
         }));
     });
-    let target = mux.write_terminal_input(&terminal_id, client, &payload, paste, notice)?;
+    let target = mux.write_terminal_input(terminal_id, client, payload, paste, notice)?;
     Ok(if target == TerminalInputTarget::Queued { json!({"queued": true}) } else { json!({}) })
 }

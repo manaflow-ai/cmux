@@ -6,9 +6,10 @@ import Foundation
 // shell when a window shows its workspace, never at connect: a launch starts the terminals the
 // person sees, not every terminal of every workspace (#17587, speed-of-sound 1). A request
 // that needs a hidden kept tab's shell (the CLI's `send`, socket input, MCP's `terminal_*`
-// tools, `terminal.wait`) starts it in the daemon by the same `restart-tab` path and waits for
-// it (cmux-tui `Mux::live_surface_starting_kept_tab`), so every entrypoint sees the terminal
-// these tabs draw as.
+// tools, `terminal.wait`) starts it in the daemon by the same `restart-tab` path (cmux-tui
+// `Mux::shell_target`), so every entrypoint sees the terminal these tabs draw as. Input never
+// waits for that start: it queues for the new shell (`queued`), or comes back as
+// `terminal-input-unclaimed` when the start fails.
 extension DaemonService {
     /// Starts the shells of `workspace`'s kept tabs in place (`restart-tab`), together. A window
     /// calls it whenever it shows the workspace and when the live tree of a connection lands; each

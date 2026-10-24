@@ -12,7 +12,6 @@ use super::ConnectionCancellation;
 use super::DeliveryClassifiedError;
 use super::MessageWriter;
 use super::ProtocolKeyInput;
-use super::get_shell_surface;
 use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
@@ -23,6 +22,7 @@ use crate::DefaultColors;
 use crate::Mux;
 use crate::PaneId;
 use crate::SurfaceId;
+use crate::mux::kept_tab_start::ShellTarget;
 use crate::platform;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::workspace_registry::TerminalLifecycle;
@@ -119,7 +119,29 @@ pub(super) fn send(
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };
-    let surface = get_shell_surface(mux, surface)?;
+    let target =
+        mux.shell_target(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+    let surface = match target {
+        ShellTarget::Live(surface) => surface,
+        // A kept tab that starts (or a terminal that respawns): the text queues for its new
+        // shell and the reply never waits for the start (#17587).
+        ShellTarget::Starting(terminal_id) => {
+            if expect_foreground.is_some() {
+                return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                    "foreground changed: the expected program no longer runs in the foreground"
+                )));
+            }
+            return super::creating_input::send_to_terminal(
+                mux,
+                client,
+                writer,
+                &terminal_id,
+                text,
+                bytes,
+                paste,
+            );
+        }
+    };
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
@@ -219,10 +241,37 @@ pub(super) fn wait_for(
     if cancelled() {
         anyhow::bail!("connection closed while waiting for pattern");
     }
-    let surface = get_shell_surface(mux, surface)?;
-    require_pty(&surface)?;
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
+    let deadline = start + Duration::from_millis(timeout_ms);
+    // The wait ends on output, the deadline, or the connection
+    // closing; it used to wake every 100 ms to check the last.
+    let interrupt = StreamInterrupt::new();
+    if let Some(cancellation) = cancellation {
+        cancellation.register_interrupt(&interrupt);
+    }
+    let surface_id = surface;
+    let surface = match mux
+        .shell_target(surface_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?
+    {
+        ShellTarget::Live(surface) => surface,
+        // A kept tab that starts (or a terminal that respawns): the wait for
+        // its output first waits for the start, within this wait's own
+        // deadline, and stops when the connection closes (#17587).
+        ShellTarget::Starting(terminal_id) => {
+            if !mux.wait_for_terminal_start(&terminal_id, Some(deadline), &interrupt) {
+                if cancelled() {
+                    anyhow::bail!("connection closed while waiting for pattern");
+                }
+                anyhow::bail!("timeout waiting for pattern");
+            }
+            mux.surface(surface_id)
+                .filter(|surface| !surface.is_dead())
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?
+        }
+    };
+    require_pty(&surface)?;
     let check = || -> anyhow::Result<Option<String>> {
         let text = surface.try_with_terminal(|t| t.viewport_text())??;
         Ok(regex.is_match(&text).then_some(text))
@@ -237,14 +286,7 @@ pub(super) fn wait_for(
         }
         anyhow::bail!("timeout waiting for pattern");
     }
-    let deadline = start + Duration::from_millis(timeout_ms);
     let attach = surface.attach_stream()?;
-    // The wait ends on output, the deadline, or the connection
-    // closing; it used to wake every 100 ms to check the last.
-    let interrupt = StreamInterrupt::new();
-    if let Some(cancellation) = cancellation {
-        cancellation.register_interrupt(&interrupt);
-    }
     attach.stream.wake_on(&interrupt);
     if let Some(text) = check()? {
         return Ok(json!({
@@ -344,31 +386,59 @@ pub(super) fn run(
 pub(super) fn send_key(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     surface: SurfaceId,
     keys: Vec<String>,
 ) -> anyhow::Result<Value> {
-    let surface = get_shell_surface(mux, surface)?;
-    require_pty(&surface).map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
+    let target =
+        mux.shell_target(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
     if keys.is_empty() {
         anyhow::bail!("bad request: keys must be non-empty");
     }
     let mut encoder = KeyEncoder::new()?;
     let mut encoded = Vec::new();
+    let surface = match target {
+        ShellTarget::Live(surface) => surface,
+        // A kept tab that starts (or a terminal that respawns): its new shell
+        // starts in the default key modes, which a new encoder has, and the
+        // keys queue for it; the reply never waits for the start (#17587).
+        ShellTarget::Starting(terminal_id) => {
+            encode_keys(&mut encoder, &keys, &mut encoded)?;
+            return super::creating_input::write_input(
+                mux,
+                client,
+                writer,
+                &terminal_id,
+                &encoded,
+                false,
+            );
+        }
+    };
+    require_pty(&surface).map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
     surface.scroll_to_bottom()?;
     surface.try_with_terminal(|term| {
         encoder.sync_from_terminal(term);
-        for key in &keys {
-            let Some(input) = key_input_from_chord(key) else {
-                return Err(anyhow::anyhow!("unknown key {key}"));
-            };
-            encoder.encode(&input, &mut encoded).map_err(anyhow::Error::from)?;
-        }
-        Ok::<(), anyhow::Error>(())
+        encode_keys(&mut encoder, &keys, &mut encoded)
     })??;
     mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes(&encoded)?;
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))
+}
+
+/// Append the bytes of key chords `keys` to `encoded`, in the modes `encoder` holds.
+fn encode_keys(
+    encoder: &mut KeyEncoder,
+    keys: &[String],
+    encoded: &mut Vec<u8>,
+) -> anyhow::Result<()> {
+    for key in keys {
+        let Some(input) = key_input_from_chord(key) else {
+            anyhow::bail!("unknown key {key}");
+        };
+        encoder.encode(&input, encoded).map_err(anyhow::Error::from)?;
+    }
+    Ok(())
 }
 
 pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::Result<Value> {

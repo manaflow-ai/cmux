@@ -395,6 +395,11 @@ impl Mux {
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != &terminal_id || *pending != PendingTerminal::Respawning,
         );
+        // Input queued while the terminal started (`creating_input.rs`, #17587) goes to the new
+        // shell now that its launch stream runs, before any pre-fill (which then sees it typed
+        // and types nothing); or back to its senders when the start failed.
+        let started = matches!(outcome, Ok(Some(_)));
+        self.finish_terminal_start_input(&terminal_id, (!started).then_some("failed"));
         match outcome {
             Ok(Some((surface, prefill))) => {
                 self.forget_terminal_end(public_id.as_str());
