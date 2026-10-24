@@ -743,6 +743,15 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
+    // An interactive mux raised its own limit before it starts the owner,
+    // which inherits the raised one: name the limit cmux was launched with,
+    // so the owner's terminals, hooks and plugins get it back
+    // (`startup_env::take_launch_open_file_limit`). A `server ensure` that
+    // raised nothing passes on the variable its own parent (the app) set.
+    #[cfg(unix)]
+    if let Some(soft) = cmux_tui_core::original_open_file_limit() {
+        command.env(cmux_tui_core::LAUNCH_SOFT_LIMIT_ENV, soft.to_string());
+    }
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }
