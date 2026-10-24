@@ -66,4 +66,18 @@ import Testing
         #expect(inbox.putBack(batch.dropFirst()))
         #expect(titles(inbox.take()) == ["b"])
     }
+
+    /// Review 1 of pl-main-bc: `agent-changed` is not a whole value to the store. The roster
+    /// records the transition from the old status to the new one, so every status reaches it.
+    @Test func agentStatusesAreNeverCoalesced() {
+        let inbox = EventInbox()
+        let states: [AgentState] = [.working, .idle, .working, .blocked, .working]
+        for (index, state) in states.enumerated() {
+            let status = AgentStatus(surface: 1, state: state, source: "hook", updatedAtMs: UInt64(100 * (index + 1)))
+            _ = inbox.append(DaemonEventEnvelope(sequence: UInt64(index + 1), event: .agentChanged(status)))
+        }
+        let batch = inbox.take()
+        #expect(batch.map(\.sequence) == [1, 2, 3, 4, 5])
+        #expect(inbox.coalescedCount == 0)
+    }
 }
