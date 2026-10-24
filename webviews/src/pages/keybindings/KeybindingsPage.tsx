@@ -396,17 +396,14 @@ function Recorder({
         </output>
       ) : recording.refusal && recording.refusalOwner ? (
         // Held by an action the app never takes keys from (one that always runs): "Already used
-        // by" it, the app's reason under it.
-        <>
-          <output className="keys-recorder-refusal">
-            {fill(t("keybindings.page.recorder.alreadyUsedBy"), [
-              <strong key="owner" className="keys-recorder-owner">
-                {recording.refusalOwner}
-              </strong>,
-            ])}
-          </output>
-          <div className="keys-recorder-hint">{recording.refusal}</div>
-        </>
+        // by" it, the app's reason under the keys.
+        <output className="keys-recorder-refusal">
+          {fill(t("keybindings.page.recorder.alreadyUsedBy"), [
+            <strong key="owner" className="keys-recorder-owner">
+              {recording.refusalOwner}
+            </strong>,
+          ])}
+        </output>
       ) : recording.refusal ? (
         // Not saved, and no action holds the keys (macOS keeps them): the app's reason.
         <output className="keys-recorder-refusal">{recording.refusal}</output>
@@ -441,6 +438,8 @@ function Recorder({
       </button>
       {prompt ? (
         <div className="keys-recorder-hint">{t("keybindings.page.recorder.overwriteOrRecord")}</div>
+      ) : recording.refusal && recording.refusalOwner ? (
+        <div className="keys-recorder-hint">{recording.refusal}</div>
       ) : (
         !recording.refusal && <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>
       )}
