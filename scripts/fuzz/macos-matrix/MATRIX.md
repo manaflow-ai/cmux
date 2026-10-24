@@ -13,7 +13,7 @@ silicon cannot run Intel macOS, so this matrix does not cover Intel Macs.
 | 14    | Sonoma       | Tart VM | `macos-sonoma-base` 14.8.7 / `macos-sonoma-vanilla:14.8.7` |
 | 15    | Sequoia      | Tart VM                                              | `macos-sequoia-base` 15.7.7 / `macos-sequoia-vanilla:15.7.7` |
 | 26    | Tahoe        | Tart VM                                              | `macos-tahoe-base` 26.6.2 / `macos-tahoe-vanilla:26.6.2` |
-| 27    | Golden Gate  | Tart VM on a macOS 27 host (no pinned image)            | `macos-golden-gate-vanilla:27.0`                       |
+| 27    | Golden Gate  | Tart VM on a macOS 27 host only                      | `macos-golden-gate-base` (pinned 2026-10-24, 34 GB compressed) / `macos-golden-gate-vanilla:27.0` |
 
 The vanilla images (login admin/admin) run with `FUZZ_IMAGE_<major>=ghcr.io/cirruslabs/macos-…-vanilla:<ver>`
 and `FUZZ_HOST_LOCK=none` on a non-fleet Tart host. A macOS 27 guest needs a macOS 27 host.
@@ -22,6 +22,11 @@ The image pins are in `scripts/fuzz/macos-matrix/images.json`. These images are 
 cost nothing. At this time the only host that holds all three images is `aws-m4pro-6`
 (`/Volumes/ephemeral0/cmux-agent-work/mfloor/tart-home`, about 30 GB each). All fleet workers run macOS 26 or 27
 (aws-m4pro-1..4: 27, aws-m4pro-5..9: 26). None of them runs 14 or 15 natively.
+
+macOS 27 is pinned in images.json but no Tart host has it yet: a 27 guest needs a 27 host (aws-m4pro-1..4),
+and those hosts have no Tart home for this matrix. vm.sh refuses a major whose `host_os_min` is above the host's
+macOS. The fleet controller accepts majors 14, 15 and 26 only until the image is cached on a 27 worker and the
+controller's `matrixMajors` gets 27.
 
 ## Run it on the fleet (agents)
 

@@ -3,7 +3,7 @@
 # the seeded UI fuzz, or the replay of a saved repro. Run it ON a Tart host, never on a laptop.
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
-# Usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro] [--seed N] [--steps N] [--minutes N]
+# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro] [--seed N] [--steps N] [--minutes N]
 #              [--repro NAME | --replay STEPS.jsonl] [--work DIR] [--results FILE] [--keep-vm] BUILD
 #   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
 #   --suite    smoke: smoke.py (launch, window, terminal echo, split, Chromium and WebKit tabs,
@@ -86,6 +86,12 @@ else: sys.exit("major %s is not in images.json" % sys.argv[2])' "$IMAGES" "$1"; 
 cycle() {  # cycle MAJOR OUT
   local major=$1 out=$2 vm="fuzz-$1-$$" tart_pid="" ip=""
   local ref; ref=$(image_ref "$major")
+  # A macOS guest needs a host of at least its major (Virtualization.framework): 27 needs a 27 host.
+  local host_min; host_min=$(python3 -I -c 'import json,sys
+print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["images"] if i["major"] == sys.argv[2]), ""))' "$IMAGES" "$major")
+  if [[ -n "$host_min" ]] && (( $(sw_vers -productVersion | cut -d. -f1) < host_min )); then
+    echo "macOS $major needs a macOS $host_min host; this host runs $(sw_vers -productVersion)" >"$out/failure"; return 1
+  fi
   # Each image is about 25 GB: pull only on request (FUZZ_ALLOW_PULL=1), never as a side effect.
   if ! "$TART_BIN" list --source oci --quiet 2>/dev/null | grep -qF "${ref##*[@]}"; then
     [[ "${FUZZ_ALLOW_PULL:-0}" == 1 ]] || { echo "image $ref is not in $TART_HOME's cache; set FUZZ_ALLOW_PULL=1 to pull it" >"$out/failure"; return 1; }

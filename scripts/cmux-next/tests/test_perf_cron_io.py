@@ -36,23 +36,49 @@ def measure_tip(state, s, rows, t):
 
 
 class ReferenceTests(unittest.TestCase):
-    def test_a_creep_of_8_percent_per_run_regresses_against_the_week_old_values(self):
+    def test_a_creep_of_8_percent_per_run_regresses_within_five_runs(self):
         # 40 ms is over the 10 ms target on every run, so only the relative rule can catch the creep (STRESS close
-        # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: never 10 % above the max of the runs before it,
-        # so the confirmation rule (outside the baseline's spread twice) catches it against the values at least
-        # CREEP_DAYS old, one run every 2 days here.
-        # The creep starts after a full baseline (3 values): a creep while the baseline still builds is held out of it
-        # and, after 3 held values, restarts it (listed in the issue's baseline restarts).
+        # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: under the 10 % rule against the run before it,
+        # but the median of the good values lags, so the creep is a candidate in consecutive runs at the cron's
+        # cadence (TIP_EVERY_HOURS). A candidate is never a good value, so it cannot walk the baseline up. From an
+        # established baseline it regresses at the 2nd candidate; from one first value its 3 candidates in a row are a
+        # listed baseline restart (a level change), and it regresses against that baseline 2 runs later (review 1 of
+        # the confirm rule, finding 5; the test of 084f51bf113).
+        for baseline in ([40.0], [40.0, 40.0, 40.0]):
+            state = cron.empty_state(T0)
+            for i, v in enumerate(baseline):
+                measure_tip(state, sha(i + 1), {"panes.close.stress.e2e": row(v)}, at(i * cron.TIP_EVERY_HOURS))
+            events, restarts, value, n = [], [], 40.0, len(baseline)
+            for i in range(n + 1, n + 7):
+                value = round(value * 1.08, 2)
+                events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)},
+                                          at((i - 1) * cron.TIP_EVERY_HOURS)))
+                restarts.append(len(state.get("baseline_restarts") or []))
+            if len(baseline) >= cron.CONFIRM_SAMPLES:
+                self.assertEqual(events.index("regressed"), 2, f"the 2nd and 3rd creep runs are the two candidates: {events}")
+                self.assertEqual(restarts[-1], 0)
+            else:
+                self.assertEqual(restarts.index(1), 3, f"the 2nd to 4th creep runs are a listed level change: {events}")
+                self.assertEqual(events.index("regressed"), 5, f"then it regresses 2 runs later: {events}")
+
+    def test_a_creep_under_the_rule_per_run_regresses_against_the_week_old_values_and_starts_its_range_there(self):
+        # +3 % per run every 2 days never leaves the recent median's rule; the week-old values catch it, and the range
+        # starts at the newest commit of that week-old window, not at the newest accepted creep value.
         state = cron.empty_state(T0)
-        self.assertEqual(measure_tip(state, sha(1), {"panes.close.stress.e2e": row(40.0)}, at(0)), "first")
-        measure_tip(state, sha(2), {"panes.close.stress.e2e": row(40.2)}, at(1))
-        measure_tip(state, sha(3), {"panes.close.stress.e2e": row(39.9)}, at(2))
+        for i, v in enumerate((40.0, 40.2, 39.9)):
+            measure_tip(state, sha(i + 1), {"panes.close.stress.e2e": row(v)}, at(i))
         events, value = [], 40.0
-        for i in range(4, 11):
-            value = round(value * 1.08, 2)
+        for i in range(4, 16):
+            value = round(value * 1.03, 2)
             events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(48 * (i - 3))))
-        self.assertIn("regressed", events, f"a +8 % creep for 2 weeks must regress, got {events}")
-        self.assertNotIn("regressed", events[:3], "not before a week-old value exists")
+            if events[-1] == "regressed":
+                break
+        self.assertIn("regressed", events, f"a +3 % creep for 3 weeks must regress, got {events}")
+        # Confirmed at sha 8 (240 h) against the values at least 7 days old (shas 1-4); its first candidate was sha 7.
+        reg = state["regressions"][0]
+        self.assertEqual(len(events), 5)
+        self.assertEqual((reg["range"]["good"], reg["range"]["bad"]), (sha(4), sha(7)),
+                         "the range starts at the newest commit of the week-old window, not at sha 6 (the newest accepted)")
 
     def test_one_noisy_run_does_not_move_the_reference(self):
         state = cron.empty_state(T0)

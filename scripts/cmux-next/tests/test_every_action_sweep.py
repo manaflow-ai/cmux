@@ -32,6 +32,11 @@
    misses() alike. A restored pane shows the same tab it showed (by terminal or url), not the last of its kind. A
    WebKit fallback after a light restore marks the row and the launch, and only the picked tab being a CEF tab makes
    the base pane's Chromium valid. A directional focus starts from a pane with a neighbor that way.
+8. Review 2, round 2: a row is covered only by a sample whose handler ran and was not refused (a harness row or a row
+   that ran no handler is a gap of its own category); a context the sweep sets up that does not hold is a gap, and a
+   state skip in every session is a gap too; one TagTeardown remembers each launch and ends each stop; a crash report
+   written after the relaunch is attached at report time; a toggle the restore re-ran is not judged "not run"; a
+   swap back is read behind the read barrier, by the old cell's center.
 
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
@@ -96,6 +101,10 @@ class FakeApp:
         self.stuck_docks = False  # closePane refuses a docked pane (a dock the restore cannot close)
         self.ran = []  # action ids the app ran since the last signpost read (key and action.run alike)
         self.cef = {}  # what debug.cef answers
+        self.fits = {}  # tab id -> its fit (browser.tab.emulate's extra.emulation), as browserFit sets it
+        self.settings = {}  # what settings.get answers (settings.set writes it)
+        self.swap_lag = False  # a palette.swapWithSession lands in the store only at the next read barrier
+        self.swaps_pending = []  # (a, b) swaps the store has not applied yet
 
     def new_id(self, prefix):
         return f"{prefix}_{next(self.ids)}"
@@ -272,6 +281,11 @@ class FakeApp:
 
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
+        if params.get("after") == "sync":
+            # The read barrier: every change the daemon committed before the call is in the store first.
+            for a, b in self.swaps_pending:
+                self.swap(a, b)
+            self.swaps_pending = []
         if method in ("snapshot.get", "history.list"):
             self.tick_history()
         if method == "snapshot.get":
@@ -292,7 +306,19 @@ class FakeApp:
             self.barrier()
             return {"closed_ids": [c["id"] for c in self.closed]}
         if method == "settings.get":
-            return {"value": {}}
+            return {"value": copy.deepcopy(self.settings)}
+        if method == "settings.set":
+            node = self.settings
+            for key in params["path"][:-1]:
+                node = node.setdefault(key, {})
+            node[params["path"][-1]] = params["value"]
+            return {}
+        if method == "settings.unset":
+            node = self.settings
+            for key in params["path"][:-1]:
+                node = node.get(key, {})
+            node.pop(params["path"][-1], None)
+            return {}
         if method == "debug.cef":
             return copy.deepcopy(self.cef)
         if method == "debug.pane_chrome":
@@ -386,7 +412,41 @@ class FakeApp:
             next(w for w in self.workspaces if w["id"] == target)["group"] = args["group"].partition(":")[2]
         elif action in ("focusLeft", "focusRight", "focusUp", "focusDown"):
             self.move_focus(action[len("focus"):].lower())
+        elif action in ("browserFit", "browserFitDesktop"):
+            # BrowserDeviceHandlers: the focused tab's fit; "off" clears it, the desktop fit toggles 16:9.
+            tab = self.focus.get("tab")
+            fit = args.get("fit") if action == "browserFit" else (None if self.fits.get(tab) == "16:9" else "16:9")
+            if fit == "off" or fit is None:
+                self.fits.pop(tab, None)
+            else:
+                self.fits[tab] = fit
+        elif action.startswith("swapPane"):
+            self.swap_toward(self.focus["pane"], action[len("swapPane"):].lower())
+        elif action == "palette.swapWithSession":
+            if self.swap_lag:
+                self.swaps_pending.append((target, args["pane"].partition(":")[2]))
+            else:
+                self.swap(target, args["pane"].partition(":")[2])
+        elif action == "test.setSetting":
+            self.settings["sweep"] = "changed"
         return {}
+
+    def swap(self, a, b):
+        """Two grid panes trade places (their cell and their index in the screen): the daemon's swapPane."""
+        _, screen_a, index_a = self.find_pane(a)
+        _, screen_b, index_b = self.find_pane(b)
+        pane_a, pane_b = screen_a["panes"][index_a], screen_b["panes"][index_b]
+        for key in ("column", "row"):
+            pane_a[key], pane_b[key] = pane_b.get(key, 0), pane_a.get(key, 0)
+        screen_a["panes"][index_a], screen_b["panes"][index_b] = pane_b, pane_a
+
+    def swap_toward(self, pane, direction):
+        cells = self.cells()
+        x, y = cells[pane][:2]
+        step = {"left": (-400, 0), "right": (400, 0), "up": (0, -300), "down": (0, 300)}[direction]
+        other = next((p for p, cell in cells.items() if cell[:2] == [x + step[0], y + step[1]]), None)
+        if other:
+            self.swap(pane, other)
 
 
 def layout(fake, workspace_id):
@@ -670,6 +730,7 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(left["check"], "ok", left)
         self.assertEqual(left["from_pane"], [base["screens"][0]["panes"][1]["id"]])
         self.assertIn("no pane with a neighbor to the up", up.get("skipped", ""), up)
+        self.assertEqual(up.get("skip_kind"), "state", up)
         self.assertEqual(fake.focus["pane"], measured["id"])
 
 
@@ -836,6 +897,56 @@ class UnresponsiveAppTests(unittest.TestCase):
         process.kill.assert_not_called()
 
 
+    def test_a_crash_report_written_after_the_relaunch_is_attached_at_report_time(self):
+        # ReportCrash writes the .ips seconds after the exit; system.ping failed at once, so why_unresponsive found none.
+        app = sweep_mod.App()
+        app.process = mock.Mock(pid=4242, poll=mock.Mock(return_value=-6))
+        written = []
+        with mock.patch.object(sweep_mod, "crash_reports", lambda since, pid=None: list(written)):
+            stopped = app.why_unresponsive(100.0)
+            self.assertNotIn("report", stopped)
+            report = {"sessions": [{"rows": [{"id": "closePane", "stopped": stopped}, {"id": "other"}]}]}
+            with tempfile.TemporaryDirectory() as folder:
+                path = os.path.join(folder, "cmux DEV-2026-10-24-0002.ips")
+                with open(path, "w") as f:
+                    f.write('{"app_name":"cmux DEV"}\n' + json.dumps({"pid": 4242, "exception": {"type": "EXC_CRASH"}}))
+                written.append(path)
+                sweep_mod.attach_crash_reports(report)
+        row = report["sessions"][0]["rows"][0]["stopped"]
+        self.assertIn("EXC_CRASH", row["summary"])
+        self.assertTrue(os.path.exists(row["report"]))
+
+
+class AppTeardownTests(unittest.TestCase):
+    """One TagTeardown for every launch: remember() at each launch (the daemon runs then) and the same instance's
+    end() at each stop, so a daemon that died mid-session leaves its hosts and holders findable (review 2)."""
+
+    def test_each_launch_is_remembered_and_each_stop_ends_it_with_the_same_teardown(self):
+        calls = []
+
+        class Teardown:
+            def remember(self):
+                calls.append("remember")
+
+            def end(self):
+                calls.append("end")
+
+        teardown = Teardown()
+        app = sweep_mod.App(teardown=teardown)
+
+        def launch_app(path, env, log, timeout, on_start):
+            on_start(mock.Mock(pid=4000 + len(calls), poll=mock.Mock(return_value=0)))
+            calls.append("up")
+            return None, "/tmp/cmux-debug-unit-test.sock"
+
+        with mock.patch.object(sweep_mod, "launch_app", launch_app), mock.patch.object(sweep_mod.time, "sleep"):
+            app.launch()
+            app.relaunch()
+            app.stop()
+        self.assertIs(app.teardown, teardown)
+        self.assertEqual(calls, ["remember", "up", "remember", "end", "remember", "up", "remember", "end"])
+
+
 class HarnessFrameTests(unittest.TestCase):
     def test_a_harness_failure_names_where_it_happened(self):
         def builder_step():
@@ -855,6 +966,10 @@ class HarnessRelaunchTests(unittest.TestCase):
     def sweep(self, restored, chromium_ok):
         sweep = sweep_mod.Sweep.__new__(sweep_mod.Sweep)
         sweep.session = "light"
+        sweep.pending = None
+        sweep.base = {"settings": {}}
+        sweep.settings = lambda: {}
+        sweep.restore_settings = lambda: []
         sweep.restored = lambda: restored
         sweep.check_validity = lambda: {"chromium_ok": chromium_ok, "cef_flags": [] if chromium_ok else ["fallback 1"]}
         sweep.check_stress_shape = lambda: None
@@ -894,6 +1009,74 @@ class HarnessRowWithoutRelaunchTests(unittest.TestCase):
         self.assertEqual([r["after_harness"] for r in sweep.rows], ["the session is intact; no relaunch"] * 2)
 
 
+class HarnessRowRestoreTests(unittest.TestCase):
+    """A harness failure between a row's input and its restore (inside measure(), check() or close_new) skips the
+    restore: what the layout does not show (a toggle, a setting, a fit) is judged before the next row runs."""
+
+    def run_rows(self, fake, failing):
+        relaunches = []
+
+        class App:
+            process = None
+
+            def relaunch(self):
+                relaunches.append(1)
+
+        def run_action(action):
+            failing(sweep)
+            raise RuntimeError("a harness step failed after the input")
+
+        with mock.patch.object(sweep_mod, "rpc", fake.rpc), mock.patch.object(sweep_mod.SIGNPOSTS, "live", False), \
+                mock.patch.object(sweep_mod.opts, "no_interactions", True):
+            sweep, _, _ = light_sweep(fake)
+            sweep.app = App()
+            with mock.patch.object(sweep, "build", lambda: None), \
+                    mock.patch.object(sweep, "check_validity", lambda: {"chromium_ok": True, "cef_flags": []}), \
+                    mock.patch.object(sweep, "frames_during", lambda body, settle=0.4: {"frames": {}}), \
+                    mock.patch.object(sweep, "run_action", run_action):
+                sweep.run([{"id": "row"}])
+        return sweep.rows[0], relaunches
+
+    def test_a_toggled_action_whose_restore_did_not_run_relaunches(self):
+        fake = FakeApp()
+
+        def failing(sweep):
+            sweep.begin_sample("toggleSidebar", True)
+            fake.rpc("action.run", {"action": "toggleSidebar"})
+        row, relaunches = self.run_rows(fake, failing)
+        self.assertEqual(relaunches, [1])
+        self.assertIn("toggleSidebar did not run", row["after_harness"])
+
+    def test_a_toggle_the_restore_re_ran_before_it_failed_needs_no_relaunch(self):
+        fake = FakeApp()
+
+        def failing(sweep):
+            sweep.begin_sample("toggleSidebar", True)
+            fake.rpc("action.run", {"action": "toggleSidebar"})
+            # The restore runs the toggle again, then a later step of it (close_new) raises.
+            with mock.patch.object(sweep, "close_new", mock.Mock(side_effect=RuntimeError("a builder step timed out"))):
+                try:
+                    sweep.restore("toggleSidebar", True)
+                except RuntimeError:
+                    pass
+        row, relaunches = self.run_rows(fake, failing)
+        self.assertEqual(relaunches, [])
+        self.assertEqual(row["after_harness"], "the session is intact; no relaunch")
+
+    def test_a_changed_setting_and_a_fit_go_back_before_the_next_row(self):
+        fake = FakeApp()
+
+        def failing(sweep):
+            sweep.begin_sample("browserFit", False)
+            fake.rpc("action.run", {"action": "browserFit", "args": {"fit": "16:9"}})
+            fake.rpc("action.run", {"action": "test.setSetting"})
+        row, relaunches = self.run_rows(fake, failing)
+        self.assertEqual(relaunches, [])
+        self.assertEqual(fake.settings, {})
+        self.assertEqual(fake.fits, {})
+        self.assertIn("settings sweep", row["after_harness_restored"])
+
+
 class FixtureTests(unittest.TestCase):
     """Preconditions the sweep generates: argument values the action accepts, directional moves from a pane with a
     neighbor, and refusals that are the action's correct answer (the wrong-or-error rows of the macOS 27 sweep)."""
@@ -905,11 +1088,95 @@ class FixtureTests(unittest.TestCase):
         with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": [{"id": "h_42"}]}):
             self.assertEqual(sweep_mod.argument_values(entry, {}), ({"id": "h_42"}, None))
         with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": []}):
-            self.assertEqual(sweep_mod.argument_values(entry, {}), (None, "the history is empty"))
+            self.assertEqual(sweep_mod.argument_values(entry, {}), (None, {"skipped": "the history is empty", "skip_kind": "state"}))
+        # A target kind the base fills, missing in this session (light has one workspace), is state; another kind has
+        # no fixture.
+        move = {"id": "workspace.mergeInto", "arguments": [{"name": "into", "kind": "target", "target_kind": "workspace", "required": True}]}
+        self.assertEqual(sweep_mod.argument_values(move, {})[1]["skip_kind"], "state")
+        self.assertEqual(sweep_mod.argument_values(move, {"other_workspace": "ws_2"}), ({"into": "workspace:ws_2"}, None))
+        room = {"id": "room.pin", "arguments": [{"name": "room", "kind": "target", "target_kind": "room", "required": True}]}
+        self.assertEqual(sweep_mod.argument_values(room, {})[1], {"skipped": "needs a room argument", "skip_kind": "gap"})
 
     def test_swaps_start_from_a_pane_with_a_neighbor(self):
         for ident in ("swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown"):
             self.assertIn(ident, sweep_mod.DIRECTIONS)
+
+    def patches(self, fake, repeat):
+        return [mock.patch.object(sweep_mod, "rpc", fake.rpc), mock.patch.object(sweep_mod.SIGNPOSTS, "live", False),
+                mock.patch.object(sweep_mod.opts, "repeat", repeat)]
+
+    def test_a_fitted_tab_has_no_fit_after_the_row(self):
+        # browserFit's 16:9 fixture (and each desktop fit's toggle) writes the tab record, which no layout, setting or
+        # toggle check sees: every later Chromium row would measure a letterboxed page.
+        fake = FakeApp()
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 3):
+                stack.enter_context(patch)
+            sweep, _, measured = light_sweep(fake, kinds=("terminal", "browser"))
+            fit = sweep.run_action({"id": "browserFit", "arguments": [{"name": "fit", "kind": "string", "required": True}]})
+            self.assertEqual(fake.fits, {})
+            desktop = sweep.run_action({"id": "browserFitDesktop"})
+        self.assertEqual(fit["samples"], 3)
+        self.assertEqual(desktop["samples"], 3)
+        self.assertEqual(fake.fits, {})
+
+    def test_a_swap_is_swapped_back_after_each_sample(self):
+        # Without the swap back the light base's panes hold other tab mixes after the first sample: every later row's
+        # restore waits the full reopen bound on a layout that never comes back.
+        fake = FakeApp()
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 3):
+                stack.enter_context(patch)
+            sweep, base, measured = light_sweep(fake, kinds=("terminal", "browser"))
+            want = layout(fake, base["id"])
+            row = sweep.run_action({"id": "swapPaneRight"})
+            self.assertTrue(sweep.restored())
+        self.assertEqual(row["samples"], 3)
+        self.assertEqual(layout(fake, base["id"]), want)
+        self.assertEqual(row["drift"], [])
+
+    def test_a_swap_back_that_lands_after_its_reply_is_read_behind_the_barrier(self):
+        # palette.swapWithSession's reply comes before the store applies the swap: without the read barrier the next
+        # sample's start and `was` read the layout from before the undo, and the next undo names the wrong pane.
+        fake = FakeApp()
+        fake.swap_lag = True
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 3):
+                stack.enter_context(patch)
+            sweep, base, measured = light_sweep(fake, kinds=("terminal", "browser"))
+            want = layout(fake, base["id"])
+            row = sweep.run_action({"id": "swapPaneRight"})
+            left = list(fake.swaps_pending)
+            fake.rpc("snapshot.get", {"after": "sync"})
+        self.assertEqual(row["samples"], 3)
+        self.assertEqual(row["drift"], [])
+        # Each sample started from the base pane in its own cell: the undo had landed before the next sample read.
+        self.assertEqual(row["from_pane"], [sweep.base["pane"]])
+        self.assertEqual(left, [])
+        self.assertEqual(layout(fake, base["id"]), want)
+
+    def test_a_place_is_the_old_cells_center(self):
+        # Nested splits in STRESS: a cell read again can differ in the last float digits.
+        cells = {"p1": [0, 0, 400.0000001, 300], "p2": [400.0000001, 0, 399.9999999, 300]}
+        self.assertEqual(sweep_mod.cell_at(cells, [400, 0, 400, 300]), "p2")
+        self.assertIsNone(sweep_mod.cell_at(cells, [900, 0, 100, 300]))
+
+    def test_a_row_whose_later_sample_cannot_start_keeps_the_samples_that_ran(self):
+        fake = FakeApp()
+        calls = []
+
+        def show(kind):
+            calls.append(kind)
+            return len(calls) == 1  # the base pane lost its Chromium tab after the first sample
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 3):
+                stack.enter_context(patch)
+            sweep, _, _ = light_sweep(fake, kinds=("terminal", "browser"))
+            with mock.patch.object(sweep, "show", show):
+                row = sweep.run_action({"id": "test.noop", "requires": ["browserFocused"]})
+        self.assertNotIn("skipped", row)
+        self.assertEqual(row["samples"], 1)
+        self.assertEqual(row["cut_short"], "no chromium tab in the base pane")
 
     def test_a_policy_refusal_is_expected_and_another_error_is_not(self):
         self.assertTrue(sweep_mod.expected_refusal(
@@ -921,24 +1188,29 @@ class FixtureTests(unittest.TestCase):
 
 class CoverageTests(unittest.TestCase):
     """The derived-coverage check: the action list comes from the live catalog, and an action the sweep cannot set
-    up (no fixture) that the baseline does not list fails a whole-catalog run."""
+    up (no fixture, or refused at every sample) that the baseline does not list fails a whole-catalog run. Skips are
+    typed where they are decided (skip_kind), never read back from their words; only a whole run with no failed
+    session gives a verdict."""
 
-    def report(self, rows, partial=False):
+    def report(self, rows, partial=False, failed=False):
         env = dict(ENV, partial=True) if partial else dict(ENV)
-        return {"env": env, "sessions": [session("light", rows), session("stress", [])]}
+        report = {"env": env, "sessions": [session("light", rows), session("stress", [])]}
+        if failed:
+            report["failed_sessions"] = [{"name": "stress", "error": "RuntimeError('socket timeout')", "rows": 3}]
+        return report
 
-    def baseline(self, ids):
+    def baseline(self, ids, excluded=()):
         path = os.path.join(OUT, "gaps.json")
         with open(path, "w") as f:
-            json.dump({"gaps": {i: "x" for i in ids}}, f)
+            json.dump({"gaps": {i: "x" for i in ids}, "excluded": {i: "x" for i in excluded}}, f)
         return path
 
     def test_a_new_action_without_a_fixture_fails_and_a_covered_one_is_listed(self):
-        rows = [{"id": "new.action", "skipped": "needs context the sweep does not set up: fooFocused"},
-                {"id": "old.gap", "skipped": "needs a room argument"},
-                {"id": "cloud.thing", "skipped": "uses the Cloud, a remote machine, a phone or computer use"},
-                {"id": "fixed.now", "errors": [], "check": "ok"}]
-        checked = sweep_mod.coverage(self.report(rows), self.baseline(["old.gap", "fixed.now"]))
+        rows = [{"id": "new.action", "skipped": "needs context the sweep does not set up: fooFocused", "skip_kind": "gap"},
+                {"id": "old.gap", "skipped": "needs a room argument", "skip_kind": "gap"},
+                {"id": "cloud.thing", "skipped": "uses the Cloud", "skip_kind": "excluded", "excluded_by": "pattern"},
+                {"id": "fixed.now", "errors": [], "check": "ok", "covered": True}]
+        checked = sweep_mod.coverage(self.report(rows), self.baseline(["old.gap", "fixed.now"], ["cloud.thing"]))
         self.assertEqual(list(checked["new"]), ["new.action"])
         self.assertEqual(checked["closed"], ["fixed.now"])
         with self.assertRaises(SystemExit) as raised:
@@ -947,16 +1219,170 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("new.action", sweep_mod.markdown(dict(self.report(rows), coverage=checked)))
 
     def test_an_action_one_session_ran_is_covered(self):
-        report = {"env": dict(ENV), "sessions": [session("light", [{"id": "a", "errors": [], "check": "ok"}]),
-                                                 session("stress", [{"id": "a", "skipped": "no chromium tab in the base pane"}])]}
+        report = {"env": dict(ENV), "sessions": [session("light", [{"id": "a", "errors": [], "check": "ok", "covered": True}]),
+                                                 session("stress", [{"id": "a", "skipped": "no chromium tab in the base pane",
+                                                                     "skip_kind": "state"}])]}
         self.assertEqual(sweep_mod.gaps_of(report), {})
 
     def test_a_partial_run_gives_no_verdict_and_an_unreadable_baseline_fails_open(self):
-        rows = [{"id": "new.action", "skipped": "needs a room argument"}]
+        rows = [{"id": "new.action", "skipped": "needs a room argument", "skip_kind": "gap"}]
         self.assertIsNone(sweep_mod.coverage(self.report(rows, partial=True), self.baseline([])))
         checked = sweep_mod.coverage(self.report(rows), os.path.join(OUT, "missing.json"))
         self.assertIn("error", checked)
         sweep_mod.fail_on_new_gaps({"coverage": checked})  # no exit
+
+    def test_a_run_with_a_failed_session_gives_no_verdict(self):
+        # STRESS failed after 3 rows: its later actions have no row, so a gap there is not seen, and a baseline entry
+        # is not "covered now".
+        rows = [{"id": "old.gap", "errors": [], "check": "ok"}]
+        self.assertIsNone(sweep_mod.coverage(self.report(rows, failed=True), self.baseline(["old.gap"])))
+        self.assertIn("a session failed", sweep_mod.verdict_blocker(self.report(rows, failed=True)))
+
+    def test_an_action_refused_at_every_sample_is_not_covered(self):
+        # The handler never ran: a typed refusal at run is a gap (the sweep did not set it up), a policy refusal
+        # (EXPECTED_REFUSALS) is listed apart; neither is covered, and neither row's times reach the target table.
+        rows = [{"id": "needs.setup", "refused": True, "errors": ["unavailable: needs a selection"], "check": "n/a",
+                 "commit_ms": {"p95": 40.0}, "frames": {"missed": 2}, "covered": False},
+                {"id": "palette.disableBrowser", "refused": True, "expected_refusal": "daemon_error: can be changed only by you",
+                 "errors": [], "check": "refused", "commit_ms": {"p95": 30.0}, "frames": {"missed": 0}, "covered": False}]
+        checked = sweep_mod.coverage(self.report(rows), self.baseline([], []))
+        self.assertEqual(list(checked["new"]), ["needs.setup"])
+        self.assertEqual(checked["policy_refused"], ["palette.disableBrowser"])
+        self.assertEqual(sweep_mod.covered_ids(self.report(rows)), set())
+        self.assertEqual([sweep_mod.misses(r) for r in rows], [[], []])
+        md = sweep_mod.markdown(dict(self.report(rows), coverage=checked))
+        self.assertIn("refusal timing", md)
+        self.assertNotIn("| needs.setup |", md)
+
+    def test_a_state_skip_in_every_session_is_a_gap_and_a_pattern_exclusion_must_be_listed(self):
+        # A layout condition (no neighbor that way) in every session that offered the action: measured nowhere, so a
+        # gap. The same skip in one session while the other covered it is no gap.
+        rows = [{"id": "focusLeft", "skipped": "no pane with a neighbor to the left in this session's grid", "skip_kind": "state"},
+                {"id": "focusRight", "skipped": "no pane with a neighbor to the right in this session's grid", "skip_kind": "state"},
+                {"id": "cloud.listed", "skipped": "uses the Cloud", "skip_kind": "excluded", "excluded_by": "pattern"},
+                {"id": "share.newThing", "skipped": "opens another app", "skip_kind": "excluded", "excluded_by": "pattern"},
+                {"id": "debug.tool", "skipped": "debug-only tool", "skip_kind": "excluded", "excluded_by": "flag"}]
+        report = self.report(rows)
+        report["sessions"][1]["rows"] = [{"id": "focusRight", "errors": [], "check": "ok", "covered": True}]
+        checked = sweep_mod.coverage(report, self.baseline([], ["cloud.listed"]))
+        self.assertEqual(sorted(checked["new"]), ["focusLeft", "share.newThing"])
+        self.assertEqual(sorted(checked["state"]), ["focusLeft"])
+
+    def test_a_harness_row_or_a_row_that_ran_no_handler_is_not_covered(self):
+        # Neither did the handler's work: a fixture that raised, an input that ran no handler (every sample "no handler
+        # run recorded", or not_found). Each is a gap of its own category, and a baseline gap stays (never "closed").
+        rows = [{"id": "harness.row", "errors": ["harness: KeyError('pane')"], "frames": {"missed": None}, "check": "n/a",
+                 "harness_at": ["every-action-sweep.py:900 restore"], "covered": False},
+                {"id": "no.run", "samples": 3, "errors": ["no handler run recorded"], "check": "n/a", "covered": False},
+                {"id": "not.found", "samples": 1, "errors": ["not_found: tab:tab_9"], "check": "wrong", "covered": False},
+                {"id": "ran.ok", "samples": 3, "errors": [], "check": "ok", "covered": True}]
+        report = self.report(rows)
+        self.assertEqual(sweep_mod.covered_ids(report), {"ran.ok"})
+        found = sweep_mod.uncovered(report)
+        self.assertEqual(list(found["harness"]), ["harness.row"])
+        self.assertEqual(sorted(found["no-run"]), ["no.run", "not.found"])
+        checked = sweep_mod.coverage(report, self.baseline(["harness.row", "ran.ok"]))
+        self.assertEqual(sorted(checked["new"]), ["no.run", "not.found"])
+        self.assertEqual(checked["closed"], ["ran.ok"])
+        path = self.baseline(["harness.row"])
+        sweep_mod.write_gaps(report, path)
+        with open(path) as f:
+            self.assertEqual(sorted(json.load(f)["gaps"]), ["harness.row", "no.run", "not.found"])
+
+    def test_a_context_the_sweep_sets_up_that_does_not_hold_is_a_gap(self):
+        # Every key the action requires is in CONTEXT_SETUP: describe unavailable after show(), or the base pane with
+        # no tab of the context's kind, is a broken fixture (gap). Only a layout condition is state: no neighbor that
+        # way, or no Chromium page on a launch whose Chromium fell back.
+        sweep = sweep_mod.Sweep(NoProcess(), "light", stress_mod)
+        sweep.base = {"kinds": {"terminal": [], "browser": [], "chat": []}}
+        unavailable = {"action": {"available": False, "context_reason": "Needs agentPaneFocused in the focused window."}}
+        cases = [({"id": "agentPane.previousTurn", "requires": ["agentPaneFocused"]}, True, unavailable, None, True, "gap"),
+                 ({"id": "reconnectPane", "requires": ["terminalFocused"]}, False, {}, None, True, "gap"),
+                 ({"id": "devtools.resumeScript", "requires": ["webViewFocused"]}, False, {}, None, True, "gap"),
+                 ({"id": "devtools.resumeScript", "requires": ["webViewFocused"]}, False, {}, None, False, "state"),
+                 ({"id": "focusLeft", "requires": []}, True, {}, "no pane with a neighbor to the left", True, "state")]
+        for action, shown, described, no_neighbor, chromium_ok, kind in cases:
+            sweep.launches = [{"chromium_ok": chromium_ok}]
+            with mock.patch.object(sweep, "show", lambda context: shown), \
+                    mock.patch.object(sweep, "mark_closed", lambda: None), \
+                    mock.patch.object(sweep, "focus_start", lambda ident: (None, no_neighbor)), \
+                    mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: described):
+                row = sweep.run_action(action)
+            self.assertEqual((row.get("skip_kind"), "covered" in row), (kind, False), (action, row.get("skipped")))
+
+    def test_a_row_is_covered_only_by_a_sample_whose_handler_ran_unrefused(self):
+        # run_action's flag, through its real path: each sample's `ran` (the action signpost) and `refused`.
+        sweep = sweep_mod.Sweep(NoProcess(), "light", stress_mod)
+        sweep.base = {"kinds": {"terminal": [], "browser": [], "chat": []}}
+        sweep.launches = [{"chromium_ok": True}]
+        def sample(ran, reply):
+            return {"ran": ran, "reply": reply, "runs": ["x"] if ran else [], "window": [0, 1], "rpc_ms": 1,
+                    "frames": {"refresh_ms": 8.3, "missed": 0, "max_ms": 8, "main_max_ms": 1}, "hangs": {"count": 0, "max_ms": 0}}
+        for ran, reply, covered in ((False, {}, False), (True, {"error": {"code": "unavailable", "message": "no"}}, False),
+                                    (True, {}, True)):
+            with mock.patch.object(sweep, "measure", lambda send, ident, settle=None: sample(ran, reply)), \
+                    mock.patch.object(sweep, "mark_closed", lambda: None), mock.patch.object(sweep, "restore", lambda *a: []), \
+                    mock.patch.object(sweep, "begin_sample", lambda *a: None), \
+                    mock.patch.object(sweep_mod, "topology", lambda: {"workspaces": []}), \
+                    mock.patch.object(sweep_mod, "shape", lambda topo: {}), \
+                    mock.patch.object(sweep, "check", lambda *a: ("n/a", None)), \
+                    mock.patch.object(sweep_mod.SIGNPOSTS, "live", True), \
+                    mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {}):
+                row = sweep.run_action({"id": "test.thing", "requires": []})
+            self.assertEqual(row["covered"], covered, (ran, reply))
+
+    def test_a_report_without_typed_skips_gives_no_verdict(self):
+        rows = [{"id": "old.row", "skipped": "needs a room argument"}]
+        self.assertIn("skip_kind", sweep_mod.coverage(self.report(rows), self.baseline([]))["error"])
+
+    def test_the_sweep_types_each_skip_where_it_decides_it(self):
+        sweep = sweep_mod.Sweep(NoProcess(), "light", stress_mod)
+        sweep.base = {}
+        self.assertEqual(sweep.plan({"id": "x", "requires": ["fooFocused"]})[1]["skip_kind"], "gap")
+        self.assertEqual(sweep.plan({"id": "cloud.newMachine"})[1], {"skipped": "uses the Cloud, a remote machine, a phone or computer use",
+                                                                     "skip_kind": "excluded", "excluded_by": "pattern"})
+        self.assertEqual(sweep.plan({"id": "x", "debug_only": True})[1]["excluded_by"], "flag")
+        empty = {"id": "history.open", "arguments": [{"name": "id", "kind": "string", "required": True}]}
+        with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": []}):
+            self.assertEqual(sweep.plan(empty)[1], {"skipped": "the history is empty", "skip_kind": "state"})
+
+    def test_a_merge_of_an_incomplete_shard_set_gives_no_verdict(self):
+        self.assertIsNone(sweep_mod.shard_set_problem(["1/3", "2/3", "3/3"]))
+        self.assertIsNone(sweep_mod.shard_set_problem(["1,3/4", "2,4/4"]))
+        self.assertIsNone(sweep_mod.shard_set_problem([None]))
+        self.assertIn("missing", sweep_mod.shard_set_problem(["1/3", "3/3"]))
+        self.assertIn("different N", sweep_mod.shard_set_problem(["1/2", "2/3"]))
+        self.assertIn("twice", sweep_mod.shard_set_problem(["1/2", "1/2", "2/2"]))
+        self.assertIn("unsharded", sweep_mod.shard_set_problem([None, "1/2"]))
+        folder = tempfile.mkdtemp(prefix="every-action-shards-", dir=OUT)
+        paths = []
+        for k in (1, 3):
+            path = os.path.join(folder, f"shard-{k}.json")
+            with open(path, "w") as f:
+                json.dump({"env": dict(ENV, shard=f"{k}/3"), "sessions": [session("light", [
+                    {"id": f"a{k}", "skipped": "needs a room argument", "skip_kind": "gap"}])]}, f)
+            paths.append(path)
+        out = os.path.join(folder, "every-action.json")
+        with contextlib.redirect_stdout(io.StringIO()):
+            sweep_mod.merge(out, paths)  # no exit: no verdict, so no new gap
+        with open(out) as f:
+            merged = json.load(f)
+        self.assertIsNone(merged["coverage"])
+        self.assertTrue(merged["env"]["partial"])
+        self.assertIn("missing", merged["env"]["shard_set"])
+
+    def test_write_gaps_refuses_a_partial_or_failed_run(self):
+        path = self.baseline(["kept"])
+        rows = [{"id": "kept", "errors": [], "check": "ok"}]
+        for report in (self.report(rows, partial=True), self.report(rows, failed=True)):
+            with self.assertRaises(SystemExit):
+                sweep_mod.write_gaps(report, path)
+        with open(path) as f:
+            self.assertEqual(list(json.load(f)["gaps"]), ["kept"])
+        with mock.patch.object(sweep_mod.opts, "write_gaps", True), mock.patch.object(sweep_mod.opts, "only", "a,b"):
+            with self.assertRaises(SystemExit) as raised:
+                sweep_mod.main()
+        self.assertIn("whole-catalog", str(raised.exception.code))
 
 
 class FailedSessionTests(unittest.TestCase):
@@ -1100,6 +1526,61 @@ class FailedSessionTests(unittest.TestCase):
         self.assertEqual([s["name"] for s in merged["sessions"]], ["light", "stress"])
         self.assertEqual([[r["id"] for r in s["rows"]] for s in merged["sessions"]], [["light.splitRight"], ["stress.splitRight"]])
         self.assertEqual([f["name"] for f in merged["failed_sessions"]], ["stress"])
+
+    def run_coverage_main(self, write_gaps):
+        class Sweep(sweep_mod.Sweep):
+            def run(self, actions):
+                self.validity, self.idle, self.summary = {"chromium_ok": True}, {"frames": {}}, {}
+                self.rows.append({"session": self.session, "kind": "action", "id": "test.brandNew",
+                                  "skipped": "needs a widget argument", "skip_kind": "gap"})
+                self.rows.append({"session": self.session, "kind": "action", "id": "splitRight", "frames": {"missed": 0},
+                                  "check": "ok", "commit_ms": {"p95": 4.0}, "covered": True})
+                return self
+
+        class App:
+            process = None
+
+            def launch(self):
+                pass
+
+            def relaunch(self):
+                pass
+
+            def stop(self):
+                pass
+
+        baseline = os.path.join(tempfile.mkdtemp(prefix="every-action-gaps-", dir=OUT), "gaps.json")
+        with open(baseline, "w") as f:
+            json.dump({"gaps": {}, "excluded": {}}, f)
+        signposts = sweep_mod.SIGNPOSTS
+        log = io.StringIO()
+        with mock.patch.object(sweep_mod, "App", App), mock.patch.object(sweep_mod, "Sweep", Sweep), \
+                mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"actions": []} if method == "action.list" else {}), \
+                mock.patch.object(signposts, "live", False), \
+                mock.patch.object(signposts, "start", lambda module: setattr(signposts, "live", True)), \
+                mock.patch.object(sweep_mod.opts, "sessions", "light,stress"), mock.patch.object(sweep_mod.opts, "keep", True), \
+                mock.patch.object(sweep_mod.opts, "write_gaps", write_gaps), mock.patch.object(sweep_mod, "GAPS", baseline), \
+                mock.patch.dict(os.environ, {"CMUX_CI_SHA": "b" * 40}), contextlib.redirect_stdout(log):
+            try:
+                sweep_mod.main()
+                code = 0
+            except SystemExit as raised:
+                code = raised.code
+        with open(baseline) as f:
+            return code, log.getvalue(), json.load(f)
+
+    def test_a_new_gap_exits_4_and_the_report_lands_in_the_step_log(self):
+        # The controller returns no --artifact of a failing step: the whole light+STRESS report must be in its log.
+        code, log, _ = self.run_coverage_main(write_gaps=False)
+        self.assertEqual(code, sweep_mod.NEW_GAP_EXIT)
+        self.assertIn(sweep_mod.REPORT_LINE + " 1/", log)
+        self.assertIn("test.brandNew", log)
+
+    def test_a_write_gaps_run_writes_the_baseline_and_does_not_exit_4(self):
+        code, log, written = self.run_coverage_main(write_gaps=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(list(written["gaps"]), ["test.brandNew"])
+        self.assertNotIn(sweep_mod.REPORT_LINE, log)
 
     def test_a_step_log_without_a_whole_report_is_an_error(self):
         folder = tempfile.mkdtemp(prefix="every-action-log-", dir=OUT)

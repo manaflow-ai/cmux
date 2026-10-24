@@ -1007,7 +1007,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                                   "the step after checkout must drop stale submodule checkouts")
         # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "release-compile-fast", "swift-canary", "swift-test",
+                                           "release-compile", "swift-canary", "swift-test",
                                            "web-bundles"])
 
 
@@ -2027,7 +2027,18 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         admitted = jobs["release-compile-fast-admission"]
         self.assertNotEqual(fast["name"], "cmux-next Release compile (Xcode 26)")
         self.assertEqual(admitted["name"], "cmux-next Release compile (Xcode 26)")
-        self.assertIn("outputs.verdict == 'pass'", admitted["if"])
+        # The admission job runs whenever the fast check ran without handing off to the Mac
+        # fallback and is green only on pass, so a fleet error or a fast check refused before
+        # a verdict stays red under the gate name; unavailable leaves it to the Mac fallback.
+        for verdict, result, runs in (("pass", "success", True), ("unavailable", "success", False),
+                                      ("fail", "failure", True), ("", "failure", True),
+                                      ("", "skipped", False), ("", "cancelled", False)):
+            with self.subTest(verdict=verdict, result=result):
+                context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
+                           "needs.release-compile-fast.result": result,
+                           "needs.release-compile-fast.outputs.verdict": verdict}
+                self.assertEqual(bool(evaluate(admitted["if"], context)), runs)
+        self.assertIn('"$VERDICT" == pass && "$RESULT" == success', admitted["steps"][0]["run"])
         self.assertIn("CI_COMPILE_CHECK_GATEWAY", fast["runs-on"])
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
@@ -2036,15 +2047,24 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
 
-    def test_fast_gate_checks_out_the_pushed_commit_before_requesting_promotion(self):
-        # request-nightly-next.sh refuses unless HEAD is the pushed commit; on a reused
-        # gateway workspace a request without a checkout turned a passing gate red.
-        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast"]["steps"]
+    def test_the_fast_admission_gate_requests_promotion_itself(self):
+        # The fast check's own request reached main's promote job before the admission job
+        # existed; the admission job requests once green, after a checkout of the pushed
+        # commit (request-nightly-next.sh refuses any other HEAD), and the downstream helper
+        # waits for it.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertFalse(any("request-nightly-next.sh" in step.get("run", "")
+                             for step in jobs["release-compile-fast"]["steps"]))
+        admitted = jobs["release-compile-fast-admission"]
+        self.assertEqual(admitted["permissions"]["actions"], "write")
+        steps = admitted["steps"]
         request = next(i for i, step in enumerate(steps) if "request-nightly-next.sh" in step.get("run", ""))
-        checkout = next(i for i, step in enumerate(steps) if step.get("id") == "checkout")
+        checkout = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertLess(0, checkout)
         self.assertLess(checkout, request)
-        self.assertTrue(steps[checkout]["uses"].startswith("actions/checkout@"))
-        self.assertEqual(steps[checkout]["if"], steps[request]["if"])
+        helper = jobs["request-nightly-next-fast"]
+        self.assertIn("release-compile-fast-admission", helper["needs"])
+        self.assertIn("needs.release-compile-fast-admission.result == 'success'", helper["if"])
 
     def test_a_green_gate_rerun_requests_promotion_inside_the_gate_job(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
