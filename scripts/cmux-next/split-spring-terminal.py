@@ -50,6 +50,53 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv:
     require_gui_session("split-spring")
+# SCRATCH (pl-trace-measure, never landed): `--suite=trace` on this worker: the xctrace fixtures (trace_fixtures.py),
+# bench_launch check, a STRESS trace (trace.py record), then Perfetto's importer on it (trace.py check-import, with
+# trace_processor_shell v58.2 pinned by sha256 as in Perfetto's own tools/trace_processor). OUT/trace.tar.gz holds all.
+if "--suite=trace" in sys.argv:
+    def _flag(name, default=None):
+        for i, a in enumerate(sys.argv):
+            if a.startswith(name + "="):
+                return a.split("=", 1)[1]
+            if a == name and i + 1 < len(sys.argv):
+                return sys.argv[i + 1]
+        return default
+    import hashlib, urllib.request
+    here = os.path.dirname(os.path.abspath(__file__))
+    app, out, report = _flag("--app"), _flag("--out", "/tmp"), _flag("--json")
+    extra = [a[len("--trace-opt="):] for a in sys.argv if a.startswith("--trace-opt=")]
+    steps = {}
+    steps["fixtures"] = subprocess.run([sys.executable, os.path.join(here, "trace_fixtures.py"), os.path.join(out, "fixtures")]).returncode
+    steps["check"] = subprocess.run([sys.executable, os.path.join(here, "bench_launch.py"), "check", "--app", app, "--out",
+                                     os.path.join(out, "check")]).returncode
+    if steps["check"] == 0:
+        steps["trace"] = subprocess.run([sys.executable, os.path.join(here, "trace.py"), "record", "--app", app, "--out",
+                                         os.path.join(out, "trace"), *extra]).returncode
+    if os.path.exists(os.path.join(out, "trace", "trace.json.gz")):
+        tp = os.path.join(out, "trace_processor_shell")
+        url = "https://commondatastorage.googleapis.com/perfetto-luci-artifacts/v58.2/mac-arm64/trace_processor_shell"
+        want = "d29864d1ba3b36855527bb1b0ca3aa7f703cdce338b9680bb922c5c151b358fa"
+        try:
+            data = urllib.request.urlopen(url, timeout=120).read()
+            got = hashlib.sha256(data).hexdigest()
+            if got != want:
+                raise RuntimeError(f"trace_processor_shell sha256 {got}, want {want}")
+            with open(tp, "wb") as f:
+                f.write(data)
+            os.chmod(tp, 0o755)
+            steps["import"] = subprocess.run([sys.executable, os.path.join(here, "trace.py"), "check-import",
+                                              os.path.join(out, "trace"), "--trace-processor", tp], timeout=1800).returncode
+        except Exception as error:  # reported in the step's report, never hidden
+            print(f"split-spring: import check could not run: {error}", flush=True)
+            steps["import"] = f"not run: {error}"
+    print(f"split-spring: trace steps {steps}", flush=True)
+    subprocess.run(["tar", "-czf", os.path.join(out, "trace.tar.gz"), "-C", out,
+                    *[d for d in ("trace", "check", "fixtures") if os.path.exists(os.path.join(out, d))]])
+    summary = os.path.join(out, "trace", "summary.json")
+    if report:
+        with open(report, "w") as f:
+            json.dump({"steps": steps, "summary": json.load(open(summary)) if os.path.exists(summary) else None}, f, indent=1)
+    sys.exit(0 if steps.get("trace") == 0 and steps.get("import") == 0 else 1)
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
