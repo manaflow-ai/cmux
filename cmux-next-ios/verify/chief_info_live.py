@@ -128,6 +128,12 @@ def wait_disconnected(sim, timeout=120):
     return None, time.time() - t
 
 
+def on_info(sim):
+    """Chief's info is on screen: its toggles are in the AX tree inside the screen."""
+    return any(e.ident in ("chief.settings.hideAlerts", "chief.settings.title") and 0 <= e.frame[0] < 402
+               for e in sim.tree())
+
+
 def open_info(sim):
     sim.tap_q(ident="conversation.header.trailing")
     found = sim.wait(timeout=10, ident="chief.settings")
@@ -239,11 +245,11 @@ def main():  # noqa: C901 - one live scenario
                 close_info(sim)
             # The edge swipe pops back to the conversation.
             sim.drag(2, 450, 330, 450, 0.5, 30, 0.1); time.sleep(1.5)
-            result["checks"]["edge_swipe_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
+            result["checks"]["edge_swipe_pops"] = not on_info(sim)
             sim.shot(f"{a.label}-after-swipe")
-            if sim.find(ident="chief.settings"):
+            if on_info(sim):
                 close_info(sim)
-                result["checks"]["back_button_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
+                result["checks"]["back_button_pops"] = not on_info(sim)
             open_info(sim)
             sim.tap_q(ident="chief.settings.message"); time.sleep(2.0)
             result["checks"]["message_returns_with_keyboard"] = bool(sim.find(ident="conversation.transcript")) and bool(sim.keyboard())

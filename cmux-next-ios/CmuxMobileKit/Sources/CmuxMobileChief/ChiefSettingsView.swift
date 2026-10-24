@@ -152,7 +152,7 @@ public struct ChiefSettingsView: View {
                     .padding(.top, ChiefInfoGeometry.quickActionsBelowTitle)
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, ChiefInfoGeometry.sectionGap)
+            .padding(.bottom, ChiefInfoGeometry.sectionGap - ChiefInfoGeometry.listGapAfterHeader)
             .frame(maxWidth: .infinity)
             .padding(.top, headerTop)
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
@@ -167,7 +167,8 @@ public struct ChiefSettingsView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
         }
-        // The header's own bottom padding is Messages' 20 pt to the first card.
+        // The header's bottom padding and the list's own gap make Messages'
+        // 20 pt to the first card.
         .listSectionSpacing(0)
     }
 
@@ -508,6 +509,9 @@ enum ChiefInfoGeometry {
     static let quickActionSpacing: CGFloat = 20
     static let quickActionsBelowTitle: CGFloat = 16
     static let sectionGap: CGFloat = 20
+    /// What the inset grouped list still adds after the header's section
+    /// with its spacing at 0 (measured: 9 pt, iOS 26.5).
+    static let listGapAfterHeader: CGFloat = 9
     /// Scrolled this far, the cards reach the bar and its edge blur returns.
     static let edgeEffectAfter: CGFloat = 40
 }
@@ -569,53 +573,62 @@ struct ChiefQuickAction: View {
 /// page's own safe area hides under the navigation bar, and keeps the back
 /// swipe on: SwiftUI turns the stack's pop gestures off while the screen
 /// under this one (the Chief conversation) hides the bar, and does not
-/// always turn them on again for a page pushed over it.
-struct WindowSafeTopReader: UIViewRepresentable {
+/// always turn them on again for a page pushed over it, nor when Edit pops
+/// back to it. A child view controller gets each appearance once the
+/// transition has finished, after SwiftUI's own bar updates.
+struct WindowSafeTopReader: UIViewControllerRepresentable {
     let report: (CGFloat) -> Void
 
-    func makeUIView(context: Context) -> ReaderView {
-        let view = ReaderView()
-        view.report = report
-        view.isUserInteractionEnabled = false
-        return view
+    func makeUIViewController(context: Context) -> Probe {
+        let probe = Probe()
+        probe.report = report
+        return probe
     }
 
-    func updateUIView(_ view: ReaderView, context: Context) { view.report = report }
+    func updateUIViewController(_ probe: Probe, context: Context) { probe.report = report }
 
-    final class ReaderView: UIView {
+    final class Probe: UIViewController {
         var report: ((CGFloat) -> Void)?
         private var reported: CGFloat = -1
 
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+        }
+
+        override func viewIsAppearing(_ animated: Bool) {
+            super.viewIsAppearing(animated)
             send()
             enableBackSwipe()
         }
 
-        override func safeAreaInsetsDidChange() {
-            super.safeAreaInsetsDidChange()
-            send()
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
             enableBackSwipe()
         }
 
-        private func enableBackSwipe() {
-            var responder: UIResponder? = self
-            while let next = responder?.next, !(next is UIViewController) { responder = next }
-            guard let navigation = (responder?.next as? UIViewController)?.navigationController,
-                  navigation.viewControllers.count > 1 else { return }
-            navigation.interactivePopGestureRecognizer?.isEnabled = true
-            if #available(iOS 26.0, *) { navigation.interactiveContentPopGestureRecognizer?.isEnabled = true }
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            send()
+            enableBackSwipe()
+        }
+
+        override func viewSafeAreaInsetsDidChange() {
+            super.viewSafeAreaInsetsDidChange()
+            send()
         }
 
         private func send() {
-            guard let top = window?.safeAreaInsets.top, top != reported else { return }
+            guard let top = view.window?.safeAreaInsets.top, top != reported else { return }
             reported = top
             // Not inside SwiftUI's update of this view.
             Task { @MainActor [report] in report?(top) }
+        }
+
+        private func enableBackSwipe() {
+            guard view.window != nil, let navigation = navigationController, navigation.viewControllers.count > 1 else { return }
+            navigation.interactivePopGestureRecognizer?.isEnabled = true
+            if #available(iOS 26.0, *) { navigation.interactiveContentPopGestureRecognizer?.isEnabled = true }
         }
     }
 }
