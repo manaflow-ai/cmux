@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 /// One frame of the wire between cmux and the Chromium host app (prototype
 /// behind `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
@@ -103,3 +105,4 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         return .frame(frame, consumed: headerSize + length)
     }
 }
+#endif
