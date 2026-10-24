@@ -58,11 +58,11 @@ export default agentPaneEntry({
       snapshot: snapshot(),
     },
     "person-cli": {
-      note: "The person's own acpmux send from a terminal on big-red: their bubble, and where they sent it from.",
+      note: "The person's own acpmux send from a terminal on studio-mac: their bubble, and where they sent it from.",
       snapshot: chat(
         [
-          user("Land #24927 once its review passes, then report here.", 9, { viaCli: "big-red" }),
-          assistant("Sent the order to codex-lane on huge-blue.", 8.5),
+          user("Land #24927 once its review passes, then report here.", 9, { viaCli: "studio-mac" }),
+          assistant("Sent the order to codex-lane on build-box.", 8.5),
           summary(8.5, { status: "completed" }),
         ],
         { title: "claude-sr2", sessions: [session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" })] },
