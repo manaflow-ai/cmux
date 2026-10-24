@@ -148,3 +148,23 @@ fn a_new_document_starts_its_snapshots_without_a_previous_one() {
         .eval("const s3 = await snapshot(); s3.diff.split('\\n').find((l) => l.startsWith('#'))");
     assert_eq!(again, "# no changes since the previous snapshot");
 }
+
+/// A headless tab nobody sees gets the agent pointer without the human
+/// path: one move to the point, no dwell or hold (each click cost about
+/// 0.4-0.5 s more, browser-use-perf.md). A tab a person can see (an
+/// engine without the `headless` capability) keeps the human glide.
+#[test]
+fn headless_tabs_click_without_the_human_path_and_visible_tabs_keep_it() {
+    let code = "await page.mouse.click(600, 400); null";
+    let headless = Repl::new("instant", vec!["headless"]);
+    headless.eval(code);
+    assert_eq!(headless.mouse_moves(), 1, "a headless click moves once");
+    let shown = Repl::new("human", Vec::new());
+    shown.eval(code);
+    assert!(shown.mouse_moves() > 3, "a visible tab's click glides: {} moves", shown.mouse_moves());
+    assert_eq!(
+        headless.eval("page.mouse.configure({ motion: 'human' }).motion"),
+        "human",
+        "a script can still ask for the human path"
+    );
+}
