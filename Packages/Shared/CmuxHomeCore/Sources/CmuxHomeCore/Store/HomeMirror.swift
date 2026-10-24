@@ -40,7 +40,7 @@ public struct HomeMirror: Hashable, Sendable {
     /// owner revision is ahead of their window; the caller refetches them.
     @discardableResult
     public mutating func apply(inbox snapshot: InboxSnapshot) -> [HomeStream] {
-        me = snapshot.me
+        if me != snapshot.me { me = snapshot.me }
         var next: [ConversationID: ConversationSummary] = [:]
         var refetch: [HomeStream] = []
         for summary in snapshot.conversations {
@@ -56,8 +56,10 @@ public struct HomeMirror: Hashable, Sendable {
                 revisions[stream] = max(revisions[stream] ?? 0, summary.rev)
             }
         }
-        conversations = next
-        windows = windows.filter { next[$0.key] != nil }
+        // Assigned only when they differ: each assignment moves `cacheChanges`, and an inbox
+        // refetch that brings the same inbox is no new information for the client cache.
+        if conversations != next { conversations = next }
+        if windows.keys.contains(where: { next[$0] == nil }) { windows = windows.filter { next[$0.key] != nil } }
         keptOrder.removeAll { next[$0] == nil }
         kept = kept.filter { next[$0.key] != nil }
         revisions[.inbox] = snapshot.rev
