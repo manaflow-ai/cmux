@@ -412,9 +412,9 @@ impl ChiefStore {
 
     /// The ids of deleted Chiefs (their tombstones), in deletion order.
     pub(crate) fn deleted(&self) -> anyhow::Result<Vec<String>> {
-        let mut statement = self.connection.prepare(
-            "SELECT id FROM chief WHERE record IS NULL ORDER BY deleted_at ASC, id ASC",
-        )?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT id FROM chief WHERE record IS NULL ORDER BY deleted_at ASC, id ASC")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         rows.collect::<Result<_, _>>().map_err(Into::into)
     }
