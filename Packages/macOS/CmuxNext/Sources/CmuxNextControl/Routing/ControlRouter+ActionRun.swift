@@ -232,11 +232,12 @@ extension ControlRouter {
         }
         if let failure { return .failure(ControlError.actionWork(failure, action: action, method: method)) }
         if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
-        // No daemon command: the work queue's frame already published the
-        // app-local change (selection, focus, settings).
+        // The run's own frame changed main-actor state (selection, focus, settings) and only marked the snapshot
+        // stale: a build after it is what shows that change. With no daemon command that build is the answer.
+        guard let built = await snapshots.fresh(deadline: deadline) else { return .failure(Self.stillRunning(method, action: action)) }
         let barriers = scope.snapshotBarriers()
-        guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy())) }
-        guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
+        guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: built, replyBy: replyBy())) }
+        guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: built.topology),
                                                       deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }

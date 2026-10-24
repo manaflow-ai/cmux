@@ -11,7 +11,7 @@ extension ControlRouter {
         [
             .snapshot("system.ping") { [identity] _ in
                 ["pong": true, "app": .string(identity.appName), "protocol_version": JSONValue(Self.protocolVersion)]
-            },
+            }.readingNoMainActorState(),
             .snapshot("system.identify") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 guard case .object(var members) = self.identify() else { return self.identify() }
@@ -22,7 +22,7 @@ extension ControlRouter {
             .snapshot("system.capabilities") { [weak self] _ in
                 guard let self else { throw Self.stopped }
                 return ["protocol_version": JSONValue(Self.protocolVersion), "methods": .array(self.methodNames.map(JSONValue.string))]
-            },
+            }.readingNoMainActorState(),
             .snapshot("action.list") { call in Self.list(call.params, catalog: call.snapshot.catalog) },
             .snapshot("action.describe") { call in
                 let catalog = call.snapshot.catalog

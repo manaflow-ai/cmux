@@ -100,6 +100,21 @@ struct ControlSnapshotSequenceTests {
         #expect(rig.router.snapshots.isStale)
     }
 
+    /// A reader of a stale store gets the held change at once: its arrival asks for one build (not a deadline wait).
+    @Test func aWaitingReaderGetsTheHeldUpdateAtOnce() async {
+        let rig = await Self.rig()
+        defer { rig.publisher.stop() }
+        rig.store.apply(.titleChanged(surface: 1, title: "held"))
+        for _ in 0..<8 { await Task.yield() }
+        let builds = rig.publisher.builds
+        let store = rig.router.snapshots
+        let read = Task { await store.fresh(deadline: .now + .seconds(30)) }
+        await Self.settle(rig)
+        let snapshot = await read.value
+        #expect(snapshot?.topology.workspaces.first?.panes.first?.tabs.first?.title == "held", "the reader did not get the held change")
+        #expect(rig.publisher.builds == builds + 1, "\(rig.publisher.builds - builds) builds for one read (want 1)")
+    }
+
     /// While a reader keeps waiting (a tab it waits to see), changes build at most once per display frame.
     @Test func withAWaitingReaderChangesBuildOncePerFrame() async {
         let rig = await Self.rig()

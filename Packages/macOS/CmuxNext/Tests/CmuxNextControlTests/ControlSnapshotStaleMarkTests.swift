@@ -14,23 +14,28 @@ import Testing
         let builds = Mutex(0)
     }
 
-    /// A router whose refresher builds and publishes `model`'s focus, as the App's publisher does.
-    private func router(_ model: Model) -> ControlRouter {
+    /// A router, and a task that builds and publishes `model`'s focus whenever a reader starts waiting on a stale
+    /// store (`waiterAdditions`), as the App's publisher does. Cancel the task at the end.
+    private func router(_ model: Model) -> (ControlRouter, Task<Void, Never>) {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let store = router.snapshots
         store.publish { $0.topology.focus = ControlFocus(paneID: "before") }
-        store.setRefresher {
-            model.builds.withLock { $0 += 1 }
-            let focused = model.pane.withLock { $0 }
-            store.publish(coversMainActorState: true) { $0.topology.focus = ControlFocus(paneID: focused) }
+        let additions = store.waiterAdditions()
+        let builder = Task {
+            for await _ in additions where store.isStale {
+                model.builds.withLock { $0 += 1 }
+                let focused = model.pane.withLock { $0 }
+                store.publish(coversMainActorState: true) { $0.topology.focus = ControlFocus(paneID: focused) }
+            }
         }
-        return router
+        return (router, builder)
     }
 
     @Test(arguments: ["contextMask", "catalog", "settings"])
     func aPartialPublishAfterAWorkQueueFrameLeavesTheSnapshotStale(_ writer: String) async {
         let model = Model()
-        let router = router(model)
+        let (router, builder) = router(model)
+        defer { builder.cancel() }
         // A work-queue frame moved focus (the publisher's after-frame hook marks the snapshot stale).
         model.pane.withLock { $0 = "after" }
         router.snapshots.markStale()
@@ -41,11 +46,11 @@ import Testing
         default: router.snapshots.publish { $0.settings = nil }
         }
         #expect(router.snapshots.isStale, "a \(writer) publish cleared the stale mark of a frame it did not build")
-        let snapshot = await router.snapshots.fresh()
+        let snapshot = await router.snapshots.fresh(deadline: .now + .seconds(10))
         #expect(model.builds.withLock { $0 } == 1, "the read after the \(writer) publish built nothing")
-        #expect(snapshot.topology.focus.paneID == "after", "the read answered the focus from before the frame")
+        #expect(snapshot?.topology.focus.paneID == "after", "the read answered the focus from before the frame")
         #expect(!router.snapshots.isStale, "the build that covers the frame left the snapshot stale")
-        _ = await router.snapshots.fresh()
+        _ = await router.snapshots.fresh(deadline: .now + .seconds(10))
         #expect(model.builds.withLock { $0 } == 1, "a second read with nothing changed built again")
     }
 }

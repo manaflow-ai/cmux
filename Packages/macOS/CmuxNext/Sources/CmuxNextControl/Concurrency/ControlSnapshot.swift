@@ -14,6 +14,10 @@ public struct ControlSnapshot: Sendable {
     public internal(set) var generation: UInt64 = 0
     /// `clock_gettime_nsec_np(CLOCK_UPTIME_RAW)` at publish time.
     public internal(set) var publishedAtUptimeNanos: UInt64 = 0
+    /// Increments on every publish that covers the main actor's state (the App publisher's build,
+    /// ``ControlSnapshotStore/publish(coversMainActorState:_:)``): a reader of a stale store waits for it to pass
+    /// the value it saw (``ControlSnapshotStore/fresh(deadline:)``).
+    public internal(set) var mainBuilds: UInt64 = 0
     public var catalog: ControlCatalog = .empty
     public var topology = ControlTopology()
     /// The loaded cmux.json document, or nil before the first load.
@@ -69,19 +73,28 @@ public final class ControlSnapshotStore: Sendable {
         let continuation: CheckedContinuation<ControlSnapshot?, Never>
     }
 
+    /// What starting a wait found: an answer now, or a waiter added and the streams to tell.
+    private enum WaitStart {
+        case resume(ControlSnapshot?)
+        case waiting([AsyncStream<Void>.Continuation])
+    }
+
     private struct State {
         var snapshot = ControlSnapshot()
         var waiters: [Waiter] = []
         var nextWaiter: UInt64 = 0
+        /// The continuations of ``waiterAdditions()``'s streams, by subscription.
+        var waiterStreams: [UInt64: AsyncStream<Void>.Continuation] = [:]
+        var nextWaiterStream: UInt64 = 0
     }
 
+    // Lock carve-out: publish and the snapshot reads are synchronous calls from the main actor
+    // and connection tasks, held only for a struct copy; an actor would add a hop to every read.
     private let state = Mutex(State())
     /// Main-actor state changed since the last build of it and nothing has built it yet (a control work-queue frame):
-    /// ``fresh()`` builds it first. Set on the main actor, cleared only by a publish that covers main-actor state
-    /// (``publish(coversMainActorState:_:)``), read by connection tasks.
+    /// a ``fresh(deadline:)`` read waits for the next build. Set on the main actor, cleared only by a publish that
+    /// covers main-actor state (``publish(coversMainActorState:_:)``), read by connection tasks.
     private let stale = Atomic<Bool>(false)
-    /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
-    private let refresher = Mutex<(@Sendable () async -> Void)?>(nil)
 
     public init() {}
 
@@ -91,18 +104,49 @@ public final class ControlSnapshotStore: Sendable {
     /// Whether main-actor state changed since the last build of it and has not been built yet.
     public var isStale: Bool { stale.load(ordering: .acquiring) }
 
-    /// Main-actor state changed: the next ``fresh()`` builds the snapshot first (a lazy publish: nothing is built
-    /// until a read needs it).
+    /// Main-actor state changed: the next ``fresh(deadline:)`` read waits for a build (a lazy publish: nothing is
+    /// built until a read needs it).
     public func markStale() { stale.store(true, ordering: .releasing) }
 
-    /// Sets the closure that builds and publishes a stale snapshot on the main actor.
-    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
+    /// The latest snapshot, as of a build after main-actor state last changed (``markStale()``): what a control call
+    /// that reads main-actor state gets, so it covers the writes of the calls before it. When the store is stale this
+    /// waits, as a waiter (``waiterAdditions()`` tells the publisher, which builds under the frame budget), until a
+    /// covering build passes the one seen now; nil at `deadline`, so a blocked main actor never holds a reader past
+    /// its request's deadline. Never blocks a thread.
+    ///
+    /// - Parameter deadline: The latest moment the reader waits.
+    /// - Returns: The snapshot, or nil at the deadline or on cancellation.
+    public func fresh(deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
+        guard isStale else { return current }
+        let seen = current.mainBuilds
+        // A build after `seen`, or none needed any more (a build cleared the mark between the check and `seen`).
+        return await snapshot(where: { [self] snapshot in snapshot.mainBuilds > seen || !self.isStale },
+                              deadline: deadline)
+    }
 
-    /// The latest snapshot, built first when main-actor state changed since the last build of it (``markStale()``):
-    /// what a control call reads, so it covers the writes of the calls before it.
-    public func fresh() async -> ControlSnapshot {
-        if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
-        return current
+    /// Yields each time a reader starts waiting for a snapshot the current one does not satisfy (a barrier read, a
+    /// ``fresh(deadline:)`` read of a stale store). The publisher iterates it on the main actor to publish at once,
+    /// not at its next frame or never (a quiet app has no other trigger).
+    ///
+    /// Each call is its own subscription; it ends when the iterating task is cancelled. Additions that arrive faster
+    /// than they are read coalesce into one element.
+    ///
+    /// ```swift
+    /// for await _ in store.waiterAdditions() { publisher.readerWaits() }
+    /// ```
+    ///
+    /// - Returns: A stream of one element per added waiter (coalesced).
+    public func waiterAdditions() -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let id = state.withLock { state -> UInt64 in
+            state.nextWaiterStream &+= 1
+            state.waiterStreams[state.nextWaiterStream] = continuation
+            return state.nextWaiterStream
+        }
+        continuation.onTermination = { [weak self] _ in
+            _ = self?.state.withLock { $0.waiterStreams.removeValue(forKey: id) }
+        }
+        return stream
     }
 
     /// True while a reader waits for a newer topology; the publisher then
@@ -116,15 +160,18 @@ public final class ControlSnapshotStore: Sendable {
     /// - Parameters:
     ///   - coversMainActorState: `update` writes a build of the main actor's state as of now (the App publisher's
     ///     topology build, on the main actor): it clears the stale mark (``markStale()``). Every other publish (the
-    ///     catalog, the context mask, settings, the daemon sequences) leaves it, so the next ``fresh()`` still builds
-    ///     the main-actor writes it did not cover.
+    ///     catalog, the context mask, settings, the daemon sequences) leaves it, so the next ``fresh(deadline:)`` still
+    ///     waits for a build of the main-actor writes it did not cover.
     ///   - update: The change to the snapshot.
     /// - Returns: The new generation.
     @discardableResult
     public func publish(coversMainActorState: Bool = false, _ update: (inout ControlSnapshot) -> Void) -> UInt64 {
         let (generation, snapshot, ready) = state.withLock { state -> (UInt64, ControlSnapshot, [Waiter]) in
             update(&state.snapshot)
-            if coversMainActorState { stale.store(false, ordering: .releasing) }
+            if coversMainActorState {
+                stale.store(false, ordering: .releasing)
+                state.snapshot.mainBuilds &+= 1
+            }
             state.snapshot.generation &+= 1
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }
@@ -171,14 +218,20 @@ public final class ControlSnapshotStore: Sendable {
             await withCheckedContinuation { continuation in
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
-                let now = state.withLock { state -> ControlSnapshot?? in
-                    if isReady(state.snapshot) { return .some(state.snapshot) }
+                let now = state.withLock { state -> WaitStart in
+                    if isReady(state.snapshot) { return .resume(state.snapshot) }
                     // The timer may have fired before this waiter existed (a deadline already past).
-                    if Task.isCancelled || ContinuousClock.now >= deadline { return .some(nil) }
+                    if Task.isCancelled || ContinuousClock.now >= deadline { return .resume(nil) }
                     state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
-                    return .none
+                    return .waiting(Array(state.waiterStreams.values))
                 }
-                if case .some(let result) = now { continuation.resume(returning: result) }
+                switch now {
+                case .resume(let result):
+                    continuation.resume(returning: result)
+                case .waiting(let streams):
+                    // Yielded outside the lock: a stream's consumer may read the store at once.
+                    for stream in streams { stream.yield() }
+                }
             }
         } onCancel: {
             resolve(id, with: nil)

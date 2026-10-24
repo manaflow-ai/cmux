@@ -5,17 +5,16 @@ import CmuxNextDaemon
 import Observation
 import os
 
-/// Publishes the control snapshot (architecture.md 5a) after the model
-/// settles: at most once per display frame, on the frame after something the
-/// snapshot reads changed. A publish maps only the workspaces whose entries
-/// went stale (``ControlWorkspaceInfoCache``), so there is no interval between
-/// publishes to hide its cost.
+/// Publishes the control snapshot (architecture.md 5a) only when a reader needs it.
 ///
-/// The build runs inside Observation tracking, so any daemon record,
-/// window state, focus, or settings property it read schedules the next
-/// publish; key-window changes (not observable) and every main-actor work
-/// queue frame invalidate explicitly. Readers never touch main-actor state:
-/// they get the last published value.
+/// A change to anything the last build read (Observation tracking of the build), a key-window change (not
+/// observable) and every control work-queue frame mark the snapshot stale; nothing is built, no frame is asked for and
+/// no timer runs while nobody reads. A reader that needs main-actor state as of now (`ControlSnapshotStore.fresh`) or a
+/// newer snapshot (a barrier read) waits; its arrival (`ControlSnapshotStore.waiterAdditions`) makes this build at once,
+/// charged to the main-thread budget's automation class and held back while it may not run (a person's pending input,
+/// the frame's visible updates). While readers keep waiting, changes build at most once per display frame. A build maps
+/// only the workspaces whose entries went stale (``ControlWorkspaceInfoCache``). Readers never touch main-actor state:
+/// they get a published value, and a reader that reads none of it (`system.ping`) never waits.
 ///
 /// The daemon sequences (read-your-writes barriers) are tracked apart from the build: a daemon batch
 /// that changes nothing the topology shows (busy terminals' activity, a status tick elsewhere) only
@@ -26,8 +25,11 @@ final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
     private let frames: any ControlFrameSource
-    private var isScheduled = false
+    /// A build is asked for and has not run (coalesced: every change before it lands in that build).
+    private var buildRequested = false
     private var isStopped = false
+    /// Iterates the store's waiter additions on the main actor while started.
+    private var waiterTask: Task<Void, Never>?
     private var observers: [MainActorObservation] = []
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
@@ -48,16 +50,19 @@ final class ControlSnapshotPublisher {
 
     func start() {
         workspaceInfos.onStale = { [weak self] in self?.modelChanged() }
-        // Read-your-writes for local state: a CLI mutation's effect on focus or selection is in the snapshot before
-        // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
-        // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
-        router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
-        router.snapshots.setRefresher { [weak self] in await self?.publishIfStale() }
+        // Read-your-writes for local state: a CLI mutation's effect on focus or selection is in the snapshot the next
+        // request reads. A work-queue frame only marks the snapshot stale; the reader that needs it builds it, once for
+        // any number of frames before it.
+        router.workQueue.setAfterFrame { [weak self] in self?.changed() }
+        let additions = router.snapshots.waiterAdditions()
+        waiterTask = Task { @MainActor [weak self] in
+            for await _ in additions { self?.readerWaits() }
+        }
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(MainActorObservation(name, center: center) { [weak self] in
-                self?.invalidate()
+                self?.changed()
             })
         }
         publishNow()
@@ -67,37 +72,58 @@ final class ControlSnapshotPublisher {
     func stop() {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
-        router.snapshots.setRefresher(nil)
+        waiterTask?.cancel()
+        waiterTask = nil
         observers.removeAll()
     }
 
-    /// Schedules one publish on the next frame (coalesced: every change before it lands in that publish).
-    func invalidate() {
-        guard !isScheduled, !isStopped else { return }
-        isScheduled = true
-        frames.scheduleFrame { [weak self] in
-            guard let self else { return }
-            self.isScheduled = false
-            self.publishNow()
+    /// Main-actor state the snapshot shows changed (a tracked read, a key-window change, a work-queue frame): the
+    /// snapshot is stale. Readers already waiting get one build on the next display frame (coalesced); with none,
+    /// nothing runs until one reads.
+    private func changed() {
+        router.snapshots.markStale()
+        if router.snapshots.hasWaiters { requestBuild(soon: false) }
+    }
+
+    /// A reader started waiting: a stale store (or a change the last build missed) is built at once; otherwise its
+    /// barrier may be a daemon sequence that moved, which a sequence-only publish answers.
+    private func readerWaits() {
+        guard !isStopped else { return }
+        if router.snapshots.isStale || topologyDirty.load(ordering: .acquiring) {
+            requestBuild(soon: true)
+        } else {
+            publishSequences()
         }
     }
 
-    /// A control work-queue frame ran (a CLI call changed main-actor state): mark the snapshot stale; build it now
-    /// only for a read waiting on its write barrier.
-    private func workQueueFrameRan() {
-        router.snapshots.markStale()
-        if router.snapshots.hasWaiters { publishNow() }
+    /// Asks for one build: on the next main run loop turn (`soon`: a reader waits now) or the next display frame (a
+    /// change while readers wait). Coalesced.
+    private func requestBuild(soon: Bool) {
+        guard !buildRequested, !isStopped else { return }
+        buildRequested = true
+        let run: @MainActor @Sendable () -> Void = { [weak self] in self?.buildWhenAllowed() }
+        if soon { frames.scheduleSoon(run) } else { frames.scheduleFrame(run) }
     }
 
-    /// A read found the snapshot stale: build and publish it, unless a publish since did.
-    private func publishIfStale() {
-        if router.snapshots.isStale { publishNow() }
+    /// The asked-for build, charged to the main-thread budget's automation class; while that class may not run (a
+    /// person's pending input, the frame's visible updates) it waits for the next display frame.
+    private func buildWhenAllowed() {
+        guard !isStopped else { return }
+        if let budget = frames.mainFrameBudget, !budget.mayRun(.automation) {
+            frames.scheduleFrame { [weak self] in self?.buildWhenAllowed() }
+            return
+        }
+        buildRequested = false
+        if let budget = frames.mainFrameBudget {
+            budget.run(.automation, owner: "control.publish") { publishNow() }
+        } else {
+            publishNow()
+        }
     }
 
-    /// A compat read waiting on the write barrier publishes on this turn
-    /// (the store just applied a batch); otherwise the next frame does.
+    /// A tracked read of the last build changed (or the workspace cache went stale).
     private func modelChanged() {
-        if router.snapshots.hasWaiters { publishNow() } else { invalidate() }
+        changed()
     }
 
     /// Publishes now. Compat intents call this so a CLI read that follows a
@@ -148,14 +174,18 @@ final class ControlSnapshotPublisher {
         guard !isStopped else { return }
         observeSequences()
         // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish:
-        // a read waiting on these sequences would get a snapshot without that change.
+        // a read waiting on these sequences would get a snapshot without that change. The build reads the sequences
+        // as they are then; a waiter added later asks for it (readerWaits), so no order of frame, batch and waiter
+        // leaves a waiter to its deadline.
         if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
-            // A topology change is pending: its publish reads the sequences as they are then. A read
-            // waiting on its write barrier gets it on this turn.
-            if router.snapshots.hasWaiters { publishNow() }
+            if router.snapshots.hasWaiters { requestBuild(soon: true) }
             return
         }
-        // Nothing the topology shows changed since the last build: only the sequences move.
+        publishSequences()
+    }
+
+    /// Nothing the topology shows changed since the last build: only the daemon sequences move (O(sessions)).
+    private func publishSequences() {
         sequencePublishes += 1
         var sequences = ControlTopology()
         Self.applySequences(to: &sequences, services)

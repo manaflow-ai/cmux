@@ -41,7 +41,7 @@ extension ControlRouter {
                     "over_budget_count": JSONValue(overBudgetCount),
                     "over_budget": .array(overBudget.map(\.json)),
                 ]
-            },
+            }.readingNoMainActorState(),
             .snapshot("debug.queue") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 var stats = self.workQueue.stats.json
@@ -53,7 +53,7 @@ extension ControlRouter {
                 }
                 if call.params["reset"]?.boolValue == true { self.workQueue.resetStats() }
                 return stats
-            },
+            }.readingNoMainActorState(),
         ]
     }
 }

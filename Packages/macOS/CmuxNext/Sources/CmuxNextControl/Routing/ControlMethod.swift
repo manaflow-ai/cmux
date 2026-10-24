@@ -60,6 +60,17 @@ public struct ControlMethod: Sendable {
     /// person's input (``injectingInput()``).
     public private(set) var workClass: MainWorkClass = .automation
 
+    /// The method's answer reads no main-actor state (`system.ping`, the hang and queue diagnostics): it is answered
+    /// from the current snapshot and never waits for the main actor's next build, so it answers while main is blocked.
+    public private(set) var readsMainActorState = true
+
+    /// This method, whose answer reads no main-actor state (``readsMainActorState``).
+    public func readingNoMainActorState() -> ControlMethod {
+        var method = self
+        method.readsMainActorState = false
+        return method
+    }
+
     /// This method, whose `mainActor` body injects a person's input (`debug.key`, `debug.view_key`):
     /// it runs on the next main run loop turn, ahead of queued requests, as a real key is
     /// dispatched from the event queue, and batches yield while it waits.
@@ -119,6 +130,7 @@ public struct ControlMethod: Sendable {
         method.claimsProgress = claimsProgress
         method.limitOverride = limitOverride
         method.workClass = workClass
+        method.readsMainActorState = readsMainActorState
         return method
     }
 

@@ -252,14 +252,22 @@ public final class ControlRouter: Sendable {
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
             return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
-        // The snapshot as of now: built first when a work-queue frame changed main-actor state since the last
-        // publish (a lazy publish: frames with no reader build nothing).
-        var snapshot = await snapshots.fresh()
+        // The deadline first, before any wait: its inputs read only the catalog, which the current snapshot holds.
+        var snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
         let progress = ControlCallProgress()
         do {
+            // A method that reads main-actor state answers from a snapshot built after the last work-queue frame
+            // (read-your-writes of the calls before it; a lazy publish: frames no reader follows build nothing),
+            // waiting at most until its deadline. One that reads none (system.ping, the hang tools) never waits.
+            if method.readsMainActorState {
+                guard let fresh = await snapshots.fresh(deadline: deadline) else {
+                    throw ControlError.timeout(request.method, after: limit)
+                }
+                snapshot = fresh
+            }
             // Read barrier (state-ownership.md 4.3): answer from a snapshot
             // that covers the caller's earlier writes.
             // `debug.hangs` reads its own `after` (a hang log cursor).
