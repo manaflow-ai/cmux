@@ -23,6 +23,7 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -88,18 +89,19 @@ pub mod error_code {
     pub const CHAN_IN_USE: u16 = 9;
     /// Another daemon authenticated and took this link's place.
     pub const SUPERSEDED: u16 = 10;
-    /// The holder is out of descriptors. For a HELLO: it could not dup a
-    /// terminal's descriptors for the new daemon, so it refuses the HELLO
-    /// and keeps the link it has (it never sends a LISTED without the
-    /// master it lists). On request kind [`crate::wire::STREAM_FAULT`]: it
-    /// could not take the descriptors the daemon's frame passed, and ends
-    /// that link.
+    /// The holder is out of descriptors (request kind
+    /// [`crate::wire::STREAM_FAULT`]): it could not take the descriptors
+    /// the daemon's frame passed, and ends that link. Passing descriptors
+    /// to a daemon (a WELCOME's listing, a SPAWNED) costs the holder none
+    /// ([`Terminal::descriptors`]), so nothing else is refused for want of
+    /// them.
     pub const NO_DESCRIPTORS: u16 = 11;
 }
 
 struct Terminal {
     id: [u8; 16],
-    master: OwnedFd,
+    /// Shared with each frame that passes it ([`Self::descriptors`]).
+    master: Arc<OwnedFd>,
     pid: libc::pid_t,
     /// This holder started the child, so it reaps it and reads its status.
     own_child: bool,
@@ -146,18 +148,20 @@ struct Terminal {
 /// ([`pty::Start`]).
 struct Starting {
     start: pty::Start,
-    /// The daemon's custody dups, passed with SPAWNED once the program runs.
-    custody: Vec<OwnedFd>,
+    /// The daemon's custody copies, passed with SPAWNED once the program
+    /// runs ([`Terminal::descriptors`]).
+    custody: Vec<Arc<OwnedFd>>,
     /// The link whose SPAWN started it ([`Link::id`]): only that link gets
     /// its SPAWNED, whose descriptors were made for that link's version.
     link: u64,
 }
 
-/// One frame waiting for the link, with the descriptors it passes.
+/// One frame waiting for the link, with the descriptors it passes (shared
+/// with their terminal, kept open until the frame's first byte is written).
 struct OutFrame {
     chan: u32,
     bytes: Vec<u8>,
-    fds: Vec<OwnedFd>,
+    fds: Vec<Arc<OwnedFd>>,
     /// Bytes of it the socket already took.
     written: usize,
 }
@@ -188,7 +192,7 @@ struct Link {
 }
 
 impl Link {
-    fn push(&mut self, chan: u32, bytes: Vec<u8>, fds: Vec<OwnedFd>) {
+    fn push(&mut self, chan: u32, bytes: Vec<u8>, fds: Vec<Arc<OwnedFd>>) {
         self.out_bytes += bytes.len();
         let urgent = bytes.len() <= URGENT_FRAME_BYTES && !self.bulk_per_chan.contains_key(&chan);
         let frame = OutFrame { chan, bytes, fds, written: 0 };
@@ -277,7 +281,7 @@ struct Pending {
 
 /// Every terminal for a new link's WELCOME: channel, LISTED payload and
 /// the descriptors it passes.
-type Listing = Vec<(u32, Vec<u8>, Vec<OwnedFd>)>;
+type Listing = Vec<(u32, Vec<u8>, Vec<Arc<OwnedFd>>)>;
 
 /// What one [`Holder::read_terminal`] call ended on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -731,16 +735,16 @@ impl Holder {
         if Kind::from_u16(frame.kind) != Some(Kind::Hello) {
             return;
         }
-        let (code, message) = match self.check_hello(&frame.payload) {
-            Ok(version) => match self.listing(version >= wire::RING_VERSION) {
-                Ok(listing) => return self.promote(pending, version, listing),
-                Err(error) => (error_code::NO_DESCRIPTORS, format!("pass the terminals: {error}")),
-            },
-            Err(code) => (code, String::new()),
+        let code = match self.check_hello(&frame.payload) {
+            Ok(version) => {
+                let listing = self.listing(version >= wire::RING_VERSION);
+                return self.promote(pending, version, listing);
+            }
+            Err(code) => code,
         };
         // Best effort: the refused peer may already be gone, and dropping
         // it closes the connection either way.
-        let payload = Out::default().u16(Kind::Hello as u16).u16(code).bytes(message.as_bytes()).0;
+        let payload = Out::default().u16(Kind::Hello as u16).u16(code).0;
         let frame = wire::encode(Kind::Error, 0, &payload);
         let _ = wire::send_with_fds(pending.stream.as_raw_fd(), &frame, &[]);
     }
@@ -940,13 +944,12 @@ impl Holder {
         Ok(version.min(wire::VERSION))
     }
 
-    /// Every terminal for a new link's WELCOME, with a master dup of each
-    /// and (`rings`: a daemon of [`wire::RING_VERSION`]) a dup of its ring
-    /// segment; an older daemon gets no segment (it could hand a layout 2
-    /// segment to a holder that knows only layout 1). Fails when a dup
-    /// fails: the holder then refuses the HELLO rather than list a terminal
-    /// without the master it lists.
-    fn listing(&self, rings: bool) -> io::Result<Listing> {
+    /// Every terminal for a new link's WELCOME, with its master and
+    /// (`rings`: a daemon of [`wire::RING_VERSION`]) its ring segment; an
+    /// older daemon gets no segment (it could hand a layout 2 segment to a
+    /// holder that knows only layout 1). No dup ([`Terminal::descriptors`]),
+    /// so a holder short of descriptors still lists every terminal with both.
+    fn listing(&self, rings: bool) -> Listing {
         self.terminals
             .iter()
             .map(|(chan, terminal)| {
@@ -960,7 +963,7 @@ impl Holder {
                     master: None,
                     ring: None,
                 };
-                Ok((*chan, listed.encode(), terminal.descriptors(rings)?))
+                (*chan, listed.encode(), terminal.descriptors(rings))
             })
             .collect()
     }
@@ -987,16 +990,7 @@ impl Holder {
         // attached stream would.
         terminal.held = Some(terminal.ring.end());
         let (link, rings) = self.link.as_ref().map_or((0, false), |link| (link.id, link.rings));
-        let custody = match terminal.descriptors(rings) {
-            Ok(custody) => custody,
-            Err(error) => {
-                // SAFETY: SIGKILL to the child this call forked; the loop
-                // reaps it like any other.
-                unsafe { libc::kill(spawned.pid, libc::SIGKILL) };
-                let message = format!("dup the terminal's descriptors: {error}");
-                return Err((error_code::SPAWN_FAILED, message));
-            }
-        };
+        let custody = terminal.descriptors(rings);
         // Known at once, so the ATTACH right behind the SPAWN finds it;
         // nothing is sent for it until its child reported its start.
         terminal.starting = Some(Starting { start: spawned.start, custody, link });
@@ -1006,7 +1000,7 @@ impl Holder {
 
     /// A starting terminal's child reported ([`pty::Start::poll`]): once
     /// its program runs, the hang-up of a CLOSE that came meanwhile, and
-    /// SPAWNED with the custody dups to the link that asked; when it could
+    /// SPAWNED with the custody descriptors to the link that asked; when it could
     /// not start, ERROR SPAWN_FAILED with what it
     /// could not do, and the terminal is forgotten (the child exits 127, or
     /// is killed when its report could not be read, and is reaped like any
@@ -1475,7 +1469,7 @@ impl Holder {
         }
     }
 
-    fn queue(&mut self, kind: Kind, chan: u32, payload: &[u8], fds: Vec<OwnedFd>) {
+    fn queue(&mut self, kind: Kind, chan: u32, payload: &[u8], fds: Vec<Arc<OwnedFd>>) {
         self.queue_flagged(kind, 0, chan, payload, fds);
     }
 
@@ -1485,7 +1479,7 @@ impl Holder {
         flags: u16,
         chan: u32,
         payload: &[u8],
-        fds: Vec<OwnedFd>,
+        fds: Vec<Arc<OwnedFd>>,
     ) {
         if let Some(link) = self.link.as_mut() {
             let frame = wire::encode_with_fds(kind, flags, chan, payload, fds.len());
@@ -1505,7 +1499,7 @@ impl Holder {
             let Some(frame) = link.current.as_mut() else { return true };
             // The descriptors go with the frame's first byte.
             let fds: Vec<RawFd> = if frame.written == 0 {
-                frame.fds.iter().map(AsRawFd::as_raw_fd).collect()
+                frame.fds.iter().map(|fd| fd.as_raw_fd()).collect()
             } else {
                 Vec::new()
             };
@@ -1545,7 +1539,7 @@ impl Terminal {
         let base = ring.end();
         Self {
             id,
-            master,
+            master: Arc::new(master),
             pid,
             own_child,
             starting: None,
@@ -1565,15 +1559,18 @@ impl Terminal {
         }
     }
 
-    /// Dups for a daemon: the master, then (with `rings`, when the ring is
-    /// shared) the ring segment. An error when either cannot be dup'd (the
-    /// holder is out of descriptors): never a frame without one it lists.
-    fn descriptors(&self, rings: bool) -> io::Result<Vec<OwnedFd>> {
-        let mut fds = vec![self.master.try_clone()?];
+    /// What a frame passes a daemon for this terminal: the master, then
+    /// (with `rings`, when the ring is shared) the ring segment. Handles
+    /// shared with the terminal, not dups: the frame keeps both open until
+    /// its first byte is written, even if the terminal is forgotten before,
+    /// and making them costs the holder no descriptor, so a holder short of
+    /// descriptors never lists or answers a SPAWN without one.
+    fn descriptors(&self, rings: bool) -> Vec<Arc<OwnedFd>> {
+        let mut fds = vec![self.master.clone()];
         if rings && let Some(segment) = self.ring.segment() {
-            fds.push(segment.try_clone()?);
+            fds.push(segment.clone());
         }
-        Ok(fds)
+        fds
     }
 
     /// The child ended (or, adopted, cannot be waited for) and no more
@@ -1651,7 +1648,7 @@ impl Terminal {
 }
 
 /// [`wire::FLAG_RING`] when `fds` carries a ring segment after the master.
-fn ring_flag(fds: &[OwnedFd]) -> u16 {
+fn ring_flag(fds: &[Arc<OwnedFd>]) -> u16 {
     if fds.len() > 1 { wire::FLAG_RING } else { 0 }
 }
 
